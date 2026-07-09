@@ -6,6 +6,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -77,9 +78,10 @@ type model struct {
 	// password-prompt state
 	password        textinput.Model
 	pwErr           string
-	pwAttempts      int  // consecutive wrong passwords this action
-	sudoUnavailable bool // set after maxSudoAttempts failures: skip sudo steps
-	sudoAlive       bool // keep-alive loop active for the running queue
+	pwAttempts      int      // consecutive wrong passwords this action
+	sudoUnavailable bool     // set after maxSudoAttempts failures: skip sudo steps
+	sudoAlive       bool     // keep-alive loop active for the running queue
+	askpassConn     net.Conn // pending sudo askpass request (nil = prime-mode prompt)
 
 	// dynamic-action state
 	notice      string // screenNotice message
@@ -203,7 +205,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // stay on the prompt for a retry
 		}
 		m.pwAttempts = 0
-		m.password.Reset() // don't keep the password around
+		m.password.Reset()
 		cmd := m.startQueue()
 		return m, cmd
 
@@ -230,6 +232,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil // queue ended — stop refreshing
 		}
 		return m, tea.Batch(refreshSudo(), sudoTick())
+
+	case askpassMsg:
+		// A child's sudo wants a password — pop the prompt over the current
+		// screen. The password flows straight back over the connection.
+		m.askpassConn = msg.conn
+		m.bg = m.screen
+		if m.bg == screenPassword {
+			m.bg = screenRunning
+		}
+		m.pwErr = ""
+		if strings.Contains(strings.ToLower(msg.prompt), "try again") {
+			m.pwErr = "Incorrect password — try again"
+		}
+		m.screen = screenPassword
+		m.password.Reset()
+		return m, m.password.Focus()
 
 	case editorDoneMsg:
 		m.screen = screenMenu
@@ -270,11 +288,29 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case screenPassword:
 		switch msg.String() {
 		case "esc", "ctrl+c":
+			if m.askpassConn != nil {
+				m.askpassConn.Close() // cancel → sudo fails this attempt
+				m.askpassConn = nil
+				m.password.Reset()
+				m.pwErr = ""
+				m.screen = m.bg
+				return m, nil
+			}
 			m.password.Reset()
 			m.pwErr = ""
 			m.screen = screenMenu
 			return m, nil
 		case "enter":
+			if m.askpassConn != nil {
+				// pass the password straight through to sudo; never stored.
+				fmt.Fprintf(m.askpassConn, "%s\n", m.password.Value())
+				m.askpassConn.Close()
+				m.askpassConn = nil
+				m.password.Reset()
+				m.pwErr = ""
+				m.screen = m.bg
+				return m, nil
+			}
 			return m, authSudo(m.password.Value())
 		default:
 			var cmd tea.Cmd
@@ -583,9 +619,10 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
-	// After an abort (or any navigation away from the run) drop late output from
-	// the dying child and stop pumping the channel.
-	if m.screen != screenRunning && m.screen != screenAbortConfirm {
+	// Once we've left the run for good (aborted → menu, or finished → summary),
+	// drop late output from the dying child and stop pumping. Keep pumping while
+	// an askpass popup or per-step confirm is up over the running step.
+	if m.screen == screenMenu || m.screen == screenSummary {
 		return m, nil
 	}
 	if !msg.done {
@@ -841,6 +878,16 @@ func plural(n int) string {
 }
 
 func main() {
+	// SUDO_ASKPASS helper mode: sudo runs the wrapper, which execs us with
+	// --askpass <sock> [prompt]. Relay to the running TUI and exit.
+	if len(os.Args) >= 3 && os.Args[1] == "--askpass" {
+		prompt := ""
+		if len(os.Args) >= 4 {
+			prompt = os.Args[3]
+		}
+		os.Exit(runAskpass(os.Args[2], prompt))
+	}
+
 	for _, a := range os.Args[1:] {
 		if a == "--dryrun" {
 			dryRun = true
@@ -849,7 +896,16 @@ func main() {
 
 	pruneLogs() // drop run logs older than a week
 
+	srv := startAskpassServer()
+	defer srv.close()
+
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	go func() { // deliver sudo password requests to the model
+		for req := range srv.reqs {
+			p.Send(req)
+		}
+	}()
+
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)

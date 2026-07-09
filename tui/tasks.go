@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -81,12 +82,17 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 
 	name, args := s.command, s.args
 	if name == "sudo" {
-		// -n: never prompt. A sudo prompt would read /dev/tty and collide with
-		// the TUI (invisible prompt → hang). The keep-alive keeps credentials
-		// valid; if they somehow lapse, the step fails cleanly instead.
-		args = append([]string{"-n"}, s.args...)
+		// -A: read the password via SUDO_ASKPASS (a TUI popup), never the tty.
+		args = append([]string{"-A"}, s.args...)
 	}
 	cmd := exec.Command(name, args...)
+
+	// topgrade and yay shell out to sudo themselves. Detach from the controlling
+	// terminal (new session) so their sudo has no tty and falls back to
+	// SUDO_ASKPASS too, instead of a raw prompt at the bottom of the screen.
+	if name == "topgrade" || name == "yay" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
 
 	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
 	pr, pw := io.Pipe()

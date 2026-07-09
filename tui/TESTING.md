@@ -43,27 +43,35 @@ go build -o archmaid . && ./archmaid --dryrun        # manual e2e; then inspect 
 
 Current status: **55 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
-## Newly added — needs tests (Fable): sudo hardening
+## Newly added — needs tests (Fable): sudo askpass
 
-Fixing a hang where a `sudo` step re-prompted on the tty (invisible, fighting
-bubbletea) after the sudo timestamp lapsed during a long run. Three changes in
-`main.go`/`tasks.go`, none yet unit-tested:
+Sudo password prompts now route to a TUI popup via `SUDO_ASKPASS`, so no sudo
+call ever prompts on the tty (which hung/collided with bubbletea) — the fix for
+"Cleaning AUR cache pops a raw sudo prompt" and the `sudo -n` "password required"
+failures during a long Full Cleanup. The password is passed straight through,
+never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
 
-- **`sudo -n` on every sudo step** (`runStep`): when `s.command == "sudo"` the
-  exec becomes `sudo -n <args>`, so it can never block on a password prompt — it
-  fails cleanly if creds have lapsed. Assert the constructed argv for a sudo step
-  starts `sudo -n …`, and that a non-sudo step (topgrade) is unchanged.
-- **Keep-alive loop** (`sudoKeepAliveMsg`/`sudoTick`/`refreshSudo`, `m.sudoAlive`):
-  `startQueue` starts it (via `tea.Batch`) when `queueNeedsSudo` and not dry-run;
-  a `sudoKeepAliveMsg` reschedules only while `m.sudoAlive`; it's cleared on
-  summary (`advance`), abort (`abortRunning`), and confirm-abort. Assert:
-  sudo queue → `sudoAlive` true + a tick scheduled; reaching summary/abort →
-  `sudoAlive` false so the next `sudoKeepAliveMsg` is a no-op; dry-run → never
-  starts.
-- **topgrade is now `needsSudo`** (it shells out to sudo itself) so the
-  standalone action primes + keep-alives instead of raw-prompting. This changed
-  `TestStaleGateClearedByActivate` (topgrade is no longer sudo-less; it now runs
-  the sudo probe first — the test drives `sudoCachedMsg{cached:true}` to finish).
+- **`askpass.go` round-trip** — `runAskpass(sock, prompt)` dials the socket,
+  sends the prompt, prints back the line it receives, exit 0; exit 1 if it can't
+  connect or the connection closes unanswered. Testable with a fake unix-socket
+  server (see the manual check that's already been done: send a password, assert
+  it's printed to stdout). `startAskpassServer` writes a wrapper script + socket
+  and sets `SUDO_ASKPASS`; `close()` removes both.
+- **`runStep`** now runs sudo steps as `sudo -A <args>` (was `sudo -n`), and sets
+  `SysProcAttr{Setsid: true}` for `topgrade`/`yay` (they shell out to sudo
+  themselves; no tty → they use `SUDO_ASKPASS`). Assert the argv/`SysProcAttr` for
+  a sudo step, a topgrade step, and a plain step.
+- **Model** (`askpassMsg`): shows the password popup over the current screen
+  (`m.bg`), holds `m.askpassConn`; on submit writes `password+"\n"` to the conn &
+  closes (pass-through), on cancel closes it. `handleStream`'s drop-guard now
+  only drops on `screenMenu`/`screenSummary` so streaming keeps pumping while the
+  askpass popup is up over a running step. Assert: `askpassMsg` → `screenPassword`
+  with `askpassConn` set; the prime-mode prompt (`askpassConn == nil`) still calls
+  `authSudo`.
+
+The prior prime/gate/keep-alive flow is unchanged (none of it stores the
+password), so their existing tests still hold — only the sudo argv changed
+(`-n` → `-A`), which no current test asserts.
 
 ## Test inventory
 
