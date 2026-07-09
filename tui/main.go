@@ -94,7 +94,9 @@ type model struct {
 	buf     *strings.Builder // accumulated output of the active step (pointer:
 	//                          strings.Builder must not be copied by value, and
 	//                          the model is copied on every Update)
-	errs int // failed steps so far
+	errs    int  // steps that failed
+	skipped int  // steps skipped (sudo unavailable, or aborted queue)
+	aborted bool // queue aborted by declining a required confirm
 
 	// confirm-modal state
 	pending    []step // queue waiting on a confirm
@@ -383,6 +385,8 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 // (probe → skip prompt when cached), otherwise run the queue directly.
 func (m *model) beginPending() tea.Cmd {
 	m.errs = 0
+	m.skipped = 0
+	m.aborted = false
 	m.pwAttempts = 0
 	m.sudoUnavailable = false
 	for _, s := range m.pending {
@@ -419,7 +423,7 @@ func (m *model) advance() tea.Cmd {
 	if s.needsSudo && m.sudoUnavailable {
 		m.queue[m.current].status = statusSkipped
 		appendLog("SKIP", s.logLabel+" (sudo authentication failed)", "")
-		m.errs++
+		m.skipped++ // a skip is not a failure — tallied separately
 		return m.advance()
 	}
 	if s.confirm != "" {
@@ -447,10 +451,17 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 	if !m.confirmYes {
 		if s.step.optional {
 			s.status = statusSkipped
+			m.skipped++
 			cmd := m.advance()
 			return m, cmd
 		}
-		// non-optional "no" aborts the remaining queue
+		// non-optional "no" aborts: mark the declined step and everything
+		// after it as skipped so the summary shows what didn't run.
+		for i := m.current; i < len(m.queue); i++ {
+			m.queue[i].status = statusSkipped
+			m.skipped++
+		}
+		m.aborted = true
 		m.screen = screenSummary
 		return m, nil
 	}
@@ -593,9 +604,18 @@ func (m model) checklist() string {
 
 func (m model) viewSummary() string {
 	var line string
-	if m.errs > 0 {
-		line = stepFailStyle.Render(fmt.Sprintf("⚠ Completed with %d issue(s)", m.errs))
-	} else {
+	switch {
+	case m.aborted:
+		line = stepFailStyle.Render("⚠ Aborted — remaining steps skipped")
+	case m.errs > 0:
+		msg := fmt.Sprintf("⚠ Completed with %d issue(s)", m.errs)
+		if m.skipped > 0 {
+			msg += fmt.Sprintf(", %d skipped", m.skipped)
+		}
+		line = stepFailStyle.Render(msg)
+	case m.skipped > 0:
+		line = stepSkipStyle.Render(fmt.Sprintf("Completed — %d step(s) skipped", m.skipped))
+	default:
 		line = stepOKStyle.Render("✔ Cleanup completed successfully")
 	}
 	return m.header() + "\n" + m.checklist() + "\n" + line + "\n\n" +
