@@ -44,10 +44,13 @@ type menuItem struct {
 	label string
 	id    string
 	steps func() []step
+	// gate, if set, is a confirm shown before a steps-action runs *only when
+	// sudo is already cached* — otherwise the sudo password prompt is the gate.
+	gate string
 }
 
 var menu = []menuItem{
-	{label: "󰓦  Full Cleanup (Recommended)", steps: fullCleanupSteps},
+	{label: "󰓦  Full Cleanup (Recommended)", steps: fullCleanupSteps, gate: "Proceed with full cleanup?"},
 	{label: "󰃨  Clear user cache", steps: clearUserCacheSteps},
 	{label: "󰚰  Repair broken packages", id: "repair"},
 	{label: "󰋊  Delete old downloads", id: "downloads"},
@@ -102,6 +105,12 @@ type model struct {
 	pending    []step // queue waiting on a confirm
 	confirmMsg string
 	confirmYes bool
+
+	// proceed-gate state: gate is the message to show when sudo is cached (no
+	// password prompt to act as the gate); gateActive marks that the current
+	// confirm is the gate rather than a per-step confirm.
+	gate       string
+	gateActive bool
 }
 
 func initialModel() model {
@@ -157,10 +166,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case sudoCachedMsg:
-		if msg.cached { // credentials still valid — skip the prompt
+		if msg.cached {
+			// No password prompt to act as the gate. If this action wants a
+			// proceed-gate, show it; otherwise run straight away.
+			if m.gate != "" {
+				m.bg = screenMenu
+				m.confirmMsg = m.gate
+				m.confirmYes = false
+				m.gateActive = true
+				m.screen = screenConfirm
+				return m, nil
+			}
 			cmd := m.startQueue()
 			return m, cmd
 		}
+		// Uncached: the password prompt itself is the confirmation.
 		m.bg = screenMenu
 		m.screen = screenPassword
 		m.pwErr = ""
@@ -375,6 +395,7 @@ func (m *model) confirmServices() tea.Cmd {
 // activate handles an Enter on the menu.
 func (m model) activate() (tea.Model, tea.Cmd) {
 	item := menu[m.cursor]
+	m.gate = "" // only steps-actions with a gate re-arm it below
 	switch item.id {
 	case "exit":
 		return m, tea.Quit
@@ -399,6 +420,7 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	if item.steps == nil {
 		return m, nil
 	}
+	m.gate = item.gate
 	m.pending = item.steps()
 	cmd := m.beginPending()
 	return m, cmd
@@ -410,6 +432,7 @@ func (m *model) beginPending() tea.Cmd {
 	m.errs = 0
 	m.skipped = 0
 	m.aborted = false
+	m.gateActive = false
 	m.pwAttempts = 0
 	m.sudoUnavailable = false
 	for _, s := range m.pending {
@@ -498,6 +521,17 @@ func escalateKill(p *os.Process, grace time.Duration) {
 }
 
 func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
+	// Proceed-gate (cached-sudo path): not tied to a queue step yet.
+	if m.gateActive {
+		m.gateActive = false
+		if !m.confirmYes {
+			m.screen = screenMenu
+			return m, nil
+		}
+		cmd := m.startQueue()
+		return m, cmd
+	}
+
 	m.screen = screenRunning
 	s := &m.queue[m.current]
 	if !m.confirmYes {

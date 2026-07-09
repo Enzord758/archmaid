@@ -124,7 +124,14 @@ func waitForStream(ch <-chan streamMsg) tea.Cmd {
 // `gum confirm` calls, so the model can drive them uniformly.
 
 func fullCleanupSteps() []step {
-	return []step{
+	steps := []step{
+		// topgrade runs first: update the system, then clean up the result.
+		// It's also non-destructive and abortable, so it doubles as a soft
+		// buffer before the destructive steps begin.
+		{
+			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
+			command: "topgrade", args: []string{"-y"},
+		},
 		{
 			title: "Cleaning package cache…", logLabel: "Old package cache cleaned",
 			command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true,
@@ -135,8 +142,21 @@ func fullCleanupSteps() []step {
 			confirm:  "Delete ENTIRE package cache? (can't reinstall without internet)",
 			optional: true,
 		},
-		// Orphan removal is dynamic — pacman -Qdtq is queried at build time in
-		// the real version and the package list spliced into args here.
+	}
+
+	// Orphan removal — queried now so the confirm shows the real count and the
+	// package list is spliced into the step. Omitted entirely when there are
+	// no orphans.
+	if orphans := orphanPackages(); len(orphans) > 0 {
+		steps = append(steps, step{
+			title: "Removing orphaned packages…", logLabel: "Orphaned packages removed",
+			command: "sudo", args: append([]string{"pacman", "-Rns", "--noconfirm"}, orphans...),
+			needsSudo: true, optional: true,
+			confirm: fmt.Sprintf("Remove %d orphaned package(s)?", len(orphans)),
+		})
+	}
+
+	return append(steps, []step{
 		{
 			title: "Cleaning AUR cache…", logLabel: "AUR cache cleaned",
 			command: "yay", args: []string{"-Sc", "--noconfirm"},
@@ -155,11 +175,7 @@ func fullCleanupSteps() []step {
 			title: "Checking package integrity…", logLabel: "Package integrity check completed",
 			command: "sudo", args: []string{"pacman", "-Qk"}, needsSudo: true,
 		},
-		{
-			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-			command: "topgrade", args: []string{"-y"},
-		},
-	}
+	}...)
 }
 
 func topgradeSteps() []step {
@@ -249,6 +265,14 @@ func brokenPackages() []string {
 	out, _ := exec.Command("bash", "-c",
 		`pacman -Qk 2>/dev/null | grep -vE '0 (missing|altered) files' | awk -F: '{print $1}' | sort -u`,
 	).Output()
+	return nonEmptyLines(string(out))
+}
+
+// orphanPackages lists packages installed as dependencies that nothing needs
+// anymore (pacman -Qdtq). Fast enough to query synchronously while building the
+// Full Cleanup queue. Returns empty when there are none (pacman exits 1).
+func orphanPackages() []string {
+	out, _ := exec.Command("pacman", "-Qdtq").Output()
 	return nonEmptyLines(string(out))
 }
 

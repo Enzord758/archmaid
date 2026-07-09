@@ -34,6 +34,42 @@ go build -o archmaid . && ./archmaid --dryrun        # manual e2e; then inspect 
 
 Current status: **~50 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
+## Newly added — needs tests (Fable)
+
+Two behaviours landed without tests; they're the priority to cover next.
+
+### Proceed-gate rolled into the sudo prompt (`main.go`)
+
+A `steps`-action can carry a `gate` string (only **Full Cleanup** does:
+`"Proceed with full cleanup?"`). The gate replaces a separate "are you sure"
+step — the sudo password prompt already forces a deliberate action, so:
+
+- **Sudo uncached** → the password prompt is the gate; **no** extra confirm.
+  (`sudoCachedMsg{cached:false}` → `screenPassword`, as before.)
+- **Sudo cached** (`sudoCachedMsg{cached:true}`) → if `m.gate != ""`, show a
+  confirm popup with `gateActive = true` over the menu; **yes** →
+  `startQueue`, **no** → back to `screenMenu`. If `m.gate == ""` (every other
+  action), run straight to the queue as before.
+- `resolveConfirm` branches on `m.gateActive` *before* the per-step logic, so a
+  gate confirm is not mistaken for a step confirm (no `m.queue` exists yet).
+- `activate` resets `m.gate = ""` and only re-arms it for the chosen item;
+  `beginPending` resets `m.gateActive = false`.
+
+Worth asserting: cached Full Cleanup → gate confirm shown; "no" → menu, nothing
+runs; "yes" → queue starts. Cached non-gate action (e.g. Clear user cache is
+sudo-less, or a `repair` with cached sudo) → no gate. Uncached Full Cleanup →
+password screen, not the gate confirm.
+
+### Orphan removal in Full Cleanup (`tasks.go`)
+
+`fullCleanupSteps()` now runs `topgrade` **first**, then queries
+`orphanPackages()` (`pacman -Qdtq`) at build time: when orphans exist it inserts
+an optional sudo step `"Remove N orphaned package(s)?"` with the real package
+list spliced into `pacman -Rns --noconfirm …`; when there are none the step is
+omitted entirely. Fixture idea: since `orphanPackages` shells out, either test it
+behind a PATH shim for `pacman`, or unit-test the step-assembly by factoring the
+list in (current form calls `pacman` directly — a shim is simplest).
+
 ## Test inventory
 
 ### Unit — `main_test.go` (drives `model.Update` / helpers directly)

@@ -77,9 +77,9 @@ the header. This is the safe way to exercise the whole UI.
 
 ## Still to do
 
-- Orphaned-package removal as its own step inside Full Cleanup (currently only
-  the standalone "repair broken packages" discovery exists).
-- Parity pass on Full Cleanup's per-step optional confirms vs. the bash script.
+Feature parity with `archmaid.sh` is complete. Remaining items are test
+coverage (owned separately — see `TESTING.md`): broader VHS e2e through the
+services/abort paths, and a summary-screen golden.
 
 ## Build & test
 
