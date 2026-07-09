@@ -1,0 +1,76 @@
+# HANDOVER — test suite built (return handoff for TESTING.md)
+
+Status: **done**. Every behaviour in TESTING.md's "Key testable behaviours" list
+has a passing test; `go test ./...`, `go vet ./...`, and `gofmt -l .` are clean.
+**No production code was changed** — the sketch passed every behaviour test as
+written. Branch: `tui-test-suite` (based on `bubbletea-sketch`).
+
+## What exists now
+
+| Layer | File(s) | What it covers |
+|---|---|---|
+| Unit | `main_test.go` (seed + ~20 new tests) | all 7 TESTING.md behaviours, driven through `model.Update` |
+| Integration | `teatest_test.go` + `testdata/*.golden` | headless `tea.Program`, golden frames for menu + services multi-select |
+| E2E | `e2e/run.tape` + `e2e/run.sh` | VHS drives the real binary in a pty under `--dryrun`, asserts on the log |
+
+## Running
+
+```sh
+go test ./...                        # unit + integration (~1.7s)
+go test ./... -run Golden -update    # regenerate goldens after a deliberate UI change
+bash e2e/run.sh                      # VHS e2e (needs vhs/ttyd/ffmpeg; builds ./tui itself)
+```
+
+## Determinism decisions (don't undo these casually)
+
+- `TestMain` in `teatest_test.go` forces `lipgloss.SetColorProfile(termenv.Ascii)`
+  so golden frames are plain text — no ANSI drift between terminals/CI.
+- Goldens compare `FinalModel().View()` (a single re-rendered frame), not the
+  raw output stream, and the live status line is pinned via `fixedModel()`
+  (`testStatus` const). If you golden a new screen, pin anything live the same way.
+- `e2e/run.sh` runs the app under a throwaway `HOME` (mktemp) so the e2e never
+  touches the real `~/.maintenance_dryrun.log` and asserts on a clean log.
+- Space key: `tea.KeyMsg{Type: tea.KeySpace}` stringifies to `" "` and hits the
+  toggle case; the `key()` helper in `main_test.go` handles this.
+
+## Deps
+
+`go get github.com/charmbracelet/x/exp/teatest` pulled teatest + termenv as
+direct deps and bumped bubbletea to v1.3.5, lipgloss to v1.1.0 (transitive
+upgrades; everything still passes, including `-race`). `go mod tidy` has been run.
+
+## Findings — real behaviours the tests pinned but you may want to change
+
+1. **Skipped-for-sudo counts as an "issue"**: after `maxSudoAttempts` wrong
+   passwords, each skipped sudo step increments `m.errs`, so the summary reads
+   "⚠ Completed with N issue(s)" when the user merely declined to authenticate.
+   Arguably skips should be tallied separately from failures.
+   Pinned by `TestSudoThreeStrikesSkipsAndLogs` (asserts `errs == 1` — update
+   the assertion if you change the policy).
+2. **Abort leaves later steps rendered as pending**: a non-optional confirm
+   answered "no" jumps to `screenSummary`, but the declined step and everything
+   after it still show `○` (pending) instead of `–` (skipped/aborted) in the
+   summary checklist. Pinned by `TestConfirmNonOptionalNoAborts` (asserts
+   `statusPending` — same deal).
+
+Both are cosmetic; I deliberately tested current behaviour rather than changing
+code the tests were meant to characterize.
+
+## Untested / thin spots (honest gaps)
+
+- `editConfig`'s non-dry-run path (`tea.ExecProcess` hands over the terminal —
+  not reasonably testable headless; the dry-run branch *is* covered).
+- `discoverDownloads` against a real `~/Downloads` (only the routing of its
+  `discoveryMsg` is covered; the find/wc pipeline itself isn't fixture-tested).
+- Password **masking** is asserted only by configuration (`EchoPassword` in
+  `initialModel`), not by a golden of the password screen with typed input.
+- The running-screen checklist mid-transition (spinner frame makes it
+  golden-hostile; the status transitions themselves are unit-tested).
+- `refreshStatus`/`systemStatus` (wall-clock tick + machine-specific output).
+
+## If you pick this up next
+
+Likely-best next steps, in order: fix finding 1 and/or 2 above (then update the
+two named assertions), fixture-test `discoverDownloads` with a temp dir of aged
+files (`touch -d`), and add a golden for the summary screen once finding 2 is
+settled so the checklist glyphs are pinned there too.
