@@ -79,6 +79,7 @@ type model struct {
 	pwErr           string
 	pwAttempts      int  // consecutive wrong passwords this action
 	sudoUnavailable bool // set after maxSudoAttempts failures: skip sudo steps
+	sudoAlive       bool // keep-alive loop active for the running queue
 
 	// dynamic-action state
 	notice      string // screenNotice message
@@ -223,6 +224,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.pending = msg.pending // repair / downloads
 		cmd := m.beginPending()
 		return m, cmd
+
+	case sudoKeepAliveMsg:
+		if !m.sudoAlive {
+			return m, nil // queue ended — stop refreshing
+		}
+		return m, tea.Batch(refreshSudo(), sudoTick())
 
 	case editorDoneMsg:
 		m.screen = screenMenu
@@ -443,7 +450,9 @@ func (m *model) beginPending() tea.Cmd {
 	return m.startQueue()
 }
 
-// startQueue initialises the checklist and kicks off the first step.
+// startQueue initialises the checklist and kicks off the first step. If any
+// step needs sudo (and we're not in a dry run), it also starts the keep-alive
+// loop so a long step can't let the sudo timestamp lapse mid-queue.
 func (m *model) startQueue() tea.Cmd {
 	m.queue = make([]stepState, len(m.pending))
 	for i, s := range m.pending {
@@ -452,7 +461,22 @@ func (m *model) startQueue() tea.Cmd {
 	m.pending = nil
 	m.current = -1
 	m.screen = screenRunning
-	return m.advance()
+
+	cmd := m.advance()
+	if !dryRun && !m.sudoAlive && queueNeedsSudo(m.queue) {
+		m.sudoAlive = true
+		return tea.Batch(cmd, sudoTick())
+	}
+	return cmd
+}
+
+func queueNeedsSudo(q []stepState) bool {
+	for _, s := range q {
+		if s.step.needsSudo {
+			return true
+		}
+	}
+	return false
 }
 
 // advance moves to the next step: shows a confirm if the step has one,
@@ -461,6 +485,7 @@ func (m *model) advance() tea.Cmd {
 	m.current++
 	if m.current >= len(m.queue) {
 		m.screen = screenSummary
+		m.sudoAlive = false // stop the keep-alive loop
 		return refreshStatus()
 	}
 	s := m.queue[m.current].step
@@ -509,6 +534,7 @@ func (m *model) abortRunning() {
 		go escalateKill(p, sigkillGrace)
 		m.proc = nil
 	}
+	m.sudoAlive = false // stop the keep-alive loop
 	m.screen = screenMenu
 }
 
@@ -548,6 +574,7 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 			m.skipped++
 		}
 		m.aborted = true
+		m.sudoAlive = false // stop the keep-alive loop
 		m.screen = screenSummary
 		return m, nil
 	}

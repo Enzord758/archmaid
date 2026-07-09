@@ -136,9 +136,11 @@ func TestStaleGateClearedByActivate(t *testing.T) {
 	if got.gate != "" {
 		t.Fatalf("activate should clear a stale gate, got %q", got.gate)
 	}
-	// topgrade is sudo-less: it must run directly, not show any confirm.
+	// topgrade primes sudo (needsSudo) — under dry-run the probe reports cached,
+	// so completing it runs the queue with no gate confirm.
+	got = update(got, sudoCachedMsg{cached: true})
 	if got.screen != screenRunning {
-		t.Fatalf("ungated sudo-less action should run, got screen=%d", got.screen)
+		t.Fatalf("ungated action should run after the sudo probe, got screen=%d", got.screen)
 	}
 }
 

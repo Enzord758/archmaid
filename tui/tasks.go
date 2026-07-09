@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -78,7 +79,14 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 		return nil
 	}
 
-	cmd := exec.Command(s.command, s.args...)
+	name, args := s.command, s.args
+	if name == "sudo" {
+		// -n: never prompt. A sudo prompt would read /dev/tty and collide with
+		// the TUI (invisible prompt → hang). The keep-alive keeps credentials
+		// valid; if they somehow lapse, the step fails cleanly instead.
+		args = append([]string{"-n"}, s.args...)
+	}
+	cmd := exec.Command(name, args...)
 
 	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
 	pr, pw := io.Pipe()
@@ -127,10 +135,11 @@ func fullCleanupSteps() []step {
 	steps := []step{
 		// topgrade runs first: update the system, then clean up the result.
 		// It's also non-destructive and abortable, so it doubles as a soft
-		// buffer before the destructive steps begin.
+		// buffer before the destructive steps begin. needsSudo so credentials
+		// are primed + kept alive — topgrade shells out to sudo pacman itself.
 		{
 			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-			command: "topgrade", args: []string{"-y"},
+			command: "topgrade", args: []string{"-y"}, needsSudo: true,
 		},
 		{
 			title: "Cleaning package cache…", logLabel: "Old package cache cleaned",
@@ -179,9 +188,11 @@ func fullCleanupSteps() []step {
 }
 
 func topgradeSteps() []step {
+	// needsSudo: topgrade shells out to sudo internally, so prime + keep-alive
+	// credentials (otherwise its sudo prompt lands raw on the terminal).
 	return []step{{
 		title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-		command: "topgrade", args: []string{"-y"},
+		command: "topgrade", args: []string{"-y"}, needsSudo: true,
 	}}
 }
 
@@ -226,6 +237,26 @@ func authSudo(password string) tea.Cmd {
 		cmd.Stdin = strings.NewReader(password + "\n")
 		cmd.Stderr = io.Discard
 		return sudoResultMsg{err: cmd.Run()}
+	}
+}
+
+// sudoKeepAliveMsg drives the keep-alive loop that refreshes the cached sudo
+// timestamp while a queue runs, so a long step (topgrade) can't let it lapse
+// and force a later step to re-prompt on the tty.
+type sudoKeepAliveMsg struct{}
+
+const sudoKeepAliveInterval = 60 * time.Second
+
+func sudoTick() tea.Cmd {
+	return tea.Tick(sudoKeepAliveInterval, func(time.Time) tea.Msg { return sudoKeepAliveMsg{} })
+}
+
+// refreshSudo extends the cached timestamp non-interactively (a no-op if it has
+// already lapsed — the next `sudo -n` step just fails cleanly rather than hangs).
+func refreshSudo() tea.Cmd {
+	return func() tea.Msg {
+		exec.Command("sudo", "-n", "-v").Run()
+		return nil
 	}
 }
 

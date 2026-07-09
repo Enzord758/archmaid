@@ -43,6 +43,28 @@ go build -o archmaid . && ./archmaid --dryrun        # manual e2e; then inspect 
 
 Current status: **55 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
+## Newly added — needs tests (Fable): sudo hardening
+
+Fixing a hang where a `sudo` step re-prompted on the tty (invisible, fighting
+bubbletea) after the sudo timestamp lapsed during a long run. Three changes in
+`main.go`/`tasks.go`, none yet unit-tested:
+
+- **`sudo -n` on every sudo step** (`runStep`): when `s.command == "sudo"` the
+  exec becomes `sudo -n <args>`, so it can never block on a password prompt — it
+  fails cleanly if creds have lapsed. Assert the constructed argv for a sudo step
+  starts `sudo -n …`, and that a non-sudo step (topgrade) is unchanged.
+- **Keep-alive loop** (`sudoKeepAliveMsg`/`sudoTick`/`refreshSudo`, `m.sudoAlive`):
+  `startQueue` starts it (via `tea.Batch`) when `queueNeedsSudo` and not dry-run;
+  a `sudoKeepAliveMsg` reschedules only while `m.sudoAlive`; it's cleared on
+  summary (`advance`), abort (`abortRunning`), and confirm-abort. Assert:
+  sudo queue → `sudoAlive` true + a tick scheduled; reaching summary/abort →
+  `sudoAlive` false so the next `sudoKeepAliveMsg` is a no-op; dry-run → never
+  starts.
+- **topgrade is now `needsSudo`** (it shells out to sudo itself) so the
+  standalone action primes + keep-alives instead of raw-prompting. This changed
+  `TestStaleGateClearedByActivate` (topgrade is no longer sudo-less; it now runs
+  the sudo probe first — the test drives `sudoCachedMsg{cached:true}` to finish).
+
 ## Test inventory
 
 ### Proceed-gate + orphan removal — `gate_orphan_test.go`
