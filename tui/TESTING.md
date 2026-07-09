@@ -59,19 +59,19 @@ never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
   and sets `SUDO_ASKPASS`; `close()` removes both.
 - **`runStep`** now runs sudo steps as `sudo -A <args>` (was `sudo -n`). Assert
   the argv for a sudo step vs. a plain step.
-- **Shared pty ticket domain** (`ptysession.go`): sudo keys its credential
-  tickets to the invoking process's controlling terminal (per-ppid when there is
-  none) — which made prompting environment-dependent and caused repeated popups
-  during topgrade (each internal sudo had its own ppid-keyed ticket). archmaid
-  now opens one pty at startup (`startPTY`, master drained) and `attachPTY`
-  attaches **every step child and the sudo probe/prime/keep-alive** to it as the
-  controlling tty (ExtraFiles + `Setsid`/`Setctty`/`Ctty:3`), so all sudo
-  activity shares ONE ticket: one popup authenticates the whole run. Verified
-  manually: attached child's `ps -o tty=` equals the shared pts, and
-  `sudo -n -v` attached exits cleanly. `attachPTY` is a no-op when `ptySlave` is
-  nil (tests — startPTY only runs in main), so unit tests are unaffected. Worth
-  asserting: `attachPTY` sets `SysProcAttr{Setsid,Setctty,Ctty:3}` + appends the
-  slave to ExtraFiles when the pty exists, and leaves cmd untouched when nil.
+- **Ticket sharing = plain children, on purpose** (history: two reverted
+  attempts live in git — per-child `Setsid` isolated every internal sudo into
+  its own ppid-keyed ticket (repeated popups during topgrade), and a shared-pty
+  `ptysession.go` failed because sudo's tty tickets are keyed to tty **and
+  session** — per-child Setsid meant no match, so topgrade's sudo prompted on
+  the hidden pty → freeze). Steps now run as plain children: they inherit
+  archmaid's session + controlling terminal, so the prime's ticket is shared by
+  every step **and** everything topgrade/yay spawn. Don't reintroduce Setsid on
+  step children. Verified live (real password, tmux pty): prime → nested
+  `sh -c 'sudo -n true'` passes; a full live Full Cleanup completed with no
+  freeze, no raw prompts, no log failures. One askpass popup appeared during
+  topgrade — topgrade resets/bypasses the ticket for its first sudo itself;
+  the popup handles it (that's the intended per-real-prompt behavior).
 - **Model** (`askpassMsg`): shows the password popup over the current screen
   (`m.bg`), holds `m.askpassConn`; on submit writes `password+"\n"` to the conn &
   closes (pass-through), on cancel closes it. `handleStream`'s drop-guard now

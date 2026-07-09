@@ -896,9 +896,6 @@ func main() {
 
 	pruneLogs() // drop run logs older than a week
 
-	startPTY() // shared credential-ticket domain for all step children
-	defer closePTY()
-
 	srv := startAskpassServer()
 	defer srv.close()
 

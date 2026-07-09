@@ -89,7 +89,6 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 	// Attach the shared pty so this child's sudo activity — including sudo
 	// spawned internally by tools like topgrade/yay — shares the app-wide
 	// credential ticket (see ptysession.go).
-	attachPTY(cmd)
 
 	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
 	pr, pw := io.Pipe()
@@ -226,7 +225,6 @@ func checkSudoCached() tea.Cmd {
 			return sudoCachedMsg{cached: true} // never prompt during a dry run
 		}
 		cmd := exec.Command("sudo", "-n", "-v")
-		attachPTY(cmd) // probe the shared ticket domain, not the launch terminal's
 		err := cmd.Run()
 		return sudoCachedMsg{cached: err == nil}
 	}
@@ -241,7 +239,6 @@ func authSudo(password string) tea.Cmd {
 		cmd := exec.Command("sudo", "-S", "-v")
 		cmd.Stdin = strings.NewReader(password + "\n")
 		cmd.Stderr = io.Discard
-		attachPTY(cmd) // the ticket this creates must land in the shared domain
 		return sudoResultMsg{err: cmd.Run()}
 	}
 }
@@ -262,7 +259,6 @@ func sudoTick() tea.Cmd {
 func refreshSudo() tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command("sudo", "-n", "-v")
-		attachPTY(cmd) // refresh the shared domain's ticket
 		cmd.Run()
 		return nil
 	}
