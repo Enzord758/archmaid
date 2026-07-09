@@ -1,14 +1,14 @@
-# cleanup TUI (bubbletea sketch)
+# archmaid (TUI)
 
-A [Bubble Tea](https://github.com/charmbracelet/bubbletea) rewrite sketch of the
-gum-based `archmaid.sh`, exploring what it takes to make this a real TUI —
-`btop`/`wiremix`-style — rather than a scripted sequence of prompts.
+The archmaid app: a [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI
+for Arch maintenance — `btop`/`wiremix`-style, an event loop that redraws as
+state changes, rather than a scripted sequence of prompts.
 
-**Working prototype.** All eight menu actions are implemented; a `--dryrun`
-mode makes it safe to exercise end to end. Not yet at full parity with
-`archmaid.sh` in every edge case — see "Still to do".
+All eight menu actions are implemented, with a `--dryrun` mode to exercise it
+safely end to end. It grew out of a gum bash script (now retired); the sections
+below explain the design that replaced it.
 
-## Why a rewrite (not a refactor)
+## Why a TUI (not a gum script)
 
 `gum` is built for scripted flows: ask, run, print, repeat. A real TUI needs an
 event loop that redraws panels as state changes — live command output, a status
@@ -66,9 +66,9 @@ separate `~/.local/state/archmaid/dryrun.log`, and skips sudo entirely. Read-onl
 discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
 the header. This is the safe way to exercise the whole UI.
 
-## Mapping to archmaid.sh
+## Design lineage (from the original gum script)
 
-| archmaid.sh | here |
+| the old gum script | here |
 | --- | --- |
 | `run_task` (gum spin + tempfile) | `runStep` + `waitForStream` streaming |
 | `start_msg`/`end_msg`/`fail_msg` | `stepState` + `checklist()` |
@@ -80,7 +80,7 @@ the header. This is the safe way to exercise the whole UI.
 
 ## Still to do
 
-Feature parity with `archmaid.sh` is complete. Remaining items are test
+The app is feature-complete. Remaining items are test
 coverage (owned separately — see `TESTING.md`): broader VHS e2e through the
 services/abort paths, and a summary-screen golden.
 

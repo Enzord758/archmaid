@@ -1,7 +1,7 @@
-// Command archmaid is a Bubble Tea TUI for Arch Linux maintenance — the
-// successor to the gum-based archmaid.sh. It drives package-cache cleanup,
-// orphan/broken-package handling, log vacuuming, service pruning, and topgrade
-// updates from one menu, with live output, in-TUI sudo, and a --dryrun mode.
+// Command archmaid is a Bubble Tea TUI for Arch Linux maintenance. It drives
+// package-cache cleanup, orphan/broken-package handling, log vacuuming, service
+// pruning, and topgrade updates from one menu, with live output, in-TUI sudo,
+// and a --dryrun mode.
 package main
 
 import (
