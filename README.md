@@ -50,3 +50,15 @@ again — the password is passed straight to sudo, never stored.
 Run logs (failures only) go to `~/.local/state/archmaid/<YYYYMMDD-HHMM>.log`;
 `--dryrun` uses `~/.local/state/archmaid/dryrun.log`. Logs older than a week are
 pruned automatically. No setup — it's a user-writable dir.
+
+## Disclosure: vibecoded
+
+This TUI was written almost entirely by an AI agent (Claude Code), with a human
+directing design, reviewing behavior, and pulling the trigger on every decision
+that matters (what runs as root, what gets deleted, what ships). It is tested
+accordingly: an 80+ test suite run under the race detector, golden-frame UI
+tests, a VHS end-to-end harness, and live verification against a real Arch
+system — including the sudo/faillock edge cases (see `tui/TESTING.md` and the
+development narrative in `tui/HANDOVER.md`). Read the code with the same
+skepticism you'd apply to any code, and run `--dryrun` first if you want to see
+exactly what it would do to your system.
