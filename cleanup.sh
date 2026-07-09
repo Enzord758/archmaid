@@ -140,9 +140,9 @@ view_log() {
   fi
 
   sed -E \
-    -e "s/START:/$'\e[36m'START:$'\e[0m'/" \
-    -e "s/END:/$'\e[32m'END:$'\e[0m'/" \
-    -e "s/FAIL:/$'\e[31m'FAIL:$'\e[0m'/" \
+    -e $'s/START:/\e[36mSTART:\e[0m/' \
+    -e $'s/END:/\e[32mEND:\e[0m/' \
+    -e $'s/FAIL:/\e[31mFAIL:\e[0m/' \
     "$LOG_FILE" | gum pager
 }
 
