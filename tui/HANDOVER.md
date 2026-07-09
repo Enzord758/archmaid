@@ -142,3 +142,35 @@ stays the narrative handover). Current gate, re-verified after the merge:
 - Goldens for the popup screens (password/confirm over a background) are now
   feasible since the overlay is deterministic — `fixedModel()` + Ascii profile
   apply as before.
+
+---
+
+## Update 3 — gate + orphan tests, hermetic real-log tests (Fable, third pass)
+
+Covered the two behaviours TESTING.md flagged as untested, in
+`gate_orphan_test.go` (9 tests — see the inventory table in TESTING.md):
+
+- **Proceed-gate**: shown only when sudo is cached and the action carries a
+  gate (Full Cleanup); "no" → menu with nothing run, "yes" → queue; ungated
+  actions and the uncached path (password prompt *is* the gate) never see it;
+  `activate` clears a stale gate before dispatching another action.
+- **Orphan removal**: `fullCleanupSteps()` puts topgrade first; with orphans a
+  sudo-optional `pacman -Rns --noconfirm <list>` step is spliced in with the
+  real count in the confirm; with none the step is omitted. `orphanPackages`'
+  `pacman -Qdtq` is stubbed with a PATH shim (`shimPacman`) — the gate tests
+  reuse it so nothing reads real package state. Shim gotcha: emit newlines via
+  printf *format* escapes, not `%s` (sh printf doesn't expand `\n` in args).
+
+Also made the two real-log tests hermetic per TESTING.md's note: they now set
+`logDir = t.TempDir()` (restored via defer), so they can't touch
+`/var/log/archmaid` even once the install script creates it, and don't depend
+on the HOME fallback. TESTING.md's ground rule and inventory updated to match.
+
+Gate re-verified: **55 tests passing under `-race`; `go vet` and `gofmt -l .`
+clean.** No production code changed.
+
+### If you pick this up next
+
+The suggestions from Update 2 still stand (services-flow VHS tape, summary
+golden, popup goldens). New: a golden of the gate confirm floating over the
+menu would pin the cached-sudo Full Cleanup entry point end to end.

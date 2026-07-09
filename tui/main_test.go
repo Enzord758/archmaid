@@ -245,6 +245,10 @@ func TestWrongPasswordShowsAttemptsLeft(t *testing.T) {
 // is abandoned, the queue still runs, and each sudo step is skipped + logged.
 func TestSudoThreeStrikesSkipsAndLogs(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	// Hermetic real-log dir: never touch /var/log or the user's state dir.
+	oldLogDir := logDir
+	logDir = t.TempDir()
+	defer func() { logDir = oldLogDir }()
 
 	m := initialModel()
 	m.pending = []step{{title: "root job", logLabel: "needs root", needsSudo: true, command: "true"}}
@@ -396,6 +400,10 @@ func TestStreamOrderAndSingleDone(t *testing.T) {
 // with the captured body.
 func TestStreamFailurePropagates(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	// Hermetic real-log dir: never touch /var/log or the user's state dir.
+	oldLogDir := logDir
+	logDir = t.TempDir()
+	defer func() { logDir = oldLogDir }()
 
 	ch := make(chan streamMsg, 16)
 	runStep(step{command: "bash", args: []string{"-c", "echo boom; exit 3"}}, ch)

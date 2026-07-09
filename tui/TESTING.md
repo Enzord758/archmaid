@@ -17,10 +17,9 @@ harness. This doc is the inventory and how-to-run.
 - **Real logs now go to `/var/log/archmaid/<YYYYMMDD-HHMM>.log`** (see `log.go`),
   falling back to `~/.local/state/archmaid/` when `/var/log/archmaid` isn't
   writable. Dry-run logs are unchanged (`~/.archmaid-dryrun.log`, no timestamp).
-  A real-log test currently relies on the `HOME`-based fallback; to make those
-  hermetic, set `logDir = t.TempDir()` (restore after) so they never touch
-  `/var/log` or the user's real state dir. Affected: `TestSudoThreeStrikesSkipsAndLogs`,
-  `TestStreamFailurePropagates`.
+  Real-log tests redirect `logDir = t.TempDir()` (restored via defer) so they
+  never touch `/var/log` or the user's real state dir
+  (`TestSudoThreeStrikesSkipsAndLogs`, `TestStreamFailurePropagates`).
 - **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
   goldens compare a single re-rendered `View()` frame with the live status line
   pinned via `fixedModel()`; the spinner is pinned to one frame where a running
@@ -39,45 +38,30 @@ bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun,
 go build -o archmaid . && ./archmaid --dryrun        # manual e2e; then inspect ~/.archmaid-dryrun.log
 ```
 
-Current status: **~50 tests, all green under `-race`; `vet` and `gofmt` clean.**
-
-## Newly added — needs tests (Fable)
-
-Two behaviours landed without tests; they're the priority to cover next.
-
-### Proceed-gate rolled into the sudo prompt (`main.go`)
-
-A `steps`-action can carry a `gate` string (only **Full Cleanup** does:
-`"Proceed with full cleanup?"`). The gate replaces a separate "are you sure"
-step — the sudo password prompt already forces a deliberate action, so:
-
-- **Sudo uncached** → the password prompt is the gate; **no** extra confirm.
-  (`sudoCachedMsg{cached:false}` → `screenPassword`, as before.)
-- **Sudo cached** (`sudoCachedMsg{cached:true}`) → if `m.gate != ""`, show a
-  confirm popup with `gateActive = true` over the menu; **yes** →
-  `startQueue`, **no** → back to `screenMenu`. If `m.gate == ""` (every other
-  action), run straight to the queue as before.
-- `resolveConfirm` branches on `m.gateActive` *before* the per-step logic, so a
-  gate confirm is not mistaken for a step confirm (no `m.queue` exists yet).
-- `activate` resets `m.gate = ""` and only re-arms it for the chosen item;
-  `beginPending` resets `m.gateActive = false`.
-
-Worth asserting: cached Full Cleanup → gate confirm shown; "no" → menu, nothing
-runs; "yes" → queue starts. Cached non-gate action (e.g. Clear user cache is
-sudo-less, or a `repair` with cached sudo) → no gate. Uncached Full Cleanup →
-password screen, not the gate confirm.
-
-### Orphan removal in Full Cleanup (`tasks.go`)
-
-`fullCleanupSteps()` now runs `topgrade` **first**, then queries
-`orphanPackages()` (`pacman -Qdtq`) at build time: when orphans exist it inserts
-an optional sudo step `"Remove N orphaned package(s)?"` with the real package
-list spliced into `pacman -Rns --noconfirm …`; when there are none the step is
-omitted entirely. Fixture idea: since `orphanPackages` shells out, either test it
-behind a PATH shim for `pacman`, or unit-test the step-assembly by factoring the
-list in (current form calls `pacman` directly — a shim is simplest).
+Current status: **55 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
 ## Test inventory
+
+### Proceed-gate + orphan removal — `gate_orphan_test.go`
+
+The gate (Full Cleanup's "Proceed with full cleanup?" shown only when sudo is
+already cached — the password prompt is the gate otherwise) and the build-time
+orphan splice in `fullCleanupSteps()`.
+
+| Test | Asserts |
+|---|---|
+| `TestGateShownWhenSudoCached` | cached probe + gated action → gate confirm over the menu, defaults No, no queue yet |
+| `TestGateNoReturnsToMenu` | gate "no" → menu, `gateActive` cleared, nothing runs |
+| `TestGateYesStartsQueue` | gate "yes" → queue starts with all pending steps |
+| `TestNoGateForUngatedAction` | cached probe without a gate → straight to the queue |
+| `TestStaleGateClearedByActivate` | `activate` clears a leftover gate before dispatching another action |
+| `TestGateUncachedShowsPasswordNotGate` | uncached probe → password screen, gate confirm never activates |
+| `TestFullCleanupTopgradeFirst` | topgrade leads the Full Cleanup queue |
+| `TestOrphanStepSplicedIn` | orphans present → optional sudo `pacman -Rns --noconfirm <list>` step, confirm shows the real count |
+| `TestOrphanStepOmittedWhenNone` | no orphans → step omitted, queue exactly one shorter |
+
+`orphanPackages` is shimmed via a fake `pacman` on `PATH` (`shimPacman`) so no
+real package state is read; the gate tests reuse the shim to stay hermetic.
 
 ### Unit — `main_test.go` (drives `model.Update` / helpers directly)
 
