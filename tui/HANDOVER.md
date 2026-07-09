@@ -194,3 +194,30 @@ Covered the sudo-hardening changes TESTING.md flagged, in
 
 Gate: **66 tests green under `-race`; vet and gofmt clean.** No production
 code changed.
+
+### Live-test findings (real binary, no sudo password — wrong-password flow)
+
+Driven via VHS against the real (non-dryrun) binary under a scratch HOME:
+menu → topgrade action → real `sudo -n -v` probe → password overlay → two
+deliberately wrong passwords → esc → menu → q. Verified live: the overlay
+floats over the menu, input is masked, "Incorrect password — 2 attempts left"
+renders, esc cancels back to the menu, q exits cleanly, and no run log is
+written for auth failures. Two real defects surfaced:
+
+1. **No in-flight auth state.** Between enter and `sudoResultMsg` (several
+   seconds — sudo's PAM delay + its stdin-retry behaviour), the password field
+   keeps accepting keystrokes (a second password typed during the wait is
+   silently *appended* to the first — the popup visibly widens) and a second
+   enter fires a **concurrent** `sudo -S -v`. There is zero feedback that
+   authentication is running. Fix shape: on submit, disable the input + show a
+   spinner/"authenticating…" state and ignore enter until the result arrives.
+2. **faillock burn.** Two in-app submissions produced **three** PAM failures
+   (`faillock` records 2 s apart) — with Arch's default `deny=3` the account
+   auth-locked (10 min) before the app's own three-strikes ever fired. In-app
+   `maxSudoAttempts = 3` collides with faillock's 3; consider `-p ''` aside,
+   the concurrency fix in (1) removes the extra failure, and the prompt could
+   surface "account temporarily locked" (sudo exit/stderr distinguishes it).
+
+Artifacts (screenshots + full text capture) in the job tmp dir; faillock state
+was checked before and after (pre-existing failures had aged out; the run's
+budget of 2 was chosen to stay under deny=3 — the concurrency bug spent 3).
