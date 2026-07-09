@@ -83,7 +83,7 @@ func TestAbortPopupFloatsOverRunningScreen(t *testing.T) {
 		t.Fatal("popup border missing (not rendered as a box)")
 	}
 	// background still visible around the floating popup
-	if !strings.Contains(view, "Arch Linux Maintenance") {
+	if !strings.Contains(view, "archmaid") {
 		t.Fatalf("background running screen not visible behind popup:\n%s", view)
 	}
 	if !strings.Contains(view, "updating the system") {

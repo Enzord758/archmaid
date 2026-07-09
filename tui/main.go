@@ -1,10 +1,7 @@
-// Command tui is a bubbletea rewrite sketch of cleanup.sh.
-//
-// Status: sketch. The menu → full-cleanup-queue → live-output → summary loop
-// and the log viewer are wired end to end. Per-action confirms and sudo
-// priming are modelled; the services multi-select and dynamic orphan/broken-
-// package discovery are stubbed (see README). It is meant to show the
-// architecture, not to be feature-complete.
+// Command archmaid is a Bubble Tea TUI for Arch Linux maintenance — the
+// successor to the gum-based archmaid.sh. It drives package-cache cleanup,
+// orphan/broken-package handling, log vacuuming, service pruning, and topgrade
+// updates from one menu, with live output, in-TUI sudo, and a --dryrun mode.
 package main
 
 import (
@@ -598,7 +595,7 @@ func (m model) viewOf(s screen) string {
 }
 
 func (m model) header() string {
-	line := titleStyle.Render("Arch Linux Maintenance")
+	line := titleStyle.Render("archmaid — Arch maintenance")
 	if dryRun {
 		line += "  " + stepFailStyle.Render("[dry-run]")
 	}

@@ -1,12 +1,12 @@
 # cleanup TUI (bubbletea sketch)
 
 A [Bubble Tea](https://github.com/charmbracelet/bubbletea) rewrite sketch of the
-gum-based `cleanup.sh`, exploring what it takes to make this a real TUI —
+gum-based `archmaid.sh`, exploring what it takes to make this a real TUI —
 `btop`/`wiremix`-style — rather than a scripted sequence of prompts.
 
 **Working prototype.** All eight menu actions are implemented; a `--dryrun`
 mode makes it safe to exercise end to end. Not yet at full parity with
-`cleanup.sh` in every edge case — see "Still to do".
+`archmaid.sh` in every edge case — see "Still to do".
 
 ## Why a rewrite (not a refactor)
 
@@ -52,20 +52,20 @@ straight over via `lipgloss`).
   dialogs, notices) render as bordered boxes composited over the current screen
   via an ANSI-aware overlay (`overlay.go`), not full-screen takeovers, so the
   running checklist stays visible behind an abort dialog.
-- **Error-only logging** to `~/.maintenance_tui.log` (`log.go`), same policy and
+- **Error-only logging** to `~/.archmaid.log` (`log.go`), same policy and
   path as the bash version.
 
 ## Dry run
 
-`go run . --dryrun` (or `./tui --dryrun`) makes every mutating step *report what
+`go run . --dryrun` (or `./archmaid --dryrun`) makes every mutating step *report what
 it would do* instead of running it, logs **every** step (not just failures) to a
-separate `~/.maintenance_dryrun.log`, and skips sudo entirely. Read-only
+separate `~/.archmaid-dryrun.log`, and skips sudo entirely. Read-only
 discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
 the header. This is the safe way to exercise the whole UI.
 
-## Mapping to cleanup.sh
+## Mapping to archmaid.sh
 
-| cleanup.sh | here |
+| archmaid.sh | here |
 | --- | --- |
 | `run_task` (gum spin + tempfile) | `runStep` + `waitForStream` streaming |
 | `start_msg`/`end_msg`/`fail_msg` | `stepState` + `checklist()` |

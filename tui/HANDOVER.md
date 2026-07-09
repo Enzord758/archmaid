@@ -18,7 +18,7 @@ written. Branch: `tui-test-suite` (based on `bubbletea-sketch`).
 ```sh
 go test ./...                        # unit + integration (~1.7s)
 go test ./... -run Golden -update    # regenerate goldens after a deliberate UI change
-bash e2e/run.sh                      # VHS e2e (needs vhs/ttyd/ffmpeg; builds ./tui itself)
+bash e2e/run.sh                      # VHS e2e (needs vhs/ttyd/ffmpeg; builds ./archmaid itself)
 ```
 
 ## Determinism decisions (don't undo these casually)
@@ -29,7 +29,7 @@ bash e2e/run.sh                      # VHS e2e (needs vhs/ttyd/ffmpeg; builds ./
   raw output stream, and the live status line is pinned via `fixedModel()`
   (`testStatus` const). If you golden a new screen, pin anything live the same way.
 - `e2e/run.sh` runs the app under a throwaway `HOME` (mktemp) so the e2e never
-  touches the real `~/.maintenance_dryrun.log` and asserts on a clean log.
+  touches the real `~/.archmaid-dryrun.log` and asserts on a clean log.
 - Space key: `tea.KeyMsg{Type: tea.KeySpace}` stringifies to `" "` and hits the
   toggle case; the `key()` helper in `main_test.go` handles this.
 

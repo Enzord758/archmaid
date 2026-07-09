@@ -47,7 +47,7 @@ func TestMenuGolden(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	tm := teatest.NewTestModel(t, fixedModel(), teatest.WithInitialTermSize(80, 24))
-	waitForText(t, tm, "Arch Linux Maintenance")
+	waitForText(t, tm, "archmaid")
 
 	// move the selection down one row so the golden captures a non-default
 	// cursor position too.
@@ -68,7 +68,7 @@ func TestServicesGolden(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	tm := teatest.NewTestModel(t, fixedModel(), teatest.WithInitialTermSize(80, 24))
-	waitForText(t, tm, "Arch Linux Maintenance")
+	waitForText(t, tm, "archmaid")
 
 	tm.Send(discoveryMsg{kind: "services", services: []string{
 		"bluetooth.service", "cups.service", "docker.service",

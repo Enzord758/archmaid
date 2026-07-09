@@ -1,4 +1,4 @@
-module github.com/Enzord758/gum-cleanup-script-arch/tui
+module github.com/Enzord758/archmaid/tui
 
 go 1.24.0
 

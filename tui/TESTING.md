@@ -8,7 +8,7 @@ harness. This doc is the inventory and how-to-run.
 
 - **Dry run stubs everything destructive.** `--dryrun` (global `dryRun`) makes
   mutating steps report "would run" instead of executing, skips sudo, and logs to
-  `~/.maintenance_dryrun.log`. Tests that would otherwise run real commands set
+  `~/.archmaid-dryrun.log`. Tests that would otherwise run real commands set
   `dryRun = true`. Never exercise the real `paccache -rk0` / `rm -rf` /
   `systemctl disable` paths in a test.
 - **`HOME` is redirected** with `t.Setenv("HOME", t.TempDir())` in any test that
@@ -28,8 +28,8 @@ go test -race ./...      # with the race detector (the CI-grade run)
 go vet ./... && gofmt -l .   # must be clean
 go test -run TestAbort   # a subset by name
 go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
-bash e2e/run.sh          # VHS e2e; builds ./tui, drives it under --dryrun, asserts on the log
-go build . && ./tui --dryrun        # manual e2e; then inspect ~/.maintenance_dryrun.log
+bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun, asserts on the log
+go build -o archmaid . && ./archmaid --dryrun        # manual e2e; then inspect ~/.archmaid-dryrun.log
 ```
 
 Current status: **~50 tests, all green under `-race`; `vet` and `gofmt` clean.**
@@ -93,7 +93,7 @@ Prompts render as bordered boxes composited over the current screen (`overlay.go
 ### End-to-end — `e2e/run.tape` + `e2e/run.sh`
 
 VHS drives the real binary in a pty under `--dryrun` and asserts on the resulting
-`~/.maintenance_dryrun.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
+`~/.archmaid-dryrun.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
 
 ## Architecture (where the logic lives)
 
