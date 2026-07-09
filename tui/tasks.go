@@ -63,7 +63,11 @@ type streamMsg struct {
 	err  error  // non-nil if the command failed (only meaningful when done)
 }
 
-func runStep(s step, ch chan<- streamMsg) {
+// runStep starts the step's command and streams its output on ch, returning the
+// running process so the caller can signal it on abort (nil in dry run or if the
+// command never starts). Start() happens synchronously so the handle is
+// available immediately; scanning and Wait run on a goroutine.
+func runStep(s step, ch chan<- streamMsg) *os.Process {
 	// Dry run: don't execute anything mutating — just report what would run.
 	// The step is logged (as a success) in handleStream's dry-run branch.
 	if dryRun {
@@ -71,21 +75,21 @@ func runStep(s step, ch chan<- streamMsg) {
 			ch <- streamMsg{line: "[dry-run] would run: " + s.command + " " + strings.Join(s.args, " ")}
 			ch <- streamMsg{done: true}
 		}()
-		return
+		return nil
+	}
+
+	cmd := exec.Command(s.command, s.args...)
+
+	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
+	pr, pw := io.Pipe()
+	cmd.Stdout, cmd.Stderr = pw, pw
+
+	if err := cmd.Start(); err != nil {
+		go func() { ch <- streamMsg{done: true, err: err} }()
+		return nil
 	}
 
 	go func() {
-		cmd := exec.Command(s.command, s.args...)
-
-		// Fold stderr into stdout through a single pipe (the bash `2>&1`).
-		pr, pw := io.Pipe()
-		cmd.Stdout, cmd.Stderr = pw, pw
-
-		if err := cmd.Start(); err != nil {
-			ch <- streamMsg{done: true, err: err}
-			return
-		}
-
 		// Scan on a goroutine so cmd.Wait can proceed. close(scanned) lets us
 		// guarantee every line is sent before the done message.
 		scanned := make(chan struct{})
@@ -103,6 +107,8 @@ func runStep(s step, ch chan<- streamMsg) {
 		<-scanned  // all lines are on the channel before we report done
 		ch <- streamMsg{done: true, err: err}
 	}()
+
+	return cmd.Process
 }
 
 // waitForStream turns the next channel message into a tea.Msg. Re-issue it

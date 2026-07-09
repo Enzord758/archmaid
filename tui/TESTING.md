@@ -1,121 +1,103 @@
-# TESTING — handoff for another Claude instance
+# TESTING — test suite reference
 
-You are picking up the Bubble Tea rewrite of a gum maintenance script (in this
-`tui/` directory). Your job: **build out the test suite and run it.** This doc
-gives you the architecture, a layered test plan, and the tools to ask the human
-for. Work in this directory; the module is `package main`.
+The Bubble Tea rewrite (this `tui/` directory, `package main`) has a full test
+suite: unit tests driving `Update`, `teatest` golden frames, and a VHS e2e
+harness. This doc is the inventory and how-to-run.
 
 ## Ground rules
 
-- **Always test with `--dryrun`** for anything that drives real actions. Dry run
-  stubs every mutating command (logs "would run" instead of executing), skips
-  sudo, and writes to `~/.maintenance_dryrun.log`. Never run the real
-  destructive paths (paccache -rk0, rm -rf, systemctl disable) in a test.
-- Read `README.md` first for what each screen/action does.
-- Don't weaken a test to make it pass. If a test fails, it found a bug — fix the
-  code or report it.
-
-## Architecture (where the logic lives)
-
-- `main.go` — the model/update/view loop. Screens: `screenMenu`, `screenPassword`,
-  `screenConfirm`, `screenRunning`, `screenSummary`, `screenLog`, `screenNotice`,
-  `screenDiscovering`, `screenServices`. `Update` is the single source of state
-  transitions — most unit tests drive it directly.
-- `tasks.go` — `runStep` (streaming command exec), the sudo commands, the
-  dynamic-action discovery cmds (`discoverRepair`/`discoverDownloads`/
-  `discoverServices`), and `editConfig`.
-- `log.go` — `appendLog(kind, label, body)`, `logPath()` (dry-run aware).
-- `main_test.go` — a **seed** suite already covering: dry-run non-execution,
-  dry-run logging, sudo three-strikes, discovery→notice, discovery→services,
-  broken-package parsing. Extend it.
-
-## Key testable behaviours (assert these)
-
-1. **Dry-run safety**: no mutating command ever executes under `--dryrun`
-   (already seeded — keep it green, it's the most important test).
-2. **Sudo flow**: `checkSudoCached` cached→`startQueue`; uncached→`screenPassword`.
-   Wrong password increments attempts and shows the count; after `maxSudoAttempts`
-   it sets `sudoUnavailable`, runs the queue, and each sudo step is logged
-   `SKIP: … (sudo authentication failed)` and marked `statusSkipped`.
-3. **Confirm flow**: an optional step's "no" → `statusSkipped` + advance; a
-   non-optional "no" → aborts to `screenSummary`.
-4. **Streaming**: `runStep` (non-dry) emits every output line in order followed
-   by exactly one `done` message carrying the exit error; a failing command sets
-   `statusFailed`, increments `errs`, and logs `FAIL:` with the captured output.
-5. **Discovery routing**: empty result → `screenNotice`; services list →
-   `screenServices` with `serviceOn` sized to the list; repair/downloads with
-   work → `beginPending` (sudo probe or queue).
-6. **Services multi-select**: space toggles `serviceOn[cursor]`; enter with a
-   selection builds a `systemctl disable --now …` step; enter with none → menu.
-7. **Parsers**: `brokenPackages` and the `servicesPipeline` produce clean,
-   trimmed, de-duplicated lines and don't panic when the underlying grep exits 1
-   (no matches).
-
-## Test layers
-
-### 1. Unit (extend `main_test.go`) — no extra tools
-
-Drive `model.Update(msg)` directly, type-assert the returned `tea.Model` back to
-`model`, and assert on fields/screen. For cmds, call the returned `tea.Cmd()` to
-get its message and feed it back. Set `t.Setenv("HOME", t.TempDir())` whenever a
-test may write a log. Cover every item in "Key testable behaviours".
-
-### 2. Integration (add `teatest`)
-
-Use `github.com/charmbracelet/x/exp/teatest` to run the whole `tea.Program`
-headlessly, send `tea.KeyMsg`s, and assert on the rendered frames (golden files
-via `teatest.RequireEqualOutput`). Good for: menu navigation, the password
-screen masking, the services checklist rendering, the running-screen checklist
-transitions. Run the program with `dryRun = true` set in the test.
-
-### 3. End-to-end (VHS, optional but ideal)
-
-Use [`vhs`](https://github.com/charmbracelet/vhs) `.tape` scripts to drive the
-built binary in a real headless pty and capture text/GIF output — this is the
-reliable version of the flaky `script`/`printf` pty automation (which does *not*
-deliver keystrokes reliably; don't rely on it). Always launch `./tui --dryrun`.
-Assert by checking `~/.maintenance_dryrun.log` contents after the run, and/or the
-captured frame text.
-
-Example `run.tape`:
-```
-Output run.txt
-Set Width 1200
-Set Height 800
-Type " "        # any key past intro if needed
-Enter           # Full Cleanup
-Sleep 500ms
-# … navigate, then:
-Type "q"
-```
-
-## Tools to request from the human
-
-The human offered to install debugging tools. Ask for:
-
-- **`vhs`** (with `ttyd` and `ffmpeg`, its runtime deps) — headless TUI driver
-  for reliable e2e tests and visual capture. `pacman -S vhs ttyd ffmpeg` (vhs may
-  be AUR: `yay -S vhs`). **This is the one worth having** — it replaces flaky
-  pty scripting.
-- Network access for `go get github.com/charmbracelet/x/exp/teatest` (a Go module,
-  not a system package — you add it yourself, but it needs to download once).
-- Optionally **`expect`** (`pacman -S expect`) as a lighter-weight scripted-pty
-  fallback if vhs isn't wanted.
-
-Nothing else is needed for the unit layer — `go test ./...` works today.
+- **Dry run stubs everything destructive.** `--dryrun` (global `dryRun`) makes
+  mutating steps report "would run" instead of executing, skips sudo, and logs to
+  `~/.maintenance_dryrun.log`. Tests that would otherwise run real commands set
+  `dryRun = true`. Never exercise the real `paccache -rk0` / `rm -rf` /
+  `systemctl disable` paths in a test.
+- **`HOME` is redirected** with `t.Setenv("HOME", t.TempDir())` in any test that
+  writes a log or touches `~/.config` / `~/Downloads`, so tests never touch real
+  files.
+- **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
+  goldens compare a single re-rendered `View()` frame with the live status line
+  pinned via `fixedModel()`; the spinner is pinned to one frame where a running
+  row must render deterministically.
+- Don't weaken a test to make it pass — a failure is a bug in the code.
 
 ## Running
 
 ```sh
-go test ./...            # unit + integration
-go test -run TestDryRun  # a subset
-go build ./... && ./tui --dryrun   # manual e2e; then inspect ~/.maintenance_dryrun.log
+go test ./...            # everything (~1.7s)
+go test -race ./...      # with the race detector (the CI-grade run)
+go vet ./... && gofmt -l .   # must be clean
+go test -run TestAbort   # a subset by name
+go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
+bash e2e/run.sh          # VHS e2e; builds ./tui, drives it under --dryrun, asserts on the log
+go build . && ./tui --dryrun        # manual e2e; then inspect ~/.maintenance_dryrun.log
 ```
 
-## Definition of done
+Current status: **42 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
-- Every behaviour in the list above has a passing test.
-- `go test ./...`, `go vet ./...`, and `gofmt -l .` are all clean.
-- At least one teatest golden covering the menu and one covering the services
-  multi-select.
-- A short note back to the human on anything the tests uncovered.
+## Test inventory
+
+### Unit — `main_test.go` (drives `model.Update` / helpers directly)
+
+| Area | Tests |
+|---|---|
+| Dry-run safety | `TestDryRunDoesNotExecute` (marker file proves no exec), `TestDryRunFullCleanupExecutesNothing`, `TestDryRunLogsEveryStep`, `TestCheckSudoCachedDryRunNeverProbes` |
+| Sudo flow | `TestSudoCachedSkipsPrompt`, `TestSudoUncachedShowsPassword`, `TestWrongPasswordShowsAttemptsLeft`, `TestSudoThreeStrikes`, `TestSudoThreeStrikesSkipsAndLogs` (skip tallied separately from errs, logged `SKIP:`) |
+| Confirm flow | `TestConfirmStepShowsModal`, `TestConfirmOptionalNoSkips`, `TestConfirmNonOptionalNoAborts` (declined + rest → skipped, `aborted` set), `TestConfirmYesLaunches` |
+| Streaming | `TestStreamOrderAndSingleDone` (ordered lines then one done), `TestStreamFailurePropagates` (→ `statusFailed`, `errs++`, `FAIL:` log) |
+| Discovery routing | `TestDiscoveryNotice`, `TestDiscoveryServices`, `TestDiscoveryPendingRunsQueue`, `TestDiscoveryPendingSudoProbes`, `TestDiscoverServicesRuns` |
+| Services multi-select | `TestServiceToggle`, `TestServicesEnterBuildsDisableStep`, `TestServicesEnterNoneReturnsMenu` |
+| Parsers | `TestBrokenPackagesParsing`, `TestBrokenPackagesNoMatchNoPanic`, `TestNonEmptyLinesTrimsAndDropsBlanks` |
+
+### Thin-spot coverage — `coverage_test.go`
+
+These close the gaps HANDOVER.md called out as untested:
+
+| Thin spot | Test | Technique |
+|---|---|---|
+| `editConfig` non-dry path | `TestEditConfigCreatesFileAndOpensEditor`, `TestEditConfigKeepsExistingFile` | `execProcess` seam captures the editor command; asserts file created with defaults / not clobbered — no real editor launched |
+| `discoverDownloads` real pipeline | `TestDiscoverDownloadsCountsAgedFiles`, `TestDiscoverDownloadsEmptyShowsNotice` | temp `$HOME/Downloads` + `os.Chtimes`-aged files; asserts the count in the confirm and the empty→notice path |
+| Password masking (rendered) | `TestPasswordInputIsMasked` | types into `screenPassword`, asserts mask glyphs, never cleartext |
+| Running checklist glyphs | `TestChecklistRendersAllStatuses` | spinner pinned to one frame → every status renders deterministically |
+| status line / tick | `TestSystemStatusFormat`, `TestStatusMsgUpdatesHeader` | label contract + `statusMsg` → `m.status` + re-armed tick |
+| Summary outcomes | `TestSummaryMessages` (table) | success / issues / skipped / issues+skipped / aborted |
+
+### Abort flow — `abort_test.go`
+
+ctrl+c while a step runs pops a confirm; yes kills the child and returns to menu.
+
+| Test | Asserts |
+|---|---|
+| `TestAbortConfirmShownNotQuit` | ctrl+c on run screen → `screenAbortConfirm`, no `tea.Quit`, defaults to No |
+| `TestAbortDeclineResumes` | "no" → back to `screenRunning`, process handle kept, real `sleep` child still alive (signal-0 probe) |
+| `TestAbortAcceptSignalsAndMenus` | "yes" → child actually terminated (spawns real `sleep 30`, waits for exit), screen → menu, `proc` cleared |
+| `TestLateOutputDroppedAfterAbort` | a late `done` after leaving the run is dropped: no screen change, no `errs`, pumping stops |
+| `TestAbortNilProcSafe` | aborting with no live process (dry run) still returns to menu |
+
+### Integration goldens — `teatest_test.go` + `testdata/*.golden`
+
+- `TestMenuGolden` — headless program, cursor moved, golden of the menu frame.
+- `TestServicesGolden` — routes into the services multi-select, toggles entries,
+  golden of the checklist.
+
+### End-to-end — `e2e/run.tape` + `e2e/run.sh`
+
+VHS drives the real binary in a pty under `--dryrun` and asserts on the resulting
+`~/.maintenance_dryrun.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
+
+## Architecture (where the logic lives)
+
+- `main.go` — the model/update/view loop. Screens: menu, password, confirm,
+  running, summary, log, notice, discovering, services, **abortConfirm**. `Update`
+  is the single source of state transitions; most unit tests drive it directly.
+- `tasks.go` — `runStep` (starts the child, returns `*os.Process`, streams
+  output), sudo commands, discovery cmds, `editConfig` (+ `execProcess` seam).
+- `log.go` — `appendLog(kind, label, body)`, `logPath()` (dry-run aware).
+
+## Not automated (inherent)
+
+- The OS-level terminal handover inside `tea.ExecProcess` (editor) — we assert the
+  command built, not that the editor visually takes over.
+- `tea.Tick`'s wall-clock firing (a library primitive).
+- Full-tree kill semantics of aborting a `sudo` step rely on sudo relaying the
+  signal; the unit tests cover a direct child, and the signal path is verified
+  against a real `sleep` process.

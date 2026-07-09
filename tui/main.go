@@ -31,9 +31,10 @@ const (
 	screenRunning
 	screenSummary
 	screenLog
-	screenNotice      // one-line result ("nothing to do") → any key back
-	screenDiscovering // spinner while a discovery cmd runs
-	screenServices    // multi-select checklist of services to disable
+	screenNotice       // one-line result ("nothing to do") → any key back
+	screenDiscovering  // spinner while a discovery cmd runs
+	screenServices     // multi-select checklist of services to disable
+	screenAbortConfirm // ctrl+c while running → confirm before killing the child
 )
 
 // maxSudoAttempts is how many wrong passwords are allowed before we give up,
@@ -90,6 +91,7 @@ type model struct {
 	// running-queue state
 	queue   []stepState
 	current int              // index into queue
+	proc    *os.Process      // the active step's child process (for abort)
 	stream  chan streamMsg   // output channel for the active step
 	buf     *strings.Builder // accumulated output of the active step (pointer:
 	//                          strings.Builder must not be copied by value, and
@@ -269,12 +271,32 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case screenRunning:
 		if msg.String() == "ctrl+c" {
-			return m, tea.Quit // real version: SIGINT the child, then return
+			// Don't quit — ask first (the child keeps running underneath).
+			m.screen = screenAbortConfirm
+			m.confirmYes = false
+			return m, nil
 		}
 		// let the viewport scroll while a step runs
 		var cmd tea.Cmd
 		m.output, cmd = m.output.Update(msg)
 		return m, cmd
+
+	case screenAbortConfirm:
+		switch msg.String() {
+		case "left", "right", "h", "l", "tab":
+			m.confirmYes = !m.confirmYes
+		case "y":
+			m.abortRunning()
+		case "n", "esc", "ctrl+c":
+			m.screen = screenRunning // resume; the step never stopped
+		case "enter":
+			if m.confirmYes {
+				m.abortRunning()
+			} else {
+				m.screen = screenRunning
+			}
+		}
+		return m, nil
 
 	case screenSummary:
 		switch msg.String() {
@@ -440,9 +462,21 @@ func (m *model) launch() tea.Cmd {
 	m.buf.Reset()
 	m.output.SetContent("")
 	m.stream = make(chan streamMsg, 128)
-	runStep(m.queue[m.current].step, m.stream)
+	m.proc = runStep(m.queue[m.current].step, m.stream)
 	// The spinner is already ticking (started in Init); just pump the stream.
 	return waitForStream(m.stream)
+}
+
+// abortRunning signals the active step's child to stop and returns to the menu.
+// SIGINT (like a terminal ctrl+c) lets tools such as pacman exit cleanly; for
+// sudo steps, sudo relays the signal to the command it runs. Late output from
+// the dying process is dropped by handleStream's screen guard.
+func (m *model) abortRunning() {
+	if m.proc != nil {
+		_ = m.proc.Signal(os.Interrupt)
+		m.proc = nil
+	}
+	m.screen = screenMenu
 }
 
 func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
@@ -470,6 +504,11 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
+	// After an abort (or any navigation away from the run) drop late output from
+	// the dying child and stop pumping the channel.
+	if m.screen != screenRunning && m.screen != screenAbortConfirm {
+		return m, nil
+	}
 	if !msg.done {
 		m.buf.WriteString(msg.line + "\n")
 		m.output.SetContent(m.buf.String())
@@ -522,6 +561,8 @@ func (m model) View() string {
 		return m.viewDiscovering()
 	case screenServices:
 		return m.viewServices()
+	case screenAbortConfirm:
+		return m.viewAbortConfirm()
 	}
 	return ""
 }
@@ -579,6 +620,24 @@ func (m model) viewRunning() string {
 	b.WriteString(outputPaneStyle.Width(m.output.Width).Render(m.output.View()) + "\n")
 	b.WriteString(hintStyle.Render("↑/↓ scroll output · ctrl+c abort"))
 	return b.String()
+}
+
+func (m model) viewAbortConfirm() string {
+	title := ""
+	if m.current >= 0 && m.current < len(m.queue) {
+		title = m.queue[m.current].step.title
+	}
+	yes, no := "  Yes  ", "  No  "
+	if m.confirmYes {
+		yes = selectedStyle.Render("▸ Yes ")
+	} else {
+		no = selectedStyle.Render("▸ No ")
+	}
+	return m.header() + "\n" +
+		stepFailStyle.Render("⚠ Abort the running step?") + "\n" +
+		statusStyle.Render(title) + "\n\n" +
+		yes + "   " + no + "\n\n" +
+		hintStyle.Render("y abort · n resume · ←/→ then enter")
 }
 
 func (m model) checklist() string {
