@@ -5,8 +5,8 @@
 # Nothing mutating runs: the step is stubbed and logged as DRYRUN.
 #
 # Run it with e2e/run.sh, which points HOME at a scratch dir and asserts on the
-# resulting ~/.maintenance_dryrun.log. The binary is expected at ../tui (build
-# with `go build -o tui .` from the module root first).
+# resulting ~/.archmaid-dryrun.log. The binary is expected at ../archmaid (build
+# with `go build -o archmaid .` from the module root first).
 
 Output e2e/run.txt
 
@@ -18,7 +18,7 @@ Set TypingSpeed 25ms
 
 # Launch the app (hidden so the recording starts on the menu).
 Hide
-Type "./tui --dryrun"
+Type "./archmaid --dryrun"
 Enter
 Sleep 1.5s
 Show

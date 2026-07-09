@@ -11,13 +11,13 @@ import (
 // executed, and the log goes to a separate file.
 var dryRun bool
 
-// logPath is ~/.maintenance_tui.log normally, ~/.maintenance_dryrun.log under
-// --dryrun so a dry run never touches the real log.
+// logPath is ~/.archmaid.log normally, ~/.archmaid-dryrun.log under --dryrun so
+// a dry run never touches the real log.
 func logPath() string {
 	home, _ := os.UserHomeDir()
-	name := ".maintenance_tui.log"
+	name := ".archmaid.log"
 	if dryRun {
-		name = ".maintenance_dryrun.log"
+		name = ".archmaid-dryrun.log"
 	}
 	return filepath.Join(home, name)
 }

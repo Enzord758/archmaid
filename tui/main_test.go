@@ -91,6 +91,7 @@ func TestDryRunLogsEveryStep(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	m := initialModel()
+	m.screen = screenRunning
 	m.queue = []stepState{{step: step{logLabel: "Test step"}, status: statusRunning}}
 	m.current = 0
 	m.buf.WriteString("[dry-run] would run: echo hi\n")
@@ -407,6 +408,7 @@ func TestStreamFailurePropagates(t *testing.T) {
 	}
 
 	m := initialModel()
+	m.screen = screenRunning
 	m.queue = []stepState{{step: step{title: "boom", logLabel: "Boom step"}, status: statusRunning}}
 	m.current = 0
 	m.buf.WriteString(strings.Join(lines, "\n") + "\n")

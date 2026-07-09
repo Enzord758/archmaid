@@ -1,10 +1,7 @@
-// Command tui is a bubbletea rewrite sketch of cleanup.sh.
-//
-// Status: sketch. The menu → full-cleanup-queue → live-output → summary loop
-// and the log viewer are wired end to end. Per-action confirms and sudo
-// priming are modelled; the services multi-select and dynamic orphan/broken-
-// package discovery are stubbed (see README). It is meant to show the
-// architecture, not to be feature-complete.
+// Command archmaid is a Bubble Tea TUI for Arch Linux maintenance — the
+// successor to the gum-based archmaid.sh. It drives package-cache cleanup,
+// orphan/broken-package handling, log vacuuming, service pruning, and topgrade
+// updates from one menu, with live output, in-TUI sudo, and a --dryrun mode.
 package main
 
 import (
@@ -31,9 +28,10 @@ const (
 	screenRunning
 	screenSummary
 	screenLog
-	screenNotice      // one-line result ("nothing to do") → any key back
-	screenDiscovering // spinner while a discovery cmd runs
-	screenServices    // multi-select checklist of services to disable
+	screenNotice       // one-line result ("nothing to do") → any key back
+	screenDiscovering  // spinner while a discovery cmd runs
+	screenServices     // multi-select checklist of services to disable
+	screenAbortConfirm // ctrl+c while running → confirm before killing the child
 )
 
 // maxSudoAttempts is how many wrong passwords are allowed before we give up,
@@ -63,7 +61,8 @@ var menu = []menuItem{
 // ── model ────────────────────────────────────────────────────────────────────
 
 type model struct {
-	screen screen
+	screen screen // active screen; for popup screens, drawn over bg
+	bg     screen // background screen to composite a popup over
 	width  int
 	height int
 
@@ -90,6 +89,7 @@ type model struct {
 	// running-queue state
 	queue   []stepState
 	current int              // index into queue
+	proc    *os.Process      // the active step's child process (for abort)
 	stream  chan streamMsg   // output channel for the active step
 	buf     *strings.Builder // accumulated output of the active step (pointer:
 	//                          strings.Builder must not be copied by value, and
@@ -161,6 +161,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.startQueue()
 			return m, cmd
 		}
+		m.bg = screenMenu
 		m.screen = screenPassword
 		m.pwErr = ""
 		m.password.Reset()
@@ -188,6 +189,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case discoveryMsg:
 		if msg.notice != "" {
 			m.notice = msg.notice
+			m.bg = screenMenu
 			m.screen = screenNotice
 			return m, nil
 		}
@@ -269,12 +271,33 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case screenRunning:
 		if msg.String() == "ctrl+c" {
-			return m, tea.Quit // real version: SIGINT the child, then return
+			// Don't quit — ask first (the child keeps running underneath).
+			m.bg = screenRunning
+			m.screen = screenAbortConfirm
+			m.confirmYes = false
+			return m, nil
 		}
 		// let the viewport scroll while a step runs
 		var cmd tea.Cmd
 		m.output, cmd = m.output.Update(msg)
 		return m, cmd
+
+	case screenAbortConfirm:
+		switch msg.String() {
+		case "left", "right", "h", "l", "tab":
+			m.confirmYes = !m.confirmYes
+		case "y":
+			m.abortRunning()
+		case "n", "esc", "ctrl+c":
+			m.screen = screenRunning // resume; the step never stopped
+		case "enter":
+			if m.confirmYes {
+				m.abortRunning()
+			} else {
+				m.screen = screenRunning
+			}
+		}
+		return m, nil
 
 	case screenSummary:
 		switch msg.String() {
@@ -427,6 +450,7 @@ func (m *model) advance() tea.Cmd {
 		return m.advance()
 	}
 	if s.confirm != "" {
+		m.bg = screenRunning
 		m.screen = screenConfirm
 		m.confirmMsg = s.confirm
 		m.confirmYes = false
@@ -440,9 +464,37 @@ func (m *model) launch() tea.Cmd {
 	m.buf.Reset()
 	m.output.SetContent("")
 	m.stream = make(chan streamMsg, 128)
-	runStep(m.queue[m.current].step, m.stream)
+	m.proc = runStep(m.queue[m.current].step, m.stream)
 	// The spinner is already ticking (started in Init); just pump the stream.
 	return waitForStream(m.stream)
+}
+
+// sigkillGrace is how long a child gets to honour SIGINT before it's forcibly
+// killed on abort. A var so tests can shrink it.
+var sigkillGrace = 5 * time.Second
+
+// abortRunning signals the active step's child to stop and returns to the menu.
+// SIGINT (like a terminal ctrl+c) lets tools such as pacman exit cleanly; for
+// sudo steps, sudo relays the signal to the command it runs. If the child
+// ignores SIGINT it's force-killed (SIGKILL) after a grace period. Late output
+// from the dying process is dropped by handleStream's screen guard.
+func (m *model) abortRunning() {
+	if p := m.proc; p != nil {
+		_ = p.Signal(os.Interrupt)
+		// grace read here (caller goroutine), not inside escalateKill, so the
+		// spawned goroutine doesn't race a test that swaps sigkillGrace.
+		go escalateKill(p, sigkillGrace)
+		m.proc = nil
+	}
+	m.screen = screenMenu
+}
+
+// escalateKill force-terminates p if it hasn't exited within grace. p.Kill() is
+// a no-op (returns an ignored error) once the process has been reaped by
+// runStep's cmd.Wait, and never touches a reused PID.
+func escalateKill(p *os.Process, grace time.Duration) {
+	time.Sleep(grace)
+	_ = p.Kill() // SIGKILL — cannot be caught or ignored
 }
 
 func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
@@ -470,6 +522,11 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
+	// After an abort (or any navigation away from the run) drop late output from
+	// the dying child and stop pumping the channel.
+	if m.screen != screenRunning && m.screen != screenAbortConfirm {
+		return m, nil
+	}
 	if !msg.done {
 		m.buf.WriteString(msg.line + "\n")
 		m.output.SetContent(m.buf.String())
@@ -502,32 +559,43 @@ func (m model) openLog() (tea.Model, tea.Cmd) {
 
 // ── view ─────────────────────────────────────────────────────────────────────
 
+// View renders the active screen. Popup screens (password, confirm, abort,
+// notice) are composited as a floating box over their recorded background.
 func (m model) View() string {
 	switch m.screen {
+	case screenPassword:
+		return overlay(m.viewOf(m.bg), m.viewPassword())
+	case screenConfirm:
+		return overlay(m.viewOf(m.bg), m.viewConfirm())
+	case screenAbortConfirm:
+		return overlay(m.viewOf(m.bg), m.viewAbortConfirm())
+	case screenNotice:
+		return overlay(m.viewOf(m.bg), m.viewNotice())
+	}
+	return m.viewOf(m.screen)
+}
+
+// viewOf renders a full (non-popup) screen.
+func (m model) viewOf(s screen) string {
+	switch s {
 	case screenMenu:
 		return m.viewMenu()
-	case screenPassword:
-		return m.viewPassword()
-	case screenConfirm:
-		return m.viewConfirm()
 	case screenRunning:
 		return m.viewRunning()
 	case screenSummary:
 		return m.viewSummary()
 	case screenLog:
 		return m.viewLog()
-	case screenNotice:
-		return m.viewNotice()
 	case screenDiscovering:
 		return m.viewDiscovering()
 	case screenServices:
 		return m.viewServices()
 	}
-	return ""
+	return m.viewMenu() // safe fallback for a popup background
 }
 
 func (m model) header() string {
-	line := titleStyle.Render("Arch Linux Maintenance")
+	line := titleStyle.Render("archmaid — Arch maintenance")
 	if dryRun {
 		line += "  " + stepFailStyle.Render("[dry-run]")
 	}
@@ -551,25 +619,30 @@ func (m model) viewMenu() string {
 }
 
 func (m model) viewPassword() string {
-	body := stepRunStyle.Render("🔒 sudo access required") + "\n\n" +
-		m.password.View() + "\n"
+	body := stepRunStyle.Render("🔒 sudo access required") + "\n\n" + m.password.View()
 	if m.pwErr != "" {
-		body += "\n" + stepFailStyle.Render(m.pwErr) + "\n"
+		body += "\n\n" + stepFailStyle.Render(m.pwErr)
 	}
-	return m.header() + "\n" + body + "\n" + hintStyle.Render("enter submit · esc cancel")
+	body += "\n\n" + hintStyle.Render("enter submit · esc cancel")
+	return popupBox.Render(body)
+}
+
+// yesNoButtons renders the two-button row for a confirm popup.
+func yesNoButtons(yes bool) string {
+	y, n := "  Yes  ", "  No  "
+	if yes {
+		y = selectedStyle.Render("▸ Yes ")
+	} else {
+		n = selectedStyle.Render("▸ No ")
+	}
+	return y + "   " + n
 }
 
 func (m model) viewConfirm() string {
-	yes, no := "  Yes  ", "  No  "
-	if m.confirmYes {
-		yes = selectedStyle.Render("▸ Yes ")
-	} else {
-		no = selectedStyle.Render("▸ No ")
-	}
-	return m.header() + "\n" +
-		stepFailStyle.Render("⚠ "+m.confirmMsg) + "\n\n" +
-		yes + "   " + no + "\n\n" +
+	body := stepFailStyle.Render("⚠ "+m.confirmMsg) + "\n\n" +
+		yesNoButtons(m.confirmYes) + "\n\n" +
 		hintStyle.Render("y/n or ←/→ then enter")
+	return popupBox.Render(body)
 }
 
 func (m model) viewRunning() string {
@@ -579,6 +652,18 @@ func (m model) viewRunning() string {
 	b.WriteString(outputPaneStyle.Width(m.output.Width).Render(m.output.View()) + "\n")
 	b.WriteString(hintStyle.Render("↑/↓ scroll output · ctrl+c abort"))
 	return b.String()
+}
+
+func (m model) viewAbortConfirm() string {
+	title := ""
+	if m.current >= 0 && m.current < len(m.queue) {
+		title = m.queue[m.current].step.title
+	}
+	body := stepFailStyle.Render("⚠ Abort the running step?") + "\n" +
+		statusStyle.Render(title) + "\n\n" +
+		yesNoButtons(m.confirmYes) + "\n\n" +
+		hintStyle.Render("y abort · n resume · ←/→ then enter")
+	return popupBox.Render(body)
 }
 
 func (m model) checklist() string {
@@ -629,8 +714,8 @@ func (m model) viewLog() string {
 }
 
 func (m model) viewNotice() string {
-	return m.header() + "\n" + itemStyle.Render(m.notice) + "\n\n" +
-		hintStyle.Render("any key to return")
+	body := itemStyle.Render(m.notice) + "\n\n" + hintStyle.Render("any key to return")
+	return popupBox.Render(body)
 }
 
 func (m model) viewDiscovering() string {

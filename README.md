@@ -1,9 +1,15 @@
-# gum-cleanup-script-arch
+# archmaid
 
-A [gum](https://github.com/charmbracelet/gum)-based TUI for routine Arch
-Linux maintenance — clean package caches, remove orphans, vacuum logs,
-update via [topgrade](https://github.com/topgrade-rs/topgrade), and more,
+Housekeeping for Arch Linux — clean package caches, remove orphans, vacuum
+logs, update via [topgrade](https://github.com/topgrade-rs/topgrade), and more,
 all from one menu. Tokyo Night themed.
+
+Two implementations live here:
+- **`archmaid.sh`** — the original [gum](https://github.com/charmbracelet/gum)-based
+  script (documented below).
+- **`tui/`** — a [Bubble Tea](https://github.com/charmbracelet/bubbletea) rewrite
+  with live output, in-TUI sudo, floating popups, and a `--dryrun` mode. See
+  [`tui/README.md`](tui/README.md).
 
 ## Requirements
 
@@ -19,9 +25,9 @@ all from one menu. Tokyo Night themed.
 ## Usage
 
 ```sh
-git clone https://github.com/Enzord758/gum-cleanup-script-arch.git ~/cleanup
-cd ~/cleanup
-./cleanup.sh
+git clone https://github.com/Enzord758/archmaid.git ~/archmaid
+cd ~/archmaid
+./archmaid.sh
 ```
 
 Some steps run `sudo` commands — you'll be prompted to authenticate once
@@ -44,5 +50,5 @@ Every destructive action asks for confirmation before running.
 
 ## Logging
 
-Every run overwrites `~/.maintenance_tui.log` with a timestamped record of
+Every run overwrites `~/.archmaid.log` with a timestamped record of
 each step (`START`/`END`/`FAIL`), viewable in-app via **View log**.

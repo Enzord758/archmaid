@@ -31,7 +31,7 @@ clear
 # ─────────────────────────────────────────────
 # Runtime / Logging
 # ─────────────────────────────────────────────
-LOG_FILE="$HOME/.maintenance_tui.log"
+LOG_FILE="$HOME/.archmaid.log"
 : >"$LOG_FILE"
 
 log() {
@@ -432,7 +432,7 @@ while true; do
   # bold+color code directly in the string, reset afterward.
   FULL_CLEANUP_ITEM="$(printf '\e[1;33m󰓦  Full Cleanup (Recommended)\e[0m')"
 
-  header="$(gum style --foreground "$TOKYO_PURPLE" --bold 'Arch Linux Maintenance')"$'\n'"$(gum style --foreground "$TOKYO_GRAY" "$(system_status)")"$'\n\n'"$(gum style --foreground "$TOKYO_YELLOW" --bold 'Recommended: Full Cleanup')"
+  header="$(gum style --foreground "$TOKYO_PURPLE" --bold 'archmaid — Arch maintenance')"$'\n'"$(gum style --foreground "$TOKYO_GRAY" "$(system_status)")"$'\n\n'"$(gum style --foreground "$TOKYO_YELLOW" --bold 'Recommended: Full Cleanup')"
 
   menu_content=$(gum choose \
     "$FULL_CLEANUP_ITEM" \
