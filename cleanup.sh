@@ -76,34 +76,61 @@ fail_msg() {
   log "FAIL: $1"
 }
 
+# log_output "Log label" "text…"
+#
+# Appends a delimited block of real command output to the log file, so the
+# log carries more than just START/END/FAIL timestamps.
+log_output() {
+  local label="$1"
+  local text="$2"
+  [[ -n "$text" ]] || return 0
+  {
+    printf -- '--- %s output ---\n' "$label"
+    printf '%s\n' "$text"
+    printf -- '--- end output ---\n'
+  } >>"$LOG_FILE"
+}
+
 # run_task "Spinner title" "Log label" cmd [args…]
 #
 # Runs cmd under gum spin (which natively blocks until cmd finishes and
-# forwards its exit code), then prints end_msg/fail_msg with timing.
+# forwards its exit code) while capturing its real stdout/stderr — gum spin
+# discards command output by default, so without this the log only ever
+# saw START/END/FAIL markers, never what the command actually did or why
+# it failed. Output is always logged; on failure it's also shown in a
+# pager since the spinner hid it while running.
 run_task() {
   local spin_title="$1"
   local label="$2"
   shift 2
 
-  local start end dur exit_code
+  local start end dur exit_code tmp_out
+  tmp_out=$(mktemp)
   start=$(date +%s)
 
   gum spin --spinner dot \
     --title " $spin_title" \
     --spinner.foreground="#7aa2f7" \
-    -- "$@"
+    -- bash -c 'out="$1"; shift; exec >"$out" 2>&1; exec "$@"' bash "$tmp_out" "$@"
   exit_code=$?
 
   end=$(date +%s)
   dur=$((end - start))
 
+  log_output "$label" "$(<"$tmp_out")"
+
   if [[ "$exit_code" -eq 0 ]]; then
     end_msg "$label (${dur}s)"
-    return 0
   else
     fail_msg "$label failed (${dur}s)"
-    return 1
+    if [[ -s "$tmp_out" ]]; then
+      echo
+      gum pager <"$tmp_out"
+    fi
   fi
+
+  rm -f "$tmp_out"
+  return "$exit_code"
 }
 
 view_log() {
@@ -186,21 +213,21 @@ full_cleanup() {
   start_msg "Running package integrity check"
   run_task "Checking package integrity…" "Package integrity check completed" sudo pacman -Qk || ((errors++))
 
-  # 7. System update via topgrade (silent – only shows output on failure)
+  # 7. System update via topgrade (silent – only shows output on failure,
+  # but the real output is always written to the log)
   start_msg "Updating system with topgrade"
   if command -v topgrade &>/dev/null; then
-    local tg_output tg_start tg_end tg_dur
+    local tg_output tg_start tg_end tg_dur tg_exit
     tg_start=$(date +%s)
     tg_output=$(topgrade 2>&1)
-    local tg_exit=$?
+    tg_exit=$?
     tg_end=$(date +%s)
     tg_dur=$((tg_end - tg_start))
+    log_output "Topgrade" "$tg_output"
     if [[ $tg_exit -eq 0 ]]; then
       end_msg "Topgrade completed (${tg_dur}s)"
-      log "END: Topgrade completed (${tg_dur}s)"
     else
       fail_msg "Topgrade failed (${tg_dur}s) – showing output:"
-      log "FAIL: Topgrade failed (${tg_dur}s)"
       echo
       echo "$tg_output" | gum pager
       ((errors++))
@@ -272,20 +299,21 @@ run_topgrade() {
   fi
   gum confirm "Run topgrade now?" || return
 
-  # Run silently – only show output if there's an error
-  local output start end dur
+  # Run silently – only show output if there's an error, but the real
+  # output is always written to the log
+  local output start end dur exit_code
   start=$(date +%s)
   output=$(topgrade 2>&1)
-  local exit_code=$?
+  exit_code=$?
   end=$(date +%s)
   dur=$((end - start))
 
+  log_output "Topgrade" "$output"
+
   if [[ $exit_code -eq 0 ]]; then
     end_msg "Topgrade completed (${dur}s)"
-    log "END: Topgrade completed (${dur}s)"
   else
     fail_msg "Topgrade failed (${dur}s) – showing output:"
-    log "FAIL: Topgrade failed (${dur}s)"
     echo
     echo "$output" | gum pager
   fi
