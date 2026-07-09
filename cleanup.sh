@@ -78,8 +78,9 @@ fail_msg() {
 
 # log_output "Log label" "text…"
 #
-# Appends a delimited block of real command output to the log file, so the
-# log carries more than just START/END/FAIL timestamps.
+# Appends a delimited block of real command output to the log file. Only
+# called on failure, so the log stays focused on what actually went wrong
+# instead of ballooning with output from every successful run.
 log_output() {
   local label="$1"
   local text="$2"
@@ -117,11 +118,10 @@ run_task() {
   end=$(date +%s)
   dur=$((end - start))
 
-  log_output "$label" "$(<"$tmp_out")"
-
   if [[ "$exit_code" -eq 0 ]]; then
     end_msg "$label (${dur}s)"
   else
+    log_output "$label" "$(<"$tmp_out")"
     fail_msg "$label failed (${dur}s)"
     if [[ -s "$tmp_out" ]]; then
       echo
@@ -213,25 +213,26 @@ full_cleanup() {
   start_msg "Running package integrity check"
   run_task "Checking package integrity…" "Package integrity check completed" sudo pacman -Qk || ((errors++))
 
-  # 7. System update via topgrade (silent – only shows output on failure,
-  # but the real output is always written to the log)
+  # 7. System update via topgrade — shown live (it's long-running, and a
+  # blank spinner screen for a multi-minute update isn't reassuring)
   start_msg "Updating system with topgrade"
   if command -v topgrade &>/dev/null; then
-    local tg_output tg_start tg_end tg_dur tg_exit
+    local tg_output tg_tmp tg_start tg_end tg_dur tg_exit
+    tg_tmp=$(mktemp)
     tg_start=$(date +%s)
-    tg_output=$(topgrade 2>&1)
-    tg_exit=$?
+    topgrade 2>&1 | tee "$tg_tmp"
+    tg_exit=${PIPESTATUS[0]}
     tg_end=$(date +%s)
     tg_dur=$((tg_end - tg_start))
-    log_output "Topgrade" "$tg_output"
     if [[ $tg_exit -eq 0 ]]; then
       end_msg "Topgrade completed (${tg_dur}s)"
     else
-      fail_msg "Topgrade failed (${tg_dur}s) – showing output:"
-      echo
-      echo "$tg_output" | gum pager
+      tg_output=$(<"$tg_tmp")
+      log_output "Topgrade" "$tg_output"
+      fail_msg "Topgrade failed (${tg_dur}s)"
       ((errors++))
     fi
+    rm -f "$tg_tmp"
   else
     fail_msg "topgrade not found – falling back to pacman"
     run_task "Updating system…" "System update completed" sudo pacman -Syu --noconfirm || ((errors++))
@@ -299,24 +300,23 @@ run_topgrade() {
   fi
   gum confirm "Run topgrade now?" || return
 
-  # Run silently – only show output if there's an error, but the real
-  # output is always written to the log
-  local output start end dur exit_code
+  # Shown live — see the note in full_cleanup's topgrade step
+  local output tmp_out start end dur exit_code
+  tmp_out=$(mktemp)
   start=$(date +%s)
-  output=$(topgrade 2>&1)
-  exit_code=$?
+  topgrade 2>&1 | tee "$tmp_out"
+  exit_code=${PIPESTATUS[0]}
   end=$(date +%s)
   dur=$((end - start))
-
-  log_output "Topgrade" "$output"
 
   if [[ $exit_code -eq 0 ]]; then
     end_msg "Topgrade completed (${dur}s)"
   else
-    fail_msg "Topgrade failed (${dur}s) – showing output:"
-    echo
-    echo "$output" | gum pager
+    output=$(<"$tmp_out")
+    log_output "Topgrade" "$output"
+    fail_msg "Topgrade failed (${dur}s)"
   fi
+  rm -f "$tmp_out"
 }
 
 edit_topgrade_config() {
