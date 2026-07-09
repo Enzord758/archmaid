@@ -106,3 +106,39 @@ handover inside `tea.ExecProcess` (we verify the command, not that the editor
 visually takes over), and `tea.Tick`'s timer firing (a library primitive).
 
 Suite is now 37 passing (`-race`), `go vet` and `gofmt -l` clean.
+
+---
+
+## Update 2 — abort flow + floating overlays (second follow-up pass)
+
+Two feature commits landed on top, each with its own test file:
+
+- **Abortable running steps** (`abort_test.go`): ctrl+c during a running step no
+  longer quits the program — it pops an abort-confirm; "no" resumes (child kept
+  alive), "yes" SIGINTs the child, escalating to SIGKILL after a grace period if
+  it traps SIGINT, then returns to the menu. Late `done` messages arriving after
+  an abort are dropped (no screen change, no `errs`). Tests exercise a **real
+  `sleep` child** and a SIGINT-trapping script — they're the slowest in the
+  suite but verify actual signal delivery. `runStep` now returns the
+  `*os.Process` for this.
+- **Floating popup overlays** (`overlay.go` + `overlay_test.go`): password,
+  confirm, abort, and notice prompts render as bordered boxes composited *over*
+  the current screen by an ANSI-width-aware compositor. Tests assert centering,
+  background preservation (including styled/colored rows), and that the abort
+  dialog floats over the running screen. If you change any popup, the overlay
+  tests are where width regressions will surface.
+
+`TESTING.md` was rewritten as the suite inventory/how-to-run doc (this file
+stays the narrative handover). Current gate, re-verified after the merge:
+**46 tests passing under `-race`; `go vet` and `gofmt -l .` clean.**
+
+### If you pick this up next
+
+- The VHS e2e still only drives the Clear-user-cache flow; a second tape through
+  the services multi-select (inject fake `systemctl` output via a PATH shim)
+  would give the overlay + abort paths a pty-level check.
+- `TestSummaryMessages` covers the five outcomes as strings; a summary-screen
+  golden would also pin the checklist glyphs.
+- Goldens for the popup screens (password/confirm over a background) are now
+  feasible since the overlay is deterministic — `fixedModel()` + Ascii profile
+  apply as before.
