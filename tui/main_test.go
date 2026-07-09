@@ -108,26 +108,6 @@ func TestDryRunLogsEveryStep(t *testing.T) {
 	}
 }
 
-// TestSudoThreeStrikes: after maxSudoAttempts wrong passwords, sudo is marked
-// unavailable and the queue proceeds (skipping sudo steps).
-func TestSudoThreeStrikes(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-
-	m := initialModel()
-	m.pending = []step{{logLabel: "needs root", needsSudo: true, command: "true"}}
-
-	var tm interface{} = m
-	for i := 0; i < maxSudoAttempts; i++ {
-		var mm model = tm.(model)
-		next, _ := mm.Update(sudoResultMsg{err: errors.New("bad password")})
-		tm = next
-	}
-	got := tm.(model)
-	if !got.sudoUnavailable {
-		t.Fatalf("expected sudoUnavailable after %d failures", maxSudoAttempts)
-	}
-}
-
 // TestDiscoveryNotice: a discovery with a notice routes to the notice screen.
 func TestDiscoveryNotice(t *testing.T) {
 	m := initialModel()
@@ -151,17 +131,6 @@ func TestDiscoveryServices(t *testing.T) {
 	if len(got.serviceOn) != len(svcs) {
 		t.Fatalf("serviceOn size %d, want %d", len(got.serviceOn), len(svcs))
 	}
-}
-
-// TestBrokenPackagesParsing sanity-checks the parser against a healthy system:
-// pacman -Qk should report no broken packages (all "0 missing/altered files").
-func TestBrokenPackagesParsing(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/pacman"); err != nil {
-		t.Skip("pacman not available")
-	}
-	// We can't assert a specific list, but the call must not panic and must
-	// return cleanly. On a healthy system it's empty.
-	_ = brokenPackages()
 }
 
 // ── behaviour 1: dry-run safety across the whole full-cleanup queue ───────────

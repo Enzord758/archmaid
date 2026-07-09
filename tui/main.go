@@ -67,8 +67,6 @@ var menu = []menuItem{
 type model struct {
 	screen screen // active screen; for popup screens, drawn over bg
 	bg     screen // background screen to composite a popup over
-	width  int
-	height int
 
 	cursor  int    // menu selection
 	status  string // system status line (disk/ram/cache)
@@ -151,7 +149,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
 		// leave room for the header and footer around the output pane
 		m.output.Width = msg.Width - 4
 		m.output.Height = msg.Height - 8

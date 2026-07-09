@@ -47,7 +47,6 @@ const (
 type stepState struct {
 	step   step
 	status stepStatus
-	dur    string // filled in when the step completes
 }
 
 // ── streaming ────────────────────────────────────────────────────────────────
