@@ -109,6 +109,36 @@ func TestLateOutputDroppedAfterAbort(t *testing.T) {
 	}
 }
 
+// TestAbortEscalatesToSigkill: a child that ignores SIGINT is force-killed
+// after the grace period.
+func TestAbortEscalatesToSigkill(t *testing.T) {
+	old := sigkillGrace
+	sigkillGrace = 200 * time.Millisecond
+	defer func() { sigkillGrace = old }()
+
+	// bash that traps (ignores) SIGINT, then sleeps
+	cmd := exec.Command("bash", "-c", "trap '' INT; sleep 30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	m := fixedModel()
+	m.screen = screenAbortConfirm
+	m.confirmYes = true
+	m.proc = cmd.Process
+
+	update(m, key("enter")) // SIGINT (ignored) → escalateKill → SIGKILL after grace
+
+	select {
+	case <-done: // killed — good
+	case <-time.After(3 * time.Second):
+		cmd.Process.Kill()
+		t.Fatal("SIGINT-ignoring child was not force-killed")
+	}
+}
+
 // TestAbortNilProcSafe: aborting with no live process (e.g. dry run) is a no-op
 // that still returns to the menu.
 func TestAbortNilProcSafe(t *testing.T) {

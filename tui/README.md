@@ -44,9 +44,14 @@ straight over via `lipgloss`).
   enabled-but-inactive services to disable. "Nothing to do" routes to a notice.
 - **Edit topgrade config** hands the terminal to `$EDITOR` via `tea.ExecProcess`,
   creating `~/.config/topgrade.toml` with defaults first.
-- **Abortable steps** — ctrl+c while a step runs opens a confirmation
-  (`screenAbortConfirm`); confirming sends the child SIGINT (sudo relays it to the
-  real command) and returns to the menu, rather than quitting the program.
+- **Abortable steps** — ctrl+c while a step runs opens a confirmation; confirming
+  sends the child SIGINT (sudo relays it to the real command) and returns to the
+  menu, rather than quitting. A child that ignores SIGINT is force-killed
+  (SIGKILL) after a grace period.
+- **Floating popups** — the prompts (password input, confirm/abort two-button
+  dialogs, notices) render as bordered boxes composited over the current screen
+  via an ANSI-aware overlay (`overlay.go`), not full-screen takeovers, so the
+  running checklist stays visible behind an abort dialog.
 - **Error-only logging** to `~/.maintenance_tui.log` (`log.go`), same policy and
   path as the bash version.
 
@@ -75,7 +80,6 @@ the header. This is the safe way to exercise the whole UI.
 - Orphaned-package removal as its own step inside Full Cleanup (currently only
   the standalone "repair broken packages" discovery exists).
 - Parity pass on Full Cleanup's per-step optional confirms vs. the bash script.
-- A SIGKILL fallback if a child ignores the SIGINT from an abort.
 
 ## Build & test
 

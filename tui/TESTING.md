@@ -32,7 +32,7 @@ bash e2e/run.sh          # VHS e2e; builds ./tui, drives it under --dryrun, asse
 go build . && ./tui --dryrun        # manual e2e; then inspect ~/.maintenance_dryrun.log
 ```
 
-Current status: **42 tests, all green under `-race`; `vet` and `gofmt` clean.**
+Current status: **~50 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
 ## Test inventory
 
@@ -70,8 +70,19 @@ ctrl+c while a step runs pops a confirm; yes kills the child and returns to menu
 | `TestAbortConfirmShownNotQuit` | ctrl+c on run screen → `screenAbortConfirm`, no `tea.Quit`, defaults to No |
 | `TestAbortDeclineResumes` | "no" → back to `screenRunning`, process handle kept, real `sleep` child still alive (signal-0 probe) |
 | `TestAbortAcceptSignalsAndMenus` | "yes" → child actually terminated (spawns real `sleep 30`, waits for exit), screen → menu, `proc` cleared |
+| `TestAbortEscalatesToSigkill` | a child that traps/ignores SIGINT is force-killed after the (test-shrunk) grace period |
 | `TestLateOutputDroppedAfterAbort` | a late `done` after leaving the run is dropped: no screen change, no `errs`, pumping stops |
 | `TestAbortNilProcSafe` | aborting with no live process (dry run) still returns to menu |
+
+### Overlay popups — `overlay_test.go`
+
+Prompts render as bordered boxes composited over the current screen (`overlay.go`).
+
+| Test | Asserts |
+|---|---|
+| `TestOverlayCentersAndPreservesBackground` | popup centered; background rows/edges preserved; every row keeps bg width |
+| `TestOverlayIsANSIWidthSafe` | styled (colored) background keeps its visible width under the popup |
+| `TestAbortPopupFloatsOverRunningScreen` | the abort dialog renders as a border box *over* the running screen — header + running step stay visible behind it |
 
 ### Integration goldens — `teatest_test.go` + `testdata/*.golden`
 
@@ -91,6 +102,8 @@ VHS drives the real binary in a pty under `--dryrun` and asserts on the resultin
   is the single source of state transitions; most unit tests drive it directly.
 - `tasks.go` — `runStep` (starts the child, returns `*os.Process`, streams
   output), sudo commands, discovery cmds, `editConfig` (+ `execProcess` seam).
+- `overlay.go` — ANSI-aware compositor that floats a popup box over a background
+  screen; `View` uses it for the password/confirm/abort/notice screens.
 - `log.go` — `appendLog(kind, label, body)`, `logPath()` (dry-run aware).
 
 ## Not automated (inherent)

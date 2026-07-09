@@ -35,4 +35,10 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(colBlue)).
 			Padding(0, 1)
+
+	// popupBox is the floating dialog frame composited over the current screen.
+	popupBox = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colPurple)).
+			Padding(1, 3)
 )
