@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -87,12 +86,10 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 	}
 	cmd := exec.Command(name, args...)
 
-	// topgrade and yay shell out to sudo themselves. Detach from the controlling
-	// terminal (new session) so their sudo has no tty and falls back to
-	// SUDO_ASKPASS too, instead of a raw prompt at the bottom of the screen.
-	if name == "topgrade" || name == "yay" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	}
+	// Attach the shared pty so this child's sudo activity — including sudo
+	// spawned internally by tools like topgrade/yay — shares the app-wide
+	// credential ticket (see ptysession.go).
+	attachPTY(cmd)
 
 	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
 	pr, pw := io.Pipe()
@@ -228,7 +225,9 @@ func checkSudoCached() tea.Cmd {
 		if dryRun {
 			return sudoCachedMsg{cached: true} // never prompt during a dry run
 		}
-		err := exec.Command("sudo", "-n", "-v").Run()
+		cmd := exec.Command("sudo", "-n", "-v")
+		attachPTY(cmd) // probe the shared ticket domain, not the launch terminal's
+		err := cmd.Run()
 		return sudoCachedMsg{cached: err == nil}
 	}
 }
@@ -242,6 +241,7 @@ func authSudo(password string) tea.Cmd {
 		cmd := exec.Command("sudo", "-S", "-v")
 		cmd.Stdin = strings.NewReader(password + "\n")
 		cmd.Stderr = io.Discard
+		attachPTY(cmd) // the ticket this creates must land in the shared domain
 		return sudoResultMsg{err: cmd.Run()}
 	}
 }
@@ -258,10 +258,12 @@ func sudoTick() tea.Cmd {
 }
 
 // refreshSudo extends the cached timestamp non-interactively (a no-op if it has
-// already lapsed — the next `sudo -n` step just fails cleanly rather than hangs).
+// already lapsed — a step's `sudo -A` then re-prompts via the popup).
 func refreshSudo() tea.Cmd {
 	return func() tea.Msg {
-		exec.Command("sudo", "-n", "-v").Run()
+		cmd := exec.Command("sudo", "-n", "-v")
+		attachPTY(cmd) // refresh the shared domain's ticket
+		cmd.Run()
 		return nil
 	}
 }

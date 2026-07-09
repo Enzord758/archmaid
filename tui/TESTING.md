@@ -57,10 +57,21 @@ never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
   server (see the manual check that's already been done: send a password, assert
   it's printed to stdout). `startAskpassServer` writes a wrapper script + socket
   and sets `SUDO_ASKPASS`; `close()` removes both.
-- **`runStep`** now runs sudo steps as `sudo -A <args>` (was `sudo -n`), and sets
-  `SysProcAttr{Setsid: true}` for `topgrade`/`yay` (they shell out to sudo
-  themselves; no tty → they use `SUDO_ASKPASS`). Assert the argv/`SysProcAttr` for
-  a sudo step, a topgrade step, and a plain step.
+- **`runStep`** now runs sudo steps as `sudo -A <args>` (was `sudo -n`). Assert
+  the argv for a sudo step vs. a plain step.
+- **Shared pty ticket domain** (`ptysession.go`): sudo keys its credential
+  tickets to the invoking process's controlling terminal (per-ppid when there is
+  none) — which made prompting environment-dependent and caused repeated popups
+  during topgrade (each internal sudo had its own ppid-keyed ticket). archmaid
+  now opens one pty at startup (`startPTY`, master drained) and `attachPTY`
+  attaches **every step child and the sudo probe/prime/keep-alive** to it as the
+  controlling tty (ExtraFiles + `Setsid`/`Setctty`/`Ctty:3`), so all sudo
+  activity shares ONE ticket: one popup authenticates the whole run. Verified
+  manually: attached child's `ps -o tty=` equals the shared pts, and
+  `sudo -n -v` attached exits cleanly. `attachPTY` is a no-op when `ptySlave` is
+  nil (tests — startPTY only runs in main), so unit tests are unaffected. Worth
+  asserting: `attachPTY` sets `SysProcAttr{Setsid,Setctty,Ctty:3}` + appends the
+  slave to ExtraFiles when the pty exists, and leaves cmd untouched when nil.
 - **Model** (`askpassMsg`): shows the password popup over the current screen
   (`m.bg`), holds `m.askpassConn`; on submit writes `password+"\n"` to the conn &
   closes (pass-through), on cancel closes it. `handleStream`'s drop-guard now

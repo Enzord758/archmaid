@@ -12,6 +12,7 @@ require (
 require (
 	github.com/charmbracelet/x/ansi v0.10.1
 	github.com/charmbracelet/x/exp/teatest v0.0.0-20260705004817-2cc9a8fe1146
+	github.com/creack/pty v1.1.24
 	github.com/muesli/termenv v0.16.0
 )
 
