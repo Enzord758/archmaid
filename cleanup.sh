@@ -220,7 +220,7 @@ full_cleanup() {
     local tg_output tg_tmp tg_start tg_end tg_dur tg_exit
     tg_tmp=$(mktemp)
     tg_start=$(date +%s)
-    topgrade 2>&1 | tee "$tg_tmp"
+    topgrade -y 2>&1 | tee "$tg_tmp"
     tg_exit=${PIPESTATUS[0]}
     tg_end=$(date +%s)
     tg_dur=$((tg_end - tg_start))
@@ -304,7 +304,7 @@ run_topgrade() {
   local output tmp_out start end dur exit_code
   tmp_out=$(mktemp)
   start=$(date +%s)
-  topgrade 2>&1 | tee "$tmp_out"
+  topgrade -y 2>&1 | tee "$tmp_out"
   exit_code=${PIPESTATUS[0]}
   end=$(date +%s)
   dur=$((end - start))
