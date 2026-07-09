@@ -74,3 +74,35 @@ Likely-best next steps, in order: fix finding 1 and/or 2 above (then update the
 two named assertions), fixture-test `discoverDownloads` with a temp dir of aged
 files (`touch -d`), and add a golden for the summary screen once finding 2 is
 settled so the checklist glyphs are pinned there too.
+
+---
+
+## Update — findings fixed and thin spots closed (follow-up pass)
+
+Findings 1 & 2 are fixed in code (skips no longer counted as failures; aborted
+steps render as skipped, with an "⚠ Aborted" summary). The two pinned assertions
+were updated to match.
+
+The thin spots above are now covered (`coverage_test.go`):
+
+- **editConfig non-dry path** — an `execProcess` seam (`var execProcess =
+  tea.ExecProcess`) lets a test capture the editor command and assert the config
+  file is created with defaults, without launching an editor. Existing-file
+  no-clobber is tested too.
+- **discoverDownloads** — real-filesystem fixtures via a temp `$HOME/Downloads`
+  with `os.Chtimes`-aged files; asserts the count in the confirm string and the
+  empty→notice path.
+- **Password masking** — types into `screenPassword` and asserts the rendered
+  frame shows mask glyphs, never cleartext.
+- **Running checklist** — spinner pinned to a single frame (`Frames: ["*"]`) so
+  every status glyph (running/ok/failed/skipped/pending) renders deterministically.
+- **systemStatus/refreshStatus** — asserts the status line's label contract and
+  that a `statusMsg` updates `m.status` and re-arms the tick.
+- **Summary** — table test over all five outcomes (success/issues/skipped/
+  issues+skipped/aborted).
+
+Genuinely still not automated (inherent, low value): the OS-level terminal
+handover inside `tea.ExecProcess` (we verify the command, not that the editor
+visually takes over), and `tea.Tick`'s timer firing (a library primitive).
+
+Suite is now 37 passing (`-race`), `go vet` and `gofmt -l` clean.
