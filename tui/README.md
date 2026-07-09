@@ -84,6 +84,16 @@ Feature parity with `archmaid.sh` is complete. Remaining items are test
 coverage (owned separately — see `TESTING.md`): broader VHS e2e through the
 services/abort paths, and a summary-screen golden.
 
+## Install
+
+To install as a launchable app (binary + icon + `.desktop` for rofi), use the
+repo-root installer — see [`../INSTALL.md`](../INSTALL.md):
+
+```sh
+cd ..            # repo root
+./install.sh
+```
+
 ## Build & test
 
 Needs Go (`pacman -S go`).

@@ -5,11 +5,32 @@ logs, update via [topgrade](https://github.com/topgrade-rs/topgrade), and more,
 all from one menu. Tokyo Night themed.
 
 Two implementations live here:
-- **`archmaid.sh`** — the original [gum](https://github.com/charmbracelet/gum)-based
-  script (documented below).
-- **`tui/`** — a [Bubble Tea](https://github.com/charmbracelet/bubbletea) rewrite
-  with live output, in-TUI sudo, floating popups, and a `--dryrun` mode. See
+- **`tui/`** — the current app: a [Bubble Tea](https://github.com/charmbracelet/bubbletea)
+  TUI with live output, in-TUI sudo, floating popups, orphan removal, and a
+  `--dryrun` mode. Installable as a launchable app (below). See
   [`tui/README.md`](tui/README.md).
+- **`archmaid.sh`** — the original [gum](https://github.com/charmbracelet/gum)-based
+  script the TUI grew out of (documented further down).
+
+## Install
+
+Build the TUI and register it as a launchable app (rofi etc.) — all under
+`$HOME`, no root:
+
+```sh
+git clone https://github.com/Enzord758/archmaid.git ~/archmaid
+cd ~/archmaid
+./install.sh          # binary → ~/.local/bin, icon + .desktop for launchers
+./install.sh --uninstall
+```
+
+Then launch it from **rofi** as *archmaid*, or run `archmaid`. Needs Go to build
+and a terminal (defaults to `kitty`; override with `ARCHMAID_TERMINAL`). Full
+details in [`INSTALL.md`](INSTALL.md).
+
+---
+
+The rest of this README documents the original **`archmaid.sh`** gum script.
 
 ## Requirements
 

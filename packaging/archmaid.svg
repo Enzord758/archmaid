@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- backdrop -->
+  <rect x="4" y="4" width="120" height="120" rx="27" fill="#1a1b26"/>
+  <rect x="4.5" y="4.5" width="119" height="119" rx="26.5" fill="none" stroke="#7aa2f7" stroke-opacity="0.30" stroke-width="1"/>
+
+  <!-- Arch chevron -->
+  <path d="M64 20 L104 96 L86 96 L64 55 L42 96 L24 96 Z" fill="#7aa2f7"/>
+  <path d="M64 20 L104 96 L86 96 L64 55 L42 96 L24 96 Z" fill="#7dcfff" fill-opacity="0.18"/>
+
+  <!-- broom, sweeping across the base -->
+  <g transform="rotate(-26 66 96)">
+    <!-- handle -->
+    <rect x="62.5" y="34" width="7" height="46" rx="3.5" fill="#bb9af7"/>
+    <!-- binding -->
+    <rect x="57" y="78" width="18" height="8" rx="3" fill="#f7768e"/>
+    <!-- bristles -->
+    <path d="M55 86 L77 86 L86 114 L46 114 Z" fill="#e0af68"/>
+    <!-- bristle separations -->
+    <g stroke="#1a1b26" stroke-width="2.4" stroke-linecap="round">
+      <line x1="60" y1="90" x2="55" y2="112"/>
+      <line x1="66" y1="90" x2="66" y2="112"/>
+      <line x1="72" y1="90" x2="77" y2="112"/>
+    </g>
+  </g>
+
+  <!-- sparkles -->
+  <g fill="#7dcfff">
+    <path d="M97 42 l3.2 7 7 3.2 -7 3.2 -3.2 7 -3.2 -7 -7 -3.2 7 -3.2 z"/>
+    <path d="M99 100 l2.3 5 5 2.3 -5 2.3 -2.3 5 -2.3 -5 -5 -2.3 5 -2.3 z"/>
+  </g>
+</svg>
