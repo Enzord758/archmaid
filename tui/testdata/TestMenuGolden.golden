@@ -1,0 +1,14 @@
+Arch Linux Maintenance  [dry-run]
+ Free: 100G   RAM free: 8G   Cache: 512M
+
+  󰓦  Full Cleanup (Recommended)
+➤ 󰃨  Clear user cache
+  󰚰  Repair broken packages
+  󰋊  Delete old downloads
+  󰏗  Run topgrade (system update)
+  󰒔  Disable unused services
+  󰙪  Edit topgrade config
+  󰑇  View log
+  󰗼  Exit
+
+↑/↓ move · enter select · q quit

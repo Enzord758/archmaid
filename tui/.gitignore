@@ -1,1 +1,5 @@
 /tui
+
+# VHS e2e artifacts
+e2e/run.txt
+e2e/run.gif
