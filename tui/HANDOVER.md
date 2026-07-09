@@ -174,3 +174,66 @@ clean.** No production code changed.
 The suggestions from Update 2 still stand (services-flow VHS tape, summary
 golden, popup goldens). New: a golden of the gate confirm floating over the
 menu would pin the cached-sudo Full Cleanup entry point end to end.
+
+---
+
+## Update 4 — sudo-hardening tests + pruneLogs fixture (Fable, fourth pass)
+
+Covered the sudo-hardening changes TESTING.md flagged, in
+`sudo_hardening_test.go` (11 tests; inventory table in TESTING.md):
+
+- `sudo -n` argv rewrite proven with a PATH-shimmed `sudo` that prints its
+  argv (gotcha: the shim must use `printf '%s\n' "$*"` — `echo "$@"` eats the
+  very `-n` under test). Non-sudo argv asserted unchanged; topgrade steps
+  asserted `needsSudo` in both the standalone action and Full Cleanup.
+- Keep-alive lifecycle: armed by a real-run sudo queue (a step confirm keeps
+  the test from exec'ing anything), never in dry-run; reschedules while armed,
+  no-ops once disarmed; disarmed on summary, confirm-abort, and running-abort.
+- `pruneLogs`: temp-`logDir` fixture with `os.Chtimes`-aged files — only the
+  stale `.log` goes; fresh logs, non-`.log` files, and directories survive.
+
+Gate: **66 tests green under `-race`; vet and gofmt clean.** No production
+code changed.
+
+### Live-test findings (real binary, no sudo password — wrong-password flow)
+
+Driven via VHS against the real (non-dryrun) binary under a scratch HOME:
+menu → topgrade action → real `sudo -n -v` probe → password overlay → two
+deliberately wrong passwords → esc → menu → q. Verified live: the overlay
+floats over the menu, input is masked, "Incorrect password — 2 attempts left"
+renders, esc cancels back to the menu, q exits cleanly, and no run log is
+written for auth failures. Two real defects surfaced:
+
+1. **No in-flight auth state.** Between enter and `sudoResultMsg` (several
+   seconds — sudo's PAM delay + its stdin-retry behaviour), the password field
+   keeps accepting keystrokes (a second password typed during the wait is
+   silently *appended* to the first — the popup visibly widens) and a second
+   enter fires a **concurrent** `sudo -S -v`. There is zero feedback that
+   authentication is running. Fix shape: on submit, disable the input + show a
+   spinner/"authenticating…" state and ignore enter until the result arrives.
+2. **faillock burn.** Two in-app submissions produced **three** PAM failures
+   (`faillock` records 2 s apart) — with Arch's default `deny=3` the account
+   auth-locked (10 min) before the app's own three-strikes ever fired. In-app
+   `maxSudoAttempts = 3` collides with faillock's 3; consider `-p ''` aside,
+   the concurrency fix in (1) removes the extra failure, and the prompt could
+   surface "account temporarily locked" (sudo exit/stderr distinguishes it).
+
+Artifacts (screenshots + full text capture) in the job tmp dir; faillock state
+was checked before and after (pre-existing failures had aged out; the run's
+budget of 2 was chosen to stay under deny=3 — the concurrency bug spent 3).
+
+**Three-strikes verified live** (second run, attempts paced ~10 s apart so no
+typing happened while auth was in flight): "2 attempts left" → "1 attempt
+left" → give-up → summary rendered "– Updating system with topgrade…
+(skipped)" / "Completed — 1 step(s) skipped", and the real run log (scratch
+state dir) contained exactly `SKIP: Topgrade completed (sudo authentication
+failed)`. Matches the unit-test contract end to end.
+
+Root cause for the faillock double-burn, pinned by the second run's records:
+a single `sudo -S -v` submission can log **two** PAM failures 2 s apart —
+sudo retries reading the password from stdin and burns an extra attempt on
+EOF. So in-app strike 1 can consume 2 of faillock's 3, and in-app strike 3
+may be rejected by the lockout rather than the password check. The in-flight
+input fix removes the *concurrent* burn; the stdin-retry burn is sudo/PAM
+behaviour the prompt should at least surface ("account temporarily locked" —
+sudo's stderr distinguishes it).

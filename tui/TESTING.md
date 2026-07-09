@@ -21,8 +21,8 @@ harness. This doc is the inventory and how-to-run.
   (restored via defer) so they never touch the user's real state dir
   (`TestSudoThreeStrikesSkipsAndLogs`, `TestStreamFailurePropagates`); dry-run
   tests isolate via `HOME`. `pruneLogs()` deletes run logs older than
-  `logRetention` (1 week) at startup — untested; a good add is a temp-`logDir`
-  fixture with `os.Chtimes`-aged `.log` files asserting only the stale ones go.
+  `logRetention` (1 week) at startup — covered by
+  `TestPruneLogsDeletesOnlyStaleRunLogs` (temp-`logDir`, `os.Chtimes`-aged files).
 - **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
   goldens compare a single re-rendered `View()` frame with the live status line
   pinned via `fixedModel()`; the spinner is pinned to one frame where a running
@@ -41,9 +41,9 @@ bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun,
 go build -o archmaid . && ./archmaid --dryrun   # manual e2e; then inspect ~/.local/state/archmaid/dryrun.log
 ```
 
-Current status: **~60 tests, all green under `-race`; `vet` and `gofmt` clean.**
+Current status: **75 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
-## Newly added — needs tests (Fable): sudo askpass
+## Still needs tests: sudo askpass
 
 Sudo password prompts now route to a TUI popup via `SUDO_ASKPASS`, so no sudo
 call ever prompts on the tty (which hung/collided with bubbletea) — the fix for
@@ -57,8 +57,6 @@ never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
   server (see the manual check that's already been done: send a password, assert
   it's printed to stdout). `startAskpassServer` writes a wrapper script + socket
   and sets `SUDO_ASKPASS`; `close()` removes both.
-- **`runStep`** now runs sudo steps as `sudo -A <args>` (was `sudo -n`). Assert
-  the argv for a sudo step vs. a plain step.
 - **Ticket sharing = plain children, on purpose** (history: two reverted
   attempts live in git — per-child `Setsid` isolated every internal sudo into
   its own ppid-keyed ticket (repeated popups during topgrade), and a shared-pty
@@ -92,11 +90,33 @@ never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
   with `askpassConn` set; the prime-mode prompt (`askpassConn == nil`) still calls
   `authSudo`.
 
-The prior prime/gate/keep-alive flow is unchanged (none of it stores the
-password), so their existing tests still hold — only the sudo argv changed
-(`-n` → `-A`), which no current test asserts.
+The prime/gate/keep-alive flow and the `sudo -A` argv rewrite are covered by
+`sudo_hardening_test.go` (see inventory).
 
 ## Test inventory
+
+### Sudo hardening + log pruning — `sudo_hardening_test.go`
+
+The `sudo -A` rewrite, the keep-alive loop, and `pruneLogs`, all hermetic (PATH
+shims; no real sudo/pacman touched).
+
+| Test | Asserts |
+|---|---|
+| `TestSudoStepGetsDashA` | a sudo step execs `sudo -n <args>` (shimmed sudo prints argv) |
+| `TestNonSudoStepUnchanged` | non-sudo commands keep their argv (no `-n` injected) |
+| `TestTopgradeStepsNeedSudo` | standalone + Full Cleanup topgrade steps are `needsSudo` |
+| `TestKeepAliveStartsWithSudoQueue` | real-run sudo queue arms `sudoAlive` (confirm pauses before exec) |
+| `TestKeepAliveNotStartedInDryRun` | dry run never arms the keep-alive |
+| `TestKeepAliveReschedulesWhileAlive` | armed + `sudoKeepAliveMsg` → refresh+tick cmd, stays armed |
+| `TestKeepAliveNoopWhenCleared` | disarmed + stale msg → nil cmd (loop ends) |
+| `TestKeepAliveClearedOnSummary` | queue exhausted → summary disarms |
+| `TestKeepAliveClearedOnConfirmAbort` | non-optional "no" abort disarms |
+| `TestKeepAliveClearedOnAbortRunning` | ctrl+c abort disarms (nil proc safe) |
+| `TestPruneLogsDeletesOnlyStaleRunLogs` | Chtimes-aged fixture: stale `.log` pruned; fresh logs, non-`.log`, dirs survive |
+
+Shim gotcha: the argv shim must print with `printf '%s\n' "$*"` — `echo "$@"`
+swallows the leading `-n` it is supposed to prove.
+
 
 ### Proceed-gate + orphan removal — `gate_orphan_test.go`
 
