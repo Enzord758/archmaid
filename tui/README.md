@@ -52,8 +52,11 @@ straight over via `lipgloss`).
   dialogs, notices) render as bordered boxes composited over the current screen
   via an ANSI-aware overlay (`overlay.go`), not full-screen takeovers, so the
   running checklist stays visible behind an abort dialog.
-- **Error-only logging** to `~/.archmaid.log` (`log.go`), same policy and
-  path as the bash version.
+- **Error-only logging** (`log.go`): each run's failures go to a timestamped
+  file `/var/log/archmaid/<YYYYMMDD-HHMM>.log`. Successful runs write nothing.
+  If `/var/log/archmaid` isn't writable it falls back to
+  `~/.local/state/archmaid/`. Dry runs log everything to a single
+  `~/.archmaid-dryrun.log` instead.
 
 ## Dry run
 
@@ -88,9 +91,20 @@ Needs Go (`pacman -S go`).
 ```sh
 cd tui
 go mod tidy   # resolve the dependency graph + go.sum
-go build ./...
+go build -o archmaid .
 go test ./...  # unit tests: dry-run safety, sudo retries, screen routing
 go run . --dryrun
 ```
 
 See `TESTING.md` for the full test plan and how to drive the TUI headlessly.
+
+## Log directory
+
+Real logs go to `/var/log/archmaid/`. Create it once (owned by you) so the app
+can write there instead of the `~/.local/state/archmaid/` fallback:
+
+```sh
+sudo install -d -o "$USER" -g "$USER" -m 0755 /var/log/archmaid
+```
+
+This will move into the install script.

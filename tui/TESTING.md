@@ -14,6 +14,13 @@ harness. This doc is the inventory and how-to-run.
 - **`HOME` is redirected** with `t.Setenv("HOME", t.TempDir())` in any test that
   writes a log or touches `~/.config` / `~/Downloads`, so tests never touch real
   files.
+- **Real logs now go to `/var/log/archmaid/<YYYYMMDD-HHMM>.log`** (see `log.go`),
+  falling back to `~/.local/state/archmaid/` when `/var/log/archmaid` isn't
+  writable. Dry-run logs are unchanged (`~/.archmaid-dryrun.log`, no timestamp).
+  A real-log test currently relies on the `HOME`-based fallback; to make those
+  hermetic, set `logDir = t.TempDir()` (restore after) so they never touch
+  `/var/log` or the user's real state dir. Affected: `TestSudoThreeStrikesSkipsAndLogs`,
+  `TestStreamFailurePropagates`.
 - **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
   goldens compare a single re-rendered `View()` frame with the live status line
   pinned via `fixedModel()`; the spinner is pinned to one frame where a running
