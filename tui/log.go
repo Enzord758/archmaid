@@ -10,60 +10,55 @@ import (
 // dryRun is set by --dryrun: mutating commands are logged instead of executed.
 var dryRun bool
 
-// logDir is where real (non-dry-run) logs live — one timestamped file per run.
-// A var so tests can redirect it and so a fallback can replace it when
-// /var/log/archmaid hasn't been created (see the install note in the README).
-var logDir = "/var/log/archmaid"
+// logDir overrides the log directory (tests set it). Empty means the default,
+// ~/.local/state/archmaid — a user-writable location, no root/system dir needed.
+var logDir string
 
 // runStamp names this run's log file (YYYYMMDD-HHMM). Fixed for the process so
 // every entry from one run lands in the same file.
 var runStamp = time.Now().Format("20060102-1504")
 
-// logPath returns the file this run logs to.
-//
-//   - Real runs → /var/log/archmaid/<YYYYMMDD-HHMM>.log, falling back to the
-//     user's state dir when /var/log/archmaid isn't writable.
-//   - Dry runs → a single, un-timestamped user file that never touches
-//     /var/log and is fine to overwrite.
-func logPath() string {
-	if dryRun {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, ".archmaid-dryrun.log")
-	}
-	return filepath.Join(realLogDir(), runStamp+".log")
-}
+// logRetention is how long a run log is kept before pruneLogs removes it.
+const logRetention = 7 * 24 * time.Hour
 
-// realLogDir is logDir when writable, otherwise ~/.local/state/archmaid
-// (XDG_STATE_HOME honoured) so the app still logs before /var/log is set up.
-func realLogDir() string {
-	if ensureWritable(logDir) {
+// resolveLogDir is the override when set, otherwise ~/.local/state/archmaid.
+func resolveLogDir() string {
+	if logDir != "" {
 		return logDir
 	}
-	fallback := filepath.Join(userStateDir(), "archmaid")
-	os.MkdirAll(fallback, 0o755)
-	return fallback
-}
-
-// ensureWritable creates dir if the parent allows and confirms we can write it.
-func ensureWritable(dir string) bool {
-	if os.MkdirAll(dir, 0o775) != nil {
-		return false
-	}
-	f, err := os.CreateTemp(dir, ".probe-")
-	if err != nil {
-		return false
-	}
-	f.Close()
-	os.Remove(f.Name())
-	return true
-}
-
-func userStateDir() string {
-	if x := os.Getenv("XDG_STATE_HOME"); x != "" {
-		return x
-	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "state")
+	return filepath.Join(home, ".local", "state", "archmaid")
+}
+
+// logPath returns the file this run logs to, under ~/.local/state/archmaid:
+// a timestamped per-run file for real runs, a single overwritable dryrun.log
+// for dry runs.
+func logPath() string {
+	dir := resolveLogDir()
+	os.MkdirAll(dir, 0o755)
+	if dryRun {
+		return filepath.Join(dir, "dryrun.log")
+	}
+	return filepath.Join(dir, runStamp+".log")
+}
+
+// pruneLogs deletes run logs older than logRetention. Called once at startup;
+// a no-op if the log dir doesn't exist yet.
+func pruneLogs() {
+	dir := resolveLogDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-logRetention)
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".log" {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
 }
 
 // appendLog writes a timestamped entry. kind is a short tag (FAIL, DRYRUN,

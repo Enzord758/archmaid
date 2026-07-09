@@ -14,12 +14,15 @@ harness. This doc is the inventory and how-to-run.
 - **`HOME` is redirected** with `t.Setenv("HOME", t.TempDir())` in any test that
   writes a log or touches `~/.config` / `~/Downloads`, so tests never touch real
   files.
-- **Real logs now go to `/var/log/archmaid/<YYYYMMDD-HHMM>.log`** (see `log.go`),
-  falling back to `~/.local/state/archmaid/` when `/var/log/archmaid` isn't
-  writable. Dry-run logs are unchanged (`~/.archmaid-dryrun.log`, no timestamp).
-  Real-log tests redirect `logDir = t.TempDir()` (restored via defer) so they
-  never touch `/var/log` or the user's real state dir
-  (`TestSudoThreeStrikesSkipsAndLogs`, `TestStreamFailurePropagates`).
+- **Logs live in `~/.local/state/archmaid/`** (see `log.go`): real runs →
+  `<YYYYMMDD-HHMM>.log` (one per run, failures only), dry runs → a single
+  `dryrun.log`. `resolveLogDir()` uses `$HOME/.local/state/archmaid` unless the
+  `logDir` var is overridden. Real-log tests set `logDir = t.TempDir()`
+  (restored via defer) so they never touch the user's real state dir
+  (`TestSudoThreeStrikesSkipsAndLogs`, `TestStreamFailurePropagates`); dry-run
+  tests isolate via `HOME`. `pruneLogs()` deletes run logs older than
+  `logRetention` (1 week) at startup — untested; a good add is a temp-`logDir`
+  fixture with `os.Chtimes`-aged `.log` files asserting only the stale ones go.
 - **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
   goldens compare a single re-rendered `View()` frame with the live status line
   pinned via `fixedModel()`; the spinner is pinned to one frame where a running

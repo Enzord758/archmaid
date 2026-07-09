@@ -53,16 +53,16 @@ straight over via `lipgloss`).
   via an ANSI-aware overlay (`overlay.go`), not full-screen takeovers, so the
   running checklist stays visible behind an abort dialog.
 - **Error-only logging** (`log.go`): each run's failures go to a timestamped
-  file `/var/log/archmaid/<YYYYMMDD-HHMM>.log`. Successful runs write nothing.
-  If `/var/log/archmaid` isn't writable it falls back to
-  `~/.local/state/archmaid/`. Dry runs log everything to a single
-  `~/.archmaid-dryrun.log` instead.
+  file `~/.local/state/archmaid/<YYYYMMDD-HHMM>.log` (a user-writable dir — no
+  root/system setup). Successful runs write nothing. Run logs older than a week
+  are pruned at startup. Dry runs log everything to a single
+  `~/.local/state/archmaid/dryrun.log` instead.
 
 ## Dry run
 
 `go run . --dryrun` (or `./archmaid --dryrun`) makes every mutating step *report what
 it would do* instead of running it, logs **every** step (not just failures) to a
-separate `~/.archmaid-dryrun.log`, and skips sudo entirely. Read-only
+separate `~/.local/state/archmaid/dryrun.log`, and skips sudo entirely. Read-only
 discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
 the header. This is the safe way to exercise the whole UI.
 
@@ -98,13 +98,8 @@ go run . --dryrun
 
 See `TESTING.md` for the full test plan and how to drive the TUI headlessly.
 
-## Log directory
+## Logs
 
-Real logs go to `/var/log/archmaid/`. Create it once (owned by you) so the app
-can write there instead of the `~/.local/state/archmaid/` fallback:
-
-```sh
-sudo install -d -o "$USER" -g "$USER" -m 0755 /var/log/archmaid
-```
-
-This will move into the install script.
+Logs live in `~/.local/state/archmaid/` — a user-writable dir, so there's no
+install-time or root setup. One timestamped file per run (failures only), plus a
+single `dryrun.log`; anything older than a week is pruned on startup.
