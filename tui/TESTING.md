@@ -8,7 +8,7 @@ harness. This doc is the inventory and how-to-run.
 
 - **Dry run stubs everything destructive.** `--dryrun` (global `dryRun`) makes
   mutating steps report "would run" instead of executing, skips sudo, and logs to
-  `~/.archmaid-dryrun.log`. Tests that would otherwise run real commands set
+  `~/.local/state/archmaid/dryrun.log`. Tests that would otherwise run real commands set
   `dryRun = true`. Never exercise the real `paccache -rk0` / `rm -rf` /
   `systemctl disable` paths in a test.
 - **`HOME` is redirected** with `t.Setenv("HOME", t.TempDir())` in any test that
@@ -38,10 +38,10 @@ go vet ./... && gofmt -l .   # must be clean
 go test -run TestAbort   # a subset by name
 go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
 bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun, asserts on the log
-go build -o archmaid . && ./archmaid --dryrun        # manual e2e; then inspect ~/.archmaid-dryrun.log
+go build -o archmaid . && ./archmaid --dryrun   # manual e2e; then inspect ~/.local/state/archmaid/dryrun.log
 ```
 
-Current status: **55 tests, all green under `-race`; `vet` and `gofmt` clean.**
+Current status: **~60 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
 ## Newly added — needs tests (Fable): sudo askpass
 
@@ -78,9 +78,12 @@ never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
   `--disable hyprpm` and appends a dedicated "Updating Hyprland plugins" step
   at the END of the queue (only when hyprpm is installed — `exec.LookPath`),
   where its ticket-drop can't affect anything. Live-verified: a full run now
-  shows exactly ONE password popup (the prime), zero mid-run. Worth asserting:
-  topgrade args contain `--disable hyprpm`, and the hyprpm step is last (present
-  only when hyprpm is on PATH — a PATH shim can force both branches).
+  shows exactly ONE password popup (the prime), zero mid-run. Covered by
+  `hyprpm_test.go`: `TestFullCleanupDisablesHyprpmInTopgrade`,
+  `TestHyprpmStepLastWhenInstalled`, `TestHyprpmStepOmittedWhenNotInstalled`
+  (both PATH branches via `shimExclusivePath`), and
+  `TestStandaloneTopgradeKeepsHyprpm` (the standalone action deliberately keeps
+  hyprpm — nothing runs after it there).
 - **Model** (`askpassMsg`): shows the password popup over the current screen
   (`m.bg`), holds `m.askpassConn`; on submit writes `password+"\n"` to the conn &
   closes (pass-through), on cancel closes it. `handleStream`'s drop-guard now
@@ -173,7 +176,7 @@ Prompts render as bordered boxes composited over the current screen (`overlay.go
 ### End-to-end — `e2e/run.tape` + `e2e/run.sh`
 
 VHS drives the real binary in a pty under `--dryrun` and asserts on the resulting
-`~/.archmaid-dryrun.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
+`~/.local/state/archmaid/dryrun.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
 
 ## Architecture (where the logic lives)
 
