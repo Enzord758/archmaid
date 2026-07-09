@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"io"
 	"os/exec"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -157,13 +158,35 @@ func clearUserCacheSteps() []step {
 	}}
 }
 
-// primeSudo drops out of the TUI to run an interactive `sudo -v`, then resumes.
-// tea.ExecProcess hands the real terminal to sudo so its password prompt works
-// — the clean answer to "how does a full-screen TUI ask for a sudo password."
-func primeSudo() tea.Cmd {
-	return tea.ExecProcess(exec.Command("sudo", "-v"), func(err error) tea.Msg {
-		return sudoPrimedMsg{err: err}
-	})
+// ── sudo ─────────────────────────────────────────────────────────────────────
+//
+// Rather than dropping out of the alt-screen, we authenticate inside the TUI:
+// a masked textinput collects the password and pipes it to `sudo -S -v`, which
+// caches the credential timestamp so the queue's later `sudo` calls run without
+// prompting. The password is never logged and the input is reset after use.
+
+type sudoCachedMsg struct{ cached bool } // result of the non-interactive probe
+type sudoResultMsg struct{ err error }   // result of an actual auth attempt
+
+// checkSudoCached probes whether sudo credentials are already valid, so we can
+// skip the password prompt entirely when they are (e.g. re-running within the
+// timeout).
+func checkSudoCached() tea.Cmd {
+	return func() tea.Msg {
+		err := exec.Command("sudo", "-n", "-v").Run()
+		return sudoCachedMsg{cached: err == nil}
+	}
 }
 
-type sudoPrimedMsg struct{ err error }
+// authSudo feeds the password to `sudo -S -v` on stdin. -S makes sudo read the
+// password from stdin instead of the tty; -v just validates and refreshes the
+// cached timestamp. sudo's own "[sudo] password for…" prompt goes to stderr,
+// which we discard.
+func authSudo(password string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("sudo", "-S", "-v")
+		cmd.Stdin = strings.NewReader(password + "\n")
+		cmd.Stderr = io.Discard
+		return sudoResultMsg{err: cmd.Run()}
+	}
+}

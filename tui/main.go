@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -25,11 +26,16 @@ type screen int
 
 const (
 	screenMenu screen = iota
+	screenPassword
 	screenConfirm
 	screenRunning
 	screenSummary
 	screenLog
 )
+
+// maxSudoAttempts is how many wrong passwords are allowed before we give up,
+// skip the sudo-requiring steps, and log them.
+const maxSudoAttempts = 3
 
 // menuItem is one row of the main menu; steps() yields its work queue.
 type menuItem struct {
@@ -41,11 +47,11 @@ var menu = []menuItem{
 	{"󰓦  Full Cleanup (Recommended)", fullCleanupSteps},
 	{"󰃨  Clear user cache", clearUserCacheSteps},
 	{"󰚰  Repair broken packages", nil}, // stub: dynamic pacman -Qk discovery
-	{"󰋊  Delete old downloads", nil},    // stub: find ~/Downloads -mtime +30
+	{"󰋊  Delete old downloads", nil},   // stub: find ~/Downloads -mtime +30
 	{"󰏗  Run topgrade (system update)", topgradeSteps},
 	{"󰒔  Disable unused services", nil}, // stub: bubbles/list multi-select
 	{"󰙪  Edit topgrade config", nil},    // stub: tea.ExecProcess($EDITOR)
-	{"󰑇  View log", nil},                 // handled specially → screenLog
+	{"󰑇  View log", nil},                // handled specially → screenLog
 	{"󰗼  Exit", nil},
 }
 
@@ -61,6 +67,12 @@ type model struct {
 	spinner spinner.Model
 	output  viewport.Model // live command output + log pager
 
+	// password-prompt state
+	password        textinput.Model
+	pwErr           string
+	pwAttempts      int  // consecutive wrong passwords this action
+	sudoUnavailable bool // set after maxSudoAttempts failures: skip sudo steps
+
 	// running-queue state
 	queue   []stepState
 	current int              // index into queue
@@ -71,7 +83,7 @@ type model struct {
 	errs int // failed steps so far
 
 	// confirm-modal state
-	pending   []step // queue waiting on a confirm
+	pending    []step // queue waiting on a confirm
 	confirmMsg string
 	confirmYes bool
 }
@@ -83,12 +95,20 @@ func initialModel() model {
 
 	vp := viewport.New(0, 0)
 
+	pw := textinput.New()
+	pw.Prompt = "Password: "
+	pw.EchoMode = textinput.EchoPassword // mask input
+	pw.EchoCharacter = '•'               // shown per typed character
+	pw.PromptStyle = stepRunStyle
+	pw.Cursor.Style = cursorStyle
+
 	return model{
-		screen:  screenMenu,
-		spinner: sp,
-		output:  vp,
-		buf:     &strings.Builder{},
-		status:  systemStatus(),
+		screen:   screenMenu,
+		spinner:  sp,
+		output:   vp,
+		password: pw,
+		buf:      &strings.Builder{},
+		status:   systemStatus(),
 	}
 }
 
@@ -120,16 +140,44 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case sudoPrimedMsg:
-		if msg.err != nil { // auth failed/cancelled → back to menu
-			m.screen = screenMenu
-			return m, nil
+	case sudoCachedMsg:
+		if msg.cached { // credentials still valid — skip the prompt
+			cmd := m.startQueue()
+			return m, cmd
 		}
+		m.screen = screenPassword
+		m.pwErr = ""
+		m.password.Reset()
+		return m, m.password.Focus()
+
+	case sudoResultMsg:
+		if msg.err != nil {
+			m.pwAttempts++
+			m.password.Reset()
+			if m.pwAttempts >= maxSudoAttempts {
+				// give up: run the queue anyway; sudo steps get skipped+logged
+				m.sudoUnavailable = true
+				cmd := m.startQueue()
+				return m, cmd
+			}
+			left := maxSudoAttempts - m.pwAttempts
+			m.pwErr = fmt.Sprintf("Incorrect password — %d attempt%s left", left, plural(left))
+			return m, nil // stay on the prompt for a retry
+		}
+		m.pwAttempts = 0
+		m.password.Reset() // don't keep the password around
 		cmd := m.startQueue()
 		return m, cmd
 
 	case streamMsg:
 		return m.handleStream(msg)
+	}
+
+	// keep the password field's cursor blinking (blink msgs aren't KeyMsgs)
+	if m.screen == screenPassword {
+		var cmd tea.Cmd
+		m.password, cmd = m.password.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -151,6 +199,21 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			return m.activate()
+		}
+
+	case screenPassword:
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.password.Reset()
+			m.pwErr = ""
+			m.screen = screenMenu
+			return m, nil
+		case "enter":
+			return m, authSudo(m.password.Value())
+		default:
+			var cmd tea.Cmd
+			m.password, cmd = m.password.Update(msg)
+			return m, cmd
 		}
 
 	case screenConfirm:
@@ -215,10 +278,13 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 
 	m.pending = item.steps()
 	m.errs = 0
-	// If any step needs sudo, prime it before entering the queue.
+	m.pwAttempts = 0
+	m.sudoUnavailable = false
+	// If any step needs sudo, authenticate before entering the queue. Probe
+	// first — if credentials are already cached we skip the prompt entirely.
 	for _, s := range m.pending {
 		if s.needsSudo {
-			return m, primeSudo()
+			return m, checkSudoCached()
 		}
 	}
 	cmd := m.startQueue()
@@ -246,6 +312,14 @@ func (m *model) advance() tea.Cmd {
 		return refreshStatus()
 	}
 	s := m.queue[m.current].step
+	// Sudo auth was abandoned after too many wrong passwords: skip any step
+	// that needs it, note it in the log, and move on.
+	if s.needsSudo && m.sudoUnavailable {
+		m.queue[m.current].status = statusSkipped
+		appendSkipLog(s.logLabel, "sudo authentication failed")
+		m.errs++
+		return m.advance()
+	}
 	if s.confirm != "" {
 		m.screen = screenConfirm
 		m.confirmMsg = s.confirm
@@ -316,6 +390,8 @@ func (m model) View() string {
 	switch m.screen {
 	case screenMenu:
 		return m.viewMenu()
+	case screenPassword:
+		return m.viewPassword()
 	case screenConfirm:
 		return m.viewConfirm()
 	case screenRunning:
@@ -347,6 +423,15 @@ func (m model) viewMenu() string {
 	}
 	b.WriteString("\n" + hintStyle.Render("↑/↓ move · enter select · q quit"))
 	return b.String()
+}
+
+func (m model) viewPassword() string {
+	body := stepRunStyle.Render("🔒 sudo access required") + "\n\n" +
+		m.password.View() + "\n"
+	if m.pwErr != "" {
+		body += "\n" + stepFailStyle.Render(m.pwErr) + "\n"
+	}
+	return m.header() + "\n" + body + "\n" + hintStyle.Render("enter submit · esc cancel")
 }
 
 func (m model) viewConfirm() string {
@@ -437,6 +522,13 @@ func shellField(cmd string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func main() {

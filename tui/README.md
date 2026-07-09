@@ -27,10 +27,14 @@ straight over via `lipgloss`).
   exit status race-free; `waitForStream` pumps it through `Update`.
 - **A live checklist** of steps with per-step status (pending/running/ok/failed/
   skipped), mirroring `start_msg`/`end_msg`/`fail_msg`.
-- **Sudo without breaking the full-screen UI** — `primeSudo` uses
-  `tea.ExecProcess` to drop out of the alt-screen, run an interactive `sudo -v`,
-  and resume. This is the clean answer to the classic "how does a TUI ask for a
-  sudo password" problem.
+- **In-TUI sudo authentication** — a masked (`•`) `textinput` collects the
+  password inside the alt-screen and pipes it to `sudo -S -v`, which caches the
+  credential so the queue's later `sudo` calls run without prompting. It probes
+  `sudo -n -v` first and skips the prompt when credentials are already cached.
+  Wrong passwords are reported inline with a remaining-attempts count; after
+  three failures it gives up, skips the sudo-requiring steps, and logs each as
+  `SKIP: … (sudo authentication failed)`. The password is never logged and the
+  input is reset immediately after use.
 - **A self-updating status header** via `tea.Tick` (disk/RAM/cache), the thing
   gum couldn't do without redrawing everything by hand.
 - **Error-only logging** to `~/.maintenance_tui.log` (`log.go`), same policy and
