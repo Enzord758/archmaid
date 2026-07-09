@@ -21,8 +21,8 @@ harness. This doc is the inventory and how-to-run.
   (restored via defer) so they never touch the user's real state dir
   (`TestSudoThreeStrikesSkipsAndLogs`, `TestStreamFailurePropagates`); dry-run
   tests isolate via `HOME`. `pruneLogs()` deletes run logs older than
-  `logRetention` (1 week) at startup — untested; a good add is a temp-`logDir`
-  fixture with `os.Chtimes`-aged `.log` files asserting only the stale ones go.
+  `logRetention` (1 week) at startup — covered by
+  `TestPruneLogsDeletesOnlyStaleRunLogs` (temp-`logDir`, `os.Chtimes`-aged files).
 - **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
   goldens compare a single re-rendered `View()` frame with the live status line
   pinned via `fixedModel()`; the spinner is pinned to one frame where a running
@@ -41,31 +41,32 @@ bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun,
 go build -o archmaid . && ./archmaid --dryrun        # manual e2e; then inspect ~/.archmaid-dryrun.log
 ```
 
-Current status: **55 tests, all green under `-race`; `vet` and `gofmt` clean.**
-
-## Newly added — needs tests (Fable): sudo hardening
-
-Fixing a hang where a `sudo` step re-prompted on the tty (invisible, fighting
-bubbletea) after the sudo timestamp lapsed during a long run. Three changes in
-`main.go`/`tasks.go`, none yet unit-tested:
-
-- **`sudo -n` on every sudo step** (`runStep`): when `s.command == "sudo"` the
-  exec becomes `sudo -n <args>`, so it can never block on a password prompt — it
-  fails cleanly if creds have lapsed. Assert the constructed argv for a sudo step
-  starts `sudo -n …`, and that a non-sudo step (topgrade) is unchanged.
-- **Keep-alive loop** (`sudoKeepAliveMsg`/`sudoTick`/`refreshSudo`, `m.sudoAlive`):
-  `startQueue` starts it (via `tea.Batch`) when `queueNeedsSudo` and not dry-run;
-  a `sudoKeepAliveMsg` reschedules only while `m.sudoAlive`; it's cleared on
-  summary (`advance`), abort (`abortRunning`), and confirm-abort. Assert:
-  sudo queue → `sudoAlive` true + a tick scheduled; reaching summary/abort →
-  `sudoAlive` false so the next `sudoKeepAliveMsg` is a no-op; dry-run → never
-  starts.
-- **topgrade is now `needsSudo`** (it shells out to sudo itself) so the
-  standalone action primes + keep-alives instead of raw-prompting. This changed
-  `TestStaleGateClearedByActivate` (topgrade is no longer sudo-less; it now runs
-  the sudo probe first — the test drives `sudoCachedMsg{cached:true}` to finish).
+Current status: **66 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
 ## Test inventory
+
+### Sudo hardening + log pruning — `sudo_hardening_test.go`
+
+The `sudo -n` rewrite, the keep-alive loop, and `pruneLogs`, all hermetic (PATH
+shims; no real sudo/pacman touched).
+
+| Test | Asserts |
+|---|---|
+| `TestSudoStepGetsDashN` | a sudo step execs `sudo -n <args>` (shimmed sudo prints argv) |
+| `TestNonSudoStepUnchanged` | non-sudo commands keep their argv (no `-n` injected) |
+| `TestTopgradeStepsNeedSudo` | standalone + Full Cleanup topgrade steps are `needsSudo` |
+| `TestKeepAliveStartsWithSudoQueue` | real-run sudo queue arms `sudoAlive` (confirm pauses before exec) |
+| `TestKeepAliveNotStartedInDryRun` | dry run never arms the keep-alive |
+| `TestKeepAliveReschedulesWhileAlive` | armed + `sudoKeepAliveMsg` → refresh+tick cmd, stays armed |
+| `TestKeepAliveNoopWhenCleared` | disarmed + stale msg → nil cmd (loop ends) |
+| `TestKeepAliveClearedOnSummary` | queue exhausted → summary disarms |
+| `TestKeepAliveClearedOnConfirmAbort` | non-optional "no" abort disarms |
+| `TestKeepAliveClearedOnAbortRunning` | ctrl+c abort disarms (nil proc safe) |
+| `TestPruneLogsDeletesOnlyStaleRunLogs` | Chtimes-aged fixture: stale `.log` pruned; fresh logs, non-`.log`, dirs survive |
+
+Shim gotcha: the argv shim must print with `printf '%s\n' "$*"` — `echo "$@"`
+swallows the leading `-n` it is supposed to prove.
+
 
 ### Proceed-gate + orphan removal — `gate_orphan_test.go`
 

@@ -174,3 +174,23 @@ clean.** No production code changed.
 The suggestions from Update 2 still stand (services-flow VHS tape, summary
 golden, popup goldens). New: a golden of the gate confirm floating over the
 menu would pin the cached-sudo Full Cleanup entry point end to end.
+
+---
+
+## Update 4 — sudo-hardening tests + pruneLogs fixture (Fable, fourth pass)
+
+Covered the sudo-hardening changes TESTING.md flagged, in
+`sudo_hardening_test.go` (11 tests; inventory table in TESTING.md):
+
+- `sudo -n` argv rewrite proven with a PATH-shimmed `sudo` that prints its
+  argv (gotcha: the shim must use `printf '%s\n' "$*"` — `echo "$@"` eats the
+  very `-n` under test). Non-sudo argv asserted unchanged; topgrade steps
+  asserted `needsSudo` in both the standalone action and Full Cleanup.
+- Keep-alive lifecycle: armed by a real-run sudo queue (a step confirm keeps
+  the test from exec'ing anything), never in dry-run; reschedules while armed,
+  no-ops once disarmed; disarmed on summary, confirm-abort, and running-abort.
+- `pruneLogs`: temp-`logDir` fixture with `os.Chtimes`-aged files — only the
+  stale `.log` goes; fresh logs, non-`.log` files, and directories survive.
+
+Gate: **66 tests green under `-race`; vet and gofmt clean.** No production
+code changed.
