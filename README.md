@@ -12,7 +12,7 @@ Two implementations live here:
 - **`archmaid.sh`** — the original [gum](https://github.com/charmbracelet/gum)-based
   script the TUI grew out of (documented further down).
 
-## Install
+## Install (the TUI)
 
 Build the TUI and register it as a launchable app (rofi etc.) — all under
 `$HOME`, no root:
@@ -24,37 +24,17 @@ cd ~/archmaid
 ./install.sh --uninstall
 ```
 
-Then launch it from **rofi** as *archmaid*, or run `archmaid`. Needs Go to build
-and a terminal (defaults to `kitty`; override with `ARCHMAID_TERMINAL`). Full
+Then launch it from **rofi** as *archmaid*, or run `archmaid`.
+
+**Requirements:** **Go** to build, and a **terminal** to run in (`kitty` by
+default; override with `ARCHMAID_TERMINAL`). **No `gum`** — the TUI reimplements
+all of that UI in Go (Bubble Tea). At runtime it just drives the usual Arch
+tools (`pacman`, `sudo`, and optionally `paccache`, `yay`, `topgrade`). Full
 details in [`INSTALL.md`](INSTALL.md).
 
----
-
-The rest of this README documents the original **`archmaid.sh`** gum script.
-
-## Requirements
-
-- [`gum`](https://github.com/charmbracelet/gum) — required, the script
-  exits immediately if it's missing
-- `pacman-contrib` — optional, provides `paccache` for package cache
-  cleanup (step is skipped with a warning if not installed)
-- [`yay`](https://github.com/Jguer/yay) — optional, used to clean the AUR
-  build cache (step is skipped if not installed)
-- `topgrade` — optional, used for system updates; falls back to
-  `pacman -Syu` if not installed
-
-## Usage
-
-```sh
-git clone https://github.com/Enzord758/archmaid.git ~/archmaid
-cd ~/archmaid
-./archmaid.sh
-```
-
-Some steps run `sudo` commands — you'll be prompted to authenticate once
-up front for any menu option that needs it.
-
 ## Menu options
+
+Both implementations share the same menu:
 
 | Option | What it does |
 | --- | --- |
@@ -69,7 +49,22 @@ up front for any menu option that needs it.
 
 Every destructive action asks for confirmation before running.
 
-## Logging
+## The `archmaid.sh` gum script
 
-Every run overwrites `~/.archmaid.log` with a timestamped record of
-each step (`START`/`END`/`FAIL`), viewable in-app via **View log**.
+The original bash version — same menu, driven by
+[gum](https://github.com/charmbracelet/gum). Run it directly, no build step:
+
+```sh
+./archmaid.sh
+```
+
+**Requirements (this script only):**
+
+- [`gum`](https://github.com/charmbracelet/gum) — **required by the script**;
+  it exits immediately if missing (the TUI does *not* need this)
+- `pacman-contrib` — optional, provides `paccache` for cache cleanup
+- [`yay`](https://github.com/Jguer/yay) — optional, cleans the AUR build cache
+- `topgrade` — optional; falls back to `pacman -Syu` if not installed
+
+It logs each run to `~/.archmaid.log` (`START`/`END`/`FAIL` per step), viewable
+in-app via **View log**.
