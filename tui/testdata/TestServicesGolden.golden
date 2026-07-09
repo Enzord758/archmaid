@@ -1,0 +1,10 @@
+Arch Linux Maintenance  [dry-run]
+ Free: 100G   RAM free: 8G   Cache: 512M
+
+Enabled but not running — select services to disable:
+
+  [x] bluetooth.service
+  [ ] cups.service
+➤ [x] docker.service
+
+↑/↓ move · space toggle · enter disable · esc cancel
