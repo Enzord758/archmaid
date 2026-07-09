@@ -69,9 +69,18 @@ never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
   every step **and** everything topgrade/yay spawn. Don't reintroduce Setsid on
   step children. Verified live (real password, tmux pty): prime → nested
   `sh -c 'sudo -n true'` passes; a full live Full Cleanup completed with no
-  freeze, no raw prompts, no log failures. One askpass popup appeared during
-  topgrade — topgrade resets/bypasses the ticket for its first sudo itself;
-  the popup handles it (that's the intended per-real-prompt behavior).
+  freeze, no raw prompts, no log failures.
+- **hyprpm runs last** (root-caused by step isolation with a real ticket, then
+  confirmed via binary symbols `NSys::root::cacheSudo`/`dropSudo`): `hyprpm`
+  drops the sudo ticket on exit — even a no-op `hyprpm update` kills the primed
+  credentials, silently breaking the keep-alive and forcing an askpass popup on
+  the next sudo step. Full Cleanup therefore runs topgrade with
+  `--disable hyprpm` and appends a dedicated "Updating Hyprland plugins" step
+  at the END of the queue (only when hyprpm is installed — `exec.LookPath`),
+  where its ticket-drop can't affect anything. Live-verified: a full run now
+  shows exactly ONE password popup (the prime), zero mid-run. Worth asserting:
+  topgrade args contain `--disable hyprpm`, and the hyprpm step is last (present
+  only when hyprpm is on PATH — a PATH shim can force both branches).
 - **Model** (`askpassMsg`): shows the password popup over the current screen
   (`m.bg`), holds `m.askpassConn`; on submit writes `password+"\n"` to the conn &
   closes (pass-through), on cancel closes it. `handleStream`'s drop-guard now

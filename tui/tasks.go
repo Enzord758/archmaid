@@ -139,9 +139,14 @@ func fullCleanupSteps() []step {
 		// It's also non-destructive and abortable, so it doubles as a soft
 		// buffer before the destructive steps begin. needsSudo so credentials
 		// are primed + kept alive — topgrade shells out to sudo pacman itself.
+		//
+		// hyprpm is excluded and run as the LAST step instead: hyprpm drops the
+		// sudo ticket on exit (NSys::root::dropSudo → sudo -k), which would kill
+		// the primed credentials mid-queue and force a re-prompt for every
+		// later sudo step.
 		{
 			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-			command: "topgrade", args: []string{"-y"}, needsSudo: true,
+			command: "topgrade", args: []string{"-y", "--disable", "hyprpm"}, needsSudo: true,
 		},
 		{
 			title: "Cleaning package cache…", logLabel: "Old package cache cleaned",
@@ -167,7 +172,7 @@ func fullCleanupSteps() []step {
 		})
 	}
 
-	return append(steps, []step{
+	steps = append(steps, []step{
 		{
 			title: "Cleaning AUR cache…", logLabel: "AUR cache cleaned",
 			command: "yay", args: []string{"-Sc", "--noconfirm"},
@@ -187,6 +192,17 @@ func fullCleanupSteps() []step {
 			command: "sudo", args: []string{"pacman", "-Qk"}, needsSudo: true,
 		},
 	}...)
+
+	// Hyprland plugins go last: hyprpm drops the sudo ticket on exit, so after
+	// this step nothing must need sudo anymore (see the topgrade note above).
+	if _, err := exec.LookPath("hyprpm"); err == nil {
+		steps = append(steps, step{
+			title: "Updating Hyprland plugins…", logLabel: "Hyprland plugins updated",
+			command: "hyprpm", args: []string{"update"},
+		})
+	}
+
+	return steps
 }
 
 func topgradeSteps() []step {
