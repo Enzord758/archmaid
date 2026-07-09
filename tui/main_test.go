@@ -261,8 +261,11 @@ func TestSudoThreeStrikesSkipsAndLogs(t *testing.T) {
 	if got.queue[0].status != statusSkipped {
 		t.Fatalf("sudo step status = %d, want statusSkipped", got.queue[0].status)
 	}
-	if got.errs != 1 {
-		t.Fatalf("errs = %d, want 1 (the skipped sudo step counts)", got.errs)
+	if got.errs != 0 {
+		t.Fatalf("errs = %d, want 0 (a skip is not a failure)", got.errs)
+	}
+	if got.skipped != 1 {
+		t.Fatalf("skipped = %d, want 1 (the skipped sudo step)", got.skipped)
 	}
 	data, _ := os.ReadFile(logPath())
 	if !strings.Contains(string(data), "SKIP: needs root (sudo authentication failed)") {
@@ -312,7 +315,8 @@ func TestConfirmOptionalNoSkips(t *testing.T) {
 }
 
 // TestConfirmNonOptionalNoAborts: declining a non-optional step aborts the whole
-// queue straight to the summary, leaving the step un-skipped.
+// queue to the summary and marks the declined step and everything after it as
+// skipped (so the summary reflects what didn't run).
 func TestConfirmNonOptionalNoAborts(t *testing.T) {
 	m := initialModel()
 	m.queue = []stepState{
@@ -328,8 +332,15 @@ func TestConfirmNonOptionalNoAborts(t *testing.T) {
 	if got.screen != screenSummary {
 		t.Fatalf("non-optional no should abort to summary, got screen=%d", got.screen)
 	}
-	if got.queue[0].status != statusPending {
-		t.Fatalf("aborted step should stay pending, status=%d", got.queue[0].status)
+	if !got.aborted {
+		t.Fatal("aborted flag should be set")
+	}
+	if got.queue[0].status != statusSkipped || got.queue[1].status != statusSkipped {
+		t.Fatalf("aborted steps should be skipped, got %d and %d",
+			got.queue[0].status, got.queue[1].status)
+	}
+	if got.skipped != 2 {
+		t.Fatalf("skipped = %d, want 2 (declined step + the one after)", got.skipped)
 	}
 }
 

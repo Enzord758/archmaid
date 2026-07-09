@@ -285,6 +285,10 @@ func discoverServices() tea.Cmd {
 	}
 }
 
+// execProcess is a seam over tea.ExecProcess so tests can capture the editor
+// command without actually handing over the terminal to a real editor.
+var execProcess = tea.ExecProcess
+
 // editConfig opens ~/.config/topgrade.toml in $EDITOR (creating it with sane
 // defaults first), handing over the terminal via tea.ExecProcess. In a dry run
 // it logs the intent instead.
@@ -296,13 +300,19 @@ func editConfig() tea.Cmd {
 			return editorDoneMsg{}
 		}
 	}
+	ensureTopgradeConfig(path)
+	return execProcess(exec.Command(editorName(), path), func(err error) tea.Msg {
+		return editorDoneMsg{err}
+	})
+}
+
+// ensureTopgradeConfig creates the config with defaults if it doesn't exist,
+// leaving an existing file untouched.
+func ensureTopgradeConfig(path string) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		os.MkdirAll(filepath.Dir(path), 0o755)
 		os.WriteFile(path, []byte(defaultTopgradeConfig), 0o644)
 	}
-	return tea.ExecProcess(exec.Command(editorName(), path), func(err error) tea.Msg {
-		return editorDoneMsg{err}
-	})
 }
 
 func configPath() string {
