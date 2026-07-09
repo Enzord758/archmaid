@@ -31,16 +31,19 @@ Full details in [`INSTALL.md`](INSTALL.md).
 
 | Option | What it does |
 | --- | --- |
-| **Full Cleanup** (recommended) | Runs every step in sequence: updates the system via topgrade, trims the package cache to 3 versions (with an optional full wipe), removes orphaned packages, cleans the AUR cache, deletes temp files older than 2 days from `/tmp` and `/var/tmp`, vacuums logs older than 2 weeks, and checks package integrity |
+| **Full Cleanup** (recommended) | Runs every step in sequence: updates the system via topgrade, trims the package cache to 3 versions (with an optional full wipe), removes orphaned packages (only when any exist — confirms with the count), cleans the AUR cache, deletes temp files older than 2 days from `/tmp` and `/var/tmp`, vacuums logs older than 2 weeks, checks package integrity, and finally updates Hyprland plugins via hyprpm (if installed; last on purpose — hyprpm drops the sudo session on exit) |
 | Clear user cache | Deletes everything under `~/.cache` |
 | Repair broken packages | Finds packages with missing files (`pacman -Qk`) and reinstalls them |
 | Delete old downloads | Deletes files in `~/Downloads` older than 30 days |
-| Run topgrade | Runs a system update via topgrade, showing output only on failure |
+| Run topgrade | Runs a system update via topgrade, streaming its output live |
 | Disable unused services | Lists systemd services that are enabled but not currently running, and lets you multi-select which to disable |
 | Edit topgrade config | Opens `~/.config/topgrade.toml` in `$EDITOR`, creating it with sane defaults first if it doesn't exist |
 | View log | Opens the run log in a pager |
 
-Every destructive action asks for confirmation before running.
+Every destructive action asks for confirmation before running. Sudo is handled
+in-TUI: one password popup up front covers the whole run (never a raw terminal
+prompt), and if anything genuinely needs to re-authenticate mid-run, it pops up
+again — the password is passed straight to sudo, never stored.
 
 ## Logs
 

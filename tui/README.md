@@ -30,12 +30,14 @@ straight over via `lipgloss`).
   skipped), mirroring `start_msg`/`end_msg`/`fail_msg`.
 - **In-TUI sudo authentication** — a masked (`•`) `textinput` collects the
   password inside the alt-screen and pipes it to `sudo -S -v`, which caches the
-  credential so the queue's later `sudo` calls run without prompting. It probes
-  `sudo -n -v` first and skips the prompt when credentials are already cached.
-  Wrong passwords are reported inline with a remaining-attempts count; after
-  three failures it gives up, skips the sudo-requiring steps, and logs each as
-  `SKIP: … (sudo authentication failed)`. The password is never logged and the
-  input is reset immediately after use.
+  credential so the queue's later `sudo` calls run without prompting (a 60s
+  keep-alive maintains it during long runs). It probes `sudo -n -v` first and
+  skips the prompt when credentials are already cached. Wrong passwords are
+  reported inline with a remaining-attempts count; after three failures it gives
+  up, skips the sudo-requiring steps, and logs each as `SKIP: …`. If anything
+  needs to re-authenticate mid-run, `SUDO_ASKPASS` routes the prompt back into
+  the TUI as a popup (`askpass.go`) — nothing can ever prompt on the raw
+  terminal. The password is passed straight through, never stored or logged.
 - **A self-updating status header** via `tea.Tick` (disk/RAM/cache), the thing
   gum couldn't do without redrawing everything by hand.
 - **Dynamic actions** with an async, read-only discovery pass on a spinner
