@@ -41,7 +41,7 @@ bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun,
 go build -o archmaid . && ./archmaid --dryrun   # manual e2e; then inspect ~/.local/state/archmaid/dryrun.log
 ```
 
-Current status: **75 tests, all green under `-race`; `vet` and `gofmt` clean.**
+Current status: **83 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
 ## Still needs tests: sudo askpass
 
@@ -92,6 +92,27 @@ never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
 
 The prime/gate/keep-alive flow and the `sudo -A` argv rewrite are covered by
 `sudo_hardening_test.go` (see inventory).
+
+### Auth: burn-free prime + in-flight lock — `auth_test.go`
+
+Two-stage prime (su validates burn-free → only correct passwords reach sudo)
+and the in-flight input lock. Background: one wrong `sudo -S -v` burns TWO
+pam_faillock failures (measured; `-A` retries burn two as well) — with Arch's
+`deny=3` that's one mistype from lockout. `su` is single-shot and (on Arch)
+skips pam_faillock entirely.
+
+| Test | Asserts |
+|---|---|
+| `TestAuthWrongPasswordNeverReachesSudo` | su rejects → error surfaced, sudo never invoked (shimmed pair) |
+| `TestAuthCorrectPasswordMintsTicket` | su accepts → `sudo -S -v` invoked |
+| `TestLockoutNoticeExtraction` | pam_faillock "locked" line extracted; plain failure gives none |
+| `TestEnterLocksInputAndFiresAuth` | submit sets `authInFlight`, clears the field, returns the auth cmd |
+| `TestInFlightIgnoresAllInput` | keys/enter/esc are dead while authenticating |
+| `TestAuthResultUnlocksInput` | any `sudoResultMsg` unlocks; attempts-left shown |
+| `TestLockoutDetailShownVerbatim` | `detail` replaces the generic error |
+| `TestInFlightViewShowsAuthenticating` | popup renders spinner state, no input invite |
+
+Live-verified: wrong in-app submit → zero faillock records (was two).
 
 ## Test inventory
 

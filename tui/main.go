@@ -79,6 +79,7 @@ type model struct {
 	password        textinput.Model
 	pwErr           string
 	pwAttempts      int      // consecutive wrong passwords this action
+	authInFlight    bool     // prime submitted, waiting on PAM — input locked
 	sudoUnavailable bool     // set after maxSudoAttempts failures: skip sudo steps
 	sudoAlive       bool     // keep-alive loop active for the running queue
 	askpassConn     net.Conn // pending sudo askpass request (nil = prime-mode prompt)
@@ -191,6 +192,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.password.Focus()
 
 	case sudoResultMsg:
+		m.authInFlight = false // auth finished — unlock the input
 		if msg.err != nil {
 			m.pwAttempts++
 			m.password.Reset()
@@ -202,6 +204,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			left := maxSudoAttempts - m.pwAttempts
 			m.pwErr = fmt.Sprintf("Incorrect password — %d attempt%s left", left, plural(left))
+			if msg.detail != "" {
+				m.pwErr = msg.detail // e.g. pam_faillock "account locked" notice
+			}
 			return m, nil // stay on the prompt for a retry
 		}
 		m.pwAttempts = 0
@@ -286,6 +291,13 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case screenPassword:
+		if m.authInFlight {
+			// PAM is checking a submitted password (takes ~2s on failure).
+			// Ignore all input meanwhile: a second enter would fire a
+			// concurrent sudo, and typed keys would silently append to the
+			// already-submitted password.
+			return m, nil
+		}
 		switch msg.String() {
 		case "esc", "ctrl+c":
 			if m.askpassConn != nil {
@@ -311,7 +323,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.screen = m.bg
 				return m, nil
 			}
-			return m, authSudo(m.password.Value())
+			m.authInFlight = true
+			pw := m.password.Value()
+			m.password.Reset() // don't hold the password in the input
+			return m, authSudo(pw)
 		default:
 			var cmd tea.Cmd
 			m.password, cmd = m.password.Update(msg)
@@ -717,6 +732,11 @@ func (m model) viewMenu() string {
 }
 
 func (m model) viewPassword() string {
+	if m.authInFlight {
+		body := stepRunStyle.Render("🔒 sudo access required") + "\n\n" +
+			m.spinner.View() + " " + stepRunStyle.Render("authenticating…")
+		return popupBox.Render(body)
+	}
 	body := stepRunStyle.Render("🔒 sudo access required") + "\n\n" + m.password.View()
 	if m.pwErr != "" {
 		body += "\n\n" + stepFailStyle.Render(m.pwErr)

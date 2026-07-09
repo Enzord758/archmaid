@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"time"
@@ -85,10 +87,6 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 		args = append([]string{"-A"}, s.args...)
 	}
 	cmd := exec.Command(name, args...)
-
-	// Attach the shared pty so this child's sudo activity — including sudo
-	// spawned internally by tools like topgrade/yay — shares the app-wide
-	// credential ticket (see ptysession.go).
 
 	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
 	pr, pw := io.Pipe()
@@ -230,7 +228,13 @@ func clearUserCacheSteps() []step {
 // prompting. The password is never logged and the input is reset after use.
 
 type sudoCachedMsg struct{ cached bool } // result of the non-interactive probe
-type sudoResultMsg struct{ err error }   // result of an actual auth attempt
+// sudoResultMsg is the result of an auth attempt. detail carries a message
+// worth showing verbatim (e.g. an account-lockout notice) instead of the
+// generic wrong-password error.
+type sudoResultMsg struct {
+	err    error
+	detail string
+}
 
 // checkSudoCached probes whether sudo credentials are already valid, so we can
 // skip the password prompt entirely when they are (e.g. re-running within the
@@ -246,17 +250,55 @@ func checkSudoCached() tea.Cmd {
 	}
 }
 
-// authSudo feeds the password to `sudo -S -v` on stdin. -S makes sudo read the
-// password from stdin instead of the tty; -v just validates and refreshes the
-// cached timestamp. sudo's own "[sudo] password for…" prompt goes to stderr,
-// which we discard.
+// authSudo validates the password and mints the sudo ticket — in two stages,
+// because a wrong password fed to `sudo -S` burns TWO pam_faillock failures
+// (sudo's passwd_tries retry re-enters PAM on the EOF'd stdin before giving
+// up; measured live). With Arch's default `deny=3`, one mistyped in-app
+// password would leave the account one failure from lockout.
+//
+//  1. Validate via `su <user> -c true` — single-shot PAM, no retry loop (and
+//     on Arch, su's PAM stack doesn't include pam_faillock at all, so a wrong
+//     entry burns nothing).
+//  2. Only a known-correct password reaches `sudo -S -v`, which then always
+//     succeeds: mints the ticket, burns nothing, and clears stale failures.
+//
+// Stderr is captured so a pam_faillock lockout notice ("account locked…")
+// can be surfaced verbatim instead of the generic wrong-password error.
 func authSudo(password string) tea.Cmd {
 	return func() tea.Msg {
+		self, err := user.Current()
+		if err != nil {
+			return sudoResultMsg{err: err}
+		}
+
+		check := exec.Command("su", self.Username, "-c", "true")
+		check.Stdin = strings.NewReader(password + "\n")
+		var checkErr bytes.Buffer
+		check.Stderr = &checkErr
+		if err := check.Run(); err != nil {
+			return sudoResultMsg{err: err, detail: lockoutNotice(checkErr.String())}
+		}
+
 		cmd := exec.Command("sudo", "-S", "-v")
 		cmd.Stdin = strings.NewReader(password + "\n")
-		cmd.Stderr = io.Discard
-		return sudoResultMsg{err: cmd.Run()}
+		var sudoErr bytes.Buffer
+		cmd.Stderr = &sudoErr
+		if err := cmd.Run(); err != nil {
+			return sudoResultMsg{err: err, detail: lockoutNotice(sudoErr.String())}
+		}
+		return sudoResultMsg{}
 	}
+}
+
+// lockoutNotice extracts a pam_faillock lockout message from PAM stderr, if
+// present, so the UI can say "account locked" rather than "wrong password".
+func lockoutNotice(stderr string) string {
+	for _, line := range strings.Split(stderr, "\n") {
+		if strings.Contains(strings.ToLower(line), "locked") {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
 }
 
 // sudoKeepAliveMsg drives the keep-alive loop that refreshes the cached sudo

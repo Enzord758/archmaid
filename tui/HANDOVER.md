@@ -237,3 +237,28 @@ may be rejected by the lockout rather than the password check. The in-flight
 input fix removes the *concurrent* burn; the stdin-retry burn is sudo/PAM
 behaviour the prompt should at least surface ("account temporarily locked" —
 sudo's stderr distinguishes it).
+
+---
+
+## Update 5 — both live-test defects fixed (in-thread, measured + live-verified)
+
+Both Update-4 findings are fixed and regression-tested (`auth_test.go`):
+
+1. **In-flight auth state** (`m.authInFlight`): submit locks the popup — all
+   input ignored, the field is cleared immediately (password not retained),
+   and the popup shows a spinner + "authenticating…" until `sudoResultMsg`
+   lands. No concurrent sudo, no appended keystrokes.
+2. **faillock burn eliminated, not just halved.** Re-measured: ONE wrong
+   `sudo -S -v` burns TWO pam_faillock failures (wrong password + sudo's
+   retry hitting stdin EOF) — and `sudo -A` with a refusing askpass *also*
+   burns two, so no invocation shaping fixes it. The fix is two-stage auth
+   (`authSudo`): validate via `su <user> -c true` first — single-shot PAM,
+   and on Arch su's stack doesn't include pam_faillock, so a wrong entry
+   burns NOTHING — then only a known-correct password reaches `sudo -S -v`
+   (which succeeds: no burn, clears stale failures). A pam_faillock lockout
+   notice in stderr is surfaced verbatim via `sudoResultMsg.detail` instead
+   of the generic wrong-password message.
+
+Live-verified (tmux, real credentials): wrong submit → "authenticating…"
+spinner (input dead) → "Incorrect password — 2 attempts left" → **zero
+faillock records**; correct submit → queue starts; ctrl+c abort → menu.
