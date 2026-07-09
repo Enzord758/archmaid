@@ -221,3 +221,19 @@ written for auth failures. Two real defects surfaced:
 Artifacts (screenshots + full text capture) in the job tmp dir; faillock state
 was checked before and after (pre-existing failures had aged out; the run's
 budget of 2 was chosen to stay under deny=3 — the concurrency bug spent 3).
+
+**Three-strikes verified live** (second run, attempts paced ~10 s apart so no
+typing happened while auth was in flight): "2 attempts left" → "1 attempt
+left" → give-up → summary rendered "– Updating system with topgrade…
+(skipped)" / "Completed — 1 step(s) skipped", and the real run log (scratch
+state dir) contained exactly `SKIP: Topgrade completed (sudo authentication
+failed)`. Matches the unit-test contract end to end.
+
+Root cause for the faillock double-burn, pinned by the second run's records:
+a single `sudo -S -v` submission can log **two** PAM failures 2 s apart —
+sudo retries reading the password from stdin and burns an extra attempt on
+EOF. So in-app strike 1 can consume 2 of faillock's 3, and in-app strike 3
+may be rejected by the lockout rather than the password check. The in-flight
+input fix removes the *concurrent* burn; the stdin-retry burn is sudo/PAM
+behaviour the prompt should at least surface ("account temporarily locked" —
+sudo's stderr distinguishes it).
