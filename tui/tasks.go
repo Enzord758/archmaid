@@ -2,8 +2,11 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -61,6 +64,16 @@ type streamMsg struct {
 }
 
 func runStep(s step, ch chan<- streamMsg) {
+	// Dry run: don't execute anything mutating — just report what would run.
+	// The step is logged (as a success) in handleStream's dry-run branch.
+	if dryRun {
+		go func() {
+			ch <- streamMsg{line: "[dry-run] would run: " + s.command + " " + strings.Join(s.args, " ")}
+			ch <- streamMsg{done: true}
+		}()
+		return
+	}
+
 	go func() {
 		cmd := exec.Command(s.command, s.args...)
 
@@ -173,6 +186,9 @@ type sudoResultMsg struct{ err error }   // result of an actual auth attempt
 // timeout).
 func checkSudoCached() tea.Cmd {
 	return func() tea.Msg {
+		if dryRun {
+			return sudoCachedMsg{cached: true} // never prompt during a dry run
+		}
 		err := exec.Command("sudo", "-n", "-v").Run()
 		return sudoCachedMsg{cached: err == nil}
 	}
@@ -190,3 +206,141 @@ func authSudo(password string) tea.Cmd {
 		return sudoResultMsg{err: cmd.Run()}
 	}
 }
+
+// ── dynamic actions ──────────────────────────────────────────────────────────
+//
+// These need a discovery pass before their step queue exists. Discovery is
+// read-only (safe even in a dry run), runs off the UI thread as a tea.Cmd, and
+// returns a discoveryMsg — either steps to run, a services list for the
+// multi-select, or a notice when there's nothing to do.
+
+type discoveryMsg struct {
+	kind     string // "repair" | "downloads" | "services"
+	pending  []step // steps to run (repair, downloads)
+	services []string
+	notice   string // set when there's nothing to do
+}
+
+type editorDoneMsg struct{ err error }
+
+func discoverRepair() tea.Cmd {
+	return func() tea.Msg {
+		pkgs := brokenPackages()
+		if len(pkgs) == 0 {
+			return discoveryMsg{kind: "repair", notice: "No broken packages found."}
+		}
+		return discoveryMsg{kind: "repair", pending: []step{{
+			title: "Reinstalling packages…", logLabel: "Package repair completed",
+			command: "sudo", args: append([]string{"pacman", "-S", "--noconfirm"}, pkgs...),
+			needsSudo: true, optional: true,
+			confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
+		}}}
+	}
+}
+
+// brokenPackages lists packages with missing or altered files (pacman -Qk).
+func brokenPackages() []string {
+	out, _ := exec.Command("bash", "-c",
+		`pacman -Qk 2>/dev/null | grep -vE '0 (missing|altered) files' | awk -F: '{print $1}' | sort -u`,
+	).Output()
+	return nonEmptyLines(string(out))
+}
+
+func discoverDownloads() tea.Cmd {
+	return func() tea.Msg {
+		home, _ := os.UserHomeDir()
+		dir := filepath.Join(home, "Downloads")
+		out, _ := exec.Command("bash", "-c",
+			fmt.Sprintf(`find %q -maxdepth 1 -mtime +30 2>/dev/null | wc -l`, dir)).Output()
+		n := strings.TrimSpace(string(out))
+		if n == "" || n == "0" {
+			return discoveryMsg{kind: "downloads", notice: "No files older than 30 days in Downloads."}
+		}
+		return discoveryMsg{kind: "downloads", pending: []step{{
+			title: "Deleting old downloads…", logLabel: "Old downloads deleted",
+			command: "bash", args: []string{"-c",
+				fmt.Sprintf(`find %q -maxdepth 1 -mtime +30 -exec rm -rf {} +`, dir)},
+			optional: true,
+			confirm:  fmt.Sprintf("Delete %s file(s) older than 30 days in Downloads?", n),
+		}}}
+	}
+}
+
+// servicesPipeline reproduces the bash version: services that are enabled but
+// currently inactive, minus systemd-internal/oneshot noise.
+const servicesPipeline = `comm -12 ` +
+	`<(systemctl list-unit-files --type=service --state=enabled --no-legend | awk '{print $1}' | sort) ` +
+	`<(systemctl list-units --type=service --state=inactive --no-legend | awk '{print $1}' | sort) ` +
+	`| grep -Ev 'systemd-|getty@|emergency|rescue|initrd|plymouth|shadow|pkgstats|man-db|` +
+	`mkinitcpio|modprobe@|audit|dirmngr|gpg-agent|keyboxd|dm-event|lm_sensors|nmb|archlinux-keyring-wkd-sync'`
+
+func discoverServices() tea.Cmd {
+	return func() tea.Msg {
+		out, _ := exec.Command("bash", "-c", servicesPipeline).Output()
+		svcs := nonEmptyLines(string(out))
+		if len(svcs) == 0 {
+			return discoveryMsg{kind: "services", notice: "No enabled-but-inactive services found."}
+		}
+		return discoveryMsg{kind: "services", services: svcs}
+	}
+}
+
+// editConfig opens ~/.config/topgrade.toml in $EDITOR (creating it with sane
+// defaults first), handing over the terminal via tea.ExecProcess. In a dry run
+// it logs the intent instead.
+func editConfig() tea.Cmd {
+	path := configPath()
+	if dryRun {
+		return func() tea.Msg {
+			appendLog("DRYRUN", "Edit topgrade config", "would open "+editorName()+" on "+path)
+			return editorDoneMsg{}
+		}
+	}
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		os.MkdirAll(filepath.Dir(path), 0o755)
+		os.WriteFile(path, []byte(defaultTopgradeConfig), 0o644)
+	}
+	return tea.ExecProcess(exec.Command(editorName(), path), func(err error) tea.Msg {
+		return editorDoneMsg{err}
+	})
+}
+
+func configPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "topgrade.toml")
+}
+
+func editorName() string {
+	if e := os.Getenv("VISUAL"); e != "" {
+		return e
+	}
+	if e := os.Getenv("EDITOR"); e != "" {
+		return e
+	}
+	return "nano"
+}
+
+func nonEmptyLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(strings.TrimSpace(s), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+const defaultTopgradeConfig = `# topgrade configuration
+# Documentation: https://github.com/topgrade-rs/topgrade/wiki/Configuration
+
+[misc]
+assume_yes = true
+cleanup = true
+
+[linux]
+aur_command = "yay"
+
+# Disable steps you don't want by setting them to false:
+# [skip_steps]
+# flatpak = false
+`

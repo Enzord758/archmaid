@@ -31,28 +31,33 @@ const (
 	screenRunning
 	screenSummary
 	screenLog
+	screenNotice      // one-line result ("nothing to do") → any key back
+	screenDiscovering // spinner while a discovery cmd runs
+	screenServices    // multi-select checklist of services to disable
 )
 
 // maxSudoAttempts is how many wrong passwords are allowed before we give up,
 // skip the sudo-requiring steps, and log them.
 const maxSudoAttempts = 3
 
-// menuItem is one row of the main menu; steps() yields its work queue.
+// menuItem is one row of the main menu. Static actions supply steps(); dynamic
+// or special ones (discovery, editor, log, exit) dispatch on id in activate().
 type menuItem struct {
 	label string
+	id    string
 	steps func() []step
 }
 
 var menu = []menuItem{
-	{"󰓦  Full Cleanup (Recommended)", fullCleanupSteps},
-	{"󰃨  Clear user cache", clearUserCacheSteps},
-	{"󰚰  Repair broken packages", nil}, // stub: dynamic pacman -Qk discovery
-	{"󰋊  Delete old downloads", nil},   // stub: find ~/Downloads -mtime +30
-	{"󰏗  Run topgrade (system update)", topgradeSteps},
-	{"󰒔  Disable unused services", nil}, // stub: bubbles/list multi-select
-	{"󰙪  Edit topgrade config", nil},    // stub: tea.ExecProcess($EDITOR)
-	{"󰑇  View log", nil},                // handled specially → screenLog
-	{"󰗼  Exit", nil},
+	{label: "󰓦  Full Cleanup (Recommended)", steps: fullCleanupSteps},
+	{label: "󰃨  Clear user cache", steps: clearUserCacheSteps},
+	{label: "󰚰  Repair broken packages", id: "repair"},
+	{label: "󰋊  Delete old downloads", id: "downloads"},
+	{label: "󰏗  Run topgrade (system update)", steps: topgradeSteps},
+	{label: "󰒔  Disable unused services", id: "services"},
+	{label: "󰙪  Edit topgrade config", id: "editconfig"},
+	{label: "󰑇  View log", id: "viewlog"},
+	{label: "󰗼  Exit", id: "exit"},
 }
 
 // ── model ────────────────────────────────────────────────────────────────────
@@ -72,6 +77,15 @@ type model struct {
 	pwErr           string
 	pwAttempts      int  // consecutive wrong passwords this action
 	sudoUnavailable bool // set after maxSudoAttempts failures: skip sudo steps
+
+	// dynamic-action state
+	notice      string // screenNotice message
+	discovering string // screenDiscovering label
+
+	// services multi-select state
+	services      []string
+	serviceOn     []bool
+	serviceCursor int
 
 	// running-queue state
 	queue   []stepState
@@ -169,6 +183,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.startQueue()
 		return m, cmd
 
+	case discoveryMsg:
+		if msg.notice != "" {
+			m.notice = msg.notice
+			m.screen = screenNotice
+			return m, nil
+		}
+		if msg.kind == "services" {
+			m.services = msg.services
+			m.serviceOn = make([]bool, len(msg.services))
+			m.serviceCursor = 0
+			m.screen = screenServices
+			return m, nil
+		}
+		m.pending = msg.pending // repair / downloads
+		cmd := m.beginPending()
+		return m, cmd
+
+	case editorDoneMsg:
+		m.screen = screenMenu
+		return m, refreshStatus()
+
 	case streamMsg:
 		return m.handleStream(msg)
 	}
@@ -256,39 +291,106 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.output, cmd = m.output.Update(msg)
 			return m, cmd
 		}
+
+	case screenNotice:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+		m.screen = screenMenu // any other key returns
+
+	case screenDiscovering:
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+		// otherwise wait for the discovery cmd to finish
+
+	case screenServices:
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.screen = screenMenu
+		case "up", "k":
+			if m.serviceCursor > 0 {
+				m.serviceCursor--
+			}
+		case "down", "j":
+			if m.serviceCursor < len(m.services)-1 {
+				m.serviceCursor++
+			}
+		case " ", "x":
+			m.serviceOn[m.serviceCursor] = !m.serviceOn[m.serviceCursor]
+		case "enter":
+			cmd := m.confirmServices()
+			return m, cmd
+		}
 	}
 	return m, nil
 }
 
+// confirmServices builds a disable step from the selected services and enters
+// the sudo/queue flow; a no-op if nothing was selected.
+func (m *model) confirmServices() tea.Cmd {
+	var sel []string
+	for i, on := range m.serviceOn {
+		if on {
+			sel = append(sel, m.services[i])
+		}
+	}
+	if len(sel) == 0 {
+		m.screen = screenMenu
+		return nil
+	}
+	m.pending = []step{{
+		title: "Disabling services…", logLabel: "Services disabled",
+		command: "sudo", args: append([]string{"systemctl", "disable", "--now"}, sel...),
+		needsSudo: true,
+	}}
+	return m.beginPending()
+}
+
 // activate handles an Enter on the menu.
 func (m model) activate() (tea.Model, tea.Cmd) {
-	label := menu[m.cursor].label
-	switch {
-	case strings.Contains(label, "Exit"):
+	item := menu[m.cursor]
+	switch item.id {
+	case "exit":
 		return m, tea.Quit
-	case strings.Contains(label, "View log"):
+	case "viewlog":
 		return m.openLog()
+	case "editconfig":
+		return m, editConfig()
+	case "repair":
+		m.screen = screenDiscovering
+		m.discovering = "Scanning for broken packages…"
+		return m, discoverRepair()
+	case "downloads":
+		m.screen = screenDiscovering
+		m.discovering = "Checking Downloads…"
+		return m, discoverDownloads()
+	case "services":
+		m.screen = screenDiscovering
+		m.discovering = "Finding unused services…"
+		return m, discoverServices()
 	}
 
-	item := menu[m.cursor]
 	if item.steps == nil {
-		// stubbed action — no-op in the sketch
 		return m, nil
 	}
-
 	m.pending = item.steps()
+	cmd := m.beginPending()
+	return m, cmd
+}
+
+// beginPending starts m.pending: authenticate first if any step needs sudo
+// (probe → skip prompt when cached), otherwise run the queue directly.
+func (m *model) beginPending() tea.Cmd {
 	m.errs = 0
 	m.pwAttempts = 0
 	m.sudoUnavailable = false
-	// If any step needs sudo, authenticate before entering the queue. Probe
-	// first — if credentials are already cached we skip the prompt entirely.
 	for _, s := range m.pending {
 		if s.needsSudo {
-			return m, checkSudoCached()
+			return checkSudoCached()
 		}
 	}
-	cmd := m.startQueue()
-	return m, cmd
+	return m.startQueue()
 }
 
 // startQueue initialises the checklist and kicks off the first step.
@@ -316,7 +418,7 @@ func (m *model) advance() tea.Cmd {
 	// that needs it, note it in the log, and move on.
 	if s.needsSudo && m.sudoUnavailable {
 		m.queue[m.current].status = statusSkipped
-		appendSkipLog(s.logLabel, "sudo authentication failed")
+		appendLog("SKIP", s.logLabel+" (sudo authentication failed)", "")
 		m.errs++
 		return m.advance()
 	}
@@ -369,9 +471,12 @@ func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		s.status = statusFailed
 		m.errs++
-		appendLog(s.step.logLabel, m.buf.String()) // only log on failure
+		appendLog("FAIL", s.step.logLabel, m.buf.String())
 	} else {
 		s.status = statusOK
+		if dryRun { // a dry run logs every action, not just failures
+			appendLog("DRYRUN", s.step.logLabel, m.buf.String())
+		}
 	}
 	cmd := m.advance()
 	return m, cmd
@@ -400,13 +505,22 @@ func (m model) View() string {
 		return m.viewSummary()
 	case screenLog:
 		return m.viewLog()
+	case screenNotice:
+		return m.viewNotice()
+	case screenDiscovering:
+		return m.viewDiscovering()
+	case screenServices:
+		return m.viewServices()
 	}
 	return ""
 }
 
 func (m model) header() string {
-	return titleStyle.Render("Arch Linux Maintenance") + "\n" +
-		statusStyle.Render(m.status) + "\n"
+	line := titleStyle.Render("Arch Linux Maintenance")
+	if dryRun {
+		line += "  " + stepFailStyle.Render("[dry-run]")
+	}
+	return line + "\n" + statusStyle.Render(m.status) + "\n"
 }
 
 func (m model) viewMenu() string {
@@ -494,6 +608,35 @@ func (m model) viewLog() string {
 		hintStyle.Render("↑/↓ scroll · q back")
 }
 
+func (m model) viewNotice() string {
+	return m.header() + "\n" + itemStyle.Render(m.notice) + "\n\n" +
+		hintStyle.Render("any key to return")
+}
+
+func (m model) viewDiscovering() string {
+	return m.header() + "\n" +
+		m.spinner.View() + " " + stepRunStyle.Render(m.discovering) + "\n"
+}
+
+func (m model) viewServices() string {
+	var b strings.Builder
+	b.WriteString(m.header() + "\n")
+	b.WriteString(stepRunStyle.Render("Enabled but not running — select services to disable:") + "\n\n")
+	for i, svc := range m.services {
+		cursor := "  "
+		if i == m.serviceCursor {
+			cursor = cursorStyle.Render("➤ ")
+		}
+		box := "[ ]"
+		if m.serviceOn[i] {
+			box = selectedStyle.Render("[x]")
+		}
+		b.WriteString(cursor + box + " " + itemStyle.Render(svc) + "\n")
+	}
+	b.WriteString("\n" + hintStyle.Render("↑/↓ move · space toggle · enter disable · esc cancel"))
+	return b.String()
+}
+
 // ── system status ────────────────────────────────────────────────────────────
 
 type statusMsg string
@@ -532,6 +675,12 @@ func plural(n int) string {
 }
 
 func main() {
+	for _, a := range os.Args[1:] {
+		if a == "--dryrun" {
+			dryRun = true
+		}
+	}
+
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)

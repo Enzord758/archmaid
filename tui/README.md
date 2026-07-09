@@ -4,8 +4,9 @@ A [Bubble Tea](https://github.com/charmbracelet/bubbletea) rewrite sketch of the
 gum-based `cleanup.sh`, exploring what it takes to make this a real TUI —
 `btop`/`wiremix`-style — rather than a scripted sequence of prompts.
 
-**This is a sketch, not a finished program.** It shows the architecture and
-the parts that are genuinely hard in bash; several actions are stubbed.
+**Working prototype.** All eight menu actions are implemented; a `--dryrun`
+mode makes it safe to exercise end to end. Not yet at full parity with
+`cleanup.sh` in every edge case — see "Still to do".
 
 ## Why a rewrite (not a refactor)
 
@@ -37,8 +38,22 @@ straight over via `lipgloss`).
   input is reset immediately after use.
 - **A self-updating status header** via `tea.Tick` (disk/RAM/cache), the thing
   gum couldn't do without redrawing everything by hand.
+- **Dynamic actions** with an async, read-only discovery pass on a spinner
+  screen: repair broken packages (`pacman -Qk`), delete old downloads
+  (`find … -mtime +30`), and a **multi-select** (`screenServices`) of
+  enabled-but-inactive services to disable. "Nothing to do" routes to a notice.
+- **Edit topgrade config** hands the terminal to `$EDITOR` via `tea.ExecProcess`,
+  creating `~/.config/topgrade.toml` with defaults first.
 - **Error-only logging** to `~/.maintenance_tui.log` (`log.go`), same policy and
   path as the bash version.
+
+## Dry run
+
+`go run . --dryrun` (or `./tui --dryrun`) makes every mutating step *report what
+it would do* instead of running it, logs **every** step (not just failures) to a
+separate `~/.maintenance_dryrun.log`, and skips sudo entirely. Read-only
+discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
+the header. This is the safe way to exercise the whole UI.
 
 ## Mapping to cleanup.sh
 
@@ -46,28 +61,29 @@ straight over via `lipgloss`).
 | --- | --- |
 | `run_task` (gum spin + tempfile) | `runStep` + `waitForStream` streaming |
 | `start_msg`/`end_msg`/`fail_msg` | `stepState` + `checklist()` |
-| `sudo -v` priming | `primeSudo` via `tea.ExecProcess` |
+| `sudo -v` priming | in-TUI masked prompt (`screenPassword`, `authSudo`) |
 | `gum confirm` | `screenConfirm` |
-| `gum choose` menu | `screenMenu` |
+| `gum choose` menu / service multi-select | `screenMenu` / `screenServices` |
 | `view_log` + sed colouring | `screenLog` + `lipgloss` styles |
 | `system_status` | `systemStatus` + `refreshStatus` tick |
 
-## Still stubbed
+## Still to do
 
-- **Repair broken packages** / **orphan removal** — need a discovery pass
-  (`pacman -Qk`, `pacman -Qdtq`) whose output splices into a step's args before
-  the queue runs.
-- **Disable unused services** — a `bubbles/list` multi-select over the
-  enabled-but-inactive units.
-- **Delete old downloads**, **Edit topgrade config** (`tea.ExecProcess $EDITOR`).
 - Aborting a running step should SIGINT the child, not quit the program.
+- Orphaned-package removal as its own step inside Full Cleanup (currently only
+  the standalone "repair broken packages" discovery exists).
+- Parity pass on Full Cleanup's per-step optional confirms vs. the bash script.
 
-## Build
+## Build & test
 
-Needs Go (`pacman -S go`); not yet installed on this machine.
+Needs Go (`pacman -S go`).
 
 ```sh
 cd tui
 go mod tidy   # resolve the dependency graph + go.sum
-go run .
+go build ./...
+go test ./...  # unit tests: dry-run safety, sudo retries, screen routing
+go run . --dryrun
 ```
+
+See `TESTING.md` for the full test plan and how to drive the TUI headlessly.

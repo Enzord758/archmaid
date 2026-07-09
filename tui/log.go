@@ -7,35 +7,37 @@ import (
 	"time"
 )
 
-// logPath matches the bash version: ~/.maintenance_tui.log
+// dryRun is set by the --dryrun flag: mutating commands are logged instead of
+// executed, and the log goes to a separate file.
+var dryRun bool
+
+// logPath is ~/.maintenance_tui.log normally, ~/.maintenance_dryrun.log under
+// --dryrun so a dry run never touches the real log.
 func logPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".maintenance_tui.log")
+	name := ".maintenance_tui.log"
+	if dryRun {
+		name = ".maintenance_dryrun.log"
+	}
+	return filepath.Join(home, name)
 }
 
-// appendLog writes a delimited, timestamped block of a failed step's output —
-// error-only, same policy as the bash log_output helper.
-func appendLog(label, output string) {
+// appendLog writes a timestamped entry. kind is a short tag (FAIL, DRYRUN,
+// SKIP). If body is non-empty it's wrapped in an output block. Normal runs only
+// log failures; a dry run logs every action.
+func appendLog(kind, label, body string) {
 	f, err := os.OpenFile(logPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 	ts := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(f, "[%s] FAIL: %s\n--- %s output ---\n%s--- end output ---\n",
-		ts, label, label, output)
-}
-
-// appendSkipLog records a step that was skipped (e.g. sudo auth gave up), so
-// the log explains why a step didn't run rather than silently omitting it.
-func appendSkipLog(label, reason string) {
-	f, err := os.OpenFile(logPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
+	if body == "" {
+		fmt.Fprintf(f, "[%s] %s: %s\n", ts, kind, label)
 		return
 	}
-	defer f.Close()
-	ts := time.Now().Format("2006-01-02 15:04:05")
-	fmt.Fprintf(f, "[%s] SKIP: %s (%s)\n", ts, label, reason)
+	fmt.Fprintf(f, "[%s] %s: %s\n--- %s output ---\n%s--- end output ---\n",
+		ts, kind, label, label, body)
 }
 
 func readLog() string {
