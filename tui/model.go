@@ -1,0 +1,137 @@
+package main
+
+import (
+	"net"
+	"os"
+	"strings"
+
+	"github.com/charmbracelet/bubbles/spinner"
+	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+// ── screens ──────────────────────────────────────────────────────────────────
+
+type screen int
+
+const (
+	screenMenu screen = iota
+	screenPassword
+	screenConfirm
+	screenRunning
+	screenSummary
+	screenLog
+	screenNotice       // one-line result ("nothing to do") → any key back
+	screenDiscovering  // spinner while a discovery cmd runs
+	screenServices     // multi-select checklist of services to disable
+	screenAbortConfirm // ctrl+c while running → confirm before killing the child
+)
+
+// maxSudoAttempts is how many wrong passwords are allowed before we give up,
+// skip the sudo-requiring steps, and log them.
+const maxSudoAttempts = 3
+
+// menuItem is one row of the main menu. Static actions supply steps(); dynamic
+// or special ones (discovery, editor, log, exit) dispatch on id in activate().
+type menuItem struct {
+	label string
+	id    string
+	steps func() []step
+	// gate, if set, is a confirm shown before a steps-action runs *only when
+	// sudo is already cached* — otherwise the sudo password prompt is the gate.
+	gate string
+}
+
+var menu = []menuItem{
+	{label: "󰓦  Full Cleanup (Recommended)", steps: fullCleanupSteps, gate: "Proceed with full cleanup?"},
+	{label: "󰃨  Clear user cache", steps: clearUserCacheSteps},
+	{label: "󰚰  Repair broken packages", id: "repair"},
+	{label: "󰋊  Delete old downloads", id: "downloads"},
+	{label: "󰏗  Run topgrade (system update)", steps: topgradeSteps},
+	{label: "󰒔  Disable unused services", id: "services"},
+	{label: "󰙪  Edit topgrade config", id: "editconfig"},
+	{label: "󰑇  View log", id: "viewlog"},
+	{label: "󰗼  Exit", id: "exit"},
+}
+
+// ── model ────────────────────────────────────────────────────────────────────
+
+type model struct {
+	screen screen // active screen; for popup screens, drawn over bg
+	bg     screen // background screen to composite a popup over
+
+	cursor  int    // menu selection
+	status  string // system status line (disk/ram/cache)
+	spinner spinner.Model
+	output  viewport.Model // live command output + log pager
+
+	// password-prompt state
+	password        textinput.Model
+	pwErr           string
+	pwAttempts      int      // consecutive wrong passwords this action
+	authInFlight    bool     // prime submitted, waiting on PAM — input locked
+	sudoUnavailable bool     // set after maxSudoAttempts failures: skip sudo steps
+	sudoAlive       bool     // keep-alive loop active for the running queue
+	askpassConn     net.Conn // pending sudo askpass request (nil = prime-mode prompt)
+
+	// dynamic-action state
+	notice      string // screenNotice message
+	discovering string // screenDiscovering label
+
+	// services multi-select state
+	services      []string
+	serviceOn     []bool
+	serviceCursor int
+
+	// running-queue state
+	queue   []stepState
+	current int              // index into queue
+	proc    *os.Process      // the active step's child process (for abort)
+	stream  chan streamMsg   // output channel for the active step
+	buf     *strings.Builder // accumulated output of the active step (pointer:
+	//                          strings.Builder must not be copied by value, and
+	//                          the model is copied on every Update)
+	errs    int  // steps that failed
+	skipped int  // steps skipped (sudo unavailable, or aborted queue)
+	aborted bool // queue aborted by declining a required confirm
+
+	// confirm-modal state
+	pending    []step // queue waiting on a confirm
+	confirmMsg string
+	confirmYes bool
+
+	// proceed-gate state: gate is the message to show when sudo is cached (no
+	// password prompt to act as the gate); gateActive marks that the current
+	// confirm is the gate rather than a per-step confirm.
+	gate       string
+	gateActive bool
+}
+
+func initialModel() model {
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = stepRunStyle
+
+	vp := viewport.New(0, 0)
+
+	pw := textinput.New()
+	pw.Prompt = "Password: "
+	pw.EchoMode = textinput.EchoPassword // mask input
+	pw.EchoCharacter = '•'               // shown per typed character
+	pw.PromptStyle = stepRunStyle
+	pw.Cursor.Style = cursorStyle
+
+	return model{
+		screen:   screenMenu,
+		spinner:  sp,
+		output:   vp,
+		password: pw,
+		buf:      &strings.Builder{},
+		status:   systemStatus(),
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	return tea.Batch(m.spinner.Tick, refreshStatus())
+}
