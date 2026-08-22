@@ -17,10 +17,13 @@ architectural difference bash/gum can't cross, so it moves to Go + Bubble Tea
 (the same toolkit `gum` itself is built on, so the Tokyo Night styling carries
 straight over via `lipgloss`).
 
-## What the sketch demonstrates
+## What it does
 
-- **The Elm-style model/update/view loop** (`main.go`) with five screens: menu,
-  confirm, running, summary, log.
+- **The Elm-style model/update/view loop**, split across `model.go` (state),
+  `update.go` (`Update`/`handleKey`), and `view.go` (`View` + renderers) —
+  eleven screens: menu, password, confirm, running, summary, log-category
+  picker, log pager, notice, discovery spinner, services multi-select, and
+  abort-confirm.
 - **Live streaming command output** (`tasks.go`) — the whole point. A command's
   combined stdout/stderr streams into a scrollable viewport line by line while a
   spinner runs, instead of gum swallowing it and dumping a pager afterward. One
@@ -28,6 +31,12 @@ straight over via `lipgloss`).
   exit status race-free; `waitForStream` pumps it through `Update`.
 - **A live checklist** of steps with per-step status (pending/running/ok/failed/
   skipped), mirroring `start_msg`/`end_msg`/`fail_msg`.
+- **A cascade-aware orphan-removal confirm** — `pacman -Rns` recursively drops
+  a removed package's own now-unneeded dependencies (`-s`), so the real removal
+  count can run well past the direct orphan list. The confirm previews that
+  with a read-only `pacman -Rs --print` pass (`orphanRemovalTotal` in
+  `tasks.go`) and shows both counts when they differ, instead of only the
+  direct count.
 - **In-TUI sudo authentication** — a masked (`•`) `textinput` collects the
   password inside the alt-screen and pipes it to `sudo -S -v`, which caches the
   credential so the queue's later `sudo` calls run without prompting (a 60s
