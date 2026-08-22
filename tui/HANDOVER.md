@@ -262,3 +262,66 @@ Both Update-4 findings are fixed and regression-tested (`auth_test.go`):
 Live-verified (tmux, real credentials): wrong submit → "authenticating…"
 spinner (input dead) → "Incorrect password — 2 attempts left" → **zero
 faillock records**; correct submit → queue starts; ctrl+c abort → menu.
+
+---
+
+## Update 6 — file-per-concern split, orphan-cascade preview + category-split logging (Sonnet, sixth pass)
+
+Two separate passes, both against the running app rather than starting from a
+handoff note:
+
+**Pure refactor, no behaviour change.** `main.go` had grown to 930 lines
+mixing the model, `Update`, `View`, and system-status concerns. Split to match
+the package's existing per-file convention (`tasks.go`, `theme.go`,
+`overlay.go`, `log.go`, `askpass.go`): `model.go` (screens/`model`/`Init`),
+`update.go` (`Update`/`handleKey` + orchestration), `view.go` (`View` +
+renderers), `status.go` (the status line), leaving `main.go` as just the
+package doc + `main()`. Verified byte-for-byte behaviour preservation via the
+full suite, not just a green run.
+
+**A real incident, root-caused live.** A Full Cleanup's orphan-removal step
+confirmed "23 orphaned package(s)?" but `pacman -Rns` actually removed 46 —
+`-s` recursively drops each target's own now-unneeded dependencies too, and
+the confirm only ever showed the direct `pacman -Qdtq` count. Root-caused via
+`/var/log/pacman.log`'s `[PACMAN] Running 'pacman -Rns ...'` line (the exact
+23 targets) diffed against its `[ALPM] removed` entries (46 total) — archmaid's
+own log had nothing, since normal runs only ever logged failures. Two fixes:
+
+1. **Cascade-aware confirm** (`orphanRemovalTotal` in `tasks.go`): a
+   `pacman -Rs --print` dry-run pass (drops `-n`/`--nosave`, which conflicts
+   with `--print`; needs no root) previews the true removal count before the
+   confirm is built, so it now reads "Remove 23 orphaned package(s) — 46 total
+   once dependencies cascade?" when the two diverge, and stays the plain count
+   otherwise. Falls back to `len(orphans)` if the probe itself fails.
+2. **Category-split logging + `alwaysLog`** (`log.go`, `tasks.go`): each run's
+   log directory (`<run>/`, keeping the newest 5 — was age-based before) now
+   holds `topgrade.log` / `orphans.log` / `cleanup.log` instead of one blob,
+   and steps that remove or overwrite something (orphan removal, cache/temp/
+   log wipes, service disabling, downloads/repair cleanup) are flagged
+   `alwaysLog: true` — they log their outcome even on success. This is what
+   would have made the incident traceable from archmaid's own log instead of
+   pacman's. "View log" gained a category picker (`screenLogPicker`) in front
+   of the pager.
+
+Verified against the real binary, not just tests: rebuilt + reinstalled via
+`install.sh`, ran the VHS e2e (confirms `dryrun/cleanup.log` lands correctly),
+and checked two live Full Cleanup runs' resulting log directories by hand —
+`orphans.log` correctly captured the real `pacman` transaction output on
+success, `topgrade.log` correctly stayed absent (no failures to log), and the
+second run correctly omitted `orphans.log` entirely once no orphans remained.
+
+Gate re-verified: **87 tests green under `-race`; `go vet` and `gofmt -l .`
+clean.** `README.md` and this doc's own architecture references (which still
+described the pre-split `main.go`) were brought current alongside the code.
+
+### If you pick this up next
+
+- The log-category picker (`screenLogPicker`) has no golden yet — the menu/
+  services goldens are the pattern to follow (`fixedModel()` + Ascii profile).
+- The VHS e2e still only drives Clear-user-cache; a second tape through Full
+  Cleanup's orphan-removal confirm would exercise the cascade-preview text
+  live, not just the shimmed unit tests.
+- `topgrade` itself is deliberately *not* `alwaysLog` (only failures log) —
+  worth reconsidering now that the machinery exists, since it's the step that
+  mutates the most (a full system upgrade) and the one that actually failed
+  in the incident's own trigger run.
