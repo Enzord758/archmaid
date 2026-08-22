@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 // ── sudo -A on every sudo step ────────────────────────────────────────────────
@@ -186,39 +185,72 @@ func TestKeepAliveClearedOnAbortRunning(t *testing.T) {
 
 // ── pruneLogs ─────────────────────────────────────────────────────────────────
 
-// TestPruneLogsDeletesOnlyStaleRunLogs: logs older than logRetention go; fresh
-// logs, non-.log files, and directories stay.
-func TestPruneLogsDeletesOnlyStaleRunLogs(t *testing.T) {
+// TestPruneLogsKeepsLastFiveRuns: with more than logKeepRuns run directories,
+// only the oldest excess ones are removed; the dryrun slot and anything that
+// isn't a run directory (stray files, a user's own subdirectories) survive
+// untouched regardless of age or count.
+func TestPruneLogsKeepsLastFiveRuns(t *testing.T) {
 	oldLogDir := logDir
 	logDir = t.TempDir()
 	defer func() { logDir = oldLogDir }()
 
-	stale := filepath.Join(logDir, "20260101-0900.log")
-	fresh := filepath.Join(logDir, "20260709-0900.log")
-	other := filepath.Join(logDir, "notes.txt")
-	for _, p := range []string{stale, fresh, other} {
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+	// 7 run directories, oldest to newest; only the newest logKeepRuns (5)
+	// should survive: 20260101 and 20260102 are the ones pruned away.
+	runs := []string{
+		"20260101-0900", "20260102-0900", "20260103-0900", "20260104-0900",
+		"20260105-0900", "20260106-0900", "20260107-0900",
+	}
+	for _, r := range runs {
+		if err := os.MkdirAll(filepath.Join(logDir, r), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(logDir, r, "cleanup.log"), []byte("x"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.Mkdir(filepath.Join(logDir, "subdir"), 0o755); err != nil {
+	// Not a run directory: never pruned, no matter how it's named or how old.
+	if err := os.MkdirAll(filepath.Join(logDir, "dryrun"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	past := time.Now().Add(-logRetention - 24*time.Hour)
-	for _, p := range []string{stale, other} {
-		if err := os.Chtimes(p, past, past); err != nil {
-			t.Fatal(err)
-		}
+	other := filepath.Join(logDir, "notes.txt")
+	if err := os.WriteFile(other, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	pruneLogs()
 
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatal("stale run log should have been pruned")
+	for _, r := range runs[:2] {
+		if _, err := os.Stat(filepath.Join(logDir, r)); !os.IsNotExist(err) {
+			t.Fatalf("run dir %s should have been pruned (oldest beyond logKeepRuns)", r)
+		}
 	}
-	for _, p := range []string{fresh, other, filepath.Join(logDir, "subdir")} {
+	for _, r := range runs[2:] {
+		if _, err := os.Stat(filepath.Join(logDir, r)); err != nil {
+			t.Fatalf("run dir %s should have survived pruning: %v", r, err)
+		}
+	}
+	for _, p := range []string{filepath.Join(logDir, "dryrun"), other} {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatalf("%s should have survived pruning: %v", p, err)
 		}
+	}
+}
+
+// TestPruneLogsNoopUnderLimit: fewer run directories than logKeepRuns prunes
+// nothing.
+func TestPruneLogsNoopUnderLimit(t *testing.T) {
+	oldLogDir := logDir
+	logDir = t.TempDir()
+	defer func() { logDir = oldLogDir }()
+
+	run := filepath.Join(logDir, "20260101-0900")
+	if err := os.MkdirAll(run, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pruneLogs()
+
+	if _, err := os.Stat(run); err != nil {
+		t.Fatalf("sole run dir should survive when under logKeepRuns: %v", err)
 	}
 }

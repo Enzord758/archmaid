@@ -8,21 +8,36 @@ harness. This doc is the inventory and how-to-run.
 
 - **Dry run stubs everything destructive.** `--dryrun` (global `dryRun`) makes
   mutating steps report "would run" instead of executing, skips sudo, and logs to
-  `~/.local/state/archmaid/dryrun.log`. Tests that would otherwise run real commands set
+  `~/.local/state/archmaid/dryrun/<category>.log`. Tests that would otherwise run real commands set
   `dryRun = true`. Never exercise the real `paccache -rk0` / `rm -rf` /
   `systemctl disable` paths in a test.
 - **`HOME` is redirected** with `t.Setenv("HOME", t.TempDir())` in any test that
   writes a log or touches `~/.config` / `~/Downloads`, so tests never touch real
   files.
-- **Logs live in `~/.local/state/archmaid/`** (see `log.go`): real runs →
-  `<YYYYMMDD-HHMM>.log` (one per run, failures only), dry runs → a single
-  `dryrun.log`. `resolveLogDir()` uses `$HOME/.local/state/archmaid` unless the
-  `logDir` var is overridden. Real-log tests set `logDir = t.TempDir()`
-  (restored via defer) so they never touch the user's real state dir
-  (`TestSudoThreeStrikesSkipsAndLogs`, `TestStreamFailurePropagates`); dry-run
-  tests isolate via `HOME`. `pruneLogs()` deletes run logs older than
-  `logRetention` (1 week) at startup — covered by
-  `TestPruneLogsDeletesOnlyStaleRunLogs` (temp-`logDir`, `os.Chtimes`-aged files).
+- **Logs live in `~/.local/state/archmaid/<run>/`** (see `log.go`), split by
+  category so one run's output isn't a single undifferentiated blob: each run
+  gets its own directory (`<YYYYMMDD-HHMM>/` for a real run, a fixed `dryrun/`
+  slot reused across dry runs) containing `topgrade.log`, `orphans.log`, and
+  `cleanup.log` (the default bucket — `stepCategory` falls back to it for any
+  step that doesn't set `step.category`). Normal runs still only log
+  failures, **except** steps flagged `step.alwaysLog` (anything that removes
+  or overwrites something — orphan removal, cache/temp/log wipes, service
+  disabling, downloads/repair cleanup), which log their outcome even on
+  success; a dry run logs every action regardless. `resolveLogDir()` uses
+  `$HOME/.local/state/archmaid` unless the `logDir` var is overridden.
+  Real-log tests set `logDir = t.TempDir()` (restored via defer) so they never
+  touch the user's real state dir (`TestSudoThreeStrikesSkipsAndLogs`,
+  `TestStreamFailurePropagates`, and the new log-category tests); dry-run
+  tests isolate via `HOME`. `pruneLogs()` keeps only the newest `logKeepRuns`
+  (5) run directories, deleting older ones outright — `dryrun/` and anything
+  that isn't a run directory (stray files, other subdirectories) are exempt.
+  Covered by `TestPruneLogsKeepsLastFiveRuns` and `TestPruneLogsNoopUnderLimit`.
+- **"View log" is a category picker, then a pager.** `screenLogPicker` lists
+  Topgrade / Orphan removal / Cleanup (`logCategoryLabels`); picking one opens
+  `screenLog` on that category's file (`m.logCat` tracks which). Reached from
+  the menu (`logReturn = screenMenu`) or the summary screen's `l` key
+  (`logReturn = screenSummary`) — esc from the picker returns to whichever it
+  was.
 - **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
   goldens compare a single re-rendered `View()` frame with the live status line
   pinned via `fixedModel()`; the spinner is pinned to one frame where a running
@@ -38,10 +53,10 @@ go vet ./... && gofmt -l .   # must be clean
 go test -run TestAbort   # a subset by name
 go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
 bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun, asserts on the log
-go build -o archmaid . && ./archmaid --dryrun   # manual e2e; then inspect ~/.local/state/archmaid/dryrun.log
+go build -o archmaid . && ./archmaid --dryrun   # manual e2e; then inspect ~/.local/state/archmaid/dryrun/*.log
 ```
 
-Current status: **81 tests, all green under `-race`; `vet` and `gofmt` clean.**
+Current status: **87 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
 ## Still needs tests: sudo askpass
 
@@ -133,7 +148,8 @@ shims; no real sudo/pacman touched).
 | `TestKeepAliveClearedOnSummary` | queue exhausted → summary disarms |
 | `TestKeepAliveClearedOnConfirmAbort` | non-optional "no" abort disarms |
 | `TestKeepAliveClearedOnAbortRunning` | ctrl+c abort disarms (nil proc safe) |
-| `TestPruneLogsDeletesOnlyStaleRunLogs` | Chtimes-aged fixture: stale `.log` pruned; fresh logs, non-`.log`, dirs survive |
+| `TestPruneLogsKeepsLastFiveRuns` | 7 run dirs → oldest 2 removed, newest 5 + `dryrun/` + a stray file survive |
+| `TestPruneLogsNoopUnderLimit` | fewer run dirs than `logKeepRuns` → nothing pruned |
 
 Shim gotcha: the argv shim must print with `printf '%s\n' "$*"` — `echo "$@"`
 swallows the leading `-n` it is supposed to prove.
@@ -156,9 +172,17 @@ orphan splice in `fullCleanupSteps()`.
 | `TestFullCleanupTopgradeFirst` | topgrade leads the Full Cleanup queue |
 | `TestOrphanStepSplicedIn` | orphans present → optional sudo `pacman -Rns --noconfirm <list>` step, confirm shows the real count |
 | `TestOrphanStepOmittedWhenNone` | no orphans → step omitted, queue exactly one shorter |
+| `TestOrphanStepShowsCascadeTotal` | `-Rs --print` preview reports more than the direct orphans → confirm shows both counts |
+| `TestOrphanStepNoCascadeKeepsPlainCount` | preview matches the direct count → confirm stays the plain "N orphaned package(s)?" |
+| `TestOrphanRemovalTotalFallsBackOnProbeFailure` | the `--print` probe itself failing → falls back to `len(orphans)`, doesn't corrupt the confirm |
 
 `orphanPackages` is shimmed via a fake `pacman` on `PATH` (`shimPacman`) so no
 real package state is read; the gate tests reuse the shim to stay hermetic.
+`shimPacmanCascade` extends it with an `-Rs --print` response for the cascade
+tests. The `-Rns` removal step is also always `alwaysLog` (see the log-category
+ground rule above) — its outcome is logged to `orphans.log` even on success,
+which is what would have made the recursive-removal incident this fix responds
+to traceable from archmaid's own log instead of `/var/log/pacman.log`.
 
 ### Unit — `main_test.go` (drives `model.Update` / helpers directly)
 
@@ -171,6 +195,7 @@ real package state is read; the gate tests reuse the shim to stay hermetic.
 | Discovery routing | `TestDiscoveryNotice`, `TestDiscoveryServices`, `TestDiscoveryPendingRunsQueue`, `TestDiscoveryPendingSudoProbes`, `TestDiscoverServicesRuns` |
 | Services multi-select | `TestServiceToggle`, `TestServicesEnterBuildsDisableStep`, `TestServicesEnterNoneReturnsMenu` |
 | Parsers | `TestBrokenPackagesNoMatchNoPanic`, `TestNonEmptyLinesTrimsAndDropsBlanks` |
+| Log categories + view-log picker | `TestStepCategoryDefaultsToCleanup`, `TestFailureLogsToItsStepCategory` (topgrade failure doesn't leak into the cleanup log), `TestAlwaysLogStepLogsOnSuccess`, `TestOrdinaryStepStaysSilentOnSuccess`, `TestViewLogOpensPicker`, `TestLogPickerEscReturnsWhereItCameFrom`, `TestLogPickerEnterOpensChosenCategory` |
 
 ### Thin-spot coverage — `coverage_test.go`
 
@@ -217,18 +242,30 @@ Prompts render as bordered boxes composited over the current screen (`overlay.go
 ### End-to-end — `e2e/run.tape` + `e2e/run.sh`
 
 VHS drives the real binary in a pty under `--dryrun` and asserts on the resulting
-`~/.local/state/archmaid/dryrun.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
+`~/.local/state/archmaid/dryrun/cleanup.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
 
 ## Architecture (where the logic lives)
 
-- `main.go` — the model/update/view loop. Screens: menu, password, confirm,
-  running, summary, log, notice, discovering, services, **abortConfirm**. `Update`
-  is the single source of state transitions; most unit tests drive it directly.
-- `tasks.go` — `runStep` (starts the child, returns `*os.Process`, streams
-  output), sudo commands, discovery cmds, `editConfig` (+ `execProcess` seam).
+- `model.go` — screens, `menuItem`/`menu`, the `model` struct, `initialModel`,
+  `Init`. Screens: menu, password, confirm, running, summary, **logPicker**,
+  log, notice, discovering, services, abortConfirm.
+- `update.go` — `Update`/`handleKey` (the single source of state transitions;
+  most unit tests drive it directly) and the queue/confirm/abort orchestration
+  methods.
+- `view.go` — `View` and every `view*` renderer.
+- `status.go` — the system status line (disk/RAM/cache).
+- `main.go` — package doc + `main()` only (askpass dispatch, flag parsing,
+  `pruneLogs`, wiring up `tea.NewProgram`).
+- `tasks.go` — `step` (+ `category`/`alwaysLog`) and `stepCategory` (defaults
+  an unset `category` to `logCategoryCleanup`), `runStep` (starts the child,
+  returns `*os.Process`, streams output), sudo commands, discovery cmds,
+  `editConfig` (+ `execProcess` seam), `orphanRemovalTotal` (the `-Rs --print`
+  cascade preview).
 - `overlay.go` — ANSI-aware compositor that floats a popup box over a background
   screen; `View` uses it for the password/confirm/abort/notice screens.
-- `log.go` — `appendLog(kind, label, body)`, `logPath()` (dry-run aware).
+- `log.go` — `logCategory` + `logCategoryLabels`, `appendLog(cat, kind, label,
+  body)`, `logPath(cat)`/`readLog(cat)` (dry-run aware, per-run-directory),
+  `pruneLogs` (keeps the newest `logKeepRuns` run directories).
 
 ## Not automated (inherent)
 

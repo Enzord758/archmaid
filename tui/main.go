@@ -28,7 +28,7 @@ func main() {
 		}
 	}
 
-	pruneLogs() // drop run logs older than a week
+	pruneLogs() // keep only the most recent logKeepRuns run directories
 
 	srv := startAskpassServer()
 	defer srv.close()

@@ -15,7 +15,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 
 HOME="$SCRATCH" vhs e2e/run.tape
 
-LOG="$SCRATCH/.local/state/archmaid/dryrun.log"
+LOG="$SCRATCH/.local/state/archmaid/dryrun/cleanup.log"
 if [[ ! -f "$LOG" ]]; then
 	echo "FAIL: no dry-run log was written at $LOG"
 	exit 1

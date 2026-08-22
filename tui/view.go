@@ -32,6 +32,8 @@ func (m model) viewOf(s screen) string {
 		return m.viewRunning()
 	case screenSummary:
 		return m.viewSummary()
+	case screenLogPicker:
+		return m.viewLogPicker()
 	case screenLog:
 		return m.viewLog()
 	case screenDiscovering:
@@ -160,8 +162,26 @@ func (m model) viewSummary() string {
 		hintStyle.Render("l view log · enter back to menu")
 }
 
+func (m model) viewLogPicker() string {
+	var b strings.Builder
+	b.WriteString(m.header() + "\n")
+	b.WriteString(stepRunStyle.Render("View log — choose a category:") + "\n\n")
+	for i, c := range logCategoryLabels {
+		cursor := "  "
+		style := itemStyle
+		if i == m.logCursor {
+			cursor = cursorStyle.Render("➤ ")
+			style = selectedStyle
+		}
+		b.WriteString(cursor + style.Render(c.label) + "\n")
+	}
+	b.WriteString("\n" + hintStyle.Render("↑/↓ move · enter open · esc back"))
+	return b.String()
+}
+
 func (m model) viewLog() string {
 	return m.header() + "\n" +
+		statusStyle.Render("Log: "+categoryLabel(m.logCat)) + "\n" +
 		outputPaneStyle.Width(m.output.Width).Render(m.output.View()) + "\n" +
 		hintStyle.Render("↑/↓ scroll · q back")
 }

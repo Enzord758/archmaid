@@ -244,15 +244,32 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case screenSummary:
 		switch msg.String() {
 		case "l":
-			return m.openLog()
+			m.logReturn = screenSummary
+			return m.openLogPicker()
 		case "enter", "esc", "q":
 			m.screen = screenMenu
+		}
+
+	case screenLogPicker:
+		switch msg.String() {
+		case "esc", "q", "ctrl+c":
+			m.screen = m.logReturn
+		case "up", "k":
+			if m.logCursor > 0 {
+				m.logCursor--
+			}
+		case "down", "j":
+			if m.logCursor < len(logCategoryLabels)-1 {
+				m.logCursor++
+			}
+		case "enter":
+			return m.openLogCategory(logCategoryLabels[m.logCursor].id)
 		}
 
 	case screenLog:
 		switch msg.String() {
 		case "esc", "q":
-			m.screen = screenMenu
+			m.screen = screenLogPicker
 		default:
 			var cmd tea.Cmd
 			m.output, cmd = m.output.Update(msg)
@@ -309,7 +326,7 @@ func (m *model) confirmServices() tea.Cmd {
 	m.pending = []step{{
 		title: "Disabling services…", logLabel: "Services disabled",
 		command: "sudo", args: append([]string{"systemctl", "disable", "--now"}, sel...),
-		needsSudo: true,
+		needsSudo: true, alwaysLog: true,
 	}}
 	return m.beginPending()
 }
@@ -322,7 +339,8 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	case "exit":
 		return m, tea.Quit
 	case "viewlog":
-		return m.openLog()
+		m.logReturn = screenMenu
+		return m.openLogPicker()
 	case "editconfig":
 		return m, editConfig()
 	case "repair":
@@ -408,7 +426,7 @@ func (m *model) advance() tea.Cmd {
 	// that needs it, note it in the log, and move on.
 	if s.needsSudo && m.sudoUnavailable {
 		m.queue[m.current].status = statusSkipped
-		appendLog("SKIP", s.logLabel+" (sudo authentication failed)", "")
+		appendLog(stepCategory(s), "SKIP", s.logLabel+" (sudo authentication failed)", "")
 		m.skipped++ // a skip is not a failure — tallied separately
 		return m.advance()
 	}
@@ -513,23 +531,36 @@ func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
 
 	// step finished
 	s := &m.queue[m.current]
+	cat := stepCategory(s.step)
 	if msg.err != nil {
 		s.status = statusFailed
 		m.errs++
-		appendLog("FAIL", s.step.logLabel, m.buf.String())
+		appendLog(cat, "FAIL", s.step.logLabel, m.buf.String())
 	} else {
 		s.status = statusOK
-		if dryRun { // a dry run logs every action, not just failures
-			appendLog("DRYRUN", s.step.logLabel, m.buf.String())
+		switch {
+		case dryRun: // a dry run logs every action, not just failures
+			appendLog(cat, "DRYRUN", s.step.logLabel, m.buf.String())
+		case s.step.alwaysLog: // destructive steps log their outcome even on success
+			appendLog(cat, "OK", s.step.logLabel, m.buf.String())
 		}
 	}
 	cmd := m.advance()
 	return m, cmd
 }
 
-func (m model) openLog() (tea.Model, tea.Cmd) {
+// openLogPicker shows the log-category menu ("View log").
+func (m model) openLogPicker() (tea.Model, tea.Cmd) {
+	m.screen = screenLogPicker
+	m.logCursor = 0
+	return m, nil
+}
+
+// openLogCategory opens the pager on one category's log.
+func (m model) openLogCategory(cat logCategory) (tea.Model, tea.Cmd) {
 	m.screen = screenLog
-	m.output.SetContent(readLog())
+	m.logCat = cat
+	m.output.SetContent(readLog(cat))
 	m.output.GotoTop()
 	return m, nil
 }

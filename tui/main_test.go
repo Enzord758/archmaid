@@ -99,7 +99,7 @@ func TestDryRunLogsEveryStep(t *testing.T) {
 	tm, _ := m.handleStream(streamMsg{done: true})
 	_ = tm
 
-	data, err := os.ReadFile(logPath())
+	data, err := os.ReadFile(logPath(logCategoryCleanup))
 	if err != nil {
 		t.Fatalf("dry-run log not written: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestSudoThreeStrikesSkipsAndLogs(t *testing.T) {
 	if got.skipped != 1 {
 		t.Fatalf("skipped = %d, want 1 (the skipped sudo step)", got.skipped)
 	}
-	data, _ := os.ReadFile(logPath())
+	data, _ := os.ReadFile(logPath(logCategoryCleanup))
 	if !strings.Contains(string(data), "SKIP: needs root (sudo authentication failed)") {
 		t.Fatalf("missing SKIP log entry, got:\n%s", data)
 	}
@@ -398,7 +398,7 @@ func TestStreamFailurePropagates(t *testing.T) {
 	if got.errs != 1 {
 		t.Fatalf("errs = %d, want 1", got.errs)
 	}
-	data, _ := os.ReadFile(logPath())
+	data, _ := os.ReadFile(logPath(logCategoryCleanup))
 	if !strings.Contains(string(data), "FAIL: Boom step") || !strings.Contains(string(data), "boom") {
 		t.Fatalf("expected FAIL log with body, got:\n%s", data)
 	}
@@ -562,6 +562,166 @@ func TestBrokenPackagesNoMatchNoPanic(t *testing.T) {
 		if p != strings.TrimSpace(p) || p == "" {
 			t.Fatalf("unclean package line %q", p)
 		}
+	}
+}
+
+// ── behaviour 8: log categories + view-log picker ──────────────────────────────
+
+// TestStepCategoryDefaultsToCleanup: a step with no category set (the common
+// case) buckets into "cleanup", not an empty/zero category.
+func TestStepCategoryDefaultsToCleanup(t *testing.T) {
+	if got := stepCategory(step{}); got != logCategoryCleanup {
+		t.Fatalf("stepCategory(zero step) = %q, want %q", got, logCategoryCleanup)
+	}
+}
+
+// TestFailureLogsToItsStepCategory: a failing step's FAIL entry lands in its
+// own category's file, not a shared one — topgrade and cleanup steps failing
+// in the same run must not land in the same log.
+func TestFailureLogsToItsStepCategory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	oldLogDir := logDir
+	logDir = t.TempDir()
+	defer func() { logDir = oldLogDir }()
+
+	m := initialModel()
+	m.screen = screenRunning
+	m.queue = []stepState{{
+		step:   step{title: "update", logLabel: "Topgrade completed", category: logCategoryTopgrade},
+		status: statusRunning,
+	}}
+	m.current = 0
+	m.buf.WriteString("boom\n")
+
+	next, _ := m.handleStream(streamMsg{done: true, err: errors.New("fail")})
+	_ = next.(model)
+
+	topgradeLog, _ := os.ReadFile(logPath(logCategoryTopgrade))
+	if !strings.Contains(string(topgradeLog), "FAIL: Topgrade completed") {
+		t.Fatalf("expected FAIL entry in topgrade log, got:\n%s", topgradeLog)
+	}
+	if data, err := os.ReadFile(logPath(logCategoryCleanup)); err == nil && strings.Contains(string(data), "Topgrade") {
+		t.Fatalf("topgrade failure leaked into the cleanup log:\n%s", data)
+	}
+}
+
+// TestAlwaysLogStepLogsOnSuccess: a step marked alwaysLog (destructive —
+// removes or overwrites something) logs its outcome even when it succeeds in
+// a real run, unlike an ordinary step (which stays failure-only). This is
+// what closes the gap that made the orphan-removal incident only traceable
+// via pacman's own log, not archmaid's.
+func TestAlwaysLogStepLogsOnSuccess(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	oldLogDir := logDir
+	logDir = t.TempDir()
+	defer func() { logDir = oldLogDir }()
+
+	m := initialModel()
+	m.screen = screenRunning
+	m.queue = []stepState{{
+		step: step{
+			title: "remove orphans", logLabel: "Orphaned packages removed",
+			category: logCategoryOrphans, alwaysLog: true,
+		},
+		status: statusRunning,
+	}}
+	m.current = 0
+	m.buf.WriteString("removing liba libb\n")
+
+	next, _ := m.handleStream(streamMsg{done: true})
+	got := next.(model)
+	if got.queue[0].status != statusOK {
+		t.Fatalf("status = %d, want statusOK", got.queue[0].status)
+	}
+
+	data, err := os.ReadFile(logPath(logCategoryOrphans))
+	if err != nil {
+		t.Fatalf("alwaysLog step should log on success, got no file: %v", err)
+	}
+	if !strings.Contains(string(data), "OK: Orphaned packages removed") ||
+		!strings.Contains(string(data), "removing liba libb") {
+		t.Fatalf("expected OK entry with captured output, got:\n%s", data)
+	}
+}
+
+// TestOrdinaryStepStaysSilentOnSuccess: without alwaysLog, a successful real
+// (non-dry-run) step writes nothing — matching the pre-existing
+// failures-only policy for anything not flagged destructive.
+func TestOrdinaryStepStaysSilentOnSuccess(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	oldLogDir := logDir
+	logDir = t.TempDir()
+	defer func() { logDir = oldLogDir }()
+
+	m := initialModel()
+	m.screen = screenRunning
+	m.queue = []stepState{{step: step{title: "cache", logLabel: "Cache cleaned"}, status: statusRunning}}
+	m.current = 0
+	m.buf.WriteString("ok\n")
+
+	m.handleStream(streamMsg{done: true})
+
+	if _, err := os.Stat(logPath(logCategoryCleanup)); !os.IsNotExist(err) {
+		data, _ := os.ReadFile(logPath(logCategoryCleanup))
+		t.Fatalf("ordinary step should not log on success, got:\n%s", data)
+	}
+}
+
+// TestViewLogOpensPicker: "View log" from the menu goes to the category
+// picker, not straight to a pager, and remembers the menu as its way back.
+func TestViewLogOpensPicker(t *testing.T) {
+	m := initialModel()
+	m.cursor = len(menu) - 2 // "View log"
+	if menu[m.cursor].id != "viewlog" {
+		t.Fatalf("test menu index drifted: menu[%d].id = %q", m.cursor, menu[m.cursor].id)
+	}
+	got := update(m, key("enter"))
+	if got.screen != screenLogPicker {
+		t.Fatalf("screen = %d, want screenLogPicker", got.screen)
+	}
+	if got.logReturn != screenMenu {
+		t.Fatalf("logReturn = %d, want screenMenu", got.logReturn)
+	}
+}
+
+// TestLogPickerEscReturnsWhereItCameFrom: esc from the picker goes back to
+// logReturn, which differs depending on whether the picker was opened from
+// the menu or from the summary screen's "l" shortcut.
+func TestLogPickerEscReturnsWhereItCameFrom(t *testing.T) {
+	m := initialModel()
+	m.screen = screenSummary
+	got := update(m, key("l"))
+	if got.screen != screenLogPicker || got.logReturn != screenSummary {
+		t.Fatalf("after 'l' on summary: screen=%d logReturn=%d, want screenLogPicker/screenSummary",
+			got.screen, got.logReturn)
+	}
+	back := update(got, key("esc"))
+	if back.screen != screenSummary {
+		t.Fatalf("esc from picker = screen %d, want screenSummary", back.screen)
+	}
+}
+
+// TestLogPickerEnterOpensChosenCategory: selecting a category in the picker
+// opens the pager on that category's log, tracked via m.logCat.
+func TestLogPickerEnterOpensChosenCategory(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	oldLogDir := logDir
+	logDir = t.TempDir()
+	defer func() { logDir = oldLogDir }()
+
+	m := initialModel()
+	m.screen = screenLogPicker
+	m.logCursor = 1 // orphans, per logCategoryLabels' order
+	if logCategoryLabels[1].id != logCategoryOrphans {
+		t.Fatalf("test index drifted: logCategoryLabels[1] = %+v", logCategoryLabels[1])
+	}
+
+	got := update(m, key("enter"))
+	if got.screen != screenLog {
+		t.Fatalf("screen = %d, want screenLog", got.screen)
+	}
+	if got.logCat != logCategoryOrphans {
+		t.Fatalf("logCat = %q, want %q", got.logCat, logCategoryOrphans)
 	}
 }
 

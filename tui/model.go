@@ -21,6 +21,7 @@ const (
 	screenConfirm
 	screenRunning
 	screenSummary
+	screenLogPicker // "View log" category menu (topgrade / orphans / cleanup)
 	screenLog
 	screenNotice       // one-line result ("nothing to do") → any key back
 	screenDiscovering  // spinner while a discovery cmd runs
@@ -83,6 +84,11 @@ type model struct {
 	services      []string
 	serviceOn     []bool
 	serviceCursor int
+
+	// log viewer state
+	logCursor int         // screenLogPicker selection
+	logCat    logCategory // category currently open in screenLog
+	logReturn screen      // screen to return to on esc from screenLogPicker
 
 	// running-queue state
 	queue   []stepState

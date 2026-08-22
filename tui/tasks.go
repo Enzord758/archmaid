@@ -31,6 +31,23 @@ type step struct {
 	// needsSudo steps are grouped so we can prime `sudo -v` once up front
 	// (see primeSudo) instead of prompting mid-run behind a spinner.
 	needsSudo bool
+
+	// category buckets this step's log entries (see logPath); zero value
+	// resolves to logCategoryCleanup via stepCategory.
+	category logCategory
+	// alwaysLog logs this step's outcome even on success in a real run
+	// (normally only failures are logged) — for steps that remove or
+	// overwrite something, so what happened is auditable without digging
+	// through pacman's own log.
+	alwaysLog bool
+}
+
+// stepCategory is s.category, defaulting to logCategoryCleanup when unset.
+func stepCategory(s step) logCategory {
+	if s.category == "" {
+		return logCategoryCleanup
+	}
+	return s.category
 }
 
 type stepStatus int
@@ -144,6 +161,7 @@ func fullCleanupSteps() []step {
 		{
 			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
 			command: "topgrade", args: []string{"-y", "--disable", "hyprpm"}, needsSudo: true,
+			category: logCategoryTopgrade,
 		},
 		{
 			title: "Cleaning package cache…", logLabel: "Old package cache cleaned",
@@ -152,20 +170,30 @@ func fullCleanupSteps() []step {
 		{
 			title: "Deleting entire package cache…", logLabel: "Entire package cache removed",
 			command: "sudo", args: []string{"paccache", "-rk0"}, needsSudo: true,
-			confirm:  "Delete ENTIRE package cache? (can't reinstall without internet)",
-			optional: true,
+			confirm:   "Delete ENTIRE package cache? (can't reinstall without internet)",
+			optional:  true,
+			alwaysLog: true,
 		},
 	}
 
 	// Orphan removal — queried now so the confirm shows the real count and the
 	// package list is spliced into the step. Omitted entirely when there are
-	// no orphans.
+	// no orphans. -Rns is recursive (-s): removing these can free up their own
+	// now-unneeded dependencies too, so the confirm previews that true total
+	// instead of just the direct orphan count (see orphanRemovalTotal).
 	if orphans := orphanPackages(); len(orphans) > 0 {
+		msg := fmt.Sprintf("Remove %d orphaned package(s)?", len(orphans))
+		if total := orphanRemovalTotal(orphans); total > len(orphans) {
+			msg = fmt.Sprintf("Remove %d orphaned package(s) — %d total once dependencies cascade?",
+				len(orphans), total)
+		}
 		steps = append(steps, step{
 			title: "Removing orphaned packages…", logLabel: "Orphaned packages removed",
 			command: "sudo", args: append([]string{"pacman", "-Rns", "--noconfirm"}, orphans...),
 			needsSudo: true, optional: true,
-			confirm: fmt.Sprintf("Remove %d orphaned package(s)?", len(orphans)),
+			confirm:   msg,
+			category:  logCategoryOrphans,
+			alwaysLog: true,
 		})
 	}
 
@@ -176,13 +204,14 @@ func fullCleanupSteps() []step {
 		},
 		{
 			title: "Cleaning old temp files…", logLabel: "Old temporary files removed",
-			command: "sudo", needsSudo: true,
+			command: "sudo", needsSudo: true, alwaysLog: true,
 			args: []string{"find", "/tmp", "/var/tmp", "-mindepth", "1", "-maxdepth", "1",
 				"-mtime", "+2", "-exec", "rm", "-rf", "{}", "+"},
 		},
 		{
 			title: "Vacuuming logs…", logLabel: "Old logs removed",
 			command: "sudo", args: []string{"journalctl", "--vacuum-time=2weeks"}, needsSudo: true,
+			alwaysLog: true,
 		},
 		{
 			title: "Checking package integrity…", logLabel: "Package integrity check completed",
@@ -208,6 +237,7 @@ func topgradeSteps() []step {
 	return []step{{
 		title: "Updating system with topgrade…", logLabel: "Topgrade completed",
 		command: "topgrade", args: []string{"-y"}, needsSudo: true,
+		category: logCategoryTopgrade,
 	}}
 }
 
@@ -215,7 +245,8 @@ func clearUserCacheSteps() []step {
 	return []step{{
 		title: "Cleaning user cache…", logLabel: "User cache cleared",
 		command: "bash", args: []string{"-c", "rm -rf \"$HOME/.cache/\"*"},
-		confirm: "Clear all user cache?",
+		confirm:   "Clear all user cache?",
+		alwaysLog: true,
 	}}
 }
 
@@ -346,7 +377,7 @@ func discoverRepair() tea.Cmd {
 		return discoveryMsg{kind: "repair", pending: []step{{
 			title: "Reinstalling packages…", logLabel: "Package repair completed",
 			command: "sudo", args: append([]string{"pacman", "-S", "--noconfirm"}, pkgs...),
-			needsSudo: true, optional: true,
+			needsSudo: true, optional: true, alwaysLog: true,
 			confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
 		}}}
 	}
@@ -368,6 +399,23 @@ func orphanPackages() []string {
 	return nonEmptyLines(string(out))
 }
 
+// orphanRemovalTotal previews how many packages `pacman -Rns <orphans>` will
+// actually remove: -s recursively drops each target's own dependencies too,
+// once nothing else needs them, so the true total can run well past
+// len(orphans) (e.g. deleting one orphaned Electron app cascades into dozens
+// of now-unused libs beneath it). --print performs no changes and needs no
+// root; it conflicts with -n/--nosave, so this probe uses -Rs, not -Rns — the
+// dropped -n only affects whether removed configs are kept as .pacsave, not
+// what gets selected. Falls back to len(orphans) if the probe itself fails.
+func orphanRemovalTotal(orphans []string) int {
+	args := append([]string{"-Rs", "--print"}, orphans...)
+	out, err := exec.Command("pacman", args...).Output()
+	if err != nil {
+		return len(orphans)
+	}
+	return len(nonEmptyLines(string(out)))
+}
+
 func discoverDownloads() tea.Cmd {
 	return func() tea.Msg {
 		home, _ := os.UserHomeDir()
@@ -382,8 +430,9 @@ func discoverDownloads() tea.Cmd {
 			title: "Deleting old downloads…", logLabel: "Old downloads deleted",
 			command: "bash", args: []string{"-c",
 				fmt.Sprintf(`find %q -maxdepth 1 -mtime +30 -exec rm -rf {} +`, dir)},
-			optional: true,
-			confirm:  fmt.Sprintf("Delete %s file(s) older than 30 days in Downloads?", n),
+			optional:  true,
+			alwaysLog: true,
+			confirm:   fmt.Sprintf("Delete %s file(s) older than 30 days in Downloads?", n),
 		}}}
 	}
 }
@@ -418,7 +467,7 @@ func editConfig() tea.Cmd {
 	path := configPath()
 	if dryRun {
 		return func() tea.Msg {
-			appendLog("DRYRUN", "Edit topgrade config", "would open "+editorName()+" on "+path)
+			appendLog(logCategoryCleanup, "DRYRUN", "Edit topgrade config", "would open "+editorName()+" on "+path)
 			return editorDoneMsg{}
 		}
 	}

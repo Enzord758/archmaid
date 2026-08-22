@@ -240,3 +240,69 @@ func TestOrphanStepOmittedWhenNone(t *testing.T) {
 			len(with), len(without))
 	}
 }
+
+// shimPacmanCascade extends shimPacman with an -Rs --print response, so
+// orphanRemovalTotal's cascade preview can be driven independently of -Qdtq.
+func shimPacmanCascade(t *testing.T, qdtqOutput, rsPrintOutput string) {
+	t.Helper()
+	dir := t.TempDir()
+	qPayload := strings.ReplaceAll(qdtqOutput, "\n", "\\n")
+	rPayload := strings.ReplaceAll(rsPrintOutput, "\n", "\\n")
+	script := fmt.Sprintf("#!/bin/sh\n"+
+		"if [ \"$1\" = \"-Qdtq\" ]; then printf '%s'; fi\n"+
+		"if [ \"$1\" = \"-Rs\" ]; then printf '%s'; fi\n", qPayload, rPayload)
+	if err := os.WriteFile(filepath.Join(dir, "pacman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// TestOrphanStepShowsCascadeTotal: when -Rns's recursive dependency cleanup
+// (-s) would remove more than the direct orphans, the confirm discloses the
+// real total instead of just the count the user is used to skimming past.
+func TestOrphanStepShowsCascadeTotal(t *testing.T) {
+	shimPacmanCascade(t, "liba\nlibb\n", "liba-1\nlibb-1\nlibc-1\nlibd-1\n")
+
+	steps := fullCleanupSteps()
+	i := findStep(steps, "orphaned")
+	if i == -1 {
+		t.Fatalf("no orphan step in %d-step queue", len(steps))
+	}
+	want := "Remove 2 orphaned package(s) — 4 total once dependencies cascade?"
+	if got := steps[i].confirm; got != want {
+		t.Fatalf("confirm = %q, want %q", got, want)
+	}
+}
+
+// TestOrphanStepNoCascadeKeepsPlainCount: when the cascade preview reports no
+// extra packages, the confirm stays the plain count (no confusing "N total"
+// clause when N equals the direct count).
+func TestOrphanStepNoCascadeKeepsPlainCount(t *testing.T) {
+	shimPacmanCascade(t, "liba\nlibb\n", "liba-1\nlibb-1\n")
+
+	steps := fullCleanupSteps()
+	i := findStep(steps, "orphaned")
+	if i == -1 {
+		t.Fatalf("no orphan step in %d-step queue", len(steps))
+	}
+	want := "Remove 2 orphaned package(s)?"
+	if got := steps[i].confirm; got != want {
+		t.Fatalf("confirm = %q, want %q", got, want)
+	}
+}
+
+// TestOrphanRemovalTotalFallsBackOnProbeFailure: if the --print preview
+// itself can't run, the count silently falls back to the direct orphan list
+// rather than corrupting the confirm text.
+func TestOrphanRemovalTotalFallsBackOnProbeFailure(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	if got := orphanRemovalTotal([]string{"liba", "libb"}); got != 2 {
+		t.Fatalf("orphanRemovalTotal = %d, want 2 (fallback to len(orphans))", got)
+	}
+}

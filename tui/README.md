@@ -54,17 +54,24 @@ straight over via `lipgloss`).
   dialogs, notices) render as bordered boxes composited over the current screen
   via an ANSI-aware overlay (`overlay.go`), not full-screen takeovers, so the
   running checklist stays visible behind an abort dialog.
-- **Error-only logging** (`log.go`): each run's failures go to a timestamped
-  file `~/.local/state/archmaid/<YYYYMMDD-HHMM>.log` (a user-writable dir — no
-  root/system setup). Successful runs write nothing. Run logs older than a week
-  are pruned at startup. Dry runs log everything to a single
-  `~/.local/state/archmaid/dryrun.log` instead.
+- **Category-split, mostly-failures logging** (`log.go`): each run gets its own
+  timestamped directory, `~/.local/state/archmaid/<YYYYMMDD-HHMM>/` (a
+  user-writable dir — no root/system setup), holding one file per category —
+  `topgrade.log`, `orphans.log`, `cleanup.log` (the default bucket for
+  everything else). Ordinary steps only log on failure; steps that remove or
+  overwrite something (orphan removal, cache/temp/log wipes, service
+  disabling, downloads/repair cleanup) log their outcome even on success, so
+  what a destructive step actually did stays auditable without digging through
+  `pacman`'s own log. Only the newest 5 run directories are kept — older ones
+  are pruned at startup. "View log" picks a category before opening the pager.
+  Dry runs log everything to a single reused `~/.local/state/archmaid/dryrun/`
+  slot instead.
 
 ## Dry run
 
 `go run . --dryrun` (or `./archmaid --dryrun`) makes every mutating step *report what
-it would do* instead of running it, logs **every** step (not just failures) to a
-separate `~/.local/state/archmaid/dryrun.log`, and skips sudo entirely. Read-only
+it would do* instead of running it, logs **every** step (not just failures) to
+`~/.local/state/archmaid/dryrun/<category>.log`, and skips sudo entirely. Read-only
 discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
 the header. This is the safe way to exercise the whole UI.
 
@@ -113,5 +120,8 @@ See `TESTING.md` for the full test plan and how to drive the TUI headlessly.
 ## Logs
 
 Logs live in `~/.local/state/archmaid/` — a user-writable dir, so there's no
-install-time or root setup. One timestamped file per run (failures only), plus a
-single `dryrun.log`; anything older than a week is pruned on startup.
+install-time or root setup. One timestamped directory per run, holding
+`topgrade.log` / `orphans.log` / `cleanup.log` (failures only, plus any
+destructive step's outcome even on success), and a single reused `dryrun/`
+directory for `--dryrun` runs. Only the newest 5 run directories are kept;
+older ones are pruned on startup.

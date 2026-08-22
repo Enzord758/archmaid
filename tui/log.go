@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"time"
 )
 
@@ -14,12 +16,50 @@ var dryRun bool
 // ~/.local/state/archmaid — a user-writable location, no root/system dir needed.
 var logDir string
 
-// runStamp names this run's log file (YYYYMMDD-HHMM). Fixed for the process so
-// every entry from one run lands in the same file.
+// runStamp names this run's log directory (YYYYMMDD-HHMM). Fixed for the
+// process so every entry from one run lands under the same directory.
 var runStamp = time.Now().Format("20060102-1504")
 
-// logRetention is how long a run log is kept before pruneLogs removes it.
-const logRetention = 7 * 24 * time.Hour
+// logCategory buckets a step's log entries so one run's output doesn't land
+// in a single undifferentiated file. Every step falls into exactly one
+// bucket; unset step.logCategory defaults to logCategoryCleanup.
+type logCategory string
+
+const (
+	logCategoryTopgrade logCategory = "topgrade"
+	logCategoryOrphans  logCategory = "orphans"
+	logCategoryCleanup  logCategory = "cleanup" // default: everything else
+)
+
+// logCategoryLabels drives the "View log" category picker, in display order.
+var logCategoryLabels = []struct {
+	id    logCategory
+	label string
+}{
+	{logCategoryTopgrade, "Topgrade"},
+	{logCategoryOrphans, "Orphan removal"},
+	{logCategoryCleanup, "Cleanup"},
+}
+
+// categoryLabel is cat's display name, falling back to the raw value for any
+// category that isn't in logCategoryLabels (shouldn't happen in practice).
+func categoryLabel(cat logCategory) string {
+	for _, c := range logCategoryLabels {
+		if c.id == cat {
+			return c.label
+		}
+	}
+	return string(cat)
+}
+
+// logKeepRuns is how many run directories pruneLogs keeps; older ones are
+// removed entirely. dryrun's directory is exempt — it's a single reused slot,
+// not a growing history.
+const logKeepRuns = 5
+
+// runDirPattern matches a run directory name (runStamp's own format), so
+// pruneLogs only ever touches directories it created itself.
+var runDirPattern = regexp.MustCompile(`^\d{8}-\d{4}$`)
 
 // resolveLogDir is the override when set, otherwise ~/.local/state/archmaid.
 func resolveLogDir() string {
@@ -30,42 +70,54 @@ func resolveLogDir() string {
 	return filepath.Join(home, ".local", "state", "archmaid")
 }
 
-// logPath returns the file this run logs to, under ~/.local/state/archmaid:
-// a timestamped per-run file for real runs, a single overwritable dryrun.log
-// for dry runs.
-func logPath() string {
-	dir := resolveLogDir()
-	os.MkdirAll(dir, 0o755)
+// runDirName is the directory this process's log entries land under: a fixed
+// "dryrun" slot (reused/appended across dry runs) or this run's timestamp.
+func runDirName() string {
 	if dryRun {
-		return filepath.Join(dir, "dryrun.log")
+		return "dryrun"
 	}
-	return filepath.Join(dir, runStamp+".log")
+	return runStamp
 }
 
-// pruneLogs deletes run logs older than logRetention. Called once at startup;
-// a no-op if the log dir doesn't exist yet.
+// logPath returns the file a given category logs to for this run:
+// ~/.local/state/archmaid/<run>/<category>.log.
+func logPath(cat logCategory) string {
+	dir := filepath.Join(resolveLogDir(), runDirName())
+	os.MkdirAll(dir, 0o755)
+	return filepath.Join(dir, string(cat)+".log")
+}
+
+// pruneLogs deletes all but the logKeepRuns most recent run directories.
+// Called once at startup; a no-op if the log dir doesn't exist yet. The
+// dryrun directory and anything that isn't a run directory (stray files, a
+// user's own subdirectories) are left alone.
 func pruneLogs() {
 	dir := resolveLogDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
-	cutoff := time.Now().Add(-logRetention)
+	var runs []string
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".log" {
-			continue
+		if e.IsDir() && runDirPattern.MatchString(e.Name()) {
+			runs = append(runs, e.Name())
 		}
-		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
-			os.Remove(filepath.Join(dir, e.Name()))
-		}
+	}
+	if len(runs) <= logKeepRuns {
+		return
+	}
+	sort.Strings(runs) // runStamp's format sorts lexicographically = chronologically
+	for _, name := range runs[:len(runs)-logKeepRuns] {
+		os.RemoveAll(filepath.Join(dir, name))
 	}
 }
 
-// appendLog writes a timestamped entry. kind is a short tag (FAIL, DRYRUN,
-// SKIP). If body is non-empty it's wrapped in an output block. Normal runs only
-// log failures; a dry run logs every action.
-func appendLog(kind, label, body string) {
-	f, err := os.OpenFile(logPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+// appendLog writes a timestamped entry to cat's log. kind is a short tag
+// (FAIL, DRYRUN, SKIP, OK). If body is non-empty it's wrapped in an output
+// block. Normal runs only log failures and steps marked step.alwaysLog; a dry
+// run logs every action.
+func appendLog(cat logCategory, kind, label, body string) {
+	f, err := os.OpenFile(logPath(cat), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
@@ -79,8 +131,8 @@ func appendLog(kind, label, body string) {
 		ts, kind, label, label, body)
 }
 
-func readLog() string {
-	b, err := os.ReadFile(logPath())
+func readLog(cat logCategory) string {
+	b, err := os.ReadFile(logPath(cat))
 	if err != nil || len(b) == 0 {
 		return statusStyle.Render("Log is empty.")
 	}
