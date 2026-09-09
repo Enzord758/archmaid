@@ -16,9 +16,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
-		// leave room for the header and footer around the output pane
-		m.output.Width = msg.Width - 4
-		m.output.Height = msg.Height - 8
+		m.termWidth, m.termHeight = msg.Width, msg.Height
+		m.resizeOutput()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -106,9 +105,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A child's sudo wants a password — pop the prompt over the current
 		// screen. The password flows straight back over the connection.
 		m.askpassConn = msg.conn
-		m.bg = m.screen
-		if m.bg == screenPassword {
-			m.bg = screenRunning
+		switch m.screen {
+		case screenPassword, screenConfirm, screenNotice:
+			// These three read the shared m.bg field for their own
+			// background (popupLayer in view.go). Overwriting it with their
+			// own screen value here would make it self-referential and
+			// recurse forever in renderScreen — so leave it as whatever it
+			// already correctly resolved to when that popup opened; once
+			// this askpass prompt is dismissed, m.screen = m.bg still lands
+			// back on that same popup.
+		default:
+			// screenAbortConfirm (safe: its background is hardcoded in
+			// popupLayer, not read from m.bg) or an ordinary screen — record
+			// it so whatever was showing reappears once the password prompt
+			// closes.
+			m.bg = m.screen
 		}
 		m.pwErr = ""
 		if strings.Contains(strings.ToLower(msg.prompt), "try again") {
@@ -133,6 +144,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// resizeOutput sizes the output viewport for the active screen. The log
+// viewer's chrome around the output box is fixed (header + category line +
+// box border + hint = 8 rows), but the running screen additionally stacks
+// the checklist above the box, and that grows with the queue — so it needs
+// those extra rows subtracted too, or the pane overflows the terminal by one
+// row per queued step. Resolved through baseScreen rather than compared
+// against m.screen directly, so a resize while a popup (per-step confirm,
+// abort-confirm, an askpass prompt) is showing over the running screen still
+// budgets for the checklist — otherwise dismissing the popup back to
+// screenRunning would hit the same overflow. Called on resize and whenever
+// the queue length or active screen changes (startQueue, openLogCategory).
+func (m *model) resizeOutput() {
+	m.output.Width = m.termWidth - 4
+	height := m.termHeight - 8
+	if m.baseScreen(m.screen) == screenRunning {
+		height -= len(m.queue)
+	}
+	if height < 1 {
+		height = 1
+	}
+	m.output.Height = height
 }
 
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -394,6 +428,7 @@ func (m *model) startQueue() tea.Cmd {
 	m.pending = nil
 	m.current = -1
 	m.screen = screenRunning
+	m.resizeOutput() // checklist length is now known — shrink the output pane to fit
 
 	cmd := m.advance()
 	if !dryRun && !m.sudoAlive && queueNeedsSudo(m.queue) {
@@ -559,6 +594,7 @@ func (m model) openLogPicker() (tea.Model, tea.Cmd) {
 // openLogCategory opens the pager on one category's log.
 func (m model) openLogCategory(cat logCategory) (tea.Model, tea.Cmd) {
 	m.screen = screenLog
+	m.resizeOutput() // switch off the running screen's queue-shrunk height, if any
 	m.logCat = cat
 	m.output.SetContent(readLog(cat))
 	m.output.GotoTop()

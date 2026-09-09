@@ -8,19 +8,59 @@ import (
 // ── view ─────────────────────────────────────────────────────────────────────
 
 // View renders the active screen. Popup screens (password, confirm, abort,
-// notice) are composited as a floating box over their recorded background.
+// notice) are composited as a floating box over their own background,
+// recursively — a popup can itself be showing over another popup (e.g. an
+// askpass prompt interrupting the abort-confirm dialog over a running step).
 func (m model) View() string {
-	switch m.screen {
-	case screenPassword:
-		return overlay(m.viewOf(m.bg), m.viewPassword())
-	case screenConfirm:
-		return overlay(m.viewOf(m.bg), m.viewConfirm())
-	case screenAbortConfirm:
-		return overlay(m.viewOf(m.bg), m.viewAbortConfirm())
-	case screenNotice:
-		return overlay(m.viewOf(m.bg), m.viewNotice())
+	return m.renderScreen(m.screen)
+}
+
+// renderScreen renders s as it appears standalone: a popup composited over
+// its own background (rendered recursively, since that background may
+// itself be a popup), or viewOf(s) directly for a non-popup screen.
+func (m model) renderScreen(s screen) string {
+	bg, view, ok := m.popupLayer(s)
+	if !ok {
+		return m.viewOf(s)
 	}
-	return m.viewOf(m.screen)
+	return overlay(m.renderScreen(bg), view)
+}
+
+// popupLayer is the single place that knows which screens are popups: the
+// screen each composites over, and its rendered content. Keeping this list
+// in one spot (rather than duplicated across View, background bookkeeping,
+// and layout sizing) means a screen added here is automatically handled
+// everywhere a popup needs to be recognised.
+//
+// screenAbortConfirm's background is always screenRunning by construction —
+// the only place that opens it sets that — so it's hardcoded here rather
+// than read from m.bg. The other three vary, so they use the shared m.bg
+// field; see askpassMsg's handling in update.go for why a screen already
+// showing as one of those three must not overwrite m.bg with itself (m.bg
+// is a single field, not a per-layer stack — self-assignment there would
+// recurse forever).
+func (m model) popupLayer(s screen) (bg screen, view string, ok bool) {
+	switch s {
+	case screenPassword:
+		return m.bg, m.viewPassword(), true
+	case screenConfirm:
+		return m.bg, m.viewConfirm(), true
+	case screenAbortConfirm:
+		return screenRunning, m.viewAbortConfirm(), true
+	case screenNotice:
+		return m.bg, m.viewNotice(), true
+	}
+	return 0, "", false
+}
+
+// baseScreen resolves s down through any popup layers to the underlying
+// non-popup screen it's ultimately shown over — e.g. screenPassword over
+// screenAbortConfirm over screenRunning resolves to screenRunning.
+func (m model) baseScreen(s screen) screen {
+	if bg, _, ok := m.popupLayer(s); ok {
+		return m.baseScreen(bg)
+	}
+	return s
 }
 
 // viewOf renders a full (non-popup) screen.
@@ -41,7 +81,7 @@ func (m model) viewOf(s screen) string {
 	case screenServices:
 		return m.viewServices()
 	}
-	return m.viewMenu() // safe fallback for a popup background
+	return m.viewMenu() // safe fallback; unreachable via renderScreen/baseScreen
 }
 
 func (m model) header() string {
