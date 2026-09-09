@@ -67,6 +67,12 @@ type model struct {
 	spinner spinner.Model
 	output  viewport.Model // live command output + log pager
 
+	// termWidth/termHeight are the last-seen terminal size, cached so the
+	// output pane can be resized outside of a WindowSizeMsg too — e.g. when
+	// the running screen's checklist grows the chrome around it (see
+	// resizeOutput).
+	termWidth, termHeight int
+
 	// password-prompt state
 	password        textinput.Model
 	pwErr           string

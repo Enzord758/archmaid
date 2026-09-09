@@ -44,6 +44,20 @@ func (m model) viewOf(s screen) string {
 	return m.viewMenu() // safe fallback for a popup background
 }
 
+// currentBackground is the non-popup screen to record as bg when opening a
+// new popup. Normally that's just m.screen, but if a popup is already
+// showing (e.g. an askpass prompt interrupting the abort-confirm dialog over
+// a running step) m.screen is itself a popup — viewOf can't render it, so we
+// resolve through the existing m.bg instead. This keeps the invariant that
+// m.bg is always a screen viewOf knows how to draw.
+func (m model) currentBackground() screen {
+	switch m.screen {
+	case screenPassword, screenConfirm, screenAbortConfirm, screenNotice:
+		return m.bg
+	}
+	return m.screen
+}
+
 func (m model) header() string {
 	line := titleStyle.Render("archmaid — Arch maintenance")
 	if dryRun {
