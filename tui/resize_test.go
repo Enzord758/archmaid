@@ -4,6 +4,8 @@ import (
 	"net"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ── output pane sizing ───────────────────────────────────────────────────────
@@ -97,18 +99,27 @@ func TestViewLogStaysWithinTerminalHeight(t *testing.T) {
 
 // ── askpass background tracking ──────────────────────────────────────────────
 //
-// m.bg must always name a screen viewOf can render. askpassMsg used to copy
-// m.screen into m.bg verbatim (special-casing only screenPassword), so an
-// askpass prompt interrupting the abort-confirm dialog recorded
-// screenAbortConfirm as the background — a popup screen viewOf doesn't know
-// how to draw, silently falling back to the main menu.
+// Popups can stack: an askpass prompt can interrupt the abort-confirm dialog
+// over a running step (the child hasn't been killed yet while the user
+// decides). Two things must both hold when that happens:
+//
+//  1. rendering must be correct — the password popup shows over the abort
+//     dialog, which shows over the checklist/output, not over the main menu
+//     (the original bug: viewOf couldn't render a popup screen as a
+//     background and silently fell back to it);
+//  2. dismissing the password popup must restore the abort-confirm dialog,
+//     not skip straight past it (a regression an earlier fix for #1
+//     introduced by collapsing m.bg down to screenRunning, which silently
+//     dropped the user's pending ctrl+c decision).
 
-func TestAskpassOverAbortConfirmKeepsRunningAsBackground(t *testing.T) {
+func TestAskpassOverAbortConfirmPreservesTheDialog(t *testing.T) {
 	m := fixedModel()
+	m.termWidth, m.termHeight = 80, 24 // a real size, or the popups render clipped to nothing
 	m.screen = screenAbortConfirm
 	m.bg = screenRunning // set by the ctrl+c handler, per the real flow
 	m.queue = queueOf(1)
 	m.current = 0
+	m.resizeOutput()
 
 	c1, c2 := net.Pipe()
 	defer c1.Close()
@@ -116,11 +127,33 @@ func TestAskpassOverAbortConfirmKeepsRunningAsBackground(t *testing.T) {
 
 	got := update(m, askpassMsg{prompt: "[sudo] password:", conn: c1})
 
-	if got.bg != screenRunning {
-		t.Fatalf("bg = %d, want screenRunning — an askpass prompt must not record a popup screen as its background", got.bg)
-	}
 	if got.screen != screenPassword {
 		t.Fatalf("screen = %d, want screenPassword", got.screen)
+	}
+	if got.bg != screenAbortConfirm {
+		t.Fatalf("bg = %d, want screenAbortConfirm — dismissing the password prompt must restore the pending abort dialog, not skip past it", got.bg)
+	}
+	if got.baseScreen(got.screen) != screenRunning {
+		t.Fatalf("baseScreen(screen) = %d, want screenRunning — the checklist/output must still be the innermost layer", got.baseScreen(got.screen))
+	}
+
+	// Rendering the 3-layer stack (password over abort-confirm over running)
+	// must terminate — the topmost popup legitimately obscures the dialog
+	// directly behind it (same as any modal-over-modal stack), but the
+	// running screen's own chrome, further out than either popup's box,
+	// must still show through both.
+	out := got.View()
+	for _, want := range []string{"sudo access required", "ctrl+c abort", "step"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered view missing %q; nested popups aren't compositing correctly:\n%s", want, out)
+		}
+	}
+
+	// esc cancels the askpass request and must land back on the abort
+	// dialog, not the running screen underneath it.
+	dismissed := update(got, key("esc"))
+	if dismissed.screen != screenAbortConfirm {
+		t.Fatalf("after dismissing askpass, screen = %d, want screenAbortConfirm restored", dismissed.screen)
 	}
 }
 
@@ -137,5 +170,43 @@ func TestAskpassOverPasswordScreenKeepsRealBackground(t *testing.T) {
 
 	if got.bg != screenMenu {
 		t.Fatalf("bg = %d, want screenMenu (resolved through the existing background, not the password screen itself)", got.bg)
+	}
+}
+
+func TestBaseScreenResolvesNestedPopups(t *testing.T) {
+	m := fixedModel()
+	m.bg = screenAbortConfirm // as left by an askpass prompt over abort-confirm
+
+	if got := m.baseScreen(screenPassword); got != screenRunning {
+		t.Fatalf("baseScreen(screenPassword) = %d, want screenRunning (password -> abort-confirm -> running)", got)
+	}
+	if got := m.baseScreen(screenAbortConfirm); got != screenRunning {
+		t.Fatalf("baseScreen(screenAbortConfirm) = %d, want screenRunning", got)
+	}
+	if got := m.baseScreen(screenMenu); got != screenMenu {
+		t.Fatalf("baseScreen(screenMenu) = %d, want screenMenu unchanged (not a popup)", got)
+	}
+}
+
+// TestResizeDuringPopupOverRunningStillBudgetsForChecklist is a regression
+// test: resizeOutput used to compare m.termHeight's budget against
+// m.screen == screenRunning directly, so a resize event that arrived while a
+// popup (per-step confirm, abort-confirm, an askpass prompt) was showing
+// over the running screen skipped the checklist subtraction entirely.
+// Dismissing that popup back to screenRunning would then hit the exact
+// overflow TestViewRunningNeverExceedsTerminalHeight guards against.
+func TestResizeDuringPopupOverRunningStillBudgetsForChecklist(t *testing.T) {
+	m := fixedModel()
+	m.screen = screenAbortConfirm
+	m.bg = screenRunning
+	m.queue = queueOf(9) // worst case: Full Cleanup's step count
+
+	got := update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	got.screen = screenRunning // as if the user just dismissed the popup
+	out := got.View()
+	lines := strings.Count(out, "\n") + 1
+	if lines > got.termHeight {
+		t.Fatalf("viewRunning rendered %d lines after a resize-during-popup, terminal is only %d rows tall", lines, got.termHeight)
 	}
 }

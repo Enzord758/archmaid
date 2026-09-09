@@ -105,7 +105,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A child's sudo wants a password — pop the prompt over the current
 		// screen. The password flows straight back over the connection.
 		m.askpassConn = msg.conn
-		m.bg = m.currentBackground()
+		switch m.screen {
+		case screenPassword, screenConfirm, screenNotice:
+			// These three read the shared m.bg field for their own
+			// background (popupLayer in view.go). Overwriting it with their
+			// own screen value here would make it self-referential and
+			// recurse forever in renderScreen — so leave it as whatever it
+			// already correctly resolved to when that popup opened; once
+			// this askpass prompt is dismissed, m.screen = m.bg still lands
+			// back on that same popup.
+		default:
+			// screenAbortConfirm (safe: its background is hardcoded in
+			// popupLayer, not read from m.bg) or an ordinary screen — record
+			// it so whatever was showing reappears once the password prompt
+			// closes.
+			m.bg = m.screen
+		}
 		m.pwErr = ""
 		if strings.Contains(strings.ToLower(msg.prompt), "try again") {
 			m.pwErr = "Incorrect password — try again"
@@ -136,12 +151,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // box border + hint = 8 rows), but the running screen additionally stacks
 // the checklist above the box, and that grows with the queue — so it needs
 // those extra rows subtracted too, or the pane overflows the terminal by one
-// row per queued step. Called on resize and whenever the queue length or
-// active screen changes (startQueue, openLogCategory).
+// row per queued step. Resolved through baseScreen rather than compared
+// against m.screen directly, so a resize while a popup (per-step confirm,
+// abort-confirm, an askpass prompt) is showing over the running screen still
+// budgets for the checklist — otherwise dismissing the popup back to
+// screenRunning would hit the same overflow. Called on resize and whenever
+// the queue length or active screen changes (startQueue, openLogCategory).
 func (m *model) resizeOutput() {
 	m.output.Width = m.termWidth - 4
 	height := m.termHeight - 8
-	if m.screen == screenRunning {
+	if m.baseScreen(m.screen) == screenRunning {
 		height -= len(m.queue)
 	}
 	if height < 1 {
