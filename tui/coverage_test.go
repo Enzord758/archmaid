@@ -12,7 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// These tests close the "untested / thin spots" listed in HANDOVER.md.
+// These tests close spots that were once untested (see TESTING.md → Coverage map).
 
 // ── editConfig non-dry-run path (tea.ExecProcess seam) ──────────────────────────
 

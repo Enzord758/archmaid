@@ -1,311 +1,146 @@
-# TESTING — test suite reference
+# TESTING
 
-The Bubble Tea rewrite (this `tui/` directory, `package main`) has a full test
-suite: unit tests driving `Update`, `teatest` golden frames, and a VHS e2e
-harness. This doc is the inventory and how-to-run.
+How archmaid is tested, the rules that keep the suite safe and deterministic,
+and how to add a test. For *what the app does* see `README.md`; for design
+decisions and open work see `HANDOVER.md`.
 
-## Ground rules
+## Strategy
 
-- **Dry run stubs everything destructive.** `--dryrun` (global `dryRun`) makes
-  mutating steps report "would run" instead of executing, skips sudo, and logs to
-  `~/.local/state/archmaid/dryrun/<category>.log`. Tests that would otherwise run real commands set
-  `dryRun = true`. Never exercise the real `paccache -rk0` / `rm -rf` /
-  `systemctl disable` paths in a test.
-- **`HOME` is redirected** with `t.Setenv("HOME", t.TempDir())` in any test that
-  writes a log or touches `~/.config` / `~/Downloads`, so tests never touch real
-  files.
-- **Logs live in `~/.local/state/archmaid/<run>/`** (see `log.go`), split by
-  category so one run's output isn't a single undifferentiated blob: each run
-  gets its own directory (`<YYYYMMDD-HHMM>/` for a real run, a fixed `dryrun/`
-  slot reused across dry runs) containing `topgrade.log`, `orphans.log`,
-  `audit.log` (AUR audit results), and `cleanup.log` (the default bucket — `stepCategory` falls back to it for any
-  step that doesn't set `step.category`). Normal runs still only log
-  failures, **except** steps flagged `step.alwaysLog` (anything that removes
-  or overwrites something — orphan removal, cache/temp/log wipes, service
-  disabling, downloads/repair cleanup), which log their outcome even on
-  success; a dry run logs every action regardless. `resolveLogDir()` uses
-  `$HOME/.local/state/archmaid` unless the `logDir` var is overridden.
-  Real-log tests set `logDir = t.TempDir()` (restored via defer) so they never
-  touch the user's real state dir (`TestSudoThreeStrikesSkipsAndLogs`,
-  `TestStreamFailurePropagates`, and the new log-category tests); dry-run
-  tests isolate via `HOME`. `pruneLogs()` keeps only the newest `logKeepRuns`
-  (5) run directories, deleting older ones outright — `dryrun/` and anything
-  that isn't a run directory (stray files, other subdirectories) are exempt.
-  Covered by `TestPruneLogsKeepsLastFiveRuns` and `TestPruneLogsNoopUnderLimit`.
-- **"View log" is a category picker, then a pager.** `screenLogPicker` lists
-  Topgrade / Orphan removal / Cleanup / AUR audit (`logCategoryLabels`); picking one opens
-  `screenLog` on that category's file (`m.logCat` tracks which). Reached from
-  the menu (`logReturn = screenMenu`) or the summary screen's `l` key
-  (`logReturn = screenSummary`) — esc from the picker returns to whichever it
-  was.
-- **Determinism**: `TestMain` forces `lipgloss` to the ASCII (no-color) profile;
-  goldens compare a single re-rendered `View()` frame with the live status line
-  pinned via `fixedModel()`; the spinner is pinned to one frame where a running
-  row must render deterministically.
-- Don't weaken a test to make it pass — a failure is a bug in the code.
+A bottom-heavy pyramid. Almost everything is a fast unit test against
+`model.Update`; there are two rendered-frame goldens and one real-binary
+end-to-end run.
+
+| Layer | Tool | What it is for |
+|---|---|---|
+| Unit | plain `go test`, driving `Update` with `tea.Msg`s | State transitions, command construction, parsers, log routing. The bulk of the suite. |
+| Layout/render | direct `View()` assertions + `teatest` goldens | Frames at a pinned size and color profile; the output pane never overflowing the terminal. |
+| Real processes | a real `sleep` child, real signals | Only where behaviour *is* the OS (abort → SIGINT → SIGKILL escalation). |
+| E2E | VHS drives the real binary in a pty under `--dryrun` | One smoke path proving the wiring (build, alt-screen, keys, log file). |
+
+Keep new tests at the lowest layer that can prove the behaviour.
 
 ## Running
 
 ```sh
-go test ./...            # everything (~1.7s)
-go test -race ./...      # with the race detector (the CI-grade run)
-go vet ./... && gofmt -l .   # must be clean
-go test -run TestAbort   # a subset by name
+go test -race ./...                 # the gate — must be green
+go vet ./... && gofmt -l .          # must print nothing
+go test -run TestAbort ./...        # a subset by name
 go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
-bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun, asserts on the log
-go build -o archmaid . && ./archmaid --dryrun   # manual e2e; then inspect ~/.local/state/archmaid/dryrun/*.log
+bash e2e/run.sh                     # VHS e2e (needs vhs, ttyd, ffmpeg)
+go build -o archmaid . && ./archmaid --dryrun   # manual poke; logs go to ~/.local/state/archmaid/dryrun/
 ```
 
-Current status: **108 tests, all green under `-race`; `vet` and `gofmt` clean.**
+`go build ./...` (no `-o`) leaves a `tui` binary here; it's gitignored.
+Don't track a test count in docs — it rots on the next commit; `go test -list .`
+is the source of truth.
 
-## Still needs tests: sudo askpass
+## Ground rules
 
-Sudo password prompts now route to a TUI popup via `SUDO_ASKPASS`, so no sudo
-call ever prompts on the tty (which hung/collided with bubbletea) — the fix for
-"Cleaning AUR cache pops a raw sudo prompt" and the `sudo -n` "password required"
-failures during a long Full Cleanup. The password is passed straight through,
-never stored. `askpass.go` + `main.go`/`tasks.go`; not yet unit-tested.
+These are what make the suite safe to run on a real machine. Break one and a
+test can delete your files or need root.
 
-- **`askpass.go` round-trip** — `runAskpass(sock, prompt)` dials the socket,
-  sends the prompt, prints back the line it receives, exit 0; exit 1 if it can't
-  connect or the connection closes unanswered. Testable with a fake unix-socket
-  server (see the manual check that's already been done: send a password, assert
-  it's printed to stdout). `startAskpassServer` writes a wrapper script + socket
-  and sets `SUDO_ASKPASS`; `close()` removes both.
-- **Ticket sharing = plain children, on purpose** (history: two reverted
-  attempts live in git — per-child `Setsid` isolated every internal sudo into
-  its own ppid-keyed ticket (repeated popups during topgrade), and a shared-pty
-  `ptysession.go` failed because sudo's tty tickets are keyed to tty **and
-  session** — per-child Setsid meant no match, so topgrade's sudo prompted on
-  the hidden pty → freeze). Steps now run as plain children: they inherit
-  archmaid's session + controlling terminal, so the prime's ticket is shared by
-  every step **and** everything topgrade/yay spawn. Don't reintroduce Setsid on
-  step children. Verified live (real password, tmux pty): prime → nested
-  `sh -c 'sudo -n true'` passes; a full live Full Cleanup completed with no
-  freeze, no raw prompts, no log failures.
-- **hyprpm runs last** (root-caused by step isolation with a real ticket, then
-  confirmed via binary symbols `NSys::root::cacheSudo`/`dropSudo`): `hyprpm`
-  drops the sudo ticket on exit — even a no-op `hyprpm update` kills the primed
-  credentials, silently breaking the keep-alive and forcing an askpass popup on
-  the next sudo step. Full Cleanup therefore runs topgrade with
-  `--disable hyprpm` and appends a dedicated "Updating Hyprland plugins" step
-  at the END of the queue (only when hyprpm is installed — `exec.LookPath`),
-  where its ticket-drop can't affect anything. Live-verified: a full run now
-  shows exactly ONE password popup (the prime), zero mid-run. Covered by
-  `hyprpm_test.go`: `TestFullCleanupDisablesHyprpmInTopgrade`,
-  `TestHyprpmStepLastWhenInstalled`, `TestHyprpmStepOmittedWhenNotInstalled`
-  (both PATH branches via `shimExclusivePath`), and
-  `TestStandaloneTopgradeKeepsHyprpm` (the standalone action deliberately keeps
-  hyprpm — nothing runs after it there).
-- **Model** (`askpassMsg`): shows the password popup over the current screen
-  (`m.bg`), holds `m.askpassConn`; on submit writes `password+"\n"` to the conn &
-  closes (pass-through), on cancel closes it. `handleStream`'s drop-guard now
-  only drops on `screenMenu`/`screenSummary` so streaming keeps pumping while the
-  askpass popup is up over a running step. Assert: `askpassMsg` → `screenPassword`
-  with `askpassConn` set; the prime-mode prompt (`askpassConn == nil`) still calls
-  `authSudo`.
+1. **Nothing destructive ever runs.** Tests that would execute a mutating step
+   set `dryRun = true` (steps then only *report* `[dry-run] would run: …`) or
+   shim the binary. Never exercise the real `paccache -rk0`, `rm -rf`,
+   `systemctl disable`, `pacman -Rns` or a real `sudo`.
+2. **No real state.** Tests that write a log, touch `~/.config` / `~/Downloads`
+   or read `$HOME` set `t.Setenv("HOME", t.TempDir())`. Tests that read or write
+   run logs or the AUR snapshot also set `logDir = t.TempDir()` (restored on
+   cleanup), so nothing lands in the real `~/.local/state/archmaid`.
+3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
+   replaced by shell shims placed first on `PATH` (see Recipes).
+4. **No network.** The AUR RPC is an `httptest` server reached through the
+   `aurRPCURL` var.
+5. **Deterministic frames.** `TestMain` (in `teatest_test.go`) forces the
+   lipgloss ASCII profile so goldens are plain text. Goldens compare one
+   re-rendered `View()` frame with the live status line pinned by
+   `fixedModel()`; pin anything else time- or machine-dependent the same way.
+   The spinner is pinned to one frame where a running row must render.
+6. **Don't weaken a test to make it pass.** A failure is a bug in the code (or
+   a deliberate behaviour change — then change the test and say why).
 
-The prime/gate/keep-alive flow and the `sudo -A` argv rewrite are covered by
-`sudo_hardening_test.go` (see inventory).
+### Test seams
 
-### Auth: burn-free prime + in-flight lock — `auth_test.go`
+Package-level vars exist purely so tests can intercept side effects; use them
+rather than adding more indirection:
 
-Two-stage prime (su validates burn-free → only correct passwords reach sudo)
-and the in-flight input lock. Background: one wrong `sudo -S -v` burns TWO
-pam_faillock failures (measured; `-A` retries burn two as well) — with Arch's
-`deny=3` that's one mistype from lockout. `su` is single-shot and (on Arch)
-skips pam_faillock entirely.
-
-| Test | Asserts |
+| Var | Seam for |
 |---|---|
-| `TestAuthWrongPasswordNeverReachesSudo` | su rejects → error surfaced, sudo never invoked (shimmed pair) |
-| `TestAuthCorrectPasswordMintsTicket` | su accepts → `sudo -S -v` invoked |
-| `TestLockoutNoticeExtraction` | pam_faillock "locked" line extracted; plain failure gives none |
-| `TestEnterLocksInputAndFiresAuth` | submit sets `authInFlight`, clears the field, returns the auth cmd |
-| `TestInFlightIgnoresAllInput` | keys/enter/esc are dead while authenticating |
-| `TestAuthResultUnlocksInput` | any `sudoResultMsg` unlocks; attempts-left shown |
-| `TestLockoutDetailShownVerbatim` | `detail` replaces the generic error |
-| `TestInFlightViewShowsAuthenticating` | popup renders spinner state, no input invite |
+| `dryRun` | stub every mutating step |
+| `logDir` | redirect run logs + the audit snapshot |
+| `execProcess` | capture the editor command instead of handing over the terminal (`tea.ExecProcess`) |
+| `sigkillGrace` | shrink the SIGINT→SIGKILL grace period |
+| `aurRPCURL` | point the AUR audit at `httptest` |
 
-Live-verified: wrong in-app submit → zero faillock records (was two).
+## Recipes
 
-## Test inventory
+**Drive the model.** `update(m, msg)` runs one `Update` and returns the model;
+`key("enter")` builds a `tea.KeyMsg` the way `handleKey` matches it (space is
+`tea.KeySpace`, which stringifies to `" "`). To test a returned `tea.Cmd`, call
+it and assert on the `tea.Msg`.
 
-### Sudo hardening + log pruning — `sudo_hardening_test.go`
+**Shim a program.** Write a tiny `sh` script into `t.TempDir()`, `chmod 0755`,
+and prepend that dir to `PATH` with `t.Setenv`. Existing helpers:
+`shimPacman` (`-Qdtq` orphans), `shimPacmanCascade` (adds `-Rs --print`),
+`shimPacmanForeign` (`-Qqm`), `shimEchoArgs` (prints its argv),
+`shimAuthPair` (a `su`/`sudo` pair), `shimExclusivePath` (a PATH containing only
+named tools, for "not installed" branches). Two gotchas: emit newlines through
+printf *format* escapes, not `%s` (sh `printf` doesn't expand `\n` in
+arguments); and print argv with `printf '%s\n' "$*"` — `echo "$@"` swallows a
+leading `-n`, which is exactly what the sudo tests are trying to prove.
 
-The `sudo -A` rewrite, the keep-alive loop, and `pruneLogs`, all hermetic (PATH
-shims; no real sudo/pacman touched).
+**Fake the AUR.** `fakeAUR(t, db)` serves the RPC from a map and records
+request count and batches; it also fails the test if a lookup isn't a POST.
+`auditEnv(t)` gives a private `HOME` + `logDir` for anything that persists.
 
-| Test | Asserts |
+**Add or change a golden.** Write the test (see `TestMenuGolden`), run
+`go test ./... -run Golden -update`, then **read the diff** — it should be
+exactly the change you intended — before committing the `.golden` file.
+
+**Test a real signal path.** Spawn a real child (`sleep`, or a script that traps
+SIGINT), never a mock; shrink `sigkillGrace`; assert on process liveness with a
+signal-0 probe (see `abort_test.go`).
+
+## Coverage map
+
+What each file pins. Behaviour contracts, not test names — grep the file for
+the names.
+
+| File | Pins |
 |---|---|
-| `TestSudoStepGetsDashA` | a sudo step execs `sudo -n <args>` (shimmed sudo prints argv) |
-| `TestNonSudoStepUnchanged` | non-sudo commands keep their argv (no `-n` injected) |
-| `TestTopgradeStepsNeedSudo` | standalone + Full Cleanup topgrade steps are `needsSudo` |
-| `TestKeepAliveStartsWithSudoQueue` | real-run sudo queue arms `sudoAlive` (confirm pauses before exec) |
-| `TestKeepAliveNotStartedInDryRun` | dry run never arms the keep-alive |
-| `TestKeepAliveReschedulesWhileAlive` | armed + `sudoKeepAliveMsg` → refresh+tick cmd, stays armed |
-| `TestKeepAliveNoopWhenCleared` | disarmed + stale msg → nil cmd (loop ends) |
-| `TestKeepAliveClearedOnSummary` | queue exhausted → summary disarms |
-| `TestKeepAliveClearedOnConfirmAbort` | non-optional "no" abort disarms |
-| `TestKeepAliveClearedOnAbortRunning` | ctrl+c abort disarms (nil proc safe) |
-| `TestPruneLogsKeepsLastFiveRuns` | 7 run dirs → oldest 2 removed, newest 5 + `dryrun/` + a stray file survive |
-| `TestPruneLogsNoopUnderLimit` | fewer run dirs than `logKeepRuns` → nothing pruned |
+| `main_test.go` | The core `Update` behaviours. Dry-run safety (a marker file proves nothing ran). Sudo flow: cached probe skips the prompt; wrong passwords show attempts left; three strikes skips sudo steps, logs `SKIP:`, and counts them as skipped, not failed. Confirm flow: optional "no" skips one step; non-optional "no" aborts and marks the rest skipped. Streaming: ordered lines then exactly one done; failure → `statusFailed`, `errs++`, `FAIL:` log. Discovery routing, services multi-select, parsers. Log categories: a step logs to its own category file; `alwaysLog` steps log on success, ordinary steps stay silent; the View-log picker opens/returns correctly. |
+| `gate_orphan_test.go` | The proceed-gate (only when sudo is already cached; the password prompt is the gate otherwise). The orphan step is spliced in only when orphans exist; its confirm previews the real `pacman -Rns` cascade total (both counts when they differ, plain count when equal, falls back to the direct count if the probe fails). |
+| `sudo_hardening_test.go` | Sudo steps run as `sudo -A` (password via `SUDO_ASKPASS`, never the tty) and other commands are untouched; the keep-alive loop arms only for real sudo queues and disarms on summary/abort; `pruneLogs` keeps the newest 5 run directories and exempts `dryrun/` and non-run entries. |
+| `auth_test.go` | Two-stage prime: a wrong password never reaches `sudo` (no faillock burn); a correct one mints the ticket; a lockout notice is surfaced verbatim; submit locks the input and ignores all keys until the result arrives. |
+| `abort_test.go` | ctrl+c opens a confirm instead of quitting; "no" resumes with the child alive; "yes" really terminates a real child; a SIGINT-ignoring child is SIGKILLed after the grace period; late output after an abort is dropped. |
+| `overlay_test.go` | Popups float, centered, over their background; ANSI-styled backgrounds keep their width; the abort dialog stays over the running screen. |
+| `resize_test.go` | The output pane never overflows the terminal (running queue, log viewer, resize while a popup is open); askpass prompts over another popup keep the real background; nested popups resolve to the right base screen. |
+| `hyprpm_test.go` | `hyprpm` is disabled inside topgrade and runs as the last step, only when installed (it drops the sudo ticket on exit). |
+| `coverage_test.go` | Thin spots: `editConfig` (creates defaults, never clobbers, via the `execProcess` seam); `discoverDownloads` against aged files; password masking in the rendered frame; every checklist glyph; the status line; all summary outcomes. |
+| `audit_test.go` | AUR audit, fully offline: severity classification (adoption/maintainer change = high; orphaned, recent push, out of date, 0 votes, not-on-AUR = glance); local `-debug` companions skipped; chunked POST lookups and RPC error handling; the maintainer snapshot (round-trip, kept for missing packages, corrupt file = no baseline); an end-to-end first-audit-then-takeover run; dry run never advances the snapshot; the screen/notice flow. |
+| `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
+| `e2e/run.tape` + `run.sh` | The real binary under `--dryrun` in a throwaway `HOME`: menu → Clear user cache → confirm → asserts `dryrun/cleanup.log` contains the `DRYRUN:` entry. |
 
-Shim gotcha: the argv shim must print with `printf '%s\n' "$*"` — `echo "$@"`
-swallows the leading `-n` it is supposed to prove.
+## Known gaps
 
-
-### Proceed-gate + orphan removal — `gate_orphan_test.go`
-
-The gate (Full Cleanup's "Proceed with full cleanup?" shown only when sudo is
-already cached — the password prompt is the gate otherwise) and the build-time
-orphan splice in `fullCleanupSteps()`.
-
-| Test | Asserts |
-|---|---|
-| `TestGateShownWhenSudoCached` | cached probe + gated action → gate confirm over the menu, defaults No, no queue yet |
-| `TestGateNoReturnsToMenu` | gate "no" → menu, `gateActive` cleared, nothing runs |
-| `TestGateYesStartsQueue` | gate "yes" → queue starts with all pending steps |
-| `TestNoGateForUngatedAction` | cached probe without a gate → straight to the queue |
-| `TestStaleGateClearedByActivate` | `activate` clears a leftover gate before dispatching another action |
-| `TestGateUncachedShowsPasswordNotGate` | uncached probe → password screen, gate confirm never activates |
-| `TestFullCleanupTopgradeFirst` | topgrade leads the Full Cleanup queue |
-| `TestOrphanStepSplicedIn` | orphans present → optional sudo `pacman -Rns --noconfirm <list>` step, confirm shows the real count |
-| `TestOrphanStepOmittedWhenNone` | no orphans → step omitted, queue exactly one shorter |
-| `TestOrphanStepShowsCascadeTotal` | `-Rs --print` preview reports more than the direct orphans → confirm shows both counts |
-| `TestOrphanStepNoCascadeKeepsPlainCount` | preview matches the direct count → confirm stays the plain "N orphaned package(s)?" |
-| `TestOrphanRemovalTotalFallsBackOnProbeFailure` | the `--print` probe itself failing → falls back to `len(orphans)`, doesn't corrupt the confirm |
-
-`orphanPackages` is shimmed via a fake `pacman` on `PATH` (`shimPacman`) so no
-real package state is read; the gate tests reuse the shim to stay hermetic.
-`shimPacmanCascade` extends it with an `-Rs --print` response for the cascade
-tests. The `-Rns` removal step is also always `alwaysLog` (see the log-category
-ground rule above) — its outcome is logged to `orphans.log` even on success,
-which is what would have made the recursive-removal incident this fix responds
-to traceable from archmaid's own log instead of `/var/log/pacman.log`.
-
-### Unit — `main_test.go` (drives `model.Update` / helpers directly)
-
-| Area | Tests |
-|---|---|
-| Dry-run safety | `TestDryRunDoesNotExecute` (marker file proves no exec), `TestDryRunFullCleanupExecutesNothing`, `TestDryRunLogsEveryStep`, `TestCheckSudoCachedDryRunNeverProbes` |
-| Sudo flow | `TestSudoCachedSkipsPrompt`, `TestSudoUncachedShowsPassword`, `TestWrongPasswordShowsAttemptsLeft`, `TestSudoThreeStrikesSkipsAndLogs` (skip tallied separately from errs, logged `SKIP:`) |
-| Confirm flow | `TestConfirmStepShowsModal`, `TestConfirmOptionalNoSkips`, `TestConfirmNonOptionalNoAborts` (declined + rest → skipped, `aborted` set), `TestConfirmYesLaunches` |
-| Streaming | `TestStreamOrderAndSingleDone` (ordered lines then one done), `TestStreamFailurePropagates` (→ `statusFailed`, `errs++`, `FAIL:` log) |
-| Discovery routing | `TestDiscoveryNotice`, `TestDiscoveryServices`, `TestDiscoveryPendingRunsQueue`, `TestDiscoveryPendingSudoProbes`, `TestDiscoverServicesRuns` |
-| Services multi-select | `TestServiceToggle`, `TestServicesEnterBuildsDisableStep`, `TestServicesEnterNoneReturnsMenu` |
-| Parsers | `TestBrokenPackagesNoMatchNoPanic`, `TestNonEmptyLinesTrimsAndDropsBlanks` |
-| Log categories + view-log picker | `TestStepCategoryDefaultsToCleanup`, `TestFailureLogsToItsStepCategory` (topgrade failure doesn't leak into the cleanup log), `TestAlwaysLogStepLogsOnSuccess`, `TestOrdinaryStepStaysSilentOnSuccess`, `TestViewLogOpensPicker`, `TestLogPickerEscReturnsWhereItCameFrom`, `TestLogPickerEnterOpensChosenCategory` |
-
-### Thin-spot coverage — `coverage_test.go`
-
-These close the gaps HANDOVER.md called out as untested:
-
-| Thin spot | Test | Technique |
-|---|---|---|
-| `editConfig` non-dry path | `TestEditConfigCreatesFileAndOpensEditor`, `TestEditConfigKeepsExistingFile` | `execProcess` seam captures the editor command; asserts file created with defaults / not clobbered — no real editor launched |
-| `discoverDownloads` real pipeline | `TestDiscoverDownloadsCountsAgedFiles`, `TestDiscoverDownloadsEmptyShowsNotice` | temp `$HOME/Downloads` + `os.Chtimes`-aged files; asserts the count in the confirm and the empty→notice path |
-| Password masking (rendered) | `TestPasswordInputIsMasked` | types into `screenPassword`, asserts mask glyphs, never cleartext |
-| Running checklist glyphs | `TestChecklistRendersAllStatuses` | spinner pinned to one frame → every status renders deterministically |
-| status line / tick | `TestSystemStatusFormat`, `TestStatusMsgUpdatesHeader` | label contract + `statusMsg` → `m.status` + re-armed tick |
-| Summary outcomes | `TestSummaryMessages` (table) | success / issues / skipped / issues+skipped / aborted |
-
-### Abort flow — `abort_test.go`
-
-ctrl+c while a step runs pops a confirm; yes kills the child and returns to menu.
-
-| Test | Asserts |
-|---|---|
-| `TestAbortConfirmShownNotQuit` | ctrl+c on run screen → `screenAbortConfirm`, no `tea.Quit`, defaults to No |
-| `TestAbortDeclineResumes` | "no" → back to `screenRunning`, process handle kept, real `sleep` child still alive (signal-0 probe) |
-| `TestAbortAcceptSignalsAndMenus` | "yes" → child actually terminated (spawns real `sleep 30`, waits for exit), screen → menu, `proc` cleared |
-| `TestAbortEscalatesToSigkill` | a child that traps/ignores SIGINT is force-killed after the (test-shrunk) grace period |
-| `TestLateOutputDroppedAfterAbort` | a late `done` after leaving the run is dropped: no screen change, no `errs`, pumping stops |
-| `TestAbortNilProcSafe` | aborting with no live process (dry run) still returns to menu |
-
-### Overlay popups — `overlay_test.go`
-
-Prompts render as bordered boxes composited over the current screen (`overlay.go`).
-
-| Test | Asserts |
-|---|---|
-| `TestOverlayCentersAndPreservesBackground` | popup centered; background rows/edges preserved; every row keeps bg width |
-| `TestOverlayIsANSIWidthSafe` | styled (colored) background keeps its visible width under the popup |
-| `TestAbortPopupFloatsOverRunningScreen` | the abort dialog renders as a border box *over* the running screen — header + running step stay visible behind it |
-
-### AUR audit — `audit_test.go`
-
-Fully offline: `pacman -Qqm` is a PATH shim (`shimPacmanForeign`) and the AUR
-RPC is an `httptest` server (`fakeAUR`, which also asserts requests are POSTs
-and records the chunking). `auditEnv` gives each test a private `logDir` +
-`HOME`, so the real maintainer snapshot and logs are never touched.
-
-| Test | Asserts |
-|---|---|
-| `TestClassify` (12 cases) | clean; unknown to the AUR; adopted-after-orphaned and maintainer-changed are **high**; newly orphaned / orphaned / recent push / out-of-date / 0 votes are glances; no baseline never flags a change; 72h boundary; the "adopted and pushed" takeover shape stacks flags |
-| `TestClassifyAllSkipsUnknownDebugCompanionAndSortsHighFirst` | an AUR-unknown `-debug` package is a local split companion (skipped, even when its base is a repo package); a `-debug` that *is* on the AUR is audited; high sorts first |
-| `TestFetchAURInfoChunksAndPosts` | 205 packages → 3 POST requests of 100/100/5; unknown packages absent from the result |
-| `TestFetchAURInfoErrors` | HTTP error, RPC `type:error`, and unparseable body each surface a clear error |
-| `TestBaselineRoundTripAndKeepsMissing` | snapshot saved/loaded; a package the AUR didn't report keeps its old maintainer |
-| `TestBaselineCorruptFileIsTreatedAsMissing` | a corrupt snapshot reads as "no baseline", never as data |
-| `TestRunAuditFirstThenTakeover` | end to end: first audit clean + baseline saved; then a maintainer change + fresh push is flagged HIGH in the report **and** `audit.log`; the clean package isn't listed |
-| `TestRunAuditDryRunDoesNotAdvanceSnapshot` | dry run writes no snapshot and says so |
-| `TestRunAuditNotices` | no foreign packages → notice; unreachable AUR → short notice, snapshot untouched |
-| `TestAuditMenuItemStartsDiscovery` / `TestAuditReportShowsScrollableScreenAndEscReturns` / `TestAuditNoticeRoutesToNoticePopup` | menu → discovery spinner; report → `screenAudit` (renders, esc/q back); notice → popup |
-| `TestAuditLogIsInTheViewLogPicker` | the audit category is the picker's last entry |
-
-Live-verified against the real AUR and this machine's 30 foreign packages (with
-a scratch state dir): 7 glances, 0 high, and — the bug this caught — `yay-debug`
-was wrongly reported "not on the AUR" while `yay` itself comes from a repo.
-
-The yay `init.lua` hook is not part of this suite (it lives in the dotfiles,
-`~/dotfiles/yay`); its logic was checked under `luajit` (yay embeds gopher-lua,
-Lua 5.1) with a stubbed `yay` API: recent AUR held, old AUR and recent repo
-packages not held, `YAY_NO_COOLDOWN=1` bypass, and unwritable-state-dir safety.
-
-### Integration goldens — `teatest_test.go` + `testdata/*.golden`
-
-- `TestMenuGolden` — headless program, cursor moved, golden of the menu frame.
-- `TestServicesGolden` — routes into the services multi-select, toggles entries,
-  golden of the checklist.
-
-### End-to-end — `e2e/run.tape` + `e2e/run.sh`
-
-VHS drives the real binary in a pty under `--dryrun` and asserts on the resulting
-`~/.local/state/archmaid/dryrun/cleanup.log` (under a throwaway `HOME`). Needs `vhs`/`ttyd`/`ffmpeg`.
-
-## Architecture (where the logic lives)
-
-- `model.go` — screens, `menuItem`/`menu`, the `model` struct, `initialModel`,
-  `Init`. Screens: menu, password, confirm, running, summary, logPicker,
-  log, notice, discovering, services, abortConfirm, **audit**.
-- `update.go` — `Update`/`handleKey` (the single source of state transitions;
-  most unit tests drive it directly) and the queue/confirm/abort orchestration
-  methods.
-- `view.go` — `View` and every `view*` renderer.
-- `status.go` — the system status line (disk/RAM/cache).
-- `main.go` — package doc + `main()` only (askpass dispatch, flag parsing,
-  `pruneLogs`, wiring up `tea.NewProgram`).
-- `tasks.go` — `step` (+ `category`/`alwaysLog`) and `stepCategory` (defaults
-  an unset `category` to `logCategoryCleanup`), `runStep` (starts the child,
-  returns `*os.Process`, streams output), sudo commands, discovery cmds,
-  `editConfig` (+ `execProcess` seam), `orphanRemovalTotal` (the `-Rs --print`
-  cascade preview).
-- `audit.go` — the AUR audit: `foreignPackages`, `fetchAURInfo` (chunked POST to
-  the AUR RPC; `aurRPCURL` is a var for tests), `classify`/`classifyAll`, the
-  maintainer snapshot (`aur-maintainers.json`, state-dir root so `pruneLogs`
-  ignores it), `runAudit`, and the report renderer.
-- `overlay.go` — ANSI-aware compositor that floats a popup box over a background
-  screen; `View` uses it for the password/confirm/abort/notice screens.
-- `log.go` — `logCategory` + `logCategoryLabels`, `appendLog(cat, kind, label,
-  body)`, `logPath(cat)`/`readLog(cat)` (dry-run aware, per-run-directory),
-  `pruneLogs` (keeps the newest `logKeepRuns` run directories).
-
-## Not automated (inherent)
-
-- The OS-level terminal handover inside `tea.ExecProcess` (editor) — we assert the
-  command built, not that the editor visually takes over.
-- `tea.Tick`'s wall-clock firing (a library primitive).
-- Full-tree kill semantics of aborting a `sudo` step rely on sudo relaying the
-  signal; the unit tests cover a direct child, and the signal path is verified
-  against a real `sleep` process.
+- **The askpass round trip is untested.** `runAskpass` dials the socket, sends
+  the prompt, prints the reply line and exits 0 (exit 1 if it can't connect or
+  the connection closes unanswered); `startAskpassServer` writes a wrapper +
+  socket, sets `SUDO_ASKPASS`, and `close()` removes both. A fake unix-socket
+  server can cover all of it. On the model side, an `askpassMsg` opening the popup
+  over the current screen is tested (`resize_test.go`); the password being
+  written straight to the connection on submit, and the connection being closed
+  unanswered on cancel, are not.
+- **Missing goldens:** the summary screen, the password/confirm popups over a
+  background, the log picker, and the audit report. `fixedModel()` + the ASCII
+  profile make each feasible.
+- **E2E covers only Clear user cache.** Candidates: the services multi-select
+  (fake `systemctl` via a PATH shim), Full Cleanup's orphan confirm (shimmed
+  `pacman`), and abort. The audit screen needs a fake AUR, so it stays a unit
+  test.
+- **Inherently not automated:** the OS-level terminal handover inside
+  `tea.ExecProcess` (we assert the command built, not that the editor takes
+  over); `tea.Tick`'s wall-clock firing (a library primitive); that `sudo`
+  relays SIGINT through a whole process tree (we verify a direct child).
+- **Outside this repo:** the yay cooldown hook (`~/dotfiles/yay`). Its logic was
+  checked under `luajit` with a stubbed `yay` API; there's no automated test.

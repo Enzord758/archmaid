@@ -38,7 +38,8 @@ Full details in [`INSTALL.md`](INSTALL.md).
 | Run topgrade | Runs a system update via topgrade, streaming its output live |
 | Disable unused services | Lists systemd services that are enabled but not currently running, and lets you multi-select which to disable |
 | Edit topgrade config | Opens `~/.config/topgrade.toml` in `$EDITOR`, creating it with sane defaults first if it doesn't exist |
-| View log | Opens the run log in a pager |
+| Audit AUR packages | Read-only check of your foreign packages against the AUR: flags adopted or maintainer-changed packages (compared with your previous audit), orphaned or out-of-date ones, very recent pushes, and packages no longer on the AUR |
+| View log | Pick a category (topgrade, orphans, cleanup, AUR audit) and page through its log |
 
 Every destructive action asks for confirmation before running. Sudo is handled
 in-TUI: one password popup up front covers the whole run (never a raw terminal
@@ -47,18 +48,22 @@ again — the password is passed straight to sudo, never stored.
 
 ## Logs
 
-Run logs (failures only) go to `~/.local/state/archmaid/<YYYYMMDD-HHMM>.log`;
-`--dryrun` uses `~/.local/state/archmaid/dryrun.log`. Logs older than a week are
-pruned automatically. No setup — it's a user-writable dir.
+Each run gets a directory, `~/.local/state/archmaid/<YYYYMMDD-HHMM>/`, with one
+file per category (`topgrade.log`, `orphans.log`, `cleanup.log`, `audit.log`).
+Ordinary steps log only failures; steps that remove or overwrite something log
+their outcome even on success. `--dryrun` logs everything to a reused `dryrun/`
+directory. The newest 5 runs are kept; older ones are pruned automatically. No
+setup — it's a user-writable dir.
 
 ## Disclosure: vibecoded
 
 This TUI was written almost entirely by an AI agent (Claude Code), with a human
 directing design, reviewing behavior, and pulling the trigger on every decision
 that matters (what runs as root, what gets deleted, what ships). It is tested
-accordingly: an 80+ test suite run under the race detector, golden-frame UI
+accordingly: a 100+ test suite run under the race detector, golden-frame UI
 tests, a VHS end-to-end harness, and live verification against a real Arch
-system — including the sudo/faillock edge cases (see `tui/TESTING.md` and the
-development narrative in `tui/HANDOVER.md`). Read the code with the same
+system — including the sudo/faillock edge cases (see `tui/TESTING.md`; the
+reasoning behind the risky parts is in the commit history and
+`tui/HANDOVER.md`). Read the code with the same
 skepticism you'd apply to any code, and run `--dryrun` first if you want to see
 exactly what it would do to your system.

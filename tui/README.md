@@ -111,11 +111,11 @@ the header. This is the safe way to exercise the whole UI.
 | `view_log` + sed colouring | `screenLog` + `lipgloss` styles |
 | `system_status` | `systemStatus` + `refreshStatus` tick |
 
-## Still to do
+## Status
 
-The app is feature-complete. Remaining items are test
-coverage (owned separately — see `TESTING.md`): broader VHS e2e through the
-services/abort paths, and a summary-screen golden.
+The app is feature-complete. Open items and the decisions not to undo are in
+[`HANDOVER.md`](HANDOVER.md); test gaps are in [`TESTING.md`](TESTING.md) →
+Known gaps.
 
 ## Install
 
