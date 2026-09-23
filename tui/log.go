@@ -29,6 +29,7 @@ const (
 	logCategoryTopgrade logCategory = "topgrade"
 	logCategoryOrphans  logCategory = "orphans"
 	logCategoryCleanup  logCategory = "cleanup" // default: everything else
+	logCategoryAudit    logCategory = "audit"   // AUR audit results (see audit.go)
 )
 
 // logCategoryLabels drives the "View log" category picker, in display order.
@@ -39,6 +40,7 @@ var logCategoryLabels = []struct {
 	{logCategoryTopgrade, "Topgrade"},
 	{logCategoryOrphans, "Orphan removal"},
 	{logCategoryCleanup, "Cleanup"},
+	{logCategoryAudit, "AUR audit"},
 }
 
 // categoryLabel is cat's display name, falling back to the raw value for any

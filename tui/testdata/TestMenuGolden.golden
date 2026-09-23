@@ -7,6 +7,7 @@ archmaid — Arch maintenance  [dry-run]
   󰋊  Delete old downloads
   󰏗  Run topgrade (system update)
   󰒔  Disable unused services
+  󰶚  Audit AUR packages
   󰙪  Edit topgrade config
   󰑇  View log
   󰗼  Exit

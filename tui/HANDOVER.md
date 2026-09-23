@@ -325,3 +325,55 @@ described the pre-split `main.go`) were brought current alongside the code.
   worth reconsidering now that the machinery exists, since it's the step that
   mutates the most (a full system upgrade) and the one that actually failed
   in the incident's own trigger run.
+
+---
+
+## Update 7 — AUR audit action + yay cooldown hook (Sonnet, seventh pass)
+
+Prompted by an article on the AUR maintainer-takeover pattern (adopt an
+orphaned package, push a malicious update immediately). Assessed against what
+archmaid actually touches: it never sees PKGBUILDs — Full Cleanup runs
+`topgrade -y` → yay unattended — so most of the article's advice belongs in
+yay's config, and only one part is a sensible archmaid feature. Both done:
+
+1. **yay cooldown hook** (not in this repo): `~/dotfiles/yay/.config/yay/
+   init.lua`, stowed to `~/.config/yay/init.lua`. An `UpgradeSelect` hook holds
+   back AUR upgrades pushed to in the last 72h, prints each hold, appends it to
+   `~/.local/state/yay/cooldown.log` (a skipped update must never be silent),
+   and honours `YAY_NO_COOLDOWN=1`. Checked against yay's own doc/lua.md (v13.0.1
+   confirmed to embed the hook API), tested under `luajit` with a stubbed `yay`
+   table, and proven loaded by briefly appending a syntax error (yay reported the
+   exact line) then restoring. Left **uncommitted** in the dotfiles repo. Only
+   the cooldown was written — the article's `AURPreInstall` regex blocklist was
+   deliberately skipped (trivially evaded, false-positives on legitimate
+   `base64 -d`).
+2. **"Audit AUR packages"** menu action (`audit.go`, new `screenAudit`, new
+   `audit` log category): `pacman -Qqm` → AUR RPC v5 `info` (POST, chunked) →
+   per-package flags. High severity = adopted-after-orphaned or maintainer
+   changed. The RPC has no adoption history, so this diffs against a snapshot
+   saved by the previous audit (`aur-maintainers.json`, state-dir root — not a
+   run directory, so `pruneLogs` leaves it alone); the first audit only records
+   the baseline. Glances: orphaned, pushed <72h (same window as the yay hook),
+   out of date, 0 votes, not on the AUR. It is archmaid's first network call and
+   is otherwise read-only; dry run reads the snapshot but never advances it.
+   `TestMenuGolden` regenerated (one added row, diff-checked).
+
+Live run against the real AUR + this machine's 30 foreign packages (scratch
+state dir) found a real bug the mocked tests couldn't: `yay-debug` was reported
+"not on the AUR" because `yay` comes from a CachyOS repo, not the foreign list.
+Fixed by skipping any AUR-unknown `-debug` package (a local split companion)
+instead of keying on the base being foreign.
+
+Gate: **108 tests green under `-race`; `go vet` and `gofmt -l .` clean.**
+
+Also on `main` since Update 6, from a separate pass (PR #3, not this one): the
+running-screen pane-overflow fix, the askpass popup-background fix and
+`resize_test.go`.
+
+### If you pick this up next
+
+- No VHS e2e drives the audit screen, and there's no golden for the report.
+- The audit could feed Full Cleanup (e.g. warn before topgrade if a high finding
+  exists) — deliberately not done: it would make a network call on every
+  cleanup and archmaid can't hold an upgrade back; only yay can.
+- The snapshot is only as fresh as the last audit; nothing schedules one.

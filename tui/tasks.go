@@ -360,9 +360,10 @@ func refreshSudo() tea.Cmd {
 // multi-select, or a notice when there's nothing to do.
 
 type discoveryMsg struct {
-	kind     string // "repair" | "downloads" | "services"
+	kind     string // "repair" | "downloads" | "services" | "audit"
 	pending  []step // steps to run (repair, downloads)
 	services []string
+	report   string // rendered AUR-audit report (audit)
 	notice   string // set when there's nothing to do
 }
 

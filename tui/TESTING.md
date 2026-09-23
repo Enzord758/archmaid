@@ -17,8 +17,8 @@ harness. This doc is the inventory and how-to-run.
 - **Logs live in `~/.local/state/archmaid/<run>/`** (see `log.go`), split by
   category so one run's output isn't a single undifferentiated blob: each run
   gets its own directory (`<YYYYMMDD-HHMM>/` for a real run, a fixed `dryrun/`
-  slot reused across dry runs) containing `topgrade.log`, `orphans.log`, and
-  `cleanup.log` (the default bucket — `stepCategory` falls back to it for any
+  slot reused across dry runs) containing `topgrade.log`, `orphans.log`,
+  `audit.log` (AUR audit results), and `cleanup.log` (the default bucket — `stepCategory` falls back to it for any
   step that doesn't set `step.category`). Normal runs still only log
   failures, **except** steps flagged `step.alwaysLog` (anything that removes
   or overwrites something — orphan removal, cache/temp/log wipes, service
@@ -33,7 +33,7 @@ harness. This doc is the inventory and how-to-run.
   that isn't a run directory (stray files, other subdirectories) are exempt.
   Covered by `TestPruneLogsKeepsLastFiveRuns` and `TestPruneLogsNoopUnderLimit`.
 - **"View log" is a category picker, then a pager.** `screenLogPicker` lists
-  Topgrade / Orphan removal / Cleanup (`logCategoryLabels`); picking one opens
+  Topgrade / Orphan removal / Cleanup / AUR audit (`logCategoryLabels`); picking one opens
   `screenLog` on that category's file (`m.logCat` tracks which). Reached from
   the menu (`logReturn = screenMenu`) or the summary screen's `l` key
   (`logReturn = screenSummary`) — esc from the picker returns to whichever it
@@ -56,7 +56,7 @@ bash e2e/run.sh          # VHS e2e; builds ./archmaid, drives it under --dryrun,
 go build -o archmaid . && ./archmaid --dryrun   # manual e2e; then inspect ~/.local/state/archmaid/dryrun/*.log
 ```
 
-Current status: **87 tests, all green under `-race`; `vet` and `gofmt` clean.**
+Current status: **108 tests, all green under `-race`; `vet` and `gofmt` clean.**
 
 ## Still needs tests: sudo askpass
 
@@ -233,6 +233,36 @@ Prompts render as bordered boxes composited over the current screen (`overlay.go
 | `TestOverlayIsANSIWidthSafe` | styled (colored) background keeps its visible width under the popup |
 | `TestAbortPopupFloatsOverRunningScreen` | the abort dialog renders as a border box *over* the running screen — header + running step stay visible behind it |
 
+### AUR audit — `audit_test.go`
+
+Fully offline: `pacman -Qqm` is a PATH shim (`shimPacmanForeign`) and the AUR
+RPC is an `httptest` server (`fakeAUR`, which also asserts requests are POSTs
+and records the chunking). `auditEnv` gives each test a private `logDir` +
+`HOME`, so the real maintainer snapshot and logs are never touched.
+
+| Test | Asserts |
+|---|---|
+| `TestClassify` (12 cases) | clean; unknown to the AUR; adopted-after-orphaned and maintainer-changed are **high**; newly orphaned / orphaned / recent push / out-of-date / 0 votes are glances; no baseline never flags a change; 72h boundary; the "adopted and pushed" takeover shape stacks flags |
+| `TestClassifyAllSkipsUnknownDebugCompanionAndSortsHighFirst` | an AUR-unknown `-debug` package is a local split companion (skipped, even when its base is a repo package); a `-debug` that *is* on the AUR is audited; high sorts first |
+| `TestFetchAURInfoChunksAndPosts` | 205 packages → 3 POST requests of 100/100/5; unknown packages absent from the result |
+| `TestFetchAURInfoErrors` | HTTP error, RPC `type:error`, and unparseable body each surface a clear error |
+| `TestBaselineRoundTripAndKeepsMissing` | snapshot saved/loaded; a package the AUR didn't report keeps its old maintainer |
+| `TestBaselineCorruptFileIsTreatedAsMissing` | a corrupt snapshot reads as "no baseline", never as data |
+| `TestRunAuditFirstThenTakeover` | end to end: first audit clean + baseline saved; then a maintainer change + fresh push is flagged HIGH in the report **and** `audit.log`; the clean package isn't listed |
+| `TestRunAuditDryRunDoesNotAdvanceSnapshot` | dry run writes no snapshot and says so |
+| `TestRunAuditNotices` | no foreign packages → notice; unreachable AUR → short notice, snapshot untouched |
+| `TestAuditMenuItemStartsDiscovery` / `TestAuditReportShowsScrollableScreenAndEscReturns` / `TestAuditNoticeRoutesToNoticePopup` | menu → discovery spinner; report → `screenAudit` (renders, esc/q back); notice → popup |
+| `TestAuditLogIsInTheViewLogPicker` | the audit category is the picker's last entry |
+
+Live-verified against the real AUR and this machine's 30 foreign packages (with
+a scratch state dir): 7 glances, 0 high, and — the bug this caught — `yay-debug`
+was wrongly reported "not on the AUR" while `yay` itself comes from a repo.
+
+The yay `init.lua` hook is not part of this suite (it lives in the dotfiles,
+`~/dotfiles/yay`); its logic was checked under `luajit` (yay embeds gopher-lua,
+Lua 5.1) with a stubbed `yay` API: recent AUR held, old AUR and recent repo
+packages not held, `YAY_NO_COOLDOWN=1` bypass, and unwritable-state-dir safety.
+
 ### Integration goldens — `teatest_test.go` + `testdata/*.golden`
 
 - `TestMenuGolden` — headless program, cursor moved, golden of the menu frame.
@@ -247,8 +277,8 @@ VHS drives the real binary in a pty under `--dryrun` and asserts on the resultin
 ## Architecture (where the logic lives)
 
 - `model.go` — screens, `menuItem`/`menu`, the `model` struct, `initialModel`,
-  `Init`. Screens: menu, password, confirm, running, summary, **logPicker**,
-  log, notice, discovering, services, abortConfirm.
+  `Init`. Screens: menu, password, confirm, running, summary, logPicker,
+  log, notice, discovering, services, abortConfirm, **audit**.
 - `update.go` — `Update`/`handleKey` (the single source of state transitions;
   most unit tests drive it directly) and the queue/confirm/abort orchestration
   methods.
@@ -261,6 +291,10 @@ VHS drives the real binary in a pty under `--dryrun` and asserts on the resultin
   returns `*os.Process`, streams output), sudo commands, discovery cmds,
   `editConfig` (+ `execProcess` seam), `orphanRemovalTotal` (the `-Rs --print`
   cascade preview).
+- `audit.go` — the AUR audit: `foreignPackages`, `fetchAURInfo` (chunked POST to
+  the AUR RPC; `aurRPCURL` is a var for tests), `classify`/`classifyAll`, the
+  maintainer snapshot (`aur-maintainers.json`, state-dir root so `pruneLogs`
+  ignores it), `runAudit`, and the report renderer.
 - `overlay.go` — ANSI-aware compositor that floats a popup box over a background
   screen; `View` uses it for the password/confirm/abort/notice screens.
 - `log.go` — `logCategory` + `logCategoryLabels`, `appendLog(cat, kind, label,

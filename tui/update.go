@@ -91,6 +91,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenServices
 			return m, nil
 		}
+		if msg.kind == "audit" {
+			m.screen = screenAudit
+			m.resizeOutput()
+			m.output.SetContent(msg.report)
+			m.output.GotoTop()
+			return m, nil
+		}
 		m.pending = msg.pending // repair / downloads
 		cmd := m.beginPending()
 		return m, cmd
@@ -310,6 +317,16 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		}
 
+	case screenAudit:
+		switch msg.String() {
+		case "esc", "q":
+			m.screen = screenMenu
+		default:
+			var cmd tea.Cmd
+			m.output, cmd = m.output.Update(msg)
+			return m, cmd
+		}
+
 	case screenNotice:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -389,6 +406,10 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 		m.screen = screenDiscovering
 		m.discovering = "Finding unused services…"
 		return m, discoverServices()
+	case "auraudit":
+		m.screen = screenDiscovering
+		m.discovering = "Checking foreign packages against the AUR…"
+		return m, discoverAURAudit()
 	}
 
 	if item.steps == nil {

@@ -27,6 +27,7 @@ const (
 	screenDiscovering  // spinner while a discovery cmd runs
 	screenServices     // multi-select checklist of services to disable
 	screenAbortConfirm // ctrl+c while running → confirm before killing the child
+	screenAudit        // scrollable AUR-audit report (see audit.go)
 )
 
 // maxSudoAttempts is how many wrong passwords are allowed before we give up,
@@ -51,6 +52,7 @@ var menu = []menuItem{
 	{label: "󰋊  Delete old downloads", id: "downloads"},
 	{label: "󰏗  Run topgrade (system update)", steps: topgradeSteps},
 	{label: "󰒔  Disable unused services", id: "services"},
+	{label: "󰶚  Audit AUR packages", id: "auraudit"},
 	{label: "󰙪  Edit topgrade config", id: "editconfig"},
 	{label: "󰑇  View log", id: "viewlog"},
 	{label: "󰗼  Exit", id: "exit"},

@@ -76,6 +76,8 @@ func (m model) viewOf(s screen) string {
 		return m.viewLogPicker()
 	case screenLog:
 		return m.viewLog()
+	case screenAudit:
+		return m.viewAudit()
 	case screenDiscovering:
 		return m.viewDiscovering()
 	case screenServices:
@@ -222,6 +224,15 @@ func (m model) viewLogPicker() string {
 func (m model) viewLog() string {
 	return m.header() + "\n" +
 		statusStyle.Render("Log: "+categoryLabel(m.logCat)) + "\n" +
+		outputPaneStyle.Width(m.output.Width).Render(m.output.View()) + "\n" +
+		hintStyle.Render("↑/↓ scroll · q back")
+}
+
+// viewAudit has the same chrome as viewLog (header + title line + boxed pager
+// + hint), so resizeOutput's fixed row budget for the log viewer applies.
+func (m model) viewAudit() string {
+	return m.header() + "\n" +
+		statusStyle.Render("AUR audit") + "\n" +
 		outputPaneStyle.Width(m.output.Width).Render(m.output.View()) + "\n" +
 		hintStyle.Render("↑/↓ scroll · q back")
 }

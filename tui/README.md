@@ -4,7 +4,7 @@ The archmaid app: a [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI
 for Arch maintenance — `btop`/`wiremix`-style, an event loop that redraws as
 state changes, rather than a scripted sequence of prompts.
 
-All eight menu actions are implemented, with a `--dryrun` mode to exercise it
+All nine menu actions are implemented, with a `--dryrun` mode to exercise it
 safely end to end. It grew out of a gum bash script (now retired); the sections
 below explain the design that replaced it.
 
@@ -21,9 +21,9 @@ straight over via `lipgloss`).
 
 - **The Elm-style model/update/view loop**, split across `model.go` (state),
   `update.go` (`Update`/`handleKey`), and `view.go` (`View` + renderers) —
-  eleven screens: menu, password, confirm, running, summary, log-category
-  picker, log pager, notice, discovery spinner, services multi-select, and
-  abort-confirm.
+  twelve screens: menu, password, confirm, running, summary, log-category
+  picker, log pager, notice, discovery spinner, services multi-select,
+  abort-confirm, and the AUR-audit report.
 - **Live streaming command output** (`tasks.go`) — the whole point. A command's
   combined stdout/stderr streams into a scrollable viewport line by line while a
   spinner runs, instead of gum swallowing it and dumping a pager afterward. One
@@ -53,6 +53,21 @@ straight over via `lipgloss`).
   screen: repair broken packages (`pacman -Qk`), delete old downloads
   (`find … -mtime +30`), and a **multi-select** (`screenServices`) of
   enabled-but-inactive services to disable. "Nothing to do" routes to a notice.
+- **AUR audit** (`audit.go`) — a read-only check of the foreign packages
+  (`pacman -Qqm`) against the AUR RPC, aimed at the adopt-an-orphan-then-push
+  takeover pattern. Flags: **adopted / maintainer changed** since the last audit
+  (high severity — the RPC only exposes the *current* maintainer, so this diffs
+  against a snapshot the previous audit saved to
+  `~/.local/state/archmaid/aur-maintainers.json`; the first audit just records
+  the baseline), orphaned, pushed to within 72h, flagged out of date, 0 votes,
+  and not on the AUR at all (locally built `-debug` companions are ignored). It
+  makes archmaid's only network call, never changes the system, and results
+  also land in the `AUR audit` log category. A dry run reads the snapshot but
+  doesn't advance it. The 72h window matches the yay cooldown hook in
+  `~/.config/yay/init.lua` (holds back AUR upgrades pushed to in the last 72h,
+  logged to `~/.local/state/yay/cooldown.log`; `YAY_NO_COOLDOWN=1` bypasses it).
+  That hook lives in the dotfiles, not in this repo — archmaid's Full Cleanup
+  runs yay unattended via topgrade, so the hold has to be yay-side.
 - **Edit topgrade config** hands the terminal to `$EDITOR` via `tea.ExecProcess`,
   creating `~/.config/topgrade.toml` with defaults first.
 - **Abortable steps** — ctrl+c while a step runs opens a confirmation; confirming
@@ -131,6 +146,6 @@ See `TESTING.md` for the full test plan and how to drive the TUI headlessly.
 Logs live in `~/.local/state/archmaid/` — a user-writable dir, so there's no
 install-time or root setup. One timestamped directory per run, holding
 `topgrade.log` / `orphans.log` / `cleanup.log` (failures only, plus any
-destructive step's outcome even on success), and a single reused `dryrun/`
+destructive step's outcome even on success) and `audit.log` (every AUR audit), and a single reused `dryrun/`
 directory for `--dryrun` runs. Only the newest 5 run directories are kept;
 older ones are pruned on startup.
