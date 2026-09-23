@@ -1,5 +1,8 @@
 /archmaid
 
+# `go build ./...` (no -o) names the binary after this directory
+/tui
+
 # VHS e2e artifacts
 e2e/run.txt
 e2e/run.gif
