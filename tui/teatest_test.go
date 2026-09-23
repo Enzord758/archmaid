@@ -28,6 +28,10 @@ func fixedModel() model {
 // of the terminal the tests run in.
 func TestMain(m *testing.M) {
 	lipgloss.SetColorProfile(termenv.Ascii)
+	// No test may reach the real AUR: Full Cleanup's first step now calls it.
+	// Anything that wants the RPC points aurRPCURL at an httptest server
+	// (fakeAUR); everything else fails fast against this closed port.
+	aurRPCURL = "http://127.0.0.1:1/rpc"
 	m.Run()
 }
 

@@ -31,7 +31,7 @@ Full details in [`INSTALL.md`](INSTALL.md).
 
 | Option | What it does |
 | --- | --- |
-| **Full Cleanup** (recommended) | Runs every step in sequence: updates the system via topgrade, trims the package cache to 3 versions (with an optional full wipe), removes orphaned packages (only when any exist — confirms with the count), cleans the AUR cache, deletes temp files older than 2 days from `/tmp` and `/var/tmp`, vacuums logs older than 2 weeks, checks package integrity, and finally updates Hyprland plugins via hyprpm (if installed; last on purpose — hyprpm drops the sudo session on exit) |
+| **Full Cleanup** (recommended) | Runs every step in sequence: audits your AUR packages first (if one changed maintainer since the last audit, it names it and asks before updating — declining skips just the update), updates the system via topgrade, trims the package cache to 3 versions (with an optional full wipe), removes orphaned packages (only when any exist — confirms with the count), cleans the AUR cache, deletes temp files older than 2 days from `/tmp` and `/var/tmp`, vacuums logs older than 2 weeks, checks package integrity, and finally updates Hyprland plugins via hyprpm (if installed; last on purpose — hyprpm drops the sudo session on exit) |
 | Clear user cache | Deletes everything under `~/.cache` |
 | Repair broken packages | Finds packages with missing files (`pacman -Qk`) and reinstalls them |
 | Delete old downloads | Deletes files in `~/Downloads` older than 30 days |
@@ -50,8 +50,8 @@ again — the password is passed straight to sudo, never stored.
 
 Each run gets a directory, `~/.local/state/archmaid/<YYYYMMDD-HHMM>/`, with one
 file per category (`topgrade.log`, `orphans.log`, `cleanup.log`, `audit.log`).
-Ordinary steps log only failures; steps that remove or overwrite something log
-their outcome even on success. `--dryrun` logs everything to a reused `dryrun/`
+Ordinary steps log only failures; topgrade, the AUR audit, and steps that remove
+or overwrite something log their outcome even on success. `--dryrun` logs everything to a reused `dryrun/`
 directory. The newest 5 runs are kept; older ones are pruned automatically. No
 setup — it's a user-writable dir.
 

@@ -142,6 +142,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case streamMsg:
 		return m.handleStream(msg)
+
+	case stepResultMsg:
+		return m.handleStepResult(msg)
 	}
 
 	// keep the password field's cursor blinking (blink msgs aren't KeyMsgs)
@@ -500,10 +503,25 @@ func (m *model) launch() tea.Cmd {
 	m.queue[m.current].status = statusRunning
 	m.buf.Reset()
 	m.output.SetContent("")
+	m.stepSeq++
+	s := m.queue[m.current].step
+	if s.run != nil {
+		// In-process step: no child to signal, just a Cmd whose result
+		// finishes the step. seq ties the result to this launch.
+		m.proc = nil
+		seq, run := m.stepSeq, s.run
+		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run()} }
+	}
 	m.stream = make(chan streamMsg, 128)
-	m.proc = runStep(m.queue[m.current].step, m.stream)
+	m.proc = runStep(s, m.stream)
 	// The spinner is already ticking (started in Init); just pump the stream.
 	return waitForStream(m.stream)
+}
+
+// stepResultMsg is an in-process step's result (see step.run).
+type stepResultMsg struct {
+	seq int
+	stepResult
 }
 
 // sigkillGrace is how long a child gets to honour SIGINT before it's forcibly
@@ -553,6 +571,9 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 		if s.step.optional {
 			s.status = statusSkipped
 			m.skipped++
+			if s.step.alwaysLog { // a declined step's outcome stays on record too
+				appendLog(stepCategory(s.step), "SKIP", s.step.logLabel+" (declined)", "")
+			}
 			cmd := m.advance()
 			return m, cmd
 		}
@@ -585,10 +606,35 @@ func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
 		return m, waitForStream(m.stream) // keep pumping
 	}
 
-	// step finished
+	return m.finishStep(msg.err)
+}
+
+// handleStepResult finishes an in-process step. A result from an earlier
+// launch (the run was aborted, possibly followed by a new one) is dropped, as
+// is one arriving after the run has ended.
+func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
+	if msg.seq != m.stepSeq || m.screen == screenMenu || m.screen == screenSummary {
+		return m, nil
+	}
+	if msg.output != "" {
+		m.buf.WriteString(strings.TrimRight(msg.output, "\n") + "\n")
+		m.output.SetContent(m.buf.String())
+		m.output.GotoTop() // a report reads top-down; its worst findings come first
+	}
+	if msg.confirmNext != "" && m.current+1 < len(m.queue) {
+		next := &m.queue[m.current+1].step
+		next.confirm = msg.confirmNext
+		next.optional = true // declining skips just that step, not the queue
+	}
+	return m.finishStep(msg.err)
+}
+
+// finishStep records the active step's outcome (status, tallies, log entry)
+// and moves on to the next one.
+func (m model) finishStep(err error) (tea.Model, tea.Cmd) {
 	s := &m.queue[m.current]
 	cat := stepCategory(s.step)
-	if msg.err != nil {
+	if err != nil {
 		s.status = statusFailed
 		m.errs++
 		appendLog(cat, "FAIL", s.step.logLabel, m.buf.String())

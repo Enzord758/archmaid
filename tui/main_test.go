@@ -143,6 +143,9 @@ func TestDryRunFullCleanupExecutesNothing(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	for _, s := range fullCleanupSteps() {
+		if s.run != nil {
+			continue // in-process (the AUR audit): read-only by contract, covered in fullcleanup_audit_test.go
+		}
 		ch := make(chan streamMsg, 8)
 		runStep(s, ch)
 		lines, err := drainStep(ch)

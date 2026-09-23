@@ -50,7 +50,9 @@ test can delete your files or need root.
 3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
    replaced by shell shims placed first on `PATH` (see Recipes).
 4. **No network.** The AUR RPC is an `httptest` server reached through the
-   `aurRPCURL` var.
+   `aurRPCURL` var. `TestMain` sets `aurRPCURL` to a closed local port, so any
+   test that reaches the audit without `fakeAUR` (Full Cleanup now starts with
+   it) fails fast instead of calling the real AUR.
 5. **Deterministic frames.** `TestMain` (in `teatest_test.go`) forces the
    lipgloss ASCII profile so goldens are plain text. Goldens compare one
    re-rendered `View()` frame with the live status line pinned by
@@ -89,6 +91,12 @@ printf *format* escapes, not `%s` (sh `printf` doesn't expand `\n` in
 arguments); and print argv with `printf '%s\n' "$*"` — `echo "$@"` swallows a
 leading `-n`, which is exactly what the sudo tests are trying to prove.
 
+**Test an in-process step.** Build a queue, call `startQueue()`, execute the
+returned `tea.Cmd` synchronously and feed its `stepResultMsg` back through
+`update` (see `startAudit`). If the step after it could run a real command when
+the test gets gating wrong, substitute a harmless stand-in (`command: "true"`,
+as `harmlessTopgrade` does).
+
 **Fake the AUR.** `fakeAUR(t, db)` serves the RPC from a map and records
 request count and batches; it also fails the test if a lookup isn't a POST.
 `auditEnv(t)` gives a private `HOME` + `logDir` for anything that persists.
@@ -118,6 +126,7 @@ the names.
 | `hyprpm_test.go` | `hyprpm` is disabled inside topgrade and runs as the last step, only when installed (it drops the sudo ticket on exit). |
 | `coverage_test.go` | Thin spots: `editConfig` (creates defaults, never clobbers, via the `execProcess` seam); `discoverDownloads` against aged files; password masking in the rendered frame; every checklist glyph; the status line; all summary outcomes. |
 | `audit_test.go` | AUR audit, fully offline: severity classification (adoption/maintainer change = high; orphaned, recent push, out of date, 0 votes, not-on-AUR = glance); local `-debug` companions skipped; chunked POST lookups and RPC error handling; the maintainer snapshot (round-trip, kept for missing packages, corrupt file = no baseline); an end-to-end first-audit-then-takeover run; dry run never advances the snapshot; the screen/notice flow. |
+| `fullcleanup_audit_test.go` | Full Cleanup's audit step: it's first, in-process, `alwaysLog`, category `audit`; both topgrade steps are `alwaysLog`. A maintainer change gates topgrade with a confirm naming the package(s), defaulting to No, before topgrade starts; declining skips only the update and logs `SKIP: … (declined)`; the report is in the output pane and `audit.log`. No foreign packages is a clean pass; an unreachable AUR fails the step without gating. A stale or post-abort result is dropped. In a dry run it still audits, logs exactly once, and leaves the snapshot alone. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
 | `e2e/run.tape` + `run.sh` | The real binary under `--dryrun` in a throwaway `HOME`: menu → Clear user cache → confirm → asserts `dryrun/cleanup.log` contains the `DRYRUN:` entry. |
 
@@ -131,6 +140,10 @@ the names.
   over the current screen is tested (`resize_test.go`); the password being
   written straight to the connection on submit, and the connection being closed
   unanswered on cancel, are not.
+- **The audit gate was live-tested by hand, not automatically:** a dry-run Full
+  Cleanup of the real binary via VHS, real AUR, with a scratch `HOME` whose
+  seeded snapshot gave one real package a fake previous maintainer. A VHS tape
+  for it would need a stable fake AUR, so it isn't in `e2e/`.
 - **Missing goldens:** the summary screen, the password/confirm popups over a
   background, the log picker, and the audit report. `fixedModel()` + the ASCII
   profile make each feasible.

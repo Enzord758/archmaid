@@ -235,6 +235,47 @@ func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string
 
 // ── the action ───────────────────────────────────────────────────────────────
 
+// auditResult is one completed audit.
+type auditResult struct {
+	total       int // foreign packages checked
+	findings    []auditFinding
+	hadBaseline bool
+}
+
+func (r auditResult) high() int {
+	n := 0
+	for _, f := range r.findings {
+		if f.high {
+			n++
+		}
+	}
+	return n
+}
+
+// errNoForeign means there was nothing to audit.
+var errNoForeign = errors.New("no foreign packages installed")
+
+// performAudit runs the audit and advances the maintainer snapshot (except in
+// a dry run, which reads it but never writes it). Shared by the menu action
+// and Full Cleanup's audit step. Any error other than errNoForeign is the AUR
+// lookup failing.
+func performAudit(now time.Time) (auditResult, error) {
+	pkgs := foreignPackages()
+	if len(pkgs) == 0 {
+		return auditResult{}, errNoForeign
+	}
+	info, err := fetchAURInfo(pkgs)
+	if err != nil {
+		return auditResult{}, err
+	}
+	prev, hadBaseline := loadBaseline()
+	findings := classifyAll(pkgs, info, prev, hadBaseline, now)
+	if !dryRun {
+		saveBaseline(pkgs, info, prev)
+	}
+	return auditResult{total: len(pkgs), findings: findings, hadBaseline: hadBaseline}, nil
+}
+
 // discoverAURAudit runs the audit off the UI thread and returns it as a
 // discoveryMsg: a notice for "nothing to audit" / "couldn't reach the AUR", or
 // the rendered report for the audit screen.
@@ -243,22 +284,68 @@ func discoverAURAudit() tea.Cmd {
 }
 
 func runAudit(now time.Time) discoveryMsg {
-	pkgs := foreignPackages()
-	if len(pkgs) == 0 {
+	res, err := performAudit(now)
+	switch {
+	case errors.Is(err, errNoForeign):
 		return discoveryMsg{kind: "audit", notice: "No foreign (AUR or locally built) packages installed."}
-	}
-	info, err := fetchAURInfo(pkgs)
-	if err != nil {
+	case err != nil:
 		return discoveryMsg{kind: "audit", notice: "Couldn't reach the AUR: " + shortErr(err)}
 	}
-	prev, hadBaseline := loadBaseline()
-	findings := classifyAll(pkgs, info, prev, hadBaseline, now)
+	logAudit(res)
+	return discoveryMsg{kind: "audit", report: renderAudit(res)}
+}
 
-	if !dryRun { // a dry run reads the snapshot but never advances it
-		saveBaseline(pkgs, info, prev)
+// auditStep is Full Cleanup's first step: the audit, run in-process. It sits
+// directly in front of topgrade so that a high-severity finding (an adoption
+// or maintainer change) can put a confirm in front of the update — the one
+// step that would build a taken-over AUR package. Declining skips only the
+// update; the rest of the cleanup still runs. The audit can't *hold back* a
+// single package; that's the yay cooldown hook's job (see HANDOVER.md).
+//
+// alwaysLog: the step's own log entry is the audit record, so unlike the menu
+// action it doesn't call logAudit. It never needs sudo.
+func auditStep() step {
+	return step{
+		title: "Auditing AUR packages…", logLabel: "AUR audit",
+		category: logCategoryAudit, alwaysLog: true,
+		run: runAuditStep,
 	}
-	logAudit(len(pkgs), findings)
-	return discoveryMsg{kind: "audit", report: renderAudit(len(pkgs), findings, hadBaseline)}
+}
+
+func runAuditStep() stepResult {
+	res, err := performAudit(time.Now())
+	switch {
+	case errors.Is(err, errNoForeign):
+		return stepResult{output: "No foreign (AUR or locally built) packages installed — nothing to audit."}
+	case err != nil:
+		return stepResult{output: "Couldn't reach the AUR: " + shortErr(err), err: err}
+	}
+	r := stepResult{output: auditText(res)}
+	if who := highNames(res.findings); who != "" {
+		// Name the packages: the popup covers the report that explains it.
+		r.confirmNext = who + " changed maintainer since the last audit. Update anyway?"
+	}
+	return r
+}
+
+// highNames names the high-severity packages for a confirm line, short enough
+// for a popup: "a", "a and b", or "3 AUR packages (a, b, …)". "" if none.
+func highNames(findings []auditFinding) string {
+	var names []string
+	for _, f := range findings {
+		if f.high {
+			names = append(names, f.name)
+		}
+	}
+	switch len(names) {
+	case 0:
+		return ""
+	case 1:
+		return names[0]
+	case 2:
+		return names[0] + " and " + names[1]
+	}
+	return fmt.Sprintf("%d AUR packages (%s, %s, …)", len(names), names[0], names[1])
 }
 
 // shortErr trims a transport error to something that fits a notice popup.
@@ -274,14 +361,16 @@ func shortErr(err error) string {
 	return s
 }
 
-// logAudit records the outcome in the audit log category so a closed report
-// stays reviewable from "View log". Plain text — no styling in log files.
-func logAudit(total int, findings []auditFinding) {
-	label := fmt.Sprintf("AUR audit: %d checked, %d flagged", total, len(findings))
-	if len(findings) == 0 {
-		appendLog(logCategoryAudit, "AUDIT", label, "")
-		return
-	}
+// logAudit records a menu-run audit in the audit log category so a closed
+// report stays reviewable from "View log". Plain text — no styling in logs.
+func logAudit(res auditResult) {
+	label := fmt.Sprintf("AUR audit: %d checked, %d flagged", res.total, len(res.findings))
+	appendLog(logCategoryAudit, "AUDIT", label, findingLines(res.findings))
+}
+
+// findingLines is the plain-text findings list, one "[HIGH]"/"[warn]" line per
+// package ("" when nothing was flagged).
+func findingLines(findings []auditFinding) string {
 	width := nameWidth(findings)
 	var b strings.Builder
 	for _, f := range findings {
@@ -291,7 +380,37 @@ func logAudit(total int, findings []auditFinding) {
 		}
 		fmt.Fprintf(&b, "[%s] %s\n", mark, f.line(width))
 	}
-	appendLog(logCategoryAudit, "AUDIT", label, b.String())
+	return b.String()
+}
+
+// auditText is the plain-text report Full Cleanup's audit step streams into
+// the output pane (and, via alwaysLog, into audit.log).
+func auditText(res auditResult) string {
+	high := res.high()
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d foreign package(s) checked against the AUR: %d high, %d glance, %d clean\n\n",
+		res.total, high, len(res.findings)-high, res.total-len(res.findings))
+	if len(res.findings) == 0 {
+		b.WriteString("Nothing flagged.\n")
+	}
+	b.WriteString(findingLines(res.findings))
+	if note := baselineNote(res.hadBaseline); note != "" {
+		b.WriteString("\n" + note + "\n")
+	}
+	return b.String()
+}
+
+// baselineNote explains the snapshot state, or "" when there's nothing to say.
+func baselineNote(hadBaseline bool) string {
+	switch {
+	case !hadBaseline && dryRun:
+		return "No maintainer snapshot yet (dry run: not saved) — maintainer changes can't be detected until a real audit saves one."
+	case !hadBaseline:
+		return "First audit: maintainers saved as the baseline. Adoptions and maintainer changes are flagged from the next audit on."
+	case dryRun:
+		return "Dry run: compared against the saved snapshot; the snapshot was not updated."
+	}
+	return ""
 }
 
 func nameWidth(findings []auditFinding) int {
@@ -303,44 +422,32 @@ func nameWidth(findings []auditFinding) int {
 }
 
 // renderAudit builds the styled report shown on the audit screen.
-func renderAudit(total int, findings []auditFinding, hadBaseline bool) string {
+func renderAudit(res auditResult) string {
 	var b strings.Builder
-	b.WriteString(stepRunStyle.Render(fmt.Sprintf("%d foreign package(s) checked against the AUR", total)) + "\n\n")
+	b.WriteString(stepRunStyle.Render(fmt.Sprintf("%d foreign package(s) checked against the AUR", res.total)) + "\n\n")
 
-	high := 0
-	for _, f := range findings {
-		if f.high {
-			high++
-		}
-	}
-	warn := len(findings) - high
-	clean := total - len(findings)
+	high := res.high()
 	b.WriteString(fmt.Sprintf("%s  %s  %s\n\n",
 		stepFailStyle.Render(fmt.Sprintf("✖ %d look closely", high)),
-		stepSkipStyle.Render(fmt.Sprintf("⚠ %d glance", warn)),
-		stepOKStyle.Render(fmt.Sprintf("✔ %d clean", clean)),
+		stepSkipStyle.Render(fmt.Sprintf("⚠ %d glance", len(res.findings)-high)),
+		stepOKStyle.Render(fmt.Sprintf("✔ %d clean", res.total-len(res.findings))),
 	))
 
-	width := nameWidth(findings)
-	for _, f := range findings {
+	width := nameWidth(res.findings)
+	for _, f := range res.findings {
 		glyph, style := "⚠", stepSkipStyle
 		if f.high {
 			glyph, style = "✖", stepFailStyle
 		}
 		b.WriteString(style.Render(glyph) + " " + itemStyle.Render(f.line(width)) + "\n")
 	}
-	if len(findings) == 0 {
+	if len(res.findings) == 0 {
 		b.WriteString(stepOKStyle.Render("Nothing flagged.") + "\n")
 	}
 
 	b.WriteString("\n")
-	switch {
-	case !hadBaseline && dryRun:
-		b.WriteString(statusStyle.Render("No maintainer snapshot yet (dry run: not saved) — maintainer changes can't be detected until a real audit saves one.") + "\n")
-	case !hadBaseline:
-		b.WriteString(statusStyle.Render("First audit: maintainers saved as the baseline. Adoptions and maintainer changes are flagged from the next audit on.") + "\n")
-	case dryRun:
-		b.WriteString(statusStyle.Render("Dry run: compared against the saved snapshot; the snapshot was not updated.") + "\n")
+	if note := baselineNote(res.hadBaseline); note != "" {
+		b.WriteString(statusStyle.Render(note) + "\n")
 	}
 	b.WriteString(statusStyle.Render("Recent = pushed within 72h, the same window as the yay cooldown hook."))
 	return b.String()

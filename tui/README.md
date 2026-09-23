@@ -63,7 +63,11 @@ straight over via `lipgloss`).
   and not on the AUR at all (locally built `-debug` companions are ignored). It
   makes archmaid's only network call, never changes the system, and results
   also land in the `AUR audit` log category. A dry run reads the snapshot but
-  doesn't advance it. The 72h window matches the yay cooldown hook in
+  doesn't advance it. **Full Cleanup runs it as its first step**, directly in
+  front of topgrade: a high-severity finding puts a confirm naming the
+  package(s) in front of the update (defaults to No; declining skips only the
+  update, and the rest of the cleanup runs). An unreachable AUR fails that step
+  but doesn't gate anything. The 72h window matches the yay cooldown hook in
   `~/.config/yay/init.lua` (holds back AUR upgrades pushed to in the last 72h,
   logged to `~/.local/state/yay/cooldown.log`; `YAY_NO_COOLDOWN=1` bypasses it).
   That hook lives in the dotfiles, not in this repo — archmaid's Full Cleanup
@@ -82,9 +86,10 @@ straight over via `lipgloss`).
   timestamped directory, `~/.local/state/archmaid/<YYYYMMDD-HHMM>/` (a
   user-writable dir — no root/system setup), holding one file per category —
   `topgrade.log`, `orphans.log`, `cleanup.log` (the default bucket for
-  everything else). Ordinary steps only log on failure; steps that remove or
-  overwrite something (orphan removal, cache/temp/log wipes, service
-  disabling, downloads/repair cleanup) log their outcome even on success, so
+  everything else). Ordinary steps only log on failure; topgrade, the AUR
+  audit, and steps that remove or overwrite something (orphan removal,
+  cache/temp/log wipes, service disabling, downloads/repair cleanup) log their
+  outcome even on success, and a `SKIP` entry when declined, so
   what a destructive step actually did stays auditable without digging through
   `pacman`'s own log. Only the newest 5 run directories are kept — older ones
   are pruned at startup. "View log" picks a category before opening the pager.

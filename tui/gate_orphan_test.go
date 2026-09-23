@@ -188,13 +188,17 @@ func findStep(steps []step, sub string) int {
 	return -1
 }
 
-// TestFullCleanupTopgradeFirst: topgrade leads the queue (update first, then
-// clean up the result) regardless of orphans.
-func TestFullCleanupTopgradeFirst(t *testing.T) {
+// TestFullCleanupAuditThenTopgrade: the AUR audit leads the queue, directly
+// followed by topgrade (update first, then clean up the result), regardless of
+// orphans.
+func TestFullCleanupAuditThenTopgrade(t *testing.T) {
 	shimPacman(t, "")
 	steps := fullCleanupSteps()
-	if len(steps) == 0 || !strings.Contains(steps[0].title, "topgrade") {
-		t.Fatalf("first step = %+v, want topgrade", steps[0])
+	if len(steps) < 2 || steps[0].run == nil || steps[0].category != logCategoryAudit {
+		t.Fatalf("first step = %+v, want the in-process AUR audit", steps[0])
+	}
+	if !strings.Contains(steps[1].title, "topgrade") {
+		t.Fatalf("second step = %+v, want topgrade (the audit must sit directly in front of it)", steps[1])
 	}
 }
 

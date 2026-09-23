@@ -56,9 +56,11 @@ comments and `git log`; this is the "read before you touch it" list.
   the `pacman -Qdtq` list (a real run confirmed 23 and removed 46).
   `orphanRemovalTotal` previews it with `pacman -Rs --print` (`-n` conflicts with
   `--print`; no root needed).
-- **Logging policy.** Ordinary steps log only failures; steps that remove or
-  overwrite something are `alwaysLog` and log success too, so what a destructive
-  step did is auditable from archmaid's own log. Logs are split into
+- **Logging policy.** Ordinary steps log only failures. `alwaysLog` steps log
+  success too, and a `SKIP … (declined)` entry when their confirm is declined:
+  anything that removes or overwrites something, topgrade (the step that changes
+  the most), and the AUR audit. That keeps what those steps did auditable from
+  archmaid's own log. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
   run directories are kept, `dryrun/` is a single reused slot, and files in the
   state-dir root (the AUR snapshot) are ignored by `pruneLogs`.
@@ -66,9 +68,18 @@ comments and `git log`; this is the "read before you touch it" list.
   *current* maintainer, never adoption history. Consequence: the first audit only
   records a baseline. It is archmaid's only network call. A dry run reads the
   snapshot but never advances it.
-- **Holding back risky AUR upgrades is yay's job, not archmaid's.** Full Cleanup
-  runs `topgrade -y` → yay unattended, and archmaid never sees a PKGBUILD or gets
-  to veto an upgrade. The 72 h cooldown hook lives outside this repo, in
+- **Full Cleanup opens with the audit, directly in front of topgrade.** It runs
+  as an in-process step (`step.run`, a `tea.Cmd` — not a shell command, and not
+  signalable; an abort just drops its late result via `stepSeq`). A
+  high-severity finding (adoption or maintainer change) uses
+  `stepResult.confirmNext` to put a named confirm in front of topgrade and make it
+  optional, so "no" skips only the update and the cleanup carries on. An
+  unreachable AUR fails the audit step but never gates. In-process steps run even
+  in a dry run, so they must be read-only apart from what they gate on `dryRun`
+  themselves.
+- **Holding back a single risky AUR upgrade is yay's job, not archmaid's.** Full
+  Cleanup runs `topgrade -y` → yay unattended, and archmaid never sees a PKGBUILD;
+  the audit gate can only skip the whole update. The 72 h cooldown hook lives outside this repo, in
   `~/dotfiles/yay/.config/yay/init.lua` (stowed to `~/.config/yay/`), and needs
   stowing on any new machine. The audit's "pushed within 72 h" flag deliberately
   matches it.
@@ -93,11 +104,10 @@ to:
 
 ## Open items
 
-- **Topgrade is not `alwaysLog`.** It's the step that changes the most (a full
-  system upgrade) yet only logs on failure. Worth reconsidering now that the
-  machinery exists.
-- **Nothing schedules the AUR audit,** and it doesn't gate Full Cleanup
-  (deliberate: that would add a network call to every cleanup, and archmaid can't
-  hold an upgrade anyway).
+- **The audit gate only covers Full Cleanup.** The standalone "Run topgrade"
+  action updates without an audit.
+- **Topgrade's full output now lands in `topgrade.log` on every run.** It
+  includes raw ANSI escapes (the pager renders them; a plain `less` shows
+  noise). Stripping them in `appendLog` is an option if that matters.
 - Test gaps (askpass round trip, missing goldens, e2e breadth) are tracked in
   `TESTING.md` → Known gaps.

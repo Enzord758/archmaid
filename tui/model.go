@@ -103,6 +103,7 @@ type model struct {
 	current int              // index into queue
 	proc    *os.Process      // the active step's child process (for abort)
 	stream  chan streamMsg   // output channel for the active step
+	stepSeq int              // bumped per launch; an in-process step's result carries it so a stale one is dropped
 	buf     *strings.Builder // accumulated output of the active step (pointer:
 	//                          strings.Builder must not be copied by value, and
 	//                          the model is copied on every Update)

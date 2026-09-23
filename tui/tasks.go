@@ -36,10 +36,30 @@ type step struct {
 	// resolves to logCategoryCleanup via stepCategory.
 	category logCategory
 	// alwaysLog logs this step's outcome even on success in a real run
-	// (normally only failures are logged) — for steps that remove or
-	// overwrite something, so what happened is auditable without digging
-	// through pacman's own log.
+	// (normally only failures are logged), and a SKIP entry when its confirm
+	// is declined — for steps whose outcome must stay on record: anything that
+	// removes or overwrites something, the system upgrade, and the AUR audit.
+	// Without it, what happened is only traceable through pacman's own log.
 	alwaysLog bool
+
+	// run, if set, makes this an in-process step: instead of exec'ing
+	// command/args, launch runs run() off the UI thread as a tea.Cmd and its
+	// result finishes the step (see handleStepResult). In-process steps run
+	// even in a dry run, so run must be read-only apart from state it gates on
+	// dryRun itself. They can't be signalled; aborting one just drops its
+	// late result.
+	run func() stepResult
+}
+
+// stepResult is what an in-process step returns. output is shown in the
+// output pane and logged like a command's output; err fails the step.
+// confirmNext, if set, puts a confirm in front of the *next* step and makes
+// it optional, so declining skips just that step (the audit uses this to
+// gate topgrade on a high-severity finding).
+type stepResult struct {
+	output      string
+	err         error
+	confirmNext string
 }
 
 // stepCategory is s.category, defaulting to logCategoryCleanup when unset.
@@ -149,10 +169,16 @@ func waitForStream(ch <-chan streamMsg) tea.Cmd {
 
 func fullCleanupSteps() []step {
 	steps := []step{
-		// topgrade runs first: update the system, then clean up the result.
-		// It's also non-destructive and abortable, so it doubles as a soft
-		// buffer before the destructive steps begin. needsSudo so credentials
-		// are primed + kept alive — topgrade shells out to sudo pacman itself.
+		// The AUR audit runs first, directly in front of topgrade, so a
+		// maintainer change can gate the update before yay builds anything
+		// (see auditStep). Read-only; one network call.
+		auditStep(),
+		// Then topgrade: update the system, then clean up the result. It's
+		// also non-destructive and abortable, so it doubles as a soft buffer
+		// before the destructive steps begin. needsSudo so credentials are
+		// primed + kept alive — topgrade shells out to sudo pacman itself.
+		// alwaysLog: it changes more than any other step (a full system
+		// upgrade), so its output is kept even when it succeeds.
 		//
 		// hyprpm is excluded and run as the LAST step instead: hyprpm drops the
 		// sudo ticket on exit (NSys::root::dropSudo → sudo -k), which would kill
@@ -161,7 +187,7 @@ func fullCleanupSteps() []step {
 		{
 			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
 			command: "topgrade", args: []string{"-y", "--disable", "hyprpm"}, needsSudo: true,
-			category: logCategoryTopgrade,
+			category: logCategoryTopgrade, alwaysLog: true,
 		},
 		{
 			title: "Cleaning package cache…", logLabel: "Old package cache cleaned",
@@ -237,7 +263,7 @@ func topgradeSteps() []step {
 	return []step{{
 		title: "Updating system with topgrade…", logLabel: "Topgrade completed",
 		command: "topgrade", args: []string{"-y"}, needsSudo: true,
-		category: logCategoryTopgrade,
+		category: logCategoryTopgrade, alwaysLog: true,
 	}}
 }
 

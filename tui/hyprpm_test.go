@@ -36,10 +36,11 @@ func TestFullCleanupDisablesHyprpmInTopgrade(t *testing.T) {
 	shimExclusivePath(t, "hyprpm")
 
 	steps := fullCleanupSteps()
-	tg := steps[0]
-	if !strings.Contains(tg.title, "topgrade") {
-		t.Fatalf("first step = %+v, want topgrade", tg)
+	i := findStep(steps, "topgrade")
+	if i == -1 {
+		t.Fatalf("no topgrade step in %d-step queue", len(steps))
 	}
+	tg := steps[i]
 	args := strings.Join(tg.args, " ")
 	if !strings.Contains(args, "--disable hyprpm") {
 		t.Fatalf("topgrade args = %q, want --disable hyprpm", args)
