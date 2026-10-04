@@ -16,9 +16,11 @@ one happens.
   `/usr/bin/true`, and only with the marker argument `archmaid-keepcheck-k7q2`
   (`exec.argv1`). No other installed action uses `/usr/bin/true`, so it can't
   take over any other action's calls. Nothing else on the system changes.
-- **At most 2 polkit password prompts**, one per part. Every check after the
-  first password is `pkcheck` without `--allow-user-interaction`, which never
-  prompts. It only answers authorized or not.
+- **At most 2 polkit password prompts**, one each in Parts A and B. Every
+  check after the first password is `pkcheck` without
+  `--allow-user-interaction`, which never prompts. It only answers
+  authorized or not. Part C (optional) opens one more dialog but you type
+  nothing into it; it may cost one faillock row, which is what it measures.
 - faillock has `deny=3`, and every wrong password counts: a polkit prompt, the
   tty3 login and `sudo` all go through `pam_faillock`. **A cancelled or
   dismissed polkit dialog also counts as one failure.** A correct password
@@ -30,7 +32,8 @@ one happens.
   again.
 
 **Time:** about 15 minutes for Part A, cleanup and the results. Part B (tty3)
-is optional and adds about 5–10 minutes. The steps are numbered 1–14.
+is optional and adds about 5–10 minutes; Part C (a killed pkexec) is
+optional and adds about 5. The steps are numbered 1–14, Part C's C1–C4.
 
 ## What you are looking for
 
@@ -201,6 +204,63 @@ tty3 is a password too.
     Then `pkcheck --revoke-temp`, `exit`, and **Ctrl+Alt+F2** back to the
     graphical session.
 
+## Part C: a pkexec killed in the dialog (optional)
+
+**The question:** archmaid's Stop, while the polkit dialog is up, SIGKILLs
+pkexec (`helperclient.Run`; the helper never runs). A dismissed dialog
+costs one faillock failure. Does a pkexec killed mid-prompt cost one too?
+Then a Stop at the dialog would need the same "last attempt" warning as a
+cancel. This part types **no password**; it has its own faillock check
+before and after. Run it in the graphical session (back on tty2 if Part B
+ran), before the cleanup: it needs the throwaway action.
+
+**C1. Before.** In terminal 1:
+
+```sh
+pkcheck --revoke-temp
+faillock --user "$USER"
+pkcheck --action-id org.archmaid.keepcheck.k7q2 --process $$; echo "rc=$?"
+```
+
+Write down the faillock rows (case **K0**). **Run Part C only if there
+are 0 rows**; otherwise skip to the cleanup. `pkcheck` must give `rc=2`
+(nothing kept, so the next step really shows a dialog); if it gives
+`0`, wait 5 minutes and repeat C1.
+
+**C2. Start pkexec, but don't answer.**
+
+```sh
+pkexec /usr/bin/true archmaid-keepcheck-k7q2 & p=$!; echo "pkexec pid $p"
+```
+
+The polkit-gnome dialog appears. Check the message and the action id as
+in "What you are looking for". **Type nothing, and don't press Cancel**:
+leave the dialog open.
+
+**C3. Kill it, as archmaid's Stop does** (within about 30 s of C2, in
+terminal 1; the dialog can stay on screen, the terminal still takes
+input):
+
+```sh
+kill -KILL "$p"; wait "$p"; echo "rc=$?"
+```
+
+Expected `rc=137`. Case **K1**: note whether the dialog closed by
+itself, and how quickly. If it is still open after 10 s, press Cancel
+and write that down: the dialog outliving pkexec is a finding too, but
+the faillock count then can't tell the kill from the cancel.
+
+**C4. After** (no password; about 10 s after C3, so a late failure is counted too):
+
+```sh
+faillock --user "$USER"
+```
+
+Case **K2**: the rows now. One more row than at K0 means a killed pkexec
+costs a failure like a cancel; the same count means it doesn't. Write
+it down **before** the cleanup, whose `sudo` password resets the count.
+The stop rule still holds: with 2 or more rows, wait before the cleanup.
+
 ## Cleanup (always, also after a stop)
 
 Mind the stop rule: with 2 or more faillock rows, wait before the `sudo`.
@@ -236,6 +296,7 @@ Checklist:
 - [ ] `pkcheck --revoke-temp` run in the graphical session (and on tty3, if Part B ran)
 - [ ] logged out of tty3, back on tty2
 - [ ] terminal 2 closed
+- [ ] Part C's pkexec is gone (`kill -0 "$p"` fails), if Part C ran
 - [ ] `faillock --user "$USER"` shows 0 rows (or the count is written down below)
 
 ## Results (fill in)
@@ -256,10 +317,15 @@ Date: ______  polkit `pkcheck --version`: ______  faillock rows at step 1: ___ /
 | T3 new process (`sh -c`) | 0 | 0 | | | |
 | T4 `pkexec --disable-internal-agent` from a new process | 0 | | | | |
 | T5 `--list-temp` | 0 | 0 | | | subject: |
+| K0 faillock before | 0 | 0 | | | must be 0 rows |
+| K1 pkexec SIGKILLed in the dialog | 0 | | | | dialog closed by itself? after how long? cancelled? |
+| K2 faillock after | 0 | 0 | | | |
 
 **Answer:** in the graphical session, `auth_admin_keep` is scoped to
 ☐ the session ☐ the requesting process. On tty3: ☐ the session ☐ the
-requesting process ☐ not run.
+requesting process ☐ not run. A pkexec SIGKILLed in the dialog
+☐ costs a faillock failure ☐ doesn't ☐ inconclusive (dialog cancelled)
+☐ not run.
 
 Send the filled-in table back; it goes into `docs/polkit-live-test.md` and
 closes (or rewords) the HANDOVER open item.
