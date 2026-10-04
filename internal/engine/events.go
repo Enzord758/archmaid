@@ -292,7 +292,7 @@ type Outcome int
 
 const (
 	OutcomeCompleted Outcome = iota // the queue ran to its end (Errs may be > 0)
-	OutcomeAborted                  // Abort, or a declined required step
+	OutcomeAborted                  // Abort, or a declined required step, even the first
 	OutcomeCancelled                // ended before any step ran (a cancelled password prompt, a declined gate)
 	OutcomeNotice                   // ended in a Notice
 	OutcomeReport                   // ended in a dismissed or accepted OutputReport

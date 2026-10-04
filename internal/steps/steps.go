@@ -108,7 +108,9 @@ type Result struct {
 	// Commit, if set, is deferred work that must wait for that answer: it
 	// becomes the next step's OnAccept, so it runs only if the confirm is
 	// accepted and is dropped on "no" or an abort. Without a ConfirmNext it
-	// runs as soon as the result is taken. (The audit's snapshot save.)
+	// runs as soon as the result is taken, even when Err is set (for the
+	// downloads delete it says the result was taken, so a partial failure
+	// isn't also logged as an abort). (The audit's snapshot save.)
 	Commit func() error
 	// InsertNext, if set, is a step to run right after this one, inserted
 	// into the queue when the result is taken (the orphan probe's removal);
