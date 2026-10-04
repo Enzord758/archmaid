@@ -269,7 +269,7 @@ func (d *syncDriver) startStep(e engine.StartStep) {
 		ctx, cancel := context.WithCancelCause(context.Background())
 		d.release[e.Seq] = cancel
 		if f := d.fetches[e.Step.Prefetch]; f != nil {
-			run = func(ctx context.Context, _ steps.Env) steps.Result { return f.run(ctx) }
+			run = func(ctx context.Context, _ steps.Env) steps.Result { return f.Run(ctx) }
 		}
 		d.work = append(d.work, func() []engine.Input {
 			return []engine.Input{engine.StepResult{Seq: e.Seq, Result: run(ctx, e.Env)}}

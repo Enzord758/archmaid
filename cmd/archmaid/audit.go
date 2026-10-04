@@ -153,10 +153,10 @@ func startAuditFetch() *auditFetch {
 	return &auditFetch{Fetch: audit.Prefetch(cfg), cfg: cfg}
 }
 
-// run is the audit step's run when the lookup was prefetched: it waits for
+// Run is the audit step's run when the lookup was prefetched: it waits for
 // the fetch rather than starting another. An abort cancels both ctx and the
 // fetch, so it returns at once either way.
-func (f *auditFetch) run(ctx context.Context) steps.Result {
+func (f *auditFetch) Run(ctx context.Context) steps.Result {
 	res, err := f.Wait(ctx)
 	return auditStepResult(f.cfg, res, err)
 }

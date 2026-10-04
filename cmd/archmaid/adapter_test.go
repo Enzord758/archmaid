@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +10,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/Enzord758/archmaid/internal/sysstat"
@@ -260,5 +263,72 @@ func TestEngineStatusAndOldPath(t *testing.T) {
 	old := sizedModel()
 	if got := update(old, engineEventsMsg{evs: []engine.Event{engine.Notice{Text: "x"}}}); got.screen != old.screen {
 		t.Errorf("the old path took an engine event: screen %d", got.screen)
+	}
+}
+
+// newDriver builds the real Driver on the package's knobs; closing it
+// closes its Events.
+func TestNewDriverIsTheRealDriver(t *testing.T) {
+	transcriptEnv(t, true)
+	installShims(t, Shims{})
+	d := newDriver(engine.New(engine.Options{DryRun: true, Env: actionEnv()}), nil)
+	if _, ok := d.(*driver.Driver); !ok {
+		t.Fatalf("newDriver built a %T", d)
+	}
+	d.Close()
+	deadline := time.After(5 * time.Second)
+	for {
+		select {
+		case _, open := <-d.Events():
+			if !open {
+				return
+			}
+		case <-deadline:
+			t.Fatal("Events was never closed")
+		}
+	}
+}
+
+// startPrefetch starts the AUR audit's lookup and nothing else.
+func TestPrefetchStartsOnlyTheAudit(t *testing.T) {
+	transcriptEnv(t, false)
+	installShims(t, Shims{"pacman": pacmanRules("", "", "")})
+	if p := startPrefetch("something-else"); p != nil {
+		t.Fatalf("startPrefetch(unknown) = %v, want nil", p)
+	}
+	p := startPrefetch(steps.PrefetchAURAudit)
+	if p == nil {
+		t.Fatal("startPrefetch(the audit) = nil")
+	}
+	select {
+	case <-p.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the audit's prefetch never finished")
+	}
+	if res := p.Run(context.Background()); !strings.Contains(res.Output, "nothing to audit") {
+		t.Fatalf("Run = %+v", res)
+	}
+	p.Cancel()
+}
+
+// The error log keeps maxReports errors, counts the rest and empties on
+// flush.
+func TestReportLogFlush(t *testing.T) {
+	var r reportLog
+	r.add(nil)
+	for i := range maxReports + 2 {
+		r.add(fmt.Errorf("e%d", i))
+	}
+	var b strings.Builder
+	r.flush(&b)
+	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
+	if len(lines) != maxReports+1 || lines[0] != "archmaid: e0" ||
+		lines[maxReports] != "archmaid: 2 more errors not shown" {
+		t.Fatalf("flush wrote:\n%s", b.String())
+	}
+	b.Reset()
+	r.flush(&b)
+	if b.Len() != 0 {
+		t.Fatalf("a second flush wrote %q", b.String())
 	}
 }

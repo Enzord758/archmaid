@@ -741,7 +741,7 @@ func (m *model) launch() tea.Cmd {
 		seq, run := m.stepSeq, s.Run
 		if s.Prefetch == steps.PrefetchAURAudit && m.auditFetch != nil {
 			fetch := m.auditFetch // already under way: await it, don't refetch
-			run = func(ctx context.Context, _ steps.Env) steps.Result { return fetch.run(ctx) }
+			run = func(ctx context.Context, _ steps.Env) steps.Result { return fetch.Run(ctx) }
 		}
 		env := steps.Env{DryRun: dryRun}
 		return func() tea.Msg { return stepResultMsg{seq: seq, Result: run(ctx, env)} }

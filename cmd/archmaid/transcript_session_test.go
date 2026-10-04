@@ -678,7 +678,7 @@ func (tg *sessionTarget) startStep(e engine.StartStep) bool {
 		ctx, cancel := context.WithCancelCause(context.Background())
 		tg.release[e.Seq] = cancel
 		if f := tg.fetches[e.Step.Prefetch]; f != nil {
-			run = func(ctx context.Context, _ steps.Env) steps.Result { return f.run(ctx) }
+			run = func(ctx context.Context, _ steps.Env) steps.Result { return f.Run(ctx) }
 		}
 		tg.work = append(tg.work, func() []engine.Input {
 			return []engine.Input{engine.StepResult{Seq: e.Seq, Result: run(ctx, e.Env)}}

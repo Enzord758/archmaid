@@ -58,6 +58,7 @@ func main() {
 	_, err := p.Run()
 	if drv != nil {
 		drv.Close() // stops what runs and waits for its workers
+		driverReports.flush(os.Stderr)
 	}
 	// An aborted downloads deletion finishes its current entry and logs what
 	// it deleted; don't cut that short by exiting.

@@ -1,10 +1,14 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"slices"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -22,21 +26,90 @@ import (
 // model in engine mode, forwardEvents, Close after the program). The tests
 // drive the model on syncDriver (syncdriver_test.go) instead.
 
-// useEngine switches the binary onto the engine. Off until internal/driver
-// lands (E6): until then the binary keeps its own queue logic (update.go),
-// and engine mode runs in the tests only. Turning it on takes newDriver.
-const useEngine = false
+// useEngine switches the binary onto the engine: main builds the model in
+// engine mode on newDriver.
+const useEngine = true
 
-// newDriver builds the Driver the binary runs on in engine mode; nil until
-// internal/driver lands. E7b sets it to
-//
-//	driver.New(s, driver.Deps{
-//		Priv: privileged(), Log: logs(), // SUDO_ASKPASS only on NeedsPriv steps
-//		KillGrace: sigkillGrace, WaitDelay: stepWaitDelay,
-//		Askpass: askpass, // Requester "<exe, ClipTail 40> (pid N)"
-//		Prefetch: …,      // startAuditFetch, wrapped
-//	})
-var newDriver func(s *engine.Session, askpass <-chan *privilege.Request) engine.Driver
+// newDriver builds the Driver the binary runs on: internal/driver around s,
+// on the sudo path (E6a). Call it on main's goroutine before the program
+// starts, after startAskpassServer (privileged reads its wrapper) and the
+// command line (logs reads --dryrun). askpass is the askpass Server's
+// requests, nil when it isn't wired up; the Driver verifies each against
+// the running step's child and gives the popup its Requester.
+var newDriver = func(s *engine.Session, askpass <-chan *privilege.Request) engine.Driver {
+	return driver.New(s, driverDeps(askpass))
+}
+
+// driverDeps is driver.Deps as the TUI wires them: sudo with the askpass
+// Server's wrapper (privileged; SUDO_ASKPASS only on NeedsPriv steps), the
+// log store, the TUI's kill grace and pipe wait, the Server's requests, the
+// audit prefetch and the error log. Same goroutine rules as newDriver.
+func driverDeps(askpass <-chan *privilege.Request) driver.Deps {
+	return driver.Deps{
+		Priv: privileged(), Log: logs(),
+		KillGrace: sigkillGrace, WaitDelay: stepWaitDelay,
+		Askpass:  askpass,
+		Prefetch: startPrefetch,
+		Report:   driverReports.add,
+	}
+}
+
+// startPrefetch starts the prefetch named name (Deps.Prefetch): the AUR
+// audit's lookup, so it runs behind the password prompt or the gate; nil for
+// a name the TUI doesn't know. It runs on the Driver's loop and reads the
+// audit's config there, from package vars that only tests change.
+func startPrefetch(name string) driver.Prefetch {
+	if name != steps.PrefetchAURAudit {
+		return nil
+	}
+	return startAuditFetch()
+}
+
+// driverReports is the TUI's error log: what the Driver reports that no
+// Event carries (a log write that failed, a hook's error, a recovered
+// panic). The alt screen owns the terminal while the program runs, so main
+// prints it to stderr once the program has ended and the Driver is closed.
+var driverReports reportLog
+
+// reportLog collects errors from any goroutine, up to maxReports; past that
+// it only counts them. add only appends: it runs on the Driver's loop and
+// must never call Close.
+type reportLog struct {
+	mu      sync.Mutex
+	errs    []error
+	dropped int
+}
+
+// maxReports bounds what a reportLog keeps.
+const maxReports = 20
+
+func (r *reportLog) add(err error) {
+	if err == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.errs) >= maxReports {
+		r.dropped++
+		return
+	}
+	r.errs = append(r.errs, err)
+}
+
+// flush writes what was reported to w, one "archmaid: " line each (a
+// panic's stack keeps its own lines), and forgets it.
+func (r *reportLog) flush(w io.Writer) {
+	r.mu.Lock()
+	errs, dropped := r.errs, r.dropped
+	r.errs, r.dropped = nil, 0
+	r.mu.Unlock()
+	for _, err := range errs {
+		fmt.Fprintln(w, "archmaid:", err)
+	}
+	if dropped > 0 {
+		fmt.Fprintf(w, "archmaid: %d more error%s not shown\n", dropped, plural(dropped))
+	}
+}
 
 // forwardEvents hands the program every Event the Driver delivers, one per
 // msg, in order, until Events is closed.
