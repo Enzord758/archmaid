@@ -20,6 +20,10 @@
 set -euo pipefail
 
 BENCHSTAT=golang.org/x/perf/cmd/benchstat@v0.0.0-20260929162123-406019bb8b68
+# benchstat itself needs a newer Go than the module (go.mod 1.25, which CI pins
+# with GOTOOLCHAIN=local). Only the tool gets a newer toolchain; the benchmarks
+# above still build and run with the module's Go.
+BENCHSTAT_TOOLCHAIN=auto  # local Go, or the newer one benchstat requires
 BENCH='StreamView|SystemStatus|ActivateFullCleanup|ViewRunning'
 MAX_SLOWDOWN_PCT=25
 COUNT="${BENCH_COUNT:-6}"
@@ -65,8 +69,8 @@ for ((i = 1; i <= COUNT; i++)); do
 done
 
 echo "==> benchstat"
-go run "$BENCHSTAT" "$out/old.txt" "$out/new.txt" 2>&1 | tee "$out/benchstat.txt"
-go run "$BENCHSTAT" -format csv "$out/old.txt" "$out/new.txt" >"$out/benchstat.csv" 2>/dev/null
+GOTOOLCHAIN="$BENCHSTAT_TOOLCHAIN" go run "$BENCHSTAT" "$out/old.txt" "$out/new.txt" 2>&1 | tee "$out/benchstat.txt"
+GOTOOLCHAIN="$BENCHSTAT_TOOLCHAIN" go run "$BENCHSTAT" -format csv "$out/old.txt" "$out/new.txt" >"$out/benchstat.csv" 2>/dev/null
 
 failed=0
 fail() {
