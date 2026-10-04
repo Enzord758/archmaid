@@ -79,6 +79,7 @@ type report struct {
 	DriverCloses     int32
 	Sent             []string // the prompt answers the Driver got
 	Buttons          []string // each confirm's "id yes/no" button labels
+	PwBodies         []string // each password dialog's body
 	Toasts           []string
 	Menu             []string // the Overview's rows
 	MenuSub          string   // the started row's subtitle right after the click
@@ -134,7 +135,7 @@ func runChild(scenario, path string) int {
 	// stub's Catalog; the flood and password ones play a single script.
 	var script stub.Script
 	opts := Options{Flags: gio.ApplicationNonUnique, StateDir: os.Getenv("ARCHMAID_GUI_STATE")}
-	action, answerNo := actions.IDFullCleanup, false
+	action, answerNo, password := actions.IDFullCleanup, false, "hunter2"
 	switch scenario {
 	case "flood": // unpaced, nothing dropped: the view's real capacity
 		script, action, opts.Pump = runview.Flood(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
@@ -144,8 +145,14 @@ func runChild(scenario, path string) int {
 		script, action = runview.Flood(time.Now(), 50000, 1, 0), "flood"
 	case "flood-colour": // as flood, every line in colour (seven spans)
 		script, action, opts.Pump = runview.FloodColour(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
-	case "prompts": // selection, up-front password, askpass
-		script, action = runview.Prompts(time.Now()), actions.IDServices
+	case "services": // the services pick, two ticked
+		action = actions.IDServices
+	case "uncached": // the up-front password as the gate, right first time
+		action = stub.IDFullCleanupUncached
+	case "wrong-password": // the up-front password, wrong three times
+		action, password = stub.IDFullCleanupUncached, string(stub.WrongPassword)
+	case "askpass": // sudo's askpass mid-topgrade
+		action = stub.IDFullCleanupAskpass
 	case "audit": // the AUR audit report, accepted
 		action = actions.IDAURAudit
 	case "usercache-no": // a declined required step
@@ -232,7 +239,8 @@ func runChild(scenario, path string) int {
 					}
 					switch {
 					case p.Password != nil:
-						w.pwEntry.SetText("hunter2")
+						rep.PwBodies = append(rep.PwBodies, d.Body())
+						w.pwEntry.SetText(password)
 						resp = "ok"
 					case p.Selection != nil:
 						w.checks[0].SetActive(true)
@@ -455,14 +463,39 @@ func TestGUIFullCleanup(t *testing.T) {
 	}
 }
 
-// TestGUIPrompts: the selection, password and askpass dialogs answer
-// through Select and SubmitPassword with their prompt IDs.
+// TestGUIPrompts: the services pick, the up-front password (right, and
+// wrong three times) and sudo's askpass, from the stub's Catalog, answer
+// through Select, SubmitPassword and Confirm with their prompt IDs.
 func TestGUIPrompts(t *testing.T) {
 	needDisplay(t)
-	rep, _ := child(t, "prompts")
-	want := []string{"select 1 [cups.service avahi-daemon.service]", "password 2 len 7", "password 3 len 7"}
-	if rep.Outcome != "completed" || !slices.Equal(rep.Sent, want) {
-		t.Errorf("outcome %q sent %q; want completed after %q", rep.Outcome, rep.Sent, want)
+	for _, c := range []struct {
+		scenario, outcome string
+		sent              []string
+	}{
+		{"services", "completed", []string{"select 1 [bluetooth.service cups.service]"}},
+		{"uncached", "completed", []string{"password 1 len 7", "confirm 2 true", "confirm 3 true"}},
+		// Three wrong ones: the steps that need root are refused, the rest run.
+		{"wrong-password", "completed", []string{"password 1 len 5", "password 2 len 5", "password 3 len 5"}},
+		// The askpass comes mid-topgrade, between the gate and the confirms.
+		{"askpass", "completed", []string{"confirm 1 true", "password 2 len 7", "confirm 3 true", "confirm 4 true"}},
+	} {
+		rep, _ := child(t, c.scenario)
+		if rep.Outcome != c.outcome || !slices.Equal(rep.Sent, c.sent) {
+			t.Errorf("%s: outcome %q sent %q; want %q after %q", c.scenario, rep.Outcome, rep.Sent, c.outcome, c.sent)
+		}
+		switch c.scenario {
+		case "wrong-password":
+			if len(rep.Rows) < 2 || rep.Rows[1] != steps.IDTopgrade+"=auth refused" {
+				t.Errorf("%s: rows %q, want topgrade refused", c.scenario, rep.Rows)
+			}
+			if len(rep.PwBodies) != 3 || !strings.Contains(rep.PwBodies[1], "Incorrect password") || !strings.Contains(rep.PwBodies[2], "1 attempt") {
+				t.Errorf("%s: password dialogs said %q; want the error on the retries", c.scenario, rep.PwBodies)
+			}
+		case "askpass":
+			if len(rep.PwBodies) != 1 || !strings.Contains(rep.PwBodies[0], "yay (pid 4242)") {
+				t.Errorf("%s: askpass dialog said %q; want who asked", c.scenario, rep.PwBodies)
+			}
+		}
 	}
 }
 

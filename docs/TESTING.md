@@ -136,10 +136,14 @@ ending in a notice, the empty last run), `logs` (a scratch state dir with a
 20-day-old failed last-run.json and two runs' logs: the Overview's stale
 warning, View log's run rows, one log opened; the state dir must be
 unchanged after), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
-`close-midrun` (closing mid-run asks first, then closes), `prompts` (a
-selection, the up-front password with its gate and an askpass mid-step, each
-answered through its dialog: boxes ticked, a password typed; the Driver must
-get `Select` and two `SubmitPassword`s with the right IDs, and the entry must
+`close-midrun` (closing mid-run asks first, then closes), `services`,
+`uncached`, `wrong-password` and `askpass` (from the stub's Catalog: the
+services pick, the up-front password standing in for Full Cleanup's gate,
+the stub's wrong password three times — each retry's dialog shows the error
+and the attempts left, then the steps that need root are refused — and
+sudo's askpass mid-topgrade naming who asked; each answered through its
+dialog: boxes ticked, a password typed; the Driver must get `Select`,
+`SubmitPassword` and `Confirm` with the right IDs, and the entry must
 be empty after the answer), `audit` (the AUR report's Accept is
 `Confirm(yes)`, and `ReportAccepted` is a toast), `idle` (first frame
 and RAM), `flood` (50k unpaced lines, dropping off: the view's real capacity),

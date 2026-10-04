@@ -17,6 +17,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 
 	"github.com/Enzord758/archmaid/gui/internal/runview"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/stub"
 )
@@ -41,10 +42,11 @@ type Options struct {
 
 // Main runs archmaid-gui with the stub Driver and returns its exit status.
 // By default the stub plays its Catalog: a script for every menu action
-// that runs, with the declined paths. ARCHMAID_GUI_SCRIPT picks a single
-// script instead, played whatever action is started: "flood" or
-// "flood-colour" (50k lines, for eyeballing the output view) or "prompts"
-// (selection, password, askpass).
+// that runs, with the declined paths. ARCHMAID_GUI_SCRIPT changes that:
+// "flood" or "flood-colour" play 50k lines whatever action is started (for
+// eyeballing the output view); "uncached" makes Full Cleanup ask for the
+// password up front (the stub's "wrong" is wrong), "askpass" makes its
+// topgrade ask mid-step.
 //
 // TODO(E6): the real Driver replaces the stub here.
 func Main(args []string) int {
@@ -52,15 +54,24 @@ func Main(args []string) int {
 	single := func(s stub.Script) func() engine.Driver {
 		return func() engine.Driver { return stub.New(s, stub.Options{}) }
 	}
+	catalog := func(f func(time.Time) map[string]stub.Script) func() engine.Driver {
+		return func() engine.Driver { return stub.New(nil, stub.Options{Scripts: f(time.Now())}) }
+	}
 	switch os.Getenv("ARCHMAID_GUI_SCRIPT") {
 	case "flood":
 		opts.NewDriver = single(runview.Flood(time.Now(), 50000, 1, 0))
 	case "flood-colour":
 		opts.NewDriver = single(runview.FloodColour(time.Now(), 50000, 1, 0))
-	case "prompts":
-		opts.NewDriver = single(runview.Prompts(time.Now()))
+	case "uncached":
+		opts.NewDriver = catalog(stub.CatalogUncached)
+	case "askpass":
+		opts.NewDriver = catalog(func(start time.Time) map[string]stub.Script {
+			c := stub.Catalog(start)
+			c[actions.IDFullCleanup] = c[stub.IDFullCleanupAskpass]
+			return c
+		})
 	default:
-		opts.NewDriver = func() engine.Driver { return stub.New(nil, stub.Options{Scripts: stub.Catalog(time.Now())}) }
+		opts.NewDriver = catalog(stub.Catalog)
 	}
 	return Run(args, opts)
 }
