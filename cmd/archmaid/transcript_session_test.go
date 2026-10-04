@@ -28,22 +28,15 @@ import (
 // sessionSkips are the scenarios the Session can't run yet, each with the
 // reason; TestTranscriptSession skips them by name, never silently.
 var sessionSkips = map[string]string{
-	"fullcleanup_uncached_password_ok.shim":  needsPassword,
-	"fullcleanup_three_wrong_passwords.shim": needsPassword,
-	"repair_auth_giveup.shim":                needsPassword,
-	"repair_cached_found.shim":               needsRoot,
-	"repair_false_positive.shim":             needsRoot,
-	"fullcleanup_abort_topgrade.shim":        needsAbort,
-	"fullcleanup_abort_sigkill.shim":         needsAbort,
-	"services_select2.shim":                  needsSelection,
-	"services_none_selected.shim":            needsSelection,
-	"auraudit_first_baseline.shim":           needsReport,
-	"auraudit_takeover.shim":                 needsReport,
+	"fullcleanup_abort_topgrade.shim": needsAbort,
+	"fullcleanup_abort_sigkill.shim":  needsAbort,
+	"services_select2.shim":           needsSelection,
+	"services_none_selected.shim":     needsSelection,
+	"auraudit_first_baseline.shim":    needsReport,
+	"auraudit_takeover.shim":          needsReport,
 }
 
 const (
-	needsPassword  = "needs E3 auth: the password prompt (SubmitPassword)"
-	needsRoot      = "needs E3 auth: Repair's NeedsRoot recheck"
 	needsAbort     = "needs E5: Abort"
 	needsSelection = "needs E5: the services selection (Select)"
 	needsReport    = "needs E5: the audit report (OutputReport)"
@@ -214,6 +207,17 @@ func (tg *sessionTarget) Reply(a tt.Answer) error {
 		tg.prompt, tg.promptID = nil, 0
 		tg.apply(tg.s.Confirm(id, a.Reply == "yes"))
 		return nil
+	case "password":
+		if _, ok := tg.prompt.(tt.NeedsPassword); !ok {
+			return fmt.Errorf("password reply with %T open", tg.prompt)
+		}
+		pw := engine.Secret("not-the-password")
+		if a.Reply == "correct" {
+			pw = shimPassword
+		}
+		tg.prompt, tg.promptID = nil, 0
+		tg.apply(tg.s.SubmitPassword(id, pw))
+		return nil
 	}
 	return fmt.Errorf("the session target can't reply %q yet", a.Kind)
 }
@@ -289,7 +293,8 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			tg.open(ev.ID, tt.NeedsPassword{})
 		case engine.Finished:
 			tg.fin = &ev
-		case engine.PhaseChanged, engine.StatusUpdated:
+		case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting, engine.AuthResolved,
+			engine.FaillockState, engine.PromptClosed: // no transcript line
 		default:
 			tg.fail("event %T (%+v): teach the session target", ev, ev)
 		}
@@ -311,17 +316,34 @@ func (tg *sessionTarget) apply(o engine.Output) {
 	}
 }
 
-// contains reports whether sub is a subsequence of evs (the log files may
-// also hold entries the Session didn't write itself, such as the audit
-// commit's ACCEPT).
+// contains reports whether, in each log category, sub's entries are a
+// subsequence of evs' (the log files may also hold entries the Session
+// didn't write itself, such as the audit commit's ACCEPT; and the harness
+// diffs the files one after another, so entries written in one go come
+// ordered by file, not as the Session wrote them).
 func contains(evs, sub []tt.Event) bool {
-	i := 0
-	for _, ev := range evs {
-		if i < len(sub) && ev == sub[i] {
-			i++
+	byCat := func(evs []tt.Event) map[string][]tt.Event {
+		m := map[string][]tt.Event{}
+		for _, ev := range evs {
+			if l, ok := ev.(tt.LogWritten); ok {
+				m[l.Category] = append(m[l.Category], ev)
+			}
+		}
+		return m
+	}
+	have := byCat(evs)
+	for cat, want := range byCat(sub) {
+		i := 0
+		for _, ev := range have[cat] {
+			if i < len(want) && ev == want[i] {
+				i++
+			}
+		}
+		if i != len(want) {
+			return false
 		}
 	}
-	return i == len(sub)
+	return true
 }
 
 func (tg *sessionTarget) open(id engine.PromptID, ev tt.Event) {
@@ -338,6 +360,17 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 		priv := privileged()
 		tg.work = append(tg.work, func() []engine.Input {
 			return []engine.Input{engine.ProbeDone{Cached: priv.Probe(context.Background())}}
+		})
+	case engine.Authenticate:
+		priv := privileged()
+		tg.work = append(tg.work, func() []engine.Input {
+			detail, err := priv.Authenticate(context.Background(), string(e.Password))
+			return []engine.Input{engine.AuthDone{OK: err == nil, Detail: detail, Err: err}}
+		})
+	case engine.ReadFaillock:
+		// Never the real tally: the shimmed su keeps no count.
+		tg.work = append(tg.work, func() []engine.Input {
+			return []engine.Input{engine.FaillockRead{Deny: 3}}
 		})
 	case engine.Discover:
 		tg.work = append(tg.work, func() []engine.Input {
