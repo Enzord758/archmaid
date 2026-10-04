@@ -9,7 +9,11 @@
 //
 // Run points HOME and the XDG_* directories at a fresh temp dir for the whole
 // package run, then checks the real state directory (resolved from the
-// ORIGINAL environment) was not touched, and fails the run if it was.
+// ORIGINAL environment) was not touched, and fails the run if it was. The
+// check is scripts/state-guard.sh, the same one check.sh and the e2e harness
+// use: a recursive snapshot of paths, types, sizes and mtimes, so a deleted,
+// changed or added entry anywhere under the dir fails the package. Run finds
+// the script by walking up from the package dir and fails closed without it.
 //
 // Run also puts traps first on PATH for the privileged binaries no test may
 // reach for real (Trapped: su, sudo, pkexec, runuser, faillock, pkttyagent).
@@ -28,11 +32,12 @@
 package testenv
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 const unset = "\x00unset"
@@ -49,17 +54,25 @@ const TrapExit = 97
 // code for os.Exit: m.Run's, or 1 if a test touched the real state directory
 // or reached a trapped binary.
 func Run(m interface{ Run() int }) int {
-	realState := realStateDir()
-	before := snapshot(realState)
-	start := time.Now()
-
-	// The traps live outside the scratch home: tests list and wipe that.
+	// The traps and the snapshot live outside the scratch home: tests list
+	// and wipe that.
 	trapRoot, err := os.MkdirTemp("", "archmaid-test-trap")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
 		return 1
 	}
 	defer os.RemoveAll(trapRoot)
+	// Snapshot the real state dir before anything changes the environment.
+	guard, err := guardScript()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testenv:", err)
+		return 1
+	}
+	before := filepath.Join(trapRoot, "state.before")
+	if err := guardSnapshot(guard, before); err != nil {
+		fmt.Fprintln(os.Stderr, "testenv:", err)
+		return 1
+	}
 	trapBin, trapLog, err := InstallTraps(trapRoot)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
@@ -111,14 +124,52 @@ func Run(m interface{ Run() int }) int {
 		}
 		return 1
 	}
-	if bad := touched(realState, before, start); len(bad) > 0 {
-		fmt.Fprintf(os.Stderr, "\ntestenv: FAIL: tests wrote into the real state dir %s:\n", realState)
-		for _, b := range bad {
-			fmt.Fprintln(os.Stderr, "  ", b)
-		}
+	if out, err := guardCompare(guard, before); err != nil {
+		fmt.Fprintf(os.Stderr, "\ntestenv: FAIL: the tests changed the real state dir (%v):\n%s", err, out)
 		return 1
 	}
 	return code
+}
+
+// guardScript finds scripts/state-guard.sh in the module: a package's tests
+// run in the package dir, somewhere below the repo root.
+func guardScript() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for dir := wd; ; {
+		p := filepath.Join(dir, "scripts", "state-guard.sh")
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("scripts/state-guard.sh not found above " + wd + ": can't guard the real state dir")
+		}
+		dir = parent
+	}
+}
+
+// guardSnapshot writes state-guard.sh's snapshot of the real state dir (as
+// the current environment resolves it) to file.
+func guardSnapshot(guard, file string) error {
+	cmd := exec.Command("bash", guard, "snapshot")
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("state-guard snapshot: %v: %s", err, stderr.String())
+	}
+	return os.WriteFile(file, out, 0o600)
+}
+
+// guardCompare runs state-guard.sh's compare against the snapshot in file.
+// A change, or any failure of the guard itself, is an error; the guard's
+// output (the diff) comes back for the report.
+func guardCompare(guard, file string) (string, error) {
+	out, err := exec.Command("bash", guard, "compare", file).CombinedOutput()
+	return string(out), err
 }
 
 // InstallTraps writes a trap for each of Trapped into dir/bin and returns
@@ -164,49 +215,4 @@ func TrapCalls(log string) []string {
 // shQuote single-quotes s for sh.
 func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// realStateDir is where archmaid keeps its logs for the user who started the
-// test run, from the environment as it was before Run overrides anything.
-func realStateDir() string {
-	base := os.Getenv("XDG_STATE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		base = filepath.Join(home, ".local", "state")
-	}
-	return filepath.Join(base, "archmaid")
-}
-
-// snapshot maps each entry of dir (and the dir itself, as ".") to its
-// modification time. A missing dir gives an empty map.
-func snapshot(dir string) map[string]time.Time {
-	out := map[string]time.Time{}
-	if dir == "" {
-		return out
-	}
-	if fi, err := os.Stat(dir); err == nil {
-		out["."] = fi.ModTime()
-	}
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		if fi, err := e.Info(); err == nil {
-			out[e.Name()] = fi.ModTime()
-		}
-	}
-	return out
-}
-
-// touched lists entries of dir that are new, changed, or newer than start.
-func touched(dir string, before map[string]time.Time, start time.Time) []string {
-	var bad []string
-	for name, mt := range snapshot(dir) {
-		old, existed := before[name]
-		if !existed || !mt.Equal(old) || mt.After(start) {
-			bad = append(bad, name)
-		}
-	}
-	return bad
 }

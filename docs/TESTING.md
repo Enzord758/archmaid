@@ -156,6 +156,11 @@ test can delete your files or need root.
    Every test package calls `testenv.Run` from its `TestMain` (after any
    re-exec dispatch it needs, like `--askpass`); `internal/testenv`'s
    `TestEveryTestPackageRunsUnderTestenv` fails a package that doesn't.
+   `testenv.Run` snapshots the real state dir with `scripts/state-guard.sh`
+   before the package's tests and compares after them, so plain `go test`
+   FAILs a package that deleted, changed or added anything anywhere under
+   it (`TestStateGuardFailsPackage` proves it on a scratch
+   `XDG_STATE_HOME`).
 3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
    replaced by shell shims placed first on `PATH` (see Recipes). For the
    privileged ones this is enforced: `testenv.Run` puts traps for `su`,
