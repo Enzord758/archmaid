@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,9 @@ type Outcome struct {
 //   - engine.PrivilegeGranted{seq} on the helper's start line;
 //   - engine.StepOutput{seq, lines} for its output (line events, and the
 //     result's skipped entries), sanitized, batched by what is already read;
+//   - engine.HelperCheck{seq, broken} for check-files' check event, only
+//     once the whole run has succeeded (so never on a failed or broken
+//     stream: the engine then reads "no check event" and fails closed);
 //   - last, exactly one engine.StepExited{seq, Err, NotGranted}.
 //
 // It returns when the child has exited and its output is drained.
@@ -114,7 +118,11 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 	case errors.As(waitErr, &ee):
 		exit = ee.ExitCode()
 	}
-	return exited(seq, emit, d.outcome(exit, waitErr, stderr.String()))
+	o := d.outcome(exit, waitErr, stderr.String())
+	if o.Check != nil {
+		emit(engine.HelperCheck{Seq: seq, Broken: slices.Clone(o.Check.Broken)})
+	}
+	return exited(seq, emit, o)
 }
 
 func exited(seq uint64, emit func(engine.Input), o Outcome) Outcome {

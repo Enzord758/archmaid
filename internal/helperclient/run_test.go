@@ -65,6 +65,24 @@ func (r recorded) granted() int {
 	return n
 }
 
+// checks is every HelperCheck, which may only come right before StepExited.
+func (r recorded) checks(t *testing.T) []engine.HelperCheck {
+	t.Helper()
+	var out []engine.HelperCheck
+	for i, in := range r.inputs {
+		if c, ok := in.(engine.HelperCheck); ok {
+			if i != len(r.inputs)-2 {
+				t.Errorf("HelperCheck at %d of %d inputs, want right before StepExited", i, len(r.inputs))
+			}
+			if c.Seq != seq {
+				t.Errorf("seq %d", c.Seq)
+			}
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (r recorded) output() []string {
 	var out []string
 	for _, in := range r.inputs {
@@ -152,6 +170,49 @@ func TestRunGranted(t *testing.T) {
 	}
 	if o.Check == nil || !slices.Equal(o.Check.Broken, []string{"big"}) || len(o.Check.Checked) != 3 {
 		t.Errorf("check %+v, want big broken of 3", o.Check)
+	}
+	if c := r.checks(t); len(c) != 1 || !slices.Equal(c[0].Broken, []string{"big"}) {
+		t.Errorf("HelperCheck %+v, want one with big", c)
+	}
+}
+
+// TestRunFullCheck: Integrity's full check-files also ends in a
+// HelperCheck (the engine only acts on Repair's recheck), with broken []
+// when nothing is.
+func TestRunFullCheck(t *testing.T) {
+	shim(t, lines("0", startCheck,
+		`{"v":1,"t":"check","checked":["a","glibc"],"broken":[]}`, resultOK))
+	r := runStep(t, steps.Step{ID: steps.IDIntegrity, Verb: steps.VerbCheckFiles})
+	if ex := r.exited(t); ex.Err != nil {
+		t.Fatal(ex.Err)
+	}
+	if c := r.checks(t); len(c) != 1 || c[0].Broken == nil || len(c[0].Broken) != 0 {
+		t.Errorf("HelperCheck %+v, want one with broken []", c)
+	}
+}
+
+// TestRunNoCheckWithoutSuccess: a check event in a run that then fails is
+// never handed on.
+func TestRunNoCheckWithoutSuccess(t *testing.T) {
+	for name, tail := range map[string][]string{
+		"failed result":  {`{"v":1,"t":"result","ok":false,"code":1,"child_exit":2,"skipped":[],"error":"boom"}`},
+		"no result":      nil,
+		"bad line after": {`{"v":1,"t":"line"`, resultOK},
+	} {
+		t.Run(name, func(t *testing.T) {
+			code := "0"
+			if name == "failed result" {
+				code = "1"
+			}
+			shim(t, lines(code, append([]string{startCheck, `{"v":1,"t":"check","checked":["big"],"broken":["big"]}`}, tail...)...))
+			r := runStep(t, repairCheck)
+			if ex := r.exited(t); ex.Err == nil {
+				t.Fatal("want a failure")
+			}
+			if c := r.checks(t); len(c) != 0 {
+				t.Errorf("HelperCheck %+v handed on from a failed run", c)
+			}
+		})
 	}
 }
 
