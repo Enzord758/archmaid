@@ -169,8 +169,24 @@ func TestOptionsValidate(t *testing.T) {
 			return nil
 		},
 	}
+	if err := (Options{Env: env, Auth: AuthSudo}).Validate(); err != nil {
+		t.Errorf("complete sudo Options: %v", err)
+	}
+	// Env.Polkit is New's to set: Validate must check the Env New builds,
+	// so AuthPolkit needs PlanOrphans even when the caller left Polkit false.
+	if err := (Options{Env: env, Auth: AuthPolkit}).Validate(); err == nil || !strings.Contains(err.Error(), "PlanOrphans") {
+		t.Errorf("polkit Options without PlanOrphans: %v, want PlanOrphans missing", err)
+	}
+	env.PlanOrphans = func(context.Context) (steps.OrphanPlan, error) { return steps.OrphanPlan{}, nil }
 	if err := (Options{Env: env, Auth: AuthPolkit}).Validate(); err != nil {
-		t.Errorf("complete Options: %v", err)
+		t.Errorf("complete polkit Options: %v", err)
+	}
+	// A stray Env.Polkit on a sudo run is New's to clear, so PlanOrphans
+	// is not required.
+	env.PlanOrphans = nil
+	env.Polkit = true
+	if err := (Options{Env: env, Auth: AuthSudo}).Validate(); err != nil {
+		t.Errorf("sudo Options with a stray Env.Polkit: %v", err)
 	}
 	if err := (Options{Env: env, Auth: AuthPolkit + 1}).Validate(); err == nil || !strings.Contains(err.Error(), "AuthFlow") {
 		t.Errorf("unknown AuthFlow: %v", err)

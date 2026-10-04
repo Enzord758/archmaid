@@ -28,12 +28,16 @@ type Options struct {
 }
 
 // Validate reports what o leaves out that a Session needs: the required
-// actions.Env fields (actions.Env.Validate) and a known AuthFlow. A front
-// end checks it once, before New; a Session built from an invalid Options
-// fails when it reaches the missing piece.
+// actions.Env fields (actions.Env.Validate) and a known AuthFlow. It checks
+// the Env as New will set it up (Polkit from Auth), so a polkit Options
+// without PlanOrphans fails here, at startup. A front end checks it once,
+// before New; a Session built from an invalid Options fails when it reaches
+// the missing piece.
 func (o Options) Validate() error {
 	var errs []error
-	if err := o.Env.Validate(); err != nil {
+	env := o.Env
+	env.Polkit = o.Auth == AuthPolkit
+	if err := env.Validate(); err != nil {
 		errs = append(errs, err)
 	}
 	if o.Auth != AuthSudo && o.Auth != AuthPolkit {
