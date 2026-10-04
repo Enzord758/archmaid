@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -380,7 +381,7 @@ func TestDeleteOldDownloads(t *testing.T) {
 		}
 	}
 
-	res := s.run()
+	res := s.run(context.Background())
 	if res.err != nil {
 		t.Fatalf("delete step failed: %v\n%s", res.err, res.output)
 	}
@@ -457,7 +458,7 @@ func TestDeleteOldDownloadsRechecksBeforeDeleting(t *testing.T) {
 	os.Remove(filepath.Join(dl, "b.txt"))
 	writeFile(t, filepath.Join(dl, "b.txt"), "new")
 
-	res := s.run()
+	res := s.run(context.Background())
 	if res.err != nil {
 		t.Fatalf("delete step failed: %v", res.err)
 	}
@@ -491,7 +492,7 @@ func TestDeleteOldDownloadsFolderSwapped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := s.run()
+	res := s.run(context.Background())
 	if res.err == nil {
 		t.Fatal("want an error when the folder changed since the scan")
 	}
@@ -513,7 +514,7 @@ func TestDeleteOldDownloadsDryRun(t *testing.T) {
 	dryRun = true
 	defer func() { dryRun = false }()
 
-	res := discoverDownloadStep(t).run()
+	res := discoverDownloadStep(t).run(context.Background())
 	if res.err != nil {
 		t.Fatalf("dry run failed: %v", res.err)
 	}

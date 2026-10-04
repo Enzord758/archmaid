@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
 	"strings"
@@ -86,7 +87,7 @@ func TestTopgradeStepsAlwaysLog(t *testing.T) {
 func TestRunAuditStepResults(t *testing.T) {
 	t.Run("high finding gates the next step", func(t *testing.T) {
 		takeoverFixture(t)
-		r := runAuditStep()
+		r := runAuditStep(context.Background())
 		if r.err != nil {
 			t.Fatalf("err = %v", r.err)
 		}
@@ -104,7 +105,7 @@ func TestRunAuditStepResults(t *testing.T) {
 		auditEnv(t)
 		shimPacmanForeign(t, "steady\n")
 		fakeAUR(t, map[string]aurInfo{"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10}})
-		r := runAuditStep()
+		r := runAuditStep(context.Background())
 		if r.err != nil || r.confirmNext != "" {
 			t.Fatalf("err=%v confirmNext=%q, want neither", r.err, r.confirmNext)
 		}
@@ -115,7 +116,7 @@ func TestRunAuditStepResults(t *testing.T) {
 	t.Run("no foreign packages is a clean pass", func(t *testing.T) {
 		auditEnv(t)
 		shimPacmanForeign(t, "")
-		r := runAuditStep()
+		r := runAuditStep(context.Background())
 		if r.err != nil || r.confirmNext != "" || !strings.Contains(r.output, "nothing to audit") {
 			t.Fatalf("got %+v", r)
 		}
@@ -123,7 +124,7 @@ func TestRunAuditStepResults(t *testing.T) {
 	t.Run("unreachable AUR fails the step", func(t *testing.T) {
 		auditEnv(t)
 		shimPacmanForeign(t, "something\n") // aurRPCURL stays TestMain's closed port
-		r := runAuditStep()
+		r := runAuditStep(context.Background())
 		if r.err == nil || r.confirmNext != "" || !strings.Contains(r.output, "Couldn't reach the AUR") {
 			t.Fatalf("got %+v", r)
 		}
@@ -282,7 +283,7 @@ func TestAuditStepDoesNotSaveByItself(t *testing.T) {
 	shimPacmanForeign(t, "steady\n")
 	fakeAUR(t, map[string]aurInfo{"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10}})
 
-	if r := runAuditStep(); r.commit == nil {
+	if r := runAuditStep(context.Background()); r.commit == nil {
 		t.Fatal("a real run's audit should hand back a snapshot commit")
 	}
 	if _, state := loadBaseline(); state != baselineMissing {

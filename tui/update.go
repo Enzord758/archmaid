@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -664,10 +665,13 @@ func (m *model) launch() tea.Cmd {
 	s := m.queue[m.current].step
 	if s.run != nil {
 		// In-process step: no child to signal, just a Cmd whose result
-		// finishes the step. seq ties the result to this launch.
+		// finishes the step. seq ties the result to this launch; ctx is
+		// what an abort cancels.
 		m.proc = nil
+		ctx, cancel := context.WithCancel(context.Background())
+		m.stepCancel = cancel
 		seq, run := m.stepSeq, s.run
-		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run()} }
+		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run(ctx)} }
 	}
 	m.stream = make(chan streamMsg, streamBatchMax)
 	m.quit = make(chan struct{})
@@ -692,8 +696,13 @@ var sigkillGrace = 5 * time.Second
 // ignores SIGINT it's force-killed (SIGKILL) after a grace period. Late output
 // from the dying process (and a late in-process result) is dropped by its seq:
 // bumping stepSeq here retires the aborted launch's number before any new run
-// can start.
+// can start. An in-process step (the AUR audit) also has its ctx cancelled, so
+// it returns at once rather than running on unseen.
 func (m *model) abortRunning() {
+	if m.stepCancel != nil {
+		m.stepCancel()
+		m.stepCancel = nil
+	}
 	if p := m.proc; p != nil {
 		_ = p.Signal(os.Interrupt)
 		// grace read here (caller goroutine), not inside escalateKill, so the
@@ -793,6 +802,10 @@ func (m model) handleStream(msg streamBatchMsg) (tea.Model, tea.Cmd) {
 func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 	if msg.seq != m.stepSeq || m.screen == screenMenu || m.screen == screenSummary {
 		return m, nil
+	}
+	if m.stepCancel != nil {
+		m.stepCancel() // the step is done; release its ctx
+		m.stepCancel = nil
 	}
 	if msg.output != "" {
 		out := Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR)

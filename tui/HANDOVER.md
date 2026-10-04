@@ -137,8 +137,11 @@ comments and `git log`; this is the "read before you touch it" list.
   `aur-maintainers.lock`; a held lock skips the save (logged `WARN`).
 - **Full Cleanup and Run topgrade open with the audit, directly in front of
   topgrade** (one `auditStep`, gated identically). It runs
-  as an in-process step (`step.run`, a `tea.Cmd` — not a shell command, and not
-  signalable; an abort just drops its late result via `stepSeq`). A
+  as an in-process step (`step.run`, a `tea.Cmd` — not a shell command, so
+  there's nothing to signal: an abort cancels the step's `ctx`, which ends the
+  pacman query and the RPC at once, and `stepSeq` drops the late result). The
+  whole audit has one deadline, `auditDeadline` (20 s for the query and every
+  RPC chunk together), not a timeout per request. A
   high-severity finding (adoption or maintainer change) uses
   `stepResult.confirmNext` to put a named confirm in front of topgrade and make it
   optional, so "no" skips only the update and the cleanup carries on. An

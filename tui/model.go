@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"net"
 	"os"
 	"strings"
@@ -121,6 +122,10 @@ type model struct {
 	errs    int  // steps that failed
 	skipped int  // steps skipped (sudo unavailable, or aborted queue)
 	aborted bool // queue aborted by declining a required confirm
+
+	// stepCancel cancels the running in-process step's ctx (see launch); an
+	// abort calls it so the step returns at once. nil when none is running.
+	stepCancel context.CancelFunc
 
 	// confirm-modal state
 	pending    []step // queue waiting on a confirm

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,13 +45,17 @@ const (
 	// flags exactly the packages yay would hold back.
 	auditCooldown = 72 * time.Hour
 	auditChunk    = 100 // packages per RPC request
-	auditTimeout  = 15 * time.Second
 	// aurMaxResponse caps one RPC response body, far above what a real
 	// 100-package reply needs.
 	aurMaxResponse = 8 << 20
 	// aurFieldMax caps an AUR-supplied name or maintainer for display.
 	aurFieldMax = 64
 )
+
+// auditDeadline bounds a whole audit (the pacman query and every RPC chunk
+// together) rather than each request on its own, so a dead network can't hold
+// an audit for longer than this. A var so tests can shrink it.
+var auditDeadline = 20 * time.Second
 
 // aurInfo is the subset of an RPC "info" result the audit reads.
 type aurInfo struct {
@@ -95,9 +100,10 @@ func aurField(s string) string {
 }
 
 // foreignPackages lists installed packages that aren't in any sync repo
-// (pacman -Qqm). Empty when there are none (pacman exits 1).
-func foreignPackages() []string {
-	out, _ := exec.Command("pacman", "-Qqm").Output()
+// (pacman -Qqm). Empty when there are none (pacman exits 1), or when ctx ends
+// first (performAudit checks for that).
+func foreignPackages(ctx context.Context) []string {
+	out, _ := exec.CommandContext(ctx, "pacman", "-Qqm").Output()
 	return nonEmptyLines(string(out))
 }
 
@@ -105,8 +111,15 @@ func foreignPackages() []string {
 // package list never hits URL limits) and returns the ones it knows about,
 // keyed by name. Packages the AUR doesn't know are simply absent, and so is
 // any result for a name that wasn't asked for.
-func fetchAURInfo(pkgs []string) (map[string]aurInfo, error) {
-	client := &http.Client{Timeout: auditTimeout}
+//
+// ctx bounds the whole lookup (performAudit sets the deadline) and cancelling
+// it abandons a request mid-flight. The transport is private to the call and
+// its idle connections are closed on return, so no connection goroutine
+// outlives it.
+func fetchAURInfo(ctx context.Context, pkgs []string) (map[string]aurInfo, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport}
 	found := make(map[string]aurInfo, len(pkgs))
 	for start := 0; start < len(pkgs); start += auditChunk {
 		end := min(start+auditChunk, len(pkgs))
@@ -116,7 +129,7 @@ func fetchAURInfo(pkgs []string) (map[string]aurInfo, error) {
 			form.Add("arg[]", p)
 			requested[p] = true
 		}
-		req, err := http.NewRequest(http.MethodPost, aurRPCURL, strings.NewReader(form.Encode()))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, aurRPCURL, strings.NewReader(form.Encode()))
 		if err != nil {
 			return nil, err
 		}
@@ -464,12 +477,20 @@ var errNoForeign = errors.New("no foreign packages installed")
 // Cleanup's audit step. Any error other than errNoForeign is the AUR lookup
 // failing. A corrupt snapshot becomes a high-severity finding of its own (see
 // snapshotFinding).
-func performAudit(now time.Time) (auditResult, error) {
-	pkgs := foreignPackages()
+//
+// The whole audit runs under one deadline, auditDeadline, on top of ctx; once
+// ctx is cancelled (an abort) it returns promptly with ctx's error.
+func performAudit(ctx context.Context, now time.Time) (auditResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, auditDeadline)
+	defer cancel()
+	pkgs := foreignPackages(ctx)
+	if err := ctx.Err(); err != nil {
+		return auditResult{}, err // cut short: an empty list proves nothing
+	}
 	if len(pkgs) == 0 {
 		return auditResult{}, errNoForeign
 	}
-	info, err := fetchAURInfo(pkgs)
+	info, err := fetchAURInfo(ctx, pkgs)
 	if err != nil {
 		return auditResult{}, err
 	}
@@ -489,7 +510,7 @@ func discoverAURAudit() tea.Cmd {
 }
 
 func runAudit(now time.Time) discoveryMsg {
-	res, err := performAudit(now)
+	res, err := performAudit(context.Background(), now)
 	switch {
 	case errors.Is(err, errNoForeign):
 		return discoveryMsg{kind: "audit", notice: "No foreign (AUR or locally built) packages installed."}
@@ -519,7 +540,9 @@ func runAudit(now time.Time) discoveryMsg {
 // yay cooldown hook's job (see HANDOVER.md).
 //
 // alwaysLog: the step's own log entry is the audit record, so unlike the menu
-// action it doesn't call logAudit. It never needs sudo.
+// action it doesn't call logAudit. It never needs sudo. An abort cancels the
+// step's ctx, which ends the lookup at once; the late result is then dropped by
+// stepSeq like any other.
 func auditStep() step {
 	return step{
 		title: "Auditing AUR packages…", logLabel: "AUR audit",
@@ -528,8 +551,8 @@ func auditStep() step {
 	}
 }
 
-func runAuditStep() stepResult {
-	res, err := performAudit(time.Now())
+func runAuditStep(ctx context.Context) stepResult {
+	res, err := performAudit(ctx, time.Now())
 	switch {
 	case errors.Is(err, errNoForeign):
 		return stepResult{output: "No foreign (AUR or locally built) packages installed — nothing to audit."}
@@ -573,6 +596,9 @@ func highNames(findings []auditFinding) string {
 
 // shortErr trims a transport error to something that fits a notice popup.
 func shortErr(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Sprintf("no answer within %s", auditDeadline)
+	}
 	var ue *url.Error
 	if errors.As(err, &ue) {
 		err = ue.Err

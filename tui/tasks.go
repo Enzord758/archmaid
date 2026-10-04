@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -54,9 +55,9 @@ type step struct {
 	// command/args, launch runs run() off the UI thread as a tea.Cmd and its
 	// result finishes the step (see handleStepResult). In-process steps run
 	// even in a dry run, so run must be read-only apart from state it gates on
-	// dryRun itself. They can't be signalled; aborting one just drops its
-	// late result.
-	run func() stepResult
+	// dryRun itself. There's no child to signal: an abort cancels ctx, so run
+	// must return promptly once it's done, and its late result is dropped.
+	run func(ctx context.Context) stepResult
 }
 
 // stepResult is what an in-process step returns. output is shown in the

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -158,7 +159,7 @@ func TestFetchAURInfoChunksAndPosts(t *testing.T) {
 	}
 	reqs, batches := fakeAUR(t, db)
 
-	got, err := fetchAURInfo(pkgs)
+	got, err := fetchAURInfo(context.Background(), pkgs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +197,7 @@ func TestFetchAURInfoErrors(t *testing.T) {
 			aurRPCURL = srv.URL
 			defer func() { aurRPCURL = old }()
 
-			_, err := fetchAURInfo([]string{"x"})
+			_, err := fetchAURInfo(context.Background(), []string{"x"})
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Fatalf("err = %v, want it to contain %q", err, c.want)
 			}
@@ -221,7 +222,7 @@ func TestFetchAURInfoCapsTheResponse(t *testing.T) {
 		w.Write([]byte(strings.Repeat("a", aurMaxResponse)))
 		w.Write([]byte(`"}]}`))
 	})
-	if _, err := fetchAURInfo([]string{"x"}); err == nil || !strings.Contains(err.Error(), "unreadable") {
+	if _, err := fetchAURInfo(context.Background(), []string{"x"}); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("err = %v, want an oversized response to be rejected", err)
 	}
 }
@@ -230,7 +231,7 @@ func TestFetchAURInfoDropsUnrequestedNames(t *testing.T) {
 	serveAUR(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"type":"multiinfo","results":[{"Name":"x","NumVotes":1},{"Name":"evil","NumVotes":1}]}`))
 	})
-	got, err := fetchAURInfo([]string{"x"})
+	got, err := fetchAURInfo(context.Background(), []string{"x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +273,7 @@ func TestAuditReportCarriesNoAURControlBytes(t *testing.T) {
 	fakeAUR(t, map[string]aurInfo{"victim": {Name: "victim", Maintainer: strp(evil), LastModified: aged(24 * 90), NumVotes: 10}})
 	saveBaseline([]string{"victim"}, map[string]aurInfo{"victim": {Name: "victim", Maintainer: strp("bob")}}, nil)
 
-	r := runAuditStep()
+	r := runAuditStep(context.Background())
 	if r.confirmNext == "" || !strings.Contains(r.output, "bob → mallory\n") {
 		t.Fatalf("confirm=%q output:\n%s", r.confirmNext, r.output)
 	}
@@ -397,7 +398,7 @@ func TestCorruptSnapshotFailsClosed(t *testing.T) {
 	fakeAUR(t, map[string]aurInfo{"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10}})
 	os.WriteFile(baselinePath(), []byte("{garbage"), 0o600)
 
-	r := runAuditStep()
+	r := runAuditStep(context.Background())
 	if r.err != nil || !strings.Contains(r.confirmNext, "snapshot is unreadable") {
 		t.Fatalf("err=%v confirmNext=%q, want the unreadable-snapshot gate", r.err, r.confirmNext)
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -308,9 +309,10 @@ func dirIdentity(root *os.Root) ([2]uint64, error) {
 // touched or replaced since the scan is kept), and it removes through an
 // os.Root on the folder, so no path — however it's been swapped for a symlink
 // in the meantime — can resolve outside it. If the folder itself is no longer
-// the one scanned, nothing is deleted. In a dry run it only reports.
-func deleteOldDownloads(dir string, id [2]uint64, names []string) func() stepResult {
-	return func() stepResult {
+// the one scanned, nothing is deleted. In a dry run it only reports. An abort
+// cancels ctx, which stops it between entries: nothing after that is touched.
+func deleteOldDownloads(dir string, id [2]uint64, names []string) func(context.Context) stepResult {
+	return func(ctx context.Context) stepResult {
 		shown := displayPath(dir)
 		root, err := os.OpenRoot(dir)
 		if err != nil {
@@ -329,6 +331,11 @@ func deleteOldDownloads(dir string, id [2]uint64, names []string) func() stepRes
 		var errs []error
 		deleted, kept := 0, 0
 		for _, name := range names {
+			if ctx.Err() != nil {
+				fmt.Fprintf(&b, "stopped: aborted before %s\n", displayName(name))
+				errs = append(errs, ctx.Err())
+				break
+			}
 			shownName := displayName(name)
 			switch {
 			case !entryIsOld(root.FS(), name, cutoff):
