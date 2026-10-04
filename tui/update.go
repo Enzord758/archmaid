@@ -638,7 +638,7 @@ func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if !msg.done {
-		m.buf.WriteString(msg.line + "\n")
+		m.buf.WriteString(Sanitize(msg.line, SanitizeKeepSGR) + "\n") // colours only
 		m.output.SetContent(m.buf.String())
 		m.output.GotoBottom()
 		return m, waitForStream(m.stream, m.quit) // keep pumping
@@ -655,7 +655,7 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.output != "" {
-		m.buf.WriteString(strings.TrimRight(msg.output, "\n") + "\n")
+		m.buf.WriteString(Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR) + "\n")
 		m.output.SetContent(m.buf.String())
 		m.output.GotoTop() // a report reads top-down; its worst findings come first
 	}

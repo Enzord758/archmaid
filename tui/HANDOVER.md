@@ -27,6 +27,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `log.go` | log categories, per-run directories, `pruneLogs` |
 | `askpass.go` | `SUDO_ASKPASS` helper + socket server |
 | `overlay.go` | ANSI-aware popup compositor |
+| `sanitize.go` | `Sanitize`: the one filter for untrusted text (command output, logs) |
 | `status.go`, `theme.go` | the status line; the Tokyo Night styles |
 
 ## Decisions and landmines
@@ -63,7 +64,15 @@ comments and `git log`; this is the "read before you touch it" list.
   archmaid's own log. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
   run directories are kept, `dryrun/` is a single reused slot, and files in the
-  state-dir root (the AUR snapshot) are ignored by `pruneLogs`.
+  state-dir root (the AUR snapshot) are ignored by `pruneLogs`. Only `appendLog`
+  creates a run directory (viewing logs must not, or it evicts a real run), and
+  logs are private: directories 0700, files 0600.
+- **Untrusted text goes through `Sanitize`.** Command output (topgrade, yay, AUR
+  build scripts) can carry escapes that retitle the terminal, write the
+  clipboard (OSC 52) or redraw what the user reads. Streamed output keeps only
+  SGR colours (`SanitizeKeepSGR`); logs are plain text, both when written and
+  when an older log is read back (`SanitizePlain`). New paths that show foreign
+  text should use it rather than a second filter.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
   *current* maintainer, never adoption history. Consequence: the first audit only
   records a baseline. It is archmaid's only network call. A dry run reads the
@@ -106,8 +115,5 @@ to:
 
 - **The audit gate only covers Full Cleanup.** The standalone "Run topgrade"
   action updates without an audit.
-- **Topgrade's full output now lands in `topgrade.log` on every run.** It
-  includes raw ANSI escapes (the pager renders them; a plain `less` shows
-  noise). Stripping them in `appendLog` is an option if that matters.
 - Test gaps (askpass round trip, missing goldens, e2e breadth) are tracked in
   `TESTING.md` → Known gaps.
