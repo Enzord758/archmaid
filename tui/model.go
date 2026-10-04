@@ -78,12 +78,13 @@ type model struct {
 	// password-prompt state
 	password        textinput.Model
 	pwErr           string
-	pwAttempts      int      // consecutive wrong passwords this action
-	authInFlight    bool     // prime submitted, waiting on PAM — input locked
-	sudoUnavailable bool     // set after maxSudoAttempts failures: skip sudo steps
-	sudoAlive       bool     // keep-alive loop active for the running queue
-	sudoGen         int      // generation of the live keep-alive loop; stale ticks are dropped
-	askpassConn     net.Conn // pending sudo askpass request (nil = prime-mode prompt)
+	pwAttempts      int              // consecutive wrong passwords this action
+	authInFlight    bool             // prime submitted, waiting on PAM — input locked
+	sudoUnavailable bool             // set after maxSudoAttempts failures: skip sudo steps
+	sudoAlive       bool             // keep-alive loop active for the running queue
+	sudoGen         int              // generation of the live keep-alive loop; stale ticks are dropped
+	askpassConn     net.Conn         // pending sudo askpass request (nil = prime-mode prompt)
+	askpassFrom     askpassRequester // who askpassConn's request came from, for the popup
 
 	// dynamic-action state
 	notice      string // screenNotice message
@@ -108,6 +109,7 @@ type model struct {
 	queue   []stepState
 	current int              // index into queue
 	proc    *os.Process      // the active step's child process (for abort)
+	procAt  uint64           // proc's start time, to tie askpass requests to it (see verifyAskpassPeer)
 	stream  chan streamMsg   // output channel for the active step
 	quit    chan struct{}    // closed on abort: releases the active step's stream goroutines
 	stepSeq int              // bumped per launch and on abort; stream messages and in-process results carry it so stale ones are dropped

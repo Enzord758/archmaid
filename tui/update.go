@@ -137,32 +137,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(refreshSudo(), sudoTick(m.sudoGen))
 
 	case askpassMsg:
-		// A child's sudo wants a password — pop the prompt over the current
-		// screen. The password flows straight back over the connection.
-		m.askpassConn = msg.conn
-		switch m.screen {
-		case screenPassword, screenConfirm, screenNotice:
-			// These three read the shared m.bg field for their own
-			// background (popupLayer in view.go). Overwriting it with their
-			// own screen value here would make it self-referential and
-			// recurse forever in renderScreen — so leave it as whatever it
-			// already correctly resolved to when that popup opened; once
-			// this askpass prompt is dismissed, m.screen = m.bg still lands
-			// back on that same popup.
-		default:
-			// screenAbortConfirm (safe: its background is hardcoded in
-			// popupLayer, not read from m.bg) or an ordinary screen — record
-			// it so whatever was showing reappears once the password prompt
-			// closes.
-			m.bg = m.screen
-		}
-		m.pwErr = ""
-		if strings.Contains(strings.ToLower(msg.prompt), "try again") {
-			m.pwErr = "Incorrect password — try again"
-		}
-		m.screen = screenPassword
-		m.password.Reset()
-		return m, m.password.Focus()
+		return m.handleAskpass(msg)
 
 	case editorDoneMsg:
 		m.screen = screenMenu
@@ -182,6 +157,82 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// handleAskpass vets a child's request for the sudo password, then pops the
+// prompt over the current screen; the password flows straight back over the
+// connection. The socket is reachable by anything that inherited SUDO_ASKPASS
+// — under topgrade that is every AUR build script — so a request is answered
+// only while a sudo step runs, and only from archmaid's own helper, run by
+// sudo, inside that step's process tree (verifyAskpassPeer). Anything else is
+// hung up on without a popup; sudo counts that as a failed attempt.
+func (m model) handleAskpass(msg askpassMsg) (tea.Model, tea.Cmd) {
+	title, ok := m.runningSudoStep()
+	if !ok {
+		msg.conn.Close() // no sudo step running: nothing of ours is asking
+		return m, nil
+	}
+	if m.askpassConn != nil {
+		msg.conn.Close()
+		m.noteOutput("archmaid: refused a second sudo password request while one is open")
+		return m, nil
+	}
+	from, err := verifyAskpassPeer(msg.peer, m.proc.Pid, m.procAt)
+	if err != nil {
+		msg.conn.Close()
+		m.noteOutput("archmaid: refused a sudo password request: " + err.Error())
+		return m, nil
+	}
+	from.step = title
+	from.prompt = askpassPromptText(msg.prompt)
+	m.askpassConn = msg.conn
+	m.askpassFrom = from
+
+	switch m.screen {
+	case screenPassword, screenConfirm, screenNotice:
+		// These three read the shared m.bg field for their own
+		// background (popupLayer in view.go). Overwriting it with their
+		// own screen value here would make it self-referential and
+		// recurse forever in renderScreen — so leave it as whatever it
+		// already correctly resolved to when that popup opened; once
+		// this askpass prompt is dismissed, m.screen = m.bg still lands
+		// back on that same popup.
+	default:
+		// screenAbortConfirm (safe: its background is hardcoded in
+		// popupLayer, not read from m.bg) or an ordinary screen — record
+		// it so whatever was showing reappears once the password prompt
+		// closes.
+		m.bg = m.screen
+	}
+	m.pwErr = ""
+	if strings.Contains(strings.ToLower(msg.prompt), "try again") {
+		m.pwErr = "Incorrect password — try again"
+	}
+	m.screen = screenPassword
+	m.password.Reset()
+	return m, m.password.Focus()
+}
+
+// runningSudoStep returns the title of the step running right now, if it is a
+// sudo step with a live child: the only time a password request can be ours.
+func (m model) runningSudoStep() (string, bool) {
+	if m.proc == nil || m.current < 0 || m.current >= len(m.queue) {
+		return "", false
+	}
+	st := m.queue[m.current]
+	if st.status != statusRunning || !st.step.needsSudo {
+		return "", false
+	}
+	return st.step.title, true
+}
+
+// noteOutput adds one of archmaid's own lines to the running step's output
+// pane (and so to its log). It may quote names read from /proc, so it is
+// sanitized like any foreign text.
+func (m *model) noteOutput(line string) {
+	m.buf.WriteString(oneLine(line) + "\n")
+	m.output.SetContent(m.buf.String())
+	m.output.GotoBottom()
 }
 
 // resizeOutput sizes the output viewport for the active screen. The log
@@ -239,6 +290,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.askpassConn != nil {
 				m.askpassConn.Close() // cancel → sudo fails this attempt
 				m.askpassConn = nil
+				m.askpassFrom = askpassRequester{}
 				m.password.Reset()
 				m.pwErr = ""
 				m.screen = m.bg
@@ -255,6 +307,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				fmt.Fprintf(m.askpassConn, "%s\n", m.password.Value())
 				m.askpassConn.Close()
 				m.askpassConn = nil
+				m.askpassFrom = askpassRequester{}
 				m.password.Reset()
 				m.pwErr = ""
 				m.screen = m.bg
@@ -572,7 +625,7 @@ func (m *model) launch() tea.Cmd {
 	}
 	m.stream = make(chan streamMsg, 128)
 	m.quit = make(chan struct{})
-	m.proc = runStepUntil(s, m.stream, m.quit)
+	m.proc, m.procAt = runStepUntil(s, m.stream, m.quit)
 	// The spinner is already ticking (started in Init); just pump the stream.
 	return waitForStream(m.stream, m.quit, m.stepSeq)
 }

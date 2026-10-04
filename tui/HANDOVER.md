@@ -61,8 +61,26 @@ comments and `git log`; this is the "read before you touch it" list.
   "no askpass program specified", so `-n` (the primed ticket, or a clean
   failure) is the form that never prompts anywhere. This does **not** close
   the threat for topgrade: everything it starts — yay, makepkg, a PKGBUILD's
-  `build()` — inherits `SUDO_ASKPASS` and can reach the socket. Full closure
-  comes with the P6 repo/AUR split.
+  `build()` — inherits `SUDO_ASKPASS` and can reach the socket. The peer check
+  below is the control there; full closure comes with the P6 repo/AUR split.
+- **An askpass request is answered only from the running sudo step.** The
+  server records each client's pid/uid (`SO_PEERCRED`) and start time;
+  `handleAskpass` hangs up unless a `needsSudo` step is running, and
+  `verifyAskpassPeer` requires: our uid; the same start time as at accept (pid
+  not reused); `/proc/<pid>/exe` = `os.Executable()` (the wrapper execs us);
+  a parent that is sudo; and a parent chain that reaches the step's child,
+  matched on pid *and* the start time `runStepUntil` captured before anything
+  could reap it. A user can't read sudo's `/proc/<pid>/exe` (setuid root; it
+  needs ptrace access), so "is sudo" is: exe = `/usr/bin/sudo` when readable,
+  else euid 0 and comm `sudo` — neither of which a user process can fake.
+  Refusals leave a line in the step's output. The popup names the step, the
+  real binary and pid of sudo's caller, and sudo's prompt only quoted and
+  sanitized (`sudo -p` sets it). Residual risk, for P6: code already running
+  under topgrade can run `sudo -A` itself with its own askpass, connect from
+  it, keep the socket in a forked child and exec archmaid in place — the peer
+  then checks out. The popup's caller line is what gives that away: genuine
+  requests come from topgrade or yay, that one from whatever ran sudo inside
+  the build (typically `/usr/bin/bash`).
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
   own final step.
@@ -139,7 +157,7 @@ comments and `git log`; this is the "read before you touch it" list.
   removing it, and removes via `os.Root.RemoveAll` (hence `go 1.25`). Tests
   can't set ctimes: they move `downloadsNow` past a mark instead.
 - **`m.bg` is one field, not a stack.** A popup that overwrites it with its own
-  screen value makes `renderScreen` recurse forever; see the `askpassMsg` case in
+  screen value makes `renderScreen` recurse forever; see `handleAskpass` in
   `update.go`.
 
 ## Live-testing safely

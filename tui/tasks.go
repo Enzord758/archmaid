@@ -125,7 +125,8 @@ type streamMsg struct {
 // command never starts). Start() happens synchronously so the handle is
 // available immediately; scanning and Wait run on a goroutine.
 func runStep(s step, ch chan<- streamMsg) *os.Process {
-	return runStepUntil(s, ch, nil)
+	p, _ := runStepUntil(s, ch, nil)
+	return p
 }
 
 // runStepUntil is runStep with an abort signal: once quit is closed nobody
@@ -134,7 +135,11 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 // full ch blocked the scanner, the scanner blocked the pipe copier, and the
 // copier blocked cmd.Wait — leaking all three goroutines per aborted step. A
 // nil quit never fires (plain runStep).
-func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process {
+//
+// It also returns the child's start time (see procInfo), read before the
+// child can be reaped and its pid reused, so an askpass request can later be
+// tied to this very process (see verifyAskpassPeer). Zero if unknown.
+func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) (*os.Process, uint64) {
 	send := func(msg streamMsg) bool {
 		select {
 		case ch <- msg:
@@ -152,7 +157,7 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process
 				send(streamMsg{done: true})
 			}
 		}()
-		return nil
+		return nil, 0
 	}
 
 	name, args := s.command, s.args
@@ -176,7 +181,11 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process
 
 	if err := cmd.Start(); err != nil {
 		go func() { send(streamMsg{done: true, err: err}) }()
-		return nil
+		return nil, 0
+	}
+	var start uint64
+	if p, err := readProc(cmd.Process.Pid); err == nil { // not reaped yet: Wait runs below
+		start = p.start
 	}
 
 	go func() {
@@ -204,7 +213,7 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process
 		send(streamMsg{done: true, err: err})
 	}()
 
-	return cmd.Process
+	return cmd.Process, start
 }
 
 // stepEnv is the environment a step's child runs with: archmaid's own, without

@@ -35,7 +35,7 @@ func (m model) renderScreen(s screen) string {
 // screenAbortConfirm's background is always screenRunning by construction —
 // the only place that opens it sets that — so it's hardcoded here rather
 // than read from m.bg. The other three vary, so they use the shared m.bg
-// field; see askpassMsg's handling in update.go for why a screen already
+// field; see handleAskpass in update.go for why a screen already
 // showing as one of those three must not overwrite m.bg with itself (m.bg
 // is a single field, not a per-layer stack — self-assignment there would
 // recurse forever).
@@ -111,17 +111,36 @@ func (m model) viewMenu() string {
 }
 
 func (m model) viewPassword() string {
+	head := stepRunStyle.Render("🔒 sudo access required")
+	if m.askpassConn != nil {
+		head += "\n\n" + m.viewAskpassFrom()
+	}
 	if m.authInFlight {
-		body := stepRunStyle.Render("🔒 sudo access required") + "\n\n" +
+		body := head + "\n\n" +
 			m.spinner.View() + " " + stepRunStyle.Render("authenticating…")
 		return popupBox.Render(body)
 	}
-	body := stepRunStyle.Render("🔒 sudo access required") + "\n\n" + m.password.View()
+	body := head + "\n\n" + m.password.View()
 	if m.pwErr != "" {
 		body += "\n\n" + stepFailStyle.Render(m.pwErr)
 	}
 	body += "\n\n" + hintStyle.Render("enter submit · esc cancel")
 	return popupBox.Render(body)
+}
+
+// viewAskpassFrom says which request a mid-run password prompt answers: the
+// running step, the program that ran sudo (its real binary, from /proc) and
+// sudo's own prompt — quoted, since whoever runs sudo chooses it (sudo -p).
+func (m model) viewAskpassFrom() string {
+	f := m.askpassFrom
+	lines := []string{
+		statusStyle.Render("step    ") + f.step,
+		statusStyle.Render("caller  ") + fmt.Sprintf("%s (pid %d)", clipPath(oneLine(orUnknown(f.callerExe)), 40), f.callerPid),
+	}
+	if f.prompt != "" {
+		lines = append(lines, statusStyle.Render("prompt  ")+fmt.Sprintf("%q", f.prompt))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // yesNoButtons renders the two-button row for a confirm popup.

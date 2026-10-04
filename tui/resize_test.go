@@ -1,7 +1,6 @@
 package main
 
 import (
-	"net"
 	"strings"
 	"testing"
 
@@ -119,13 +118,11 @@ func TestAskpassOverAbortConfirmPreservesTheDialog(t *testing.T) {
 	m.bg = screenRunning // set by the ctrl+c handler, per the real flow
 	m.queue = queueOf(1)
 	m.current = 0
+	m = sudoStepRunning(t, m) // the step the abort dialog is about is still running
 	m.resizeOutput()
 
-	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
-
-	got := update(m, askpassMsg{prompt: "[sudo] password:", conn: c1})
+	c1, _ := pipeConn(t)
+	got := update(m, helperAsks(c1))
 
 	if got.screen != screenPassword {
 		t.Fatalf("screen = %d, want screenPassword", got.screen)
@@ -158,16 +155,16 @@ func TestAskpassOverAbortConfirmPreservesTheDialog(t *testing.T) {
 }
 
 func TestAskpassOverPasswordScreenKeepsRealBackground(t *testing.T) {
-	m := fixedModel()
+	m := sudoStepRunning(t, fixedModel())
 	m.screen = screenPassword
 	m.bg = screenMenu
 
-	c1, c2 := net.Pipe()
-	defer c1.Close()
-	defer c2.Close()
+	c1, _ := pipeConn(t)
+	got := update(m, helperAsks(c1))
 
-	got := update(m, askpassMsg{prompt: "[sudo] password:", conn: c1})
-
+	if got.screen != screenPassword || got.askpassConn != c1 {
+		t.Fatal("the request didn't open the askpass prompt")
+	}
 	if got.bg != screenMenu {
 		t.Fatalf("bg = %d, want screenMenu (resolved through the existing background, not the password screen itself)", got.bg)
 	}

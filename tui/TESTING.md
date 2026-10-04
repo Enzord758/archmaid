@@ -93,6 +93,7 @@ rather than adding more indirection:
 | `sigkillGrace` | shrink the SIGINT→SIGKILL grace period |
 | `askpassWrapper` | wire askpass up (or not) for `runStep` without starting a server |
 | `askpassReadTimeout` | shrink the deadline for an askpass client's prompt line (read when the server starts) |
+| `readProc` | stand in a fake process table for the askpass peer check (`fakeProcs`; the server fixes it when it starts) |
 | `aurRPCURL` | point the AUR audit at `httptest` |
 | `tickFn` | `tea.Tick` for the status refresh and sudo keep-alive; the transcript driver drops the ticks |
 
@@ -233,7 +234,7 @@ the names.
 | `downloads_test.go` | Which folder "Delete old downloads" cleans: the order flag → `ARCHMAID_DOWNLOADS` → `XDG_DOWNLOAD_DIR` → `~/Downloads` → `~/Download`; `$HOME` refused however it's spelled (`"$HOME/"`, a symlink to it, `$HOME` behind a symlink), as are `/` and ancestors of `$HOME`; only the flag may leave `$HOME`, and a bad flag is an error, not a fall-through; the notice names the folder; `--downloads` parsing. What gets deleted (real ctimes, with the clock moved instead): old files, folders and symlinks go — a symlink as the link, its target untouched; new files, a back-dated mtime, and a folder with anything new deep inside stay; the downloads folder itself is never a candidate; an entry changed or replaced between the confirm and the delete is kept; a folder swapped since the scan deletes nothing; a dry run only reports; the confirm lists ten names then "…and N more", unsafe names quoted; end to end through `Update` with the deletion in `cleanup.log`. |
 | `transcript_*_test.go` + `testdata/transcripts/` | Whole actions end to end against shims — see Transcripts above and the scenario names. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
-| `golden_test.go` + `testdata/` | Direct `View()` goldens at 80×24: the summary for each outcome (ok, issues, skipped, aborted); the password popup over the menu (masked input, and with the attempts-left error); a confirm over the running checklist; the log picker; the audit report; a notice; the discovering spinner. |
+| `golden_test.go` + `testdata/` | Direct `View()` goldens at 80×24: the summary for each outcome (ok, issues, skipped, aborted); the password popup over the menu (masked input, and with the attempts-left error); a confirm over the running checklist; a mid-run askpass prompt naming its requester; the log picker; the audit report; a notice; the discovering spinner. |
 | `e2e/*.tape` + `run.sh` + `shim.sh` | The real binary under `--dryrun`, one tape each, in a throwaway `HOME` with a shim dir first on `PATH` (every external command is a symlink to `shim.sh`, which only logs argv to a file and prints canned output; `run.sh` checks the shadowing first and that no mutating shim ran). `clear-cache`: asserts the `DRYRUN:` entry. `services`: toggles one of two shimmed units; the log names exactly that unit and `systemctl` only ever listed. `orphans`: Full Cleanup's confirm reads "2 … 3 total" (from the tape's `.txt`) and `orphans.log` has the dry-run removal. `abort`: ctrl+c on the blocked audit step, confirm; back on the menu, nothing logged. `bash e2e/run.sh services abort` runs a subset; generated `e2e/*.txt` is gitignored. |
 
 ## Manual verification
@@ -324,6 +325,7 @@ pkaction | grep -c org.archmaid.test   # must print 0
 Paste the results into HANDOVER's open items. They decide whether the GUI
 needs its own pre-validation (like the TUI's `su` stage), and whether
 `auth_admin_keep` verbs really save dialogs.
+| `askpass_peer_test.go` | Who may have the password, against a fake process table: the step's own sudo (via yay, or a direct `sudo -A` step) is answered and named in the popup; refused are a wrong uid, a gone or reused helper pid, a helper that isn't archmaid, a parent that isn't sudo (a user process named sudo, a root process with another name, a readable exe elsewhere), a chain that misses the step or breaks, a reused step or ancestor pid, and a cycle. The model hangs up with no popup when no sudo step runs (menu, non-sudo step, finished, aborted) and on a second request while one is open; a refusal mid-step leaves a sanitized note in the output pane; the popup shows sudo's prompt only quoted and stripped of escapes. `readProcFS` against the real `/proc` (a root process's exe is unreadable to a user); the server reports the real `SO_PEERCRED` peer. |
 
 ## Known gaps
 

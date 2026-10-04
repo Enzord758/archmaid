@@ -1,0 +1,23 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM avail: 8G   Cache: 512M
+
+✔ AUR audit
+⣾  Cleaning package cache…
+○ Removing orphane╭────────────────────────────────────────╮
+○ Vacuuming logs… │                                        │
+                  │   🔒 sudo access required              │
+╭─────────────────│                                        │─────────────────╮
+│ :: Synchronizing│   step    Cleaning package cache…      │                 │
+│                 │   caller  /usr/bin/yay (pid 5000150)   │                 │
+│                 │   prompt  "[sudo] password for u:"     │                 │
+│                 │                                        │                 │
+│                 │   Password: •••••••                    │                 │
+│                 │                                        │                 │
+│                 │   enter submit · esc cancel            │                 │
+│                 │                                        │                 │
+│                 ╰────────────────────────────────────────╯                 │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+╰────────────────────────────────────────────────────────────────────────────╯
+↑/↓ scroll output · ctrl+c abort

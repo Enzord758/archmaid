@@ -496,13 +496,11 @@ func TestAskpassEndToEnd(t *testing.T) {
 // server end of an in-memory connection standing in for the helper.
 func askpassOverRunning(t *testing.T) (model, net.Conn) {
 	t.Helper()
-	client, server := net.Pipe()
-	t.Cleanup(func() { client.Close(); server.Close() })
-	server.SetDeadline(time.Now().Add(askpassTimeout))
+	client, server := pipeConn(t)
 
-	m := fixedModel()
+	m := sudoStepRunning(t, fixedModel())
 	m.screen = screenRunning
-	m = update(m, askpassMsg{prompt: "[sudo] password for u: ", conn: client})
+	m = update(m, helperAsks(client))
 	if m.screen != screenPassword || m.bg != screenRunning || m.askpassConn != client {
 		t.Fatalf("screen=%d bg=%d conn set=%v; want the prompt over screenRunning",
 			m.screen, m.bg, m.askpassConn != nil)

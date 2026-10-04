@@ -114,6 +114,25 @@ func TestConfirmOverRunningGolden(t *testing.T) {
 	viewGolden(t, m)
 }
 
+// TestAskpassGolden: a mid-run sudo prompt over the running checklist, naming
+// the step, sudo's caller and pid, and sudo's own prompt (quoted: untrusted).
+// The spinner is on its initial frame since no tick is delivered.
+func TestAskpassGolden(t *testing.T) {
+	m := sizedModel()
+	m.queue = goldenQueue(statusOK, statusRunning, statusPending, statusPending)
+	m.current = 1
+	m.output.SetContent(":: Synchronizing package databases...")
+	m = sudoStepRunning(t, m)
+	m.screen = screenRunning
+	conn, _ := pipeConn(t)
+	m = update(m, helperAsks(conn))
+	m = update(m, key("hunter2"))
+	if m.screen != screenPassword || m.askpassConn == nil {
+		t.Fatalf("screen=%d conn set=%v, want the askpass prompt", m.screen, m.askpassConn != nil)
+	}
+	viewGolden(t, m)
+}
+
 // TestLogPickerGolden: the View-log category menu with the cursor on row 1.
 func TestLogPickerGolden(t *testing.T) {
 	m := sizedModel()
