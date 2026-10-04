@@ -45,6 +45,7 @@ type run struct {
 	faillockFor    faillockWait       // what a ReadFaillock in flight goes on to
 	acceptedLaunch bool               // the helper step waiting on it was confirmed
 	polkitWait     bool               // AuthWaiting{WaitPolkit} is open for the running step
+	ask            *askpass           // the open askpass request (askpass.go), or nil
 
 	errs, skipped, refused int
 }
@@ -61,7 +62,8 @@ type promptKind int
 const (
 	promptGate promptKind = iota
 	promptStep
-	promptPassword
+	promptPassword // the up-front one
+	promptAskpass
 )
 
 // running is the step running now, or nil.
@@ -349,6 +351,7 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 		return
 	}
 	s.run.stepSeq = 0
+	s.dropAskpass(o)
 	s.endPolkitWait(o, in.NotGranted)
 	if in.NotGranted {
 		st := s.run.plan[s.run.cur].step
@@ -518,6 +521,7 @@ func (s *Session) discovered(o *Output, in Discovered) {
 // for a notice, as in the TUI), then Finished.
 func (s *Session) finish(o *Output, outcome Outcome) {
 	r := s.run
+	s.dropAskpass(o)
 	if r.keepAlive {
 		o.effect(KeepAlive{On: false})
 	}

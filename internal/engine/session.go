@@ -90,14 +90,14 @@ func (o *Output) effect(fx ...Effect) { o.Effects = append(o.Effects, fx...) }
 // Session is one front end's run state: which action runs, its plan, the
 // open prompt, auth, timings. See the package doc for the contract.
 //
-// Built so far (P4 E1–E3): an action's discovery (a Notice or a queue), the
+// Built so far (P4 E1–E4): an action's discovery (a Notice or a queue), the
 // queue itself — the sudo probe, the proceed-gate, each step's confirm,
 // running, output, results and their logging, steps a result inserts or
 // gates — the last-run record, and auth (auth.go): the up-front password
 // with its attempts and give-up, the faillock count, Repair's NeedsRoot
-// recheck, and the polkit helper steps. Not yet: askpass (E4: every request
-// is hung up on), Abort, Select and the discoveries that need them
-// (NeedsSelection, Report; E5). Those calls panic with errNotImplemented
+// recheck, and the polkit helper steps; askpass (E4, askpass.go). Not yet:
+// Abort, Select and the discoveries that need them (NeedsSelection,
+// Report; E5). Those calls panic with errNotImplemented
 // rather than pretend to run something.
 type Session struct {
 	opts   Options
@@ -149,7 +149,7 @@ func (s *Session) Start(action string) Output {
 // audit findings, no dismisses it) with id.
 func (s *Session) Confirm(id PromptID, yes bool) Output {
 	r := s.run
-	if r == nil || id == 0 || id != r.prompt || r.promptFor == promptPassword {
+	if r == nil || id == 0 || id != r.prompt || (r.promptFor != promptGate && r.promptFor != promptStep) {
 		return Output{}
 	}
 	var o Output
@@ -176,11 +176,16 @@ func (s *Session) Confirm(id PromptID, yes bool) Output {
 // for a mid-run one) and keeps no copy.
 func (s *Session) SubmitPassword(id PromptID, pw Secret) Output {
 	r := s.run
-	if r == nil || id == 0 || id != r.prompt || r.promptFor != promptPassword {
+	if r == nil || id == 0 || id != r.prompt {
 		return Output{}
 	}
 	var o Output
-	s.submitUpFront(&o, pw)
+	switch r.promptFor {
+	case promptPassword:
+		s.submitUpFront(&o, pw)
+	case promptAskpass:
+		s.submitAskpass(&o, pw)
+	}
 	return o
 }
 
@@ -193,10 +198,14 @@ func (s *Session) CancelPrompt(id PromptID) Output {
 	if r == nil || id == 0 || id != r.prompt {
 		return Output{}
 	}
-	if r.promptFor != promptPassword {
-		return s.Confirm(id, false)
-	}
 	var o Output
+	switch r.promptFor {
+	case promptGate, promptStep:
+		return s.Confirm(id, false)
+	case promptAskpass:
+		s.cancelAskpass(&o)
+		return o
+	}
 	r.prompt = 0
 	s.finish(&o, OutcomeCancelled)
 	return o
@@ -230,8 +239,9 @@ func (s *Session) Handle(in Input) Output {
 	case Tick:
 		s.tick(&o, in)
 	case AskpassRequest:
-		// Nothing of ours asks until askpass is built (E4): hang up.
-		o.effect(HangUpAskpass{Req: in.Req})
+		s.askpassRequest(&o, in)
+	case AskpassAnswered:
+		s.askpassAnswered(&o, in)
 	case ProbeDone:
 		s.probed(&o, in)
 	case FaillockRead:
@@ -249,9 +259,8 @@ func (s *Session) Handle(in Input) Output {
 	case StepResult:
 		s.stepResult(&o, in)
 	}
-	// HookDone needs nothing (a hook that fails is logged by the hook, and
-	// never blocks its step), and AskpassAnswered answers an Effect this
-	// Session doesn't emit yet, so it is never current.
+	// HookDone needs nothing: a hook that fails is logged by the hook, and
+	// never blocks its step.
 	return o
 }
 
