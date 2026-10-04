@@ -41,5 +41,8 @@ makepkg -si      # with the env vars above for a local build
 | `/usr/share/applications/archmaid.desktop` | 0644 | `Terminal=true`, so the launcher picks your terminal |
 | `/usr/share/icons/hicolor/scalable/apps/archmaid.svg` | 0644 | |
 | `/usr/share/doc/archmaid/helper.md` | 0644 | helper docs |
+| `/etc/xdg/quickshell/dms-plugins/archmaid/{plugin.json,ArchmaidWidget.qml,state.js}` | 0644 | DMS bar widget (system plugin dir); enable it in DMS |
+| `/usr/lib/archmaid/archmaid-updates-check` | 0755 | runs `checkupdates`, writes the pending count |
+| `/usr/lib/systemd/user/archmaid-updates-check.{service,timer}` | 0644 | hourly user timer; `systemctl --user enable --now archmaid-updates-check.timer` |
 
 License: `LicenseRef-unknown` until upstream picks one (TODO in the PKGBUILD).

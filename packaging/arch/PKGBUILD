@@ -24,10 +24,15 @@ pkgdesc='Arch Linux housekeeping: package cache, orphans, journal, temp files, u
 arch=('x86_64')
 url='https://github.com/Enzord758/archmaid'
 license=('LicenseRef-unknown')
-depends=('glibc' 'pacman' 'pacman-contrib' 'polkit' 'systemd')
+# pacman-contrib: checkupdates, run by the updates user timer (packaging/systemd).
+# fakeroot: checkupdates refuses to run without it and pacman-contrib does not
+# pull it in. Both are hard depends: the timer is part of the package.
+depends=('glibc' 'pacman' 'pacman-contrib' 'fakeroot' 'polkit' 'systemd')
 makedepends=('git' 'go')
-optdepends=('topgrade: system/AUR update step in the TUI'
+optdepends=('dms-shell: archmaid bar widget (installed under /etc/xdg/quickshell/dms-plugins)'
+            'topgrade: system/AUR update step in the TUI'
             'yay: AUR cache cleaning and updates')
+install=archmaid.install
 provides=("$_pkgname")
 conflicts=("$_pkgname")
 # Upstream by default; overridable from the environment for local builds.
@@ -69,7 +74,7 @@ check() {
   _goenv
   # The helper's tests never run pacman/systemctl or need root (fake runner).
   cd "$srcdir/$_pkgname"
-  go test ./cmd/archmaid-helper/...
+  go test ./cmd/archmaid-helper/... ./packaging/dms/...
   # The TUI's suite needs a real terminal size and shims; run its gate in CI.
 }
 
@@ -85,6 +90,19 @@ package() {
     "$pkgdir/usr/share/applications/archmaid.desktop"
   install -Dm0644 packaging/archmaid.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/archmaid.svg"
+  # DMS bar widget: DMS reads system-wide plugins from this directory
+  # (PluginService.systemPluginDirectory); the user still enables it in DMS.
+  for f in plugin.json ArchmaidWidget.qml state.js; do
+    install -Dm0644 "packaging/dms/archmaid/$f" \
+      "$pkgdir/etc/xdg/quickshell/dms-plugins/archmaid/$f"
+  done
+  # Pending-updates check: a read-only user timer, enabled by the user.
+  install -Dm0755 packaging/systemd/archmaid-updates-check \
+    "$pkgdir/usr/lib/archmaid/archmaid-updates-check"
+  install -Dm0644 packaging/systemd/user/archmaid-updates-check.service \
+    "$pkgdir/usr/lib/systemd/user/archmaid-updates-check.service"
+  install -Dm0644 packaging/systemd/user/archmaid-updates-check.timer \
+    "$pkgdir/usr/lib/systemd/user/archmaid-updates-check.timer"
   install -Dm0644 cmd/archmaid-helper/README.md "$pkgdir/usr/share/doc/$_pkgname/helper.md"
   # TODO: install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
