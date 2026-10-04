@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Install toolchain
         run: pacman -Syu --noconfirm --needed go gcc git make  # gcc: -race needs cgo
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The app never runs as root, so neither do its tests: a root-only pass
       # (permissions, uid checks) must not be able to hide a user-only failure.
       - name: Create an unprivileged user
@@ -32,7 +32,7 @@ jobs:
       - name: Go version
         id: gover
         run: echo "v=$(runuser -u builder -- go env GOVERSION)" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             /home/builder/.cache/go-build
@@ -50,8 +50,8 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: ${{ env.GO_MOD_FILE }}
           cache-dependency-path: ${{ env.GO_SUM_FILE }}
@@ -59,7 +59,7 @@ jobs:
       - run: make e2e
       - name: Upload e2e output
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-output
           path: ${{ env.E2E_DIR }}/*.txt
@@ -74,6 +74,6 @@ jobs:
   #   runs-on: ubuntu-latest
   #   container: archlinux:latest
   #   steps:
-  #     - uses: actions/checkout@v4
+  #     - uses: actions/checkout@v7
   #     - run: pacman -Syu --noconfirm --needed go weston make
   #     - run: make gui-test
