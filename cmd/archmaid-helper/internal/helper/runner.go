@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 )
 
 // Absolute paths of everything the helper ever executes. Never resolved via
@@ -40,7 +41,8 @@ type Runner interface {
 }
 
 // ExecRunner is the real Runner: argv[0] must be absolute, the environment is
-// exactly ChildEnv, the working directory is /, stdin is /dev/null.
+// exactly ChildEnv, the working directory is /, stdin is /dev/null, and the
+// child runs in a new session (see command).
 type ExecRunner struct{}
 
 // maxCapture caps what Query buffers per stream.
@@ -56,6 +58,19 @@ func command(argv []string) (*exec.Cmd, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Env = ChildEnv()
 	cmd.Dir = "/"
+	// A session of its own, so nothing aimed at the terminal that started
+	// the helper reaches pacman mid-transaction: not a Ctrl-C, Ctrl-\ or
+	// Ctrl-Z sent to the foreground process group, not the SIGHUP of a
+	// closed terminal, not a kill of the helper's process group. The child
+	// has no controlling terminal and needs none: stdin is /dev/null and
+	// its output goes through pipes.
+	//
+	// This is the opposite of the TUI, whose steps must NOT get Setsid:
+	// they run sudo, and a sudo ticket is keyed to the tty and session
+	// (docs/HANDOVER.md). The helper is root already, through pkexec, and
+	// runs no sudo, so it has no ticket to lose. Don't copy either choice
+	// into the other program.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd, nil
 }
 

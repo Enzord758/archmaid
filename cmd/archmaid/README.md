@@ -87,7 +87,11 @@ straight over via `lipgloss`).
 - **Abortable steps** — ctrl+c while a step runs opens a confirmation; confirming
   sends the child SIGINT (sudo relays it to the real command) and returns to the
   menu, rather than quitting. A child that ignores SIGINT is force-killed
-  (SIGKILL) after a grace period.
+  (SIGKILL) after a grace period. Steps stay in the TUI's session (no
+  `Setsid`): sudo tickets are keyed to the tty and session, so one primed
+  ticket covers every step. The root helper (`cmd/archmaid-helper`) does the
+  opposite on purpose (it is root through pkexec and runs no sudo); see
+  [`HANDOVER.md`](../../docs/HANDOVER.md) → landmines before changing either.
 - **Floating popups** — the prompts (password input, confirm/abort two-button
   dialogs, notices) render as bordered boxes composited over the current screen
   via an ANSI-aware overlay (`overlay.go`), not full-screen takeovers, so the

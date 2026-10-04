@@ -28,6 +28,17 @@ type hardenReport struct {
 }
 
 func TestMain(m *testing.M) {
+	// The grandchild is started by helper.ExecRunner, which passes no test
+	// variables through (its environment is exactly ChildEnv), so it is
+	// told apart by its argv instead.
+	if len(os.Args) == 3 && os.Args[1] == sessionGrandchildArg {
+		sessionGrandchild(os.Args[2])
+		os.Exit(0)
+	}
+	if os.Getenv(sessionChildEnv) == "1" {
+		sessionChild(os.Getenv(sessionDirEnv))
+		os.Exit(0)
+	}
 	if os.Getenv(hardenChildEnv) == "1" {
 		syscall.Umask(0o077)
 		hardenProcess()

@@ -60,7 +60,10 @@ comments and `git log`; this is the "read before you touch it" list.
   (`internal/proc`) holds the line: a started child shares our session and
   process group, and no non-test code under `cmd/` or `internal/` sets
   `SysProcAttr`'s `Setsid`, `Setpgid` or `Setctty` — except the root helper
-  (`cmd/archmaid-helper`), which runs outside the TUI's session.
+  (`cmd/archmaid-helper`). That exception is deliberate: the helper runs as root
+  through pkexec, runs no sudo, and *does* give every child its own session, so
+  a Ctrl-C/Ctrl-Z/hangup at the terminal can't reach pacman mid-transaction.
+  Don't "fix" one by copying the other.
 - **Auth is two-stage (`authSudo`).** One wrong `sudo -S -v` burns *two*
   `pam_faillock` failures (the wrong password plus sudo's retry hitting EOF), and
   `sudo -A` burns two as well — with Arch's `deny=3`, one typo from lockout. So

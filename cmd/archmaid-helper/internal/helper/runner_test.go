@@ -1,14 +1,15 @@
 package helper
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 )
 
-// These run real processes, but only /bin/sh and /usr/bin/env — never a
-// package or system tool.
+// These run real processes, but only /bin/sh, /usr/bin/env and /usr/bin/cat
+// — never a package or system tool.
 
 func TestExecRunnerEnvIsExactlyChildEnv(t *testing.T) {
 	t.Setenv("LD_PRELOAD", "/tmp/evil.so")
@@ -31,6 +32,41 @@ func TestExecRunnerCwdIsRoot(t *testing.T) {
 	out, _, _, err := ExecRunner{}.Query([]string{"/bin/sh", "-c", "pwd"})
 	if err != nil || strings.TrimSpace(out) != "/" {
 		t.Errorf("cwd = %q (%v), want /", out, err)
+	}
+}
+
+// TestExecRunnerNewSession: every child leads a session of its own, so the
+// terminal's signals (Ctrl-C, Ctrl-Z, hangup) can't reach it. Both runner
+// methods build their command the same way; check both.
+func TestExecRunnerNewSession(t *testing.T) {
+	// Fields 1, 5 and 6 of /proc/<pid>/stat are pid, pgrp and session; cat
+	// reads its own. comm ("cat") has no spaces, so plain splitting works.
+	statOf := func(s string) (pid, pgrp, sid string) {
+		f := strings.Fields(s)
+		if len(f) < 6 {
+			t.Fatalf("odd /proc/self/stat: %q", s)
+		}
+		return f[0], f[4], f[5]
+	}
+	self, err := os.ReadFile("/proc/self/stat")
+	if err != nil {
+		t.Skip("no /proc")
+	}
+	_, _, ownSid := statOf(string(self))
+
+	out, _, exit, err := ExecRunner{}.Query([]string{"/usr/bin/cat", "/proc/self/stat"})
+	if err != nil || exit != 0 {
+		t.Fatalf("cat: exit %d err %v", exit, err)
+	}
+	var streamed string
+	if exit, err := (ExecRunner{}).Stream([]string{"/usr/bin/cat", "/proc/self/stat"}, func(_, text string) { streamed += text }); err != nil || exit != 0 {
+		t.Fatalf("cat: exit %d err %v", exit, err)
+	}
+	for _, s := range []string{out, streamed} {
+		pid, pgrp, sid := statOf(s)
+		if sid == ownSid || sid != pid || pgrp != pid {
+			t.Errorf("child pid %s pgrp %s sid %s (ours %s): want a session of its own", pid, pgrp, sid, ownSid)
+		}
 	}
 }
 
