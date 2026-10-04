@@ -365,11 +365,11 @@ echo python-oldthing`}}, sh["pacman"]...)
 	}},
 }
 
-// TestTranscript replays every scenario through the TUI.
-// TestTranscriptSession replays them through the engine's Session: same
-// scenarios, same goldens.
+// TestTranscript replays every scenario through the TUI: its model in
+// engine mode on a syncDriver (tuiEngineTarget). TestTranscriptSession
+// replays them through the engine's Session: same scenarios, same goldens.
 func TestTranscript(t *testing.T) {
-	replay(t, func(t *testing.T, shimLog string) tt.Target { return newTUITarget(t, shimLog) }, nil)
+	replay(t, func(t *testing.T, shimLog string) tt.Target { return newTUIEngineTarget(t, shimLog) }, nil)
 }
 
 // replay runs every scenario on mk's target against its golden, skipping

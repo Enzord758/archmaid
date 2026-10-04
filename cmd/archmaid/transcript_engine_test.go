@@ -3,9 +3,10 @@ package main
 // tuiEngineTarget: the transcript Target that drives the TUI's model in
 // engine mode — keys through Update, the model's actions on a syncDriver in
 // pull mode, its Events back through Update — and records what the model
-// then shows: the checklist's statuses, its plan flags, the screen. The
-// same goldens hold it to the old path's behaviour (TestTranscript), and
-// each prompt and end screen is held to the old path's frame.
+// then shows: the checklist's statuses, its plan flags, the screen. It is
+// the target TestTranscript records the goldens through; until the old
+// path is gone, TestTranscriptEngine also holds each prompt and end screen
+// to the old path's frame.
 
 import (
 	"fmt"
@@ -23,13 +24,13 @@ import (
 	tt "github.com/Enzord758/archmaid/internal/testtranscript"
 )
 
-// TestTranscriptEngine replays every scenario through the TUI in engine
-// mode, against the goldens, and compares its frames with the old path's.
+// TestTranscriptEngine replays every scenario through the old path and
+// through the TUI in engine mode, and compares their frames.
 func TestTranscriptEngine(t *testing.T) {
 	for _, sc := range transcriptScenarios {
 		t.Run(sc.name, func(t *testing.T) {
 			if *updateTranscripts {
-				t.Skip("-update-transcripts records through the old path (TestTranscript) only")
+				t.Skip("-update-transcripts records through TestTranscript only")
 			}
 			var old *tuiTarget
 			if !t.Run("old", func(t *testing.T) {
