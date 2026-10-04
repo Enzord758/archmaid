@@ -82,12 +82,21 @@ func runDirName() string {
 }
 
 // logPath returns the file a given category logs to for this run:
-// ~/.local/state/archmaid/<run>/<category>.log.
+// ~/.local/state/archmaid/<run>/<category>.log. It creates nothing: reading a
+// log (View log) must not leave an empty run directory behind, which would
+// take one of pruneLogs' logKeepRuns slots from a real run. appendLog creates
+// the directory when there is something to write.
 func logPath(cat logCategory) string {
-	dir := filepath.Join(resolveLogDir(), runDirName())
-	os.MkdirAll(dir, 0o755)
-	return filepath.Join(dir, string(cat)+".log")
+	return filepath.Join(resolveLogDir(), runDirName(), string(cat)+".log")
 }
+
+// Logs hold full command output (package lists, paths, AUR maintainers), so
+// they're private to the user. Directories and files created before this was
+// tightened are fixed up on the next write.
+const (
+	logDirMode  = 0o700
+	logFileMode = 0o600
+)
 
 // pruneLogs deletes all but the logKeepRuns most recent run directories.
 // Called once at startup; a no-op if the log dir doesn't exist yet. The
@@ -119,11 +128,19 @@ func pruneLogs() {
 // block. Normal runs only log failures and steps marked step.alwaysLog; a dry
 // run logs every action.
 func appendLog(cat logCategory, kind, label, body string) {
-	f, err := os.OpenFile(logPath(cat), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	path := logPath(cat)
+	run := filepath.Dir(path)
+	if os.MkdirAll(run, logDirMode) != nil {
+		return
+	}
+	os.Chmod(resolveLogDir(), logDirMode) // MkdirAll leaves existing dirs as they were
+	os.Chmod(run, logDirMode)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, logFileMode)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+	f.Chmod(logFileMode) // a file from an older version may still be 0644
 	ts := time.Now().Format("2006-01-02 15:04:05")
 	if body == "" {
 		fmt.Fprintf(f, "[%s] %s: %s\n", ts, kind, label)
