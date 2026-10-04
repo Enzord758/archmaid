@@ -7,7 +7,7 @@ TUI_DIR    := cmd/archmaid
 E2E_RUN    := $(TUI_DIR)/e2e/run.sh
 CHECK      := scripts/check.sh
 
-.PHONY: all gate e2e perf
+.PHONY: all gate e2e perf bench
 
 all: gate
 
@@ -24,3 +24,10 @@ e2e:
 # the dev machine's, which is why the default gate leaves it out.
 perf:
 	ARCHMAID_PERF_GUARD=1 $(CHECK)
+
+# Benchmark HEAD (the working tree) against BASE (default: merge-base with
+# origin/main) on this machine and fail on a significant slowdown; the CI bench
+# job runs the same script. Usage: make bench [BASE=origin/refactor/p0]
+BASE ?=
+bench:
+	scripts/bench-compare.sh $(BASE)
