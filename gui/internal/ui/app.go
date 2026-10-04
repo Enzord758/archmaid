@@ -38,8 +38,9 @@ type Options struct {
 }
 
 // Main runs archmaid-gui with the stub Driver and returns its exit status.
-// ARCHMAID_GUI_SCRIPT picks the stub's script: "fullcleanup" (default) or
-// "flood" (50k lines, for eyeballing the output view).
+// ARCHMAID_GUI_SCRIPT picks the stub's script: "fullcleanup" (default),
+// "flood" or "flood-colour" (50k lines, for eyeballing the output view),
+// "prompts" (selection, password, askpass) or "audit" (the report).
 //
 // TODO(E6): the real Driver replaces the stub here.
 func Main(args []string) int {
@@ -48,6 +49,15 @@ func Main(args []string) int {
 	case "flood":
 		opts.Action = "flood"
 		opts.NewDriver = func() engine.Driver { return stub.New(runview.Flood(time.Now(), 50000, 1, 0), stub.Options{}) }
+	case "flood-colour":
+		opts.Action = "flood"
+		opts.NewDriver = func() engine.Driver { return stub.New(runview.FloodColour(time.Now(), 50000, 1, 0), stub.Options{}) }
+	case "prompts":
+		opts.Action = "services"
+		opts.NewDriver = func() engine.Driver { return stub.New(runview.Prompts(time.Now()), stub.Options{}) }
+	case "audit":
+		opts.Action = "auraudit"
+		opts.NewDriver = func() engine.Driver { return stub.New(runview.Audit(), stub.Options{}) }
 	default:
 		opts.NewDriver = func() engine.Driver { return stub.New(stub.FullCleanup(time.Now()), stub.Options{}) }
 	}

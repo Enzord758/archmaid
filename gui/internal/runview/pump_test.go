@@ -108,7 +108,7 @@ func (c *collector) apply(evs []engine.Event) {
 	c.evs = append(c.evs, evs...)
 	ch := c.m.Apply(evs)
 	if ch.Opened != nil {
-		c.m.Answered(ch.Opened.ID)
+		c.m.Answer(ch.Opened.ID)
 		if !c.d.Send(engine.Confirm{Prompt: ch.Opened.ID, Yes: true}) {
 			c.t.Error("Send(Confirm) = false")
 		}

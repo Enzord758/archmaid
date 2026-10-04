@@ -129,7 +129,12 @@ command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
 ~35 s warm, CI sets 600), so nothing outlives the run. Scenarios:
 `fullcleanup` (the stub run end to end, each confirm answered through its
 dialog), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
-`close-midrun` (closing mid-run asks first, then closes), `idle` (first frame
+`close-midrun` (closing mid-run asks first, then closes), `prompts` (a
+selection, the up-front password with its gate and an askpass mid-step, each
+answered through its dialog: boxes ticked, a password typed; the Driver must
+get `Select` and two `SubmitPassword`s with the right IDs, and the entry must
+be empty after the answer), `audit` (the AUR report's Accept is
+`Confirm(yes)`), `idle` (first frame
 and RAM), `flood` (50k unpaced lines, dropping off: the view's real capacity),
 `flood-paced` (100 lines every 10 ms = 10k lines/s, default pump: nothing may
 drop), `flood-default` (unpaced, default pump), `flood-colour` (as `flood`,

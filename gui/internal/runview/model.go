@@ -120,13 +120,10 @@ type Change struct {
 	// lines join its tail; after that the view holds Model.Output().
 	OutRemove int
 	OutAppend []string
-	// Opened is the confirm opened in this batch and still open at its end;
+	// Opened is the prompt opened in this batch and still open at its end;
 	// Closed are prompts closed by the engine (PromptClosed).
-	Opened *engine.NeedsConfirm
+	Opened *Prompt
 	Closed []engine.PromptID
-	// Unsupported are prompts the skeleton can't show yet (password,
-	// selection, report): the page cancels them.
-	Unsupported []engine.PromptID
 	// Status: Phase, Status, Notice or the counters changed. Finished: the
 	// action ended in this batch.
 	Status, Finished bool
@@ -143,7 +140,7 @@ type Model struct {
 	Running  bool
 	Finished *engine.Finished
 	Notice   string
-	Prompt   *engine.NeedsConfirm // the open confirm, or nil
+	Prompt   *Prompt // the open prompt, or nil
 	Stat     engine.StatusUpdated
 	Logs     []engine.LogWritten
 	// Auth is the open AuthWaiting, or nil.
@@ -197,11 +194,29 @@ func (m *Model) row(id string, index int) int {
 	return -1
 }
 
-// Answered closes the open prompt id after the user answered it.
-func (m *Model) Answered(id engine.PromptID) {
-	if m.Prompt != nil && m.Prompt.ID == id {
-		m.Prompt = nil
+// Prompt is an open prompt: exactly one of its pointers is set.
+type Prompt struct {
+	ID        engine.PromptID
+	Confirm   *engine.NeedsConfirm
+	Password  *engine.NeedsPassword
+	Selection *engine.NeedsSelection
+	Report    *engine.OutputReport
+}
+
+// Answer claims the open prompt id for the user's answer: true when id is
+// the open prompt, which it then closes; false for a stale id (withdrawn,
+// already answered, or replaced by a newer prompt). The page sends an
+// answer only on true, so a stale ID never reaches the engine.
+func (m *Model) Answer(id engine.PromptID) bool {
+	if m.Prompt == nil || m.Prompt.ID != id || id == 0 {
+		return false
 	}
+	m.Prompt = nil
+	return true
+}
+
+func (m *Model) open(c *Change, p Prompt) {
+	m.Prompt, c.Opened = &p, &p
 }
 
 // Apply folds a batch of events, in order, into the model and says what
@@ -271,18 +286,17 @@ func (m *Model) Apply(evs []engine.Event) Change {
 				touch(i)
 			}
 		case engine.NeedsConfirm:
-			p := ev
-			m.Prompt, c.Opened = &p, &p
+			m.open(&c, Prompt{ID: ev.ID, Confirm: &ev})
 		case engine.NeedsPassword:
-			// TODO(E6): the askpass dialog for the AUR step (PasswordAskpass:
-			// Requester, Prompt, AttemptsLeft, Error) and SubmitPassword. The
-			// stub can't check a password, so it waits for the real Driver.
-			c.Unsupported = append(c.Unsupported, ev.ID)
+			m.open(&c, Prompt{ID: ev.ID, Password: &ev})
 		case engine.NeedsSelection:
-			c.Unsupported = append(c.Unsupported, ev.ID)
+			m.open(&c, Prompt{ID: ev.ID, Selection: &ev})
 		case engine.OutputReport:
 			if ev.ID != 0 {
-				c.Unsupported = append(c.Unsupported, ev.ID)
+				m.open(&c, Prompt{ID: ev.ID, Report: &ev})
+			} else {
+				m.Notice = ev.Text
+				c.Status = true
 			}
 		case engine.PromptClosed:
 			if m.Prompt != nil && m.Prompt.ID == ev.ID {

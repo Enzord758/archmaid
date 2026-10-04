@@ -44,6 +44,10 @@ type Window struct {
 	dialogs map[engine.PromptID]*adw.AlertDialog
 	// quitDialog is the open "Stop the run and quit?" dialog, or nil.
 	quitDialog *adw.AlertDialog
+	// The latest selection's check boxes and password entry, for the
+	// headless harness to tick and type into.
+	checks  []*gtk.CheckButton
+	pwEntry *adw.PasswordEntryRow
 	// busy: a Start was sent and its Finished hasn't come. quitting: the
 	// user confirmed closing mid-run. closed: the window is going away;
 	// late flushes are ignored.
@@ -226,11 +230,7 @@ func (w *Window) apply(evs []engine.Event) {
 		}
 	}
 	if c.Opened != nil {
-		w.confirm(*c.Opened)
-	}
-	for _, id := range c.Unsupported {
-		w.send(engine.CancelPrompt{Prompt: id})
-		w.toast("This prompt isn't in the GUI yet; cancelled")
+		w.prompt(*c.Opened)
 	}
 	if c.Finished {
 		w.busy = false
@@ -318,44 +318,6 @@ func (w *Window) statusText() string {
 		parts = append(parts, "free "+s.Free)
 	}
 	return strings.Join(parts, " · ")
-}
-
-// confirm shows a NeedsConfirm as a dialog: "No" is the default and the
-// close response, and a destructive step's "Yes" is red.
-func (w *Window) confirm(p engine.NeedsConfirm) {
-	heading, body := p.Title, p.Body
-	if heading == "" {
-		heading = p.Msg
-	}
-	d := adw.NewAlertDialog(heading, body)
-	d.AddResponse("no", "No")
-	d.AddResponse("yes", "Yes")
-	d.SetDefaultResponse("no")
-	d.SetCloseResponse("no")
-	if p.Destructive {
-		d.SetResponseAppearance("yes", adw.ResponseDestructive)
-	} else {
-		d.SetResponseAppearance("yes", adw.ResponseSuggested)
-	}
-	if list := p.Items; len(list) > 0 || len(p.Cascade) > 0 {
-		if len(p.Cascade) > 0 {
-			list = p.Cascade
-		}
-		l := gtk.NewLabel(strings.Join(list, "\n"))
-		l.SetXAlign(0)
-		l.AddCSSClass("monospace")
-		d.SetExtraChild(l)
-	}
-	d.ConnectResponse(func(resp string) {
-		if _, open := w.dialogs[p.ID]; !open {
-			return // withdrawn by the engine (ForceClose)
-		}
-		delete(w.dialogs, p.ID)
-		w.model.Answered(p.ID)
-		w.send(engine.Confirm{Prompt: p.ID, Yes: resp == "yes"})
-	})
-	w.dialogs[p.ID] = d
-	d.Present(w.win)
 }
 
 // closeRequest: closing mid-run asks first; then the window hides while

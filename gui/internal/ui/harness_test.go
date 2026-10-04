@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -72,17 +73,41 @@ type report struct {
 	RunNs            int64 // Start click → Finished applied
 	Frames           []time.Duration
 	DriverCloses     int32
-	Leaked           string // goleak's verdict after Run returned, "" if clean
+	Sent             []string // the prompt answers the Driver got
+	Leaked           string   // goleak's verdict after Run returned, "" if clean
 	Errors           []string
 }
 
-// countingDriver counts Close calls.
+// countingDriver counts Close calls and records the prompt answers sent.
 type countingDriver struct {
 	engine.Driver
 	closes *atomic.Int32
+	mu     *sync.Mutex
+	sent   *[]string
 }
 
 func (d countingDriver) Close() { d.closes.Add(1); d.Driver.Close() }
+
+func (d countingDriver) Send(c engine.Command) bool {
+	var s string
+	switch c := c.(type) {
+	case engine.Confirm:
+		s = fmt.Sprintf("confirm %d %v", c.Prompt, c.Yes)
+	case engine.SubmitPassword:
+		// The length only: the harness typed it, and Secret prints redacted.
+		s = fmt.Sprintf("password %d len %d", c.Prompt, len(string(c.Password)))
+	case engine.Select:
+		s = fmt.Sprintf("select %d %v", c.Prompt, c.Picked)
+	case engine.CancelPrompt:
+		s = fmt.Sprintf("cancel %d", c.Prompt)
+	}
+	if s != "" {
+		d.mu.Lock()
+		*d.sent = append(*d.sent, s)
+		d.mu.Unlock()
+	}
+	return d.Driver.Send(c)
+}
 
 func runChild(scenario, path string) int {
 	DefaultRenderer() // as archmaid-gui's main does
@@ -102,12 +127,17 @@ func runChild(scenario, path string) int {
 		script, opts.Action = runview.Flood(time.Now(), 50000, 1, 0), "flood"
 	case "flood-colour": // as flood, every line in colour (seven spans)
 		script, opts.Action, opts.Pump = runview.FloodColour(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
+	case "prompts": // selection, up-front password, askpass
+		script, opts.Action = runview.Prompts(time.Now()), "services"
+	case "audit": // the AUR audit report, accepted
+		script, opts.Action = runview.Audit(), "auraudit"
 	case "idle", "fullcleanup", "stop", "close-midrun":
 	default:
 		fail("unknown scenario %q", scenario)
 	}
+	var sentMu sync.Mutex
 	opts.NewDriver = func() engine.Driver {
-		return countingDriver{Driver: stub.New(script, stub.Options{}), closes: &closes}
+		return countingDriver{Driver: stub.New(script, stub.Options{}), closes: &closes, mu: &sentMu, sent: &rep.Sent}
 	}
 
 	var started time.Time
@@ -142,12 +172,30 @@ func runChild(scenario, path string) int {
 			if c.Opened != nil {
 				id := c.Opened.ID
 				rep.Prompts = append(rep.Prompts, id)
+				p := *c.Opened
 				glib.TimeoutAdd(30, func() {
-					if d, ok := w.dialogs[id]; ok {
-						d.Emit("response", "yes")
-						d.ForceClose()
-					} else {
+					d, ok := w.dialogs[id]
+					if !ok {
 						fail("prompt %d has no dialog", id)
+						return
+					}
+					// Answer the way a user would: type, tick, then press.
+					resp := "yes"
+					switch {
+					case p.Password != nil:
+						w.pwEntry.SetText("hunter2")
+						resp = "ok"
+					case p.Selection != nil:
+						w.checks[0].SetActive(true)
+						w.checks[1].SetActive(true)
+						resp = "ok"
+					case p.Report != nil:
+						resp = "accept"
+					}
+					d.Emit("response", resp)
+					d.ForceClose()
+					if p.Password != nil && w.pwEntry.TextLength() != 0 {
+						fail("the password entry wasn't wiped after the answer")
 					}
 				})
 			}
@@ -315,6 +363,9 @@ func child(t *testing.T, scenario string) (*report, time.Duration) {
 func TestGUIFullCleanup(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "fullcleanup")
+	if want := []string{"confirm 1 true", "confirm 2 true", "confirm 3 true"}; !slices.Equal(rep.Sent, want) {
+		t.Errorf("sent %q, want %q", rep.Sent, want)
+	}
 	if rep.Outcome != "completed" || !slices.Equal(rep.Prompts, []engine.PromptID{1, 2, 3}) {
 		t.Errorf("outcome %q prompts %v; want completed after prompts 1, 2, 3", rep.Outcome, rep.Prompts)
 	}
@@ -325,6 +376,26 @@ func TestGUIFullCleanup(t *testing.T) {
 		if !strings.HasSuffix(r, "=ok") {
 			t.Errorf("row %s", r)
 		}
+	}
+}
+
+// TestGUIPrompts: the selection, password and askpass dialogs answer
+// through Select and SubmitPassword with their prompt IDs.
+func TestGUIPrompts(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "prompts")
+	want := []string{"select 1 [cups.service avahi-daemon.service]", "password 2 len 7", "password 3 len 7"}
+	if rep.Outcome != "completed" || !slices.Equal(rep.Sent, want) {
+		t.Errorf("outcome %q sent %q; want completed after %q", rep.Outcome, rep.Sent, want)
+	}
+}
+
+// TestGUIAudit: the audit report's Accept is Confirm(yes) on its ID.
+func TestGUIAudit(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "audit")
+	if rep.Outcome != "report" || !slices.Equal(rep.Sent, []string{"confirm 1 true"}) {
+		t.Errorf("outcome %q sent %q; want report after confirm 1 true", rep.Outcome, rep.Sent)
 	}
 }
 

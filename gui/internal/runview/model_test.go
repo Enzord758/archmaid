@@ -60,7 +60,7 @@ func TestFullCleanupOneEventAtATime(t *testing.T) {
 		check(t, m, v)
 		if c.Opened != nil {
 			opened = append(opened, c.Opened.ID)
-			m.Answered(c.Opened.ID)
+			m.Answer(c.Opened.ID)
 		}
 	}
 	if !slices.Equal(opened, []engine.PromptID{1, 2, 3}) {
@@ -184,8 +184,7 @@ func TestPrompts(t *testing.T) {
 	if c.Opened == nil || m.Prompt == nil {
 		t.Fatal("confirm not opened")
 	}
-	m.Answered(3) // stale: ignored
-	if m.Prompt == nil {
+	if m.Answer(3) || m.Prompt == nil { // stale: refused
 		t.Fatal("a stale answer closed the prompt")
 	}
 	c = m.Apply([]engine.Event{engine.PromptClosed{ID: 4}})
@@ -197,12 +196,45 @@ func TestPrompts(t *testing.T) {
 	if c.Opened != nil || m.Prompt != nil {
 		t.Errorf("opened %v prompt %v; want neither", c.Opened, m.Prompt)
 	}
-	c = m.Apply([]engine.Event{
-		engine.NeedsPassword{ID: 6}, engine.NeedsSelection{ID: 7}, engine.OutputReport{ID: 8}, engine.OutputReport{},
-	})
-	if !slices.Equal(c.Unsupported, []engine.PromptID{6, 7, 8}) {
-		t.Errorf("unsupported %v, want [6 7 8]", c.Unsupported)
+	// A withdrawn prompt can't be answered.
+	if m.Answer(4) || m.Answer(5) {
+		t.Error("answered a withdrawn prompt")
 	}
+	for _, ev := range []engine.Event{
+		engine.NeedsPassword{ID: 6}, engine.NeedsSelection{ID: 7}, engine.OutputReport{ID: 8},
+	} {
+		c = m.Apply([]engine.Event{ev})
+		if c.Opened == nil || m.Prompt != c.Opened {
+			t.Fatalf("%T not opened", ev)
+		}
+		p := c.Opened
+		if n := btoi(p.Confirm != nil) + btoi(p.Password != nil) + btoi(p.Selection != nil) + btoi(p.Report != nil); n != 1 {
+			t.Errorf("%T: %d kinds set", ev, n)
+		}
+		if !m.Answer(p.ID) || m.Answer(p.ID) {
+			t.Errorf("%T: answer not claimed exactly once", ev)
+		}
+	}
+	// A newer prompt replaces the open one: the old ID is stale.
+	m.Apply([]engine.Event{engine.NeedsPassword{ID: 9, AttemptsLeft: 2}, engine.NeedsPassword{ID: 10, AttemptsLeft: 1}})
+	if m.Answer(9) || !m.Answer(10) {
+		t.Error("a replaced password prompt was answerable")
+	}
+	// A report without an ID is no prompt: its text is a notice.
+	c = m.Apply([]engine.Event{engine.OutputReport{Text: "done"}})
+	if c.Opened != nil || m.Notice != "done" {
+		t.Errorf("report without ID: opened %v notice %q", c.Opened, m.Notice)
+	}
+	if m.Answer(0) {
+		t.Error("answered prompt 0")
+	}
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func TestAbortedRun(t *testing.T) {

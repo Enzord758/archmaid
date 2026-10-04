@@ -68,7 +68,7 @@ Binary `archmaid-gui`, application id `io.github.enzord758.archmaid`.
 |---|---|
 | `gui/cmd/archmaid-gui` | `main` → `ui.Main` |
 | `gui/internal/runview` | plain Go, no gotk4: `Model` (the Run page's state: checklist `Row`s keyed on step ID, the open confirm, phase/status, the output ring capped at `OutputCap` = 10k lines; `Apply(events) Change` says exactly what to redraw, including the output diff `OutRemove`/`OutAppend` so a batch bigger than the cap never inserts a line only to drop it), `Pump` (one goroutine reads `Driver.Events()`, merges adjacent `OutputChunk`s of a step, drops the oldest queued lines past `MaxPending` counting them in `Dropped`, and posts one flush at a time to the main thread; a flush applies at most `FlushLines` = 512 lines, so a flood is sliced into ~1–2 ms pieces), `Flood`, `FloodColour` (the 50k-line stub scripts), `ParseSGR`/`StripSGR` (output SGR → text + styled spans; only SGR is interpreted, anything else is dropped), `Palette` (DMS's dank16 read from `$XDG_CACHE_HOME/DankMaterialShell/dms-colors.json`, by its `mode`, else the fixed `FallbackPalette`; 16–255 are the xterm cube and greys) |
-| `gui/internal/ui` | the only gotk4 package: `Main` (picks the stub script, `ARCHMAID_GUI_SCRIPT=flood` for the 50k one), `Run`, `Window` (header with Run/Stop, checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList`, status bar, toasts, `AdwAlertDialog` per `NeedsConfirm` with "No" as default and close response and a red "Yes" for `Destructive`, close-mid-run confirm). `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
+| `gui/internal/ui` | the only gotk4 package: `Main` (picks the stub script with `ARCHMAID_GUI_SCRIPT`: `fullcleanup`, `flood`, `flood-colour`, `prompts`, `audit`), `DefaultRenderer` (cairo unless `GSK_RENDERER` is set), `Run`, `Window` (header with Run/Stop, checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList` whose rows get their SGR colour as Pango attributes at bind, status bar, toasts, close-mid-run confirm). `dialogs.go`: one `AdwAlertDialog` per open prompt — confirm (Items, or the orphans' Direct and the cascade's extra; "No" is the default for `Destructive` whatever `Default` says, else `Default`; red "Yes" when destructive), password (up front with `Gate` as heading; askpass naming `Requester` and sudo's prompt; `Error`, attempts left), selection (check boxes → `Select`), report (audit findings, high ones flagged; "Accept" only with `CanAccept`). Every answer goes through `Window.answer`, which sends only when `Model.Answer` claims the ID, so a stale ID never reaches the engine. `secret.go` reads the password entry's text as C bytes (never a gotk4 Go string), wipes the entry, and zeroes the bytes after building the `Secret`. `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
 | `gui/scripts/headless.sh` | runs a command against a private `weston --backend=headless` and a private, activation-free D-Bus, so GUI tests never open a window on the desktop |
 
 ## Decisions and landmines
@@ -510,12 +510,15 @@ to:
   the safe assumption. The owner's step-by-step check, with a throwaway
   action and a results table: `docs/polkit-keep-session-check.md`.
 
-- **GUI skeleton TODOs, waiting for the real Driver (E6):** the polkit
-  dialog → helper progress in the checklist (`AuthWaiting{WaitPolkit}`,
+- **GUI TODOs, waiting for the real Driver (E6):** the polkit dialog →
+  helper progress in the checklist (`AuthWaiting{WaitPolkit}`,
   `AuthResolved`, `FaillockState` are recorded in `runview.Model.Auth` but not
-  shown) and the askpass dialog for the AUR step (`NeedsPassword` →
-  `SubmitPassword`); today a password, selection or report prompt is
-  cancelled with a toast.
+  shown). Waiting for E0 additions: `NeedsConfirm.YesLabel` (the dialog says
+  "Yes" until then) and `NeedsConfirm.Plan` on the gate confirm (no plan shown
+  yet). The password ends in an `engine.Secret`, a Go string that can't be
+  zeroed (`gui/internal/ui/dialogs.go` notes it); a `[]byte` Secret would
+  close that. The stub plays "no" like "yes" (one path per script), so
+  declined paths aren't shown yet.
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The

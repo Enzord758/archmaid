@@ -1,0 +1,327 @@
+package ui
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
+	"github.com/Enzord758/archmaid/gui/internal/runview"
+	"github.com/Enzord758/archmaid/internal/engine"
+)
+
+// The decision dialogs: one AdwAlertDialog per open prompt, kept in
+// w.dialogs by prompt ID until it is answered or the engine withdraws it
+// (PromptClosed → ForceClose). Every answer goes through answer, which
+// asks the model to claim the ID first: a stale ID (withdrawn, replaced by
+// a newer prompt, already answered) is dropped there and never reaches the
+// engine.
+
+// prompt opens the dialog for p.
+func (w *Window) prompt(p runview.Prompt) {
+	var d *adw.AlertDialog
+	switch {
+	case p.Confirm != nil:
+		d = w.confirmDialog(*p.Confirm)
+	case p.Password != nil:
+		d = w.passwordDialog(*p.Password)
+	case p.Selection != nil:
+		d = w.selectionDialog(*p.Selection)
+	case p.Report != nil:
+		d = w.reportDialog(*p.Report)
+	default:
+		return
+	}
+	w.dialogs[p.ID] = d
+	d.Present(w.win)
+}
+
+// answer sends the answer to prompt id that cmd builds, if id is still the
+// open prompt; cmd isn't called otherwise. It also forgets the dialog.
+func (w *Window) answer(id engine.PromptID, cmd func() engine.Command) {
+	if _, open := w.dialogs[id]; !open {
+		return // withdrawn by the engine (ForceClose), or answered
+	}
+	delete(w.dialogs, id)
+	if !w.model.Answer(id) {
+		return
+	}
+	w.send(cmd())
+}
+
+// confirmDialog: "Yes"/"No". For a destructive step "No" is the default
+// whatever Default says, and "Yes" is red; otherwise Default picks the
+// default and "Yes" is the suggested action. Closing the dialog is "No".
+//
+// TODO(E0): NeedsConfirm.YesLabel ("Delete", "Remove 3 Packages") and
+// NeedsConfirm.Plan (the steps a gate confirm stands for) are requested
+// from the engine; until they land "Yes" is the label and the gate shows
+// no plan.
+func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
+	heading, body := p.Title, p.Body
+	if heading == "" {
+		heading = p.Msg
+	}
+	d := adw.NewAlertDialog(heading, body)
+	d.AddResponse("no", "No")
+	d.AddResponse("yes", "Yes")
+	d.SetCloseResponse("no")
+	switch {
+	case p.Destructive:
+		d.SetDefaultResponse("no")
+		d.SetResponseAppearance("yes", adw.ResponseDestructive)
+	case p.Default:
+		d.SetDefaultResponse("yes")
+		d.SetResponseAppearance("yes", adw.ResponseSuggested)
+	default:
+		d.SetDefaultResponse("no")
+		d.SetResponseAppearance("yes", adw.ResponseSuggested)
+	}
+	box := gtk.NewBox(gtk.OrientationVertical, 12)
+	if len(p.Direct) > 0 || len(p.Cascade) > 0 {
+		// Orphans: what was found, then what goes with it.
+		box.Append(itemList("Orphaned", p.Direct, p.Destructive))
+		var extra []string
+		for _, c := range p.Cascade {
+			if !slices.Contains(p.Direct, c) {
+				extra = append(extra, c)
+			}
+		}
+		if len(extra) > 0 {
+			box.Append(itemList("Removed with them", extra, p.Destructive))
+		}
+	} else if len(p.Items) > 0 {
+		box.Append(itemList("", p.Items, p.Destructive))
+	}
+	if box.FirstChild() != nil {
+		d.SetExtraChild(box)
+	}
+	d.ConnectResponse(func(resp string) {
+		w.answer(p.ID, func() engine.Command { return engine.Confirm{Prompt: p.ID, Yes: resp == "yes"} })
+	})
+	return d
+}
+
+// itemList is a titled list of package or file names, scrolling past a
+// few lines; red text when they are about to be removed.
+func itemList(title string, items []string, destructive bool) gtk.Widgetter {
+	box := gtk.NewBox(gtk.OrientationVertical, 6)
+	if title != "" {
+		h := gtk.NewLabel(fmt.Sprintf("%s (%d)", title, len(items)))
+		h.SetXAlign(0)
+		h.AddCSSClass("heading")
+		box.Append(h)
+	}
+	l := gtk.NewLabel(strings.Join(items, "\n"))
+	l.SetXAlign(0)
+	l.SetSelectable(true)
+	l.AddCSSClass("monospace")
+	if destructive {
+		l.AddCSSClass("error")
+	}
+	sc := gtk.NewScrolledWindow()
+	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	sc.SetPropagateNaturalHeight(true)
+	sc.SetMaxContentHeight(180)
+	sc.SetChild(l)
+	box.Append(sc)
+	return box
+}
+
+// passwordDialog asks for the sudo password: up front (with the gate it
+// stands in for as its heading), or for sudo's askpass mid-step (naming
+// who asked). "Cancel" is CancelPrompt.
+func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
+	var heading, body string
+	switch p.Kind {
+	case engine.PasswordAskpass:
+		heading = "sudo Asks for Your Password"
+		body = "A running step needs root."
+		if p.Requester != "" {
+			body = "Asked by " + p.Requester + "."
+		}
+		if p.Prompt != "" {
+			body += "\n" + p.Prompt
+		}
+	default:
+		heading = "Password Required"
+		if p.Gate != "" {
+			heading = p.Gate
+		}
+		body = "Your password lets archmaid run the steps that need root."
+	}
+	if p.Error != "" {
+		body += "\n\n" + p.Error
+	}
+	if p.AttemptsLeft > 0 && p.Error != "" {
+		body += fmt.Sprintf("\n%d attempt(s) left.", p.AttemptsLeft)
+	}
+	d := adw.NewAlertDialog(heading, body)
+	d.AddResponse("cancel", "Cancel")
+	d.AddResponse("ok", "Authenticate")
+	d.SetResponseAppearance("ok", adw.ResponseSuggested)
+	d.SetDefaultResponse("ok")
+	d.SetCloseResponse("cancel")
+	d.SetResponseEnabled("ok", false)
+
+	entry := adw.NewPasswordEntryRow()
+	w.pwEntry = entry // the harness types into it
+	entry.SetTitle("Password")
+	entry.ConnectChanged(func() { d.SetResponseEnabled("ok", entry.TextLength() > 0) })
+	list := gtk.NewListBox()
+	list.AddCSSClass("boxed-list")
+	list.SetSelectionMode(gtk.SelectionNone)
+	list.Append(entry)
+	d.SetExtraChild(list)
+
+	respond := func(resp string) {
+		if resp != "ok" {
+			wipeEditable(entry)
+			w.answer(p.ID, func() engine.Command { return engine.CancelPrompt{Prompt: p.ID} })
+			return
+		}
+		w.answer(p.ID, func() engine.Command {
+			pw := editableBytes(entry)
+			wipeEditable(entry)
+			// engine.Secret is a string by the engine's contract, so this
+			// is the one Go string the password lives in: immutable, it
+			// can't be zeroed and stays in the heap until the GC reuses
+			// it. Everything before it (GTK's secure buffer, pw) is
+			// wiped. TODO(E0): a []byte Secret the Driver zeroes after
+			// use would close this.
+			cmd := engine.SubmitPassword{Prompt: p.ID, Password: engine.Secret(pw)}
+			clear(pw)
+			return cmd
+		})
+	}
+	d.ConnectResponse(respond)
+	entry.ConnectEntryActivated(func() {
+		if entry.TextLength() == 0 {
+			return
+		}
+		respond("ok")
+		d.ForceClose()
+	})
+	return d
+}
+
+// selectionDialog is a checkbox list; "Continue" sends the checked items
+// (in the engine's order), "Cancel" cancels.
+func (w *Window) selectionDialog(p engine.NeedsSelection) *adw.AlertDialog {
+	title := p.Title
+	if title == "" {
+		title = "Choose"
+	}
+	d := adw.NewAlertDialog(title, "")
+	d.AddResponse("cancel", "Cancel")
+	d.AddResponse("ok", "Continue")
+	d.SetResponseAppearance("ok", adw.ResponseSuggested)
+	d.SetDefaultResponse("ok")
+	d.SetCloseResponse("cancel")
+	list := gtk.NewListBox()
+	list.AddCSSClass("boxed-list")
+	list.SetSelectionMode(gtk.SelectionNone)
+	checks := make([]*gtk.CheckButton, len(p.Items))
+	for i, item := range p.Items {
+		row := adw.NewActionRow()
+		row.SetUseMarkup(false)
+		row.SetTitle(item)
+		checks[i] = gtk.NewCheckButton()
+		row.AddPrefix(checks[i])
+		row.SetActivatableWidget(checks[i])
+		list.Append(row)
+	}
+	sc := gtk.NewScrolledWindow()
+	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	sc.SetPropagateNaturalHeight(true)
+	sc.SetMaxContentHeight(320)
+	sc.SetChild(list)
+	d.SetExtraChild(sc)
+	d.ConnectResponse(func(resp string) {
+		w.answer(p.ID, func() engine.Command {
+			if resp != "ok" {
+				return engine.CancelPrompt{Prompt: p.ID}
+			}
+			picked := []string{}
+			for i, c := range checks {
+				if c.Active() {
+					picked = append(picked, p.Items[i])
+				}
+			}
+			return engine.Select{Prompt: p.ID, Picked: picked}
+		})
+	})
+	w.checks = checks // the harness ticks them
+	return d
+}
+
+// reportDialog shows a report (the AUR audit's findings, high ones
+// first-class in red). "Accept" (only when CanAccept) records the flagged
+// changes as checked: Confirm(yes); "Close" dismisses: Confirm(no).
+func (w *Window) reportDialog(p engine.OutputReport) *adw.AlertDialog {
+	heading, body := "Report", p.Text
+	var extra gtk.Widgetter
+	canAccept := false
+	if a := p.Audit; a != nil {
+		heading = "AUR Audit"
+		high := 0
+		for _, f := range a.Findings {
+			if f.High {
+				high++
+			}
+		}
+		body = fmt.Sprintf("%d foreign package(s) checked: %d flagged, %d high.", a.Total, len(a.Findings), high)
+		if a.CanAccept {
+			body += "\nAccept records the high findings as checked, so they aren't flagged again."
+		}
+		canAccept = a.CanAccept
+		if len(a.Findings) > 0 {
+			list := gtk.NewListBox()
+			list.AddCSSClass("boxed-list")
+			list.SetSelectionMode(gtk.SelectionNone)
+			for _, f := range a.Findings {
+				row := adw.NewActionRow()
+				row.SetUseMarkup(false)
+				row.SetTitle(f.Name)
+				sub := strings.Join(f.Flags, " · ")
+				if f.Reason != "" {
+					sub = f.Reason + "\n" + sub
+				}
+				row.SetSubtitle(sub)
+				icon := gtk.NewImageFromIconName("dialog-information-symbolic")
+				if f.High {
+					icon = gtk.NewImageFromIconName("dialog-warning-symbolic")
+					icon.AddCSSClass("error")
+				}
+				row.AddPrefix(icon)
+				list.Append(row)
+			}
+			sc := gtk.NewScrolledWindow()
+			sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+			sc.SetPropagateNaturalHeight(true)
+			sc.SetMaxContentHeight(360)
+			sc.SetChild(list)
+			extra = sc
+		}
+	}
+	d := adw.NewAlertDialog(heading, body)
+	d.AddResponse("close", "Close")
+	d.SetCloseResponse("close")
+	d.SetDefaultResponse("close")
+	if canAccept {
+		d.AddResponse("accept", "Accept")
+		d.SetResponseAppearance("accept", adw.ResponseSuggested)
+	}
+	if extra != nil {
+		d.SetExtraChild(extra)
+		d.SetPreferWideLayout(true)
+	}
+	d.ConnectResponse(func(resp string) {
+		w.answer(p.ID, func() engine.Command {
+			return engine.Confirm{Prompt: p.ID, Yes: canAccept && resp == "accept"}
+		})
+	})
+	return d
+}
