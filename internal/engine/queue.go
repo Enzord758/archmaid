@@ -196,7 +196,8 @@ func planSteps(queue []steps.Step) []PlanStep {
 // planStep is s as a front end sees it.
 func planStep(s steps.Step) PlanStep {
 	p := PlanStep{
-		ID: s.ID, Verb: s.Verb, Title: s.Title, InProc: s.Run != nil,
+		ID: s.ID, Verb: s.Verb, Title: s.Title, LogLabel: sanitize.String(s.LogLabel, sanitize.Plain),
+		InProc:    s.Run != nil,
 		NeedsPriv: s.NeedsPriv, Confirm: s.Confirm != "", Optional: s.Optional,
 		AlwaysLog: s.AlwaysLog, Category: s.LogCategory(),
 	}

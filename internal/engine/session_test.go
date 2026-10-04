@@ -199,9 +199,9 @@ func TestSessionRunsAQueue(t *testing.T) {
 	o := h.start("q")
 	qs := event[QueueStarted](t, o)
 	want := []PlanStep{
-		{ID: "a", Title: "a…", Argv: []string{"echo", "hi"}, Category: logstore.Cleanup},
-		{ID: "b", Title: "b…", InProc: true, Category: logstore.Cleanup},
-		{ID: "c", Title: "c…", Argv: []string{"false"}, AlwaysLog: true, Category: logstore.Topgrade},
+		{ID: "a", Title: "a…", LogLabel: "a done", Argv: []string{"echo", "hi"}, Category: logstore.Cleanup},
+		{ID: "b", Title: "b…", LogLabel: "b done", InProc: true, Category: logstore.Cleanup},
+		{ID: "c", Title: "c…", LogLabel: "c done", Argv: []string{"false"}, AlwaysLog: true, Category: logstore.Topgrade},
 	}
 	if qs.Action != "q" || !reflect.DeepEqual(qs.Steps, want) || !qs.Started.Equal(t0) || qs.DryRun {
 		t.Fatalf("QueueStarted = %+v", qs)

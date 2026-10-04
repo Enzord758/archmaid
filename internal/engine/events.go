@@ -23,6 +23,9 @@ type PlanStep struct {
 	// Verb is the root helper's verb for the step, or "".
 	Verb  string
 	Title string
+	// LogLabel is what the step's log entry calls it ("Old package cache
+	// cleaned"); the TUI's checklist shows it on a step that succeeded.
+	LogLabel string
 	// InProc is a step run in-process; otherwise Argv is its command line
 	// as planned (before the privilege backend wraps it).
 	InProc bool
