@@ -21,7 +21,9 @@ jobs:
     container: archlinux:latest
     steps:
       - name: Install toolchain
-        run: pacman -Syu --noconfirm --needed go gcc git make  # gcc: -race needs cgo
+        # gcc: -race needs cgo. diffutils: scripts/state-guard.sh compares
+        # with diff, which the archlinux image's base doesn't include.
+        run: pacman -Syu --noconfirm --needed go gcc git make diffutils
       - uses: actions/checkout@v7
       # The app never runs as root, so neither do its tests: a root-only pass
       # (permissions, uid checks) must not be able to hide a user-only failure.
@@ -44,8 +46,14 @@ jobs:
         run: |
           mkdir -p /home/builder/.cache/go-build /home/builder/go/pkg/mod
           chown -R builder:builder /home/builder
+      # A populated state dir for the gate's state guard (and every package's
+      # testenv.Run) to protect, as on a real machine; CI only.
+      - name: Seed a fake state dir (as builder)
+        run: runuser -u builder -- env HOME=/home/builder "$GITHUB_WORKSPACE/scripts/ci-seed-state.sh"
       - name: make all (as builder)
         run: runuser -u builder -- env HOME=/home/builder make -C "$GITHUB_WORKSPACE" all
+      - name: The seeded state dir is intact
+        run: runuser -u builder -- env HOME=/home/builder "$GITHUB_WORKSPACE/scripts/ci-seed-state.sh" --verify
 
   e2e:
     runs-on: ubuntu-latest
@@ -56,7 +64,13 @@ jobs:
           go-version-file: ${{ env.GO_MOD_FILE }}
           cache-dependency-path: ${{ env.GO_SUM_FILE }}
       - uses: charmbracelet/vhs-action@v2
+      # The runner's real $HOME/.local/state/archmaid gets a fake history, so
+      # run.sh's state guard checks real content; CI only.
+      - name: Seed a fake state dir
+        run: scripts/ci-seed-state.sh
       - run: make e2e
+      - name: The seeded state dir is intact
+        run: scripts/ci-seed-state.sh --verify
       - name: Upload e2e output
         if: failure()
         uses: actions/upload-artifact@v7
