@@ -118,6 +118,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.pending = msg.pending // repair / downloads
+		if msg.kind == "repair" {
+			// The scan only ran once the sudo ticket was primed (scanAfterAuth),
+			// so don't probe it a second time — go straight to the queue.
+			m.resetRun()
+			cmd := m.startQueue()
+			return m, cmd
+		}
 		cmd := m.beginPending()
 		return m, cmd
 
@@ -469,15 +476,20 @@ func (m model) startScan() (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// beginPending starts m.pending: authenticate first if any step needs sudo
-// (probe → skip prompt when cached), otherwise run the queue directly.
-func (m *model) beginPending() tea.Cmd {
+// resetRun clears the per-run counters and auth state before a queue starts.
+func (m *model) resetRun() {
 	m.errs = 0
 	m.skipped = 0
 	m.aborted = false
 	m.gateActive = false
 	m.pwAttempts = 0
 	m.sudoUnavailable = false
+}
+
+// beginPending starts m.pending: authenticate first if any step needs sudo
+// (probe → skip prompt when cached), otherwise run the queue directly.
+func (m *model) beginPending() tea.Cmd {
+	m.resetRun()
 	for _, s := range m.pending {
 		if s.needsSudo {
 			return checkSudoCached()

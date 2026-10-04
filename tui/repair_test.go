@@ -141,3 +141,16 @@ func TestRepairAuthGiveUpShowsNotice(t *testing.T) {
 		t.Fatalf("want a give-up notice, got screen=%d notice=%q", m.screen, m.notice)
 	}
 }
+
+// TestRepairDiscoveryDoesNotReprobeSudo: the scan only runs once the ticket is
+// primed, so its result starts the queue directly instead of probing again.
+func TestRepairDiscoveryDoesNotReprobeSudo(t *testing.T) {
+	m := repairModel(t)
+	next, _ := m.Update(discoveryMsg{kind: "repair", pending: []step{
+		{title: "fix", logLabel: "fix", command: "sudo", needsSudo: true},
+	}})
+	m = next.(model)
+	if m.screen != screenRunning {
+		t.Fatalf("repair result should start the queue, got screen=%d", m.screen)
+	}
+}

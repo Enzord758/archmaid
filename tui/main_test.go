@@ -431,7 +431,7 @@ func TestDiscoveryPendingSudoProbes(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	m := initialModel()
-	next, cmd := m.Update(discoveryMsg{kind: "repair", pending: []step{
+	next, cmd := m.Update(discoveryMsg{kind: "downloads", pending: []step{
 		{title: "fix", logLabel: "fix", command: "sudo", needsSudo: true},
 	}})
 	if cmd == nil {
