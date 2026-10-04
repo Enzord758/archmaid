@@ -13,9 +13,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/privilege/internal/seam"
 	"github.com/Enzord758/archmaid/internal/proc"
 )
 
@@ -61,9 +61,6 @@ type ServerOptions struct {
 	// ReadTimeout bounds how long a client may take to send its prompt
 	// line; zero means DefaultReadTimeout.
 	ReadTimeout time.Duration
-	// ReadProc looks up a connecting process for its start time; nil means
-	// proc.Read.
-	ReadProc func(pid int) (proc.Info, error)
 }
 
 // Server owns the private directory, socket and wrapper script for one UI
@@ -94,7 +91,7 @@ func Listen(runtimeDir, exe string, o ServerOptions) (*Server, error) {
 		reqs:        make(chan *Request),
 		done:        make(chan struct{}),
 		readTimeout: o.ReadTimeout,
-		readProc:    o.ReadProc,
+		readProc:    sys.readProc, // the same /proc that Verify reads
 	}
 	if s.readTimeout <= 0 {
 		s.readTimeout = DefaultReadTimeout
@@ -256,23 +253,25 @@ func newRequest(conn net.Conn, prompt string, peer Peer) *Request {
 	return &Request{Prompt: prompt, Peer: peer, conn: conn}
 }
 
-// NewTestRequest is newRequest for another package's tests, which need a
-// Request over a connection of their own (net.Pipe) with a fake peer. The
-// Request is unverified like any other: Verify it before Answer. Outside a
-// test binary it panics.
-func NewTestRequest(conn net.Conn, prompt string, peer Peer) *Request {
-	if !testing.Testing() {
-		panic("privilege.NewTestRequest is for tests only")
+// Other packages' tests reach newRequest and setSystem through privtest, by
+// way of seam, which only internal/privilege's own packages can import.
+func init() {
+	seam.NewRequest = func(conn net.Conn, prompt string, pid, uid int, start uint64) any {
+		return newRequest(conn, prompt, Peer{Pid: pid, UID: uid, Start: start})
 	}
-	return newRequest(conn, prompt, peer)
+	seam.SetSystem = func(uid func() int, exe string, readProc func(int) (proc.Info, error)) func() {
+		return setSystem(system{uid: uid, exe: exe, readProc: readProc})
+	}
 }
 
 // Verify decides whether this request may have the password (see verifyPeer
 // for the checks) and, if so, marks it verified: the one way to make Answer
 // accept it. On success it returns sudo's caller, for the UI to name. A
-// request that fails stays unverified.
-func (r *Request) Verify(stepPid int, stepStart uint64, o VerifyOptions) (Requester, error) {
-	from, err := verifyPeer(r.Peer, stepPid, stepStart, o)
+// request that fails stays unverified. stepPid and stepStart are the running
+// step's child as proc.Child records it; everything else (our uid, our
+// binary, /proc) Verify reads from the system itself, never from the caller.
+func (r *Request) Verify(stepPid int, stepStart uint64) (Requester, error) {
+	from, err := verifyPeer(r.Peer, stepPid, stepStart, sys)
 	if err != nil {
 		return Requester{}, err
 	}
@@ -339,16 +338,28 @@ const sudoPath = "/usr/bin/sudo"
 // maxChain bounds the walk from sudo up to the running step.
 const maxChain = 64
 
-// VerifyOptions are Verify's view of the system. Zero fields mean the real
-// thing, so a caller that forgets one gets the strict default.
-type VerifyOptions struct {
-	// UID returns the uid a peer must run as; nil means os.Getuid.
-	UID func() int
-	// Exe is archmaid's own binary, which the helper must be; "" means
+// system is the view of the machine that Verify (and Listen, for a peer's
+// start time) checks against. Zero fields mean the real thing. Only tests
+// change it: this package's own, and other packages' through privtest. No
+// production caller can hand Verify a process table that always agrees.
+type system struct {
+	// uid returns the uid a peer must run as; nil means os.Getuid.
+	uid func() int
+	// exe is archmaid's own binary, which the helper must be; "" means
 	// os.Executable.
-	Exe string
-	// ReadProc looks a process up; nil means proc.Read.
-	ReadProc func(pid int) (proc.Info, error)
+	exe string
+	// readProc looks a process up; nil means proc.Read.
+	readProc func(pid int) (proc.Info, error)
+}
+
+// sys is the system Verify and Listen use: the real one, outside tests.
+var sys system
+
+// setSystem replaces sys until the returned restore runs.
+func setSystem(s system) (restore func()) {
+	old := sys
+	sys = s
+	return func() { sys = old }
 }
 
 // Requester is who a verified request came from: the process that ran sudo.
@@ -373,15 +384,15 @@ type Requester struct {
 // A fork's parent always started before it, so a parent with a later start
 // time than its child is a reused pid, and the walk refuses it. On success it
 // returns sudo's caller, for the UI to name.
-func verifyPeer(peer Peer, stepPid int, stepStart uint64, o VerifyOptions) (Requester, error) {
-	uid, readProc := o.UID, o.ReadProc
+func verifyPeer(peer Peer, stepPid int, stepStart uint64, o system) (Requester, error) {
+	uid, readProc := o.uid, o.readProc
 	if uid == nil {
 		uid = os.Getuid
 	}
 	if readProc == nil {
 		readProc = proc.Read
 	}
-	self := o.Exe
+	self := o.exe
 	if self == "" {
 		exe, err := os.Executable()
 		if err != nil {

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/privilege/internal/seam"
 	"github.com/Enzord758/archmaid/internal/proc"
 )
 
@@ -362,7 +363,9 @@ func TestAskpassCloseDropsUndelivered(t *testing.T) {
 // TestUnidentifiedPeerDropped: a client the server can't look up in /proc is
 // hung up on before it can deliver anything.
 func TestUnidentifiedPeerDropped(t *testing.T) {
-	s, _ := listen(t, ServerOptions{ReadProc: func(int) (proc.Info, error) { return proc.Info{}, os.ErrNotExist }})
+	restore := setSystem(system{readProc: func(int) (proc.Info, error) { return proc.Info{}, os.ErrNotExist }})
+	s, _ := listen(t, ServerOptions{}) // takes the empty /proc above
+	restore()
 	conn, err := net.Dial("unix", s.sock)
 	if err != nil {
 		t.Fatal(err)
@@ -467,7 +470,7 @@ func unverifiedPipeRequest(t *testing.T) (*Request, net.Conn) {
 func pipeRequest(t *testing.T) (*Request, net.Conn) {
 	t.Helper()
 	req, helper := unverifiedPipeRequest(t)
-	if _, err := req.Verify(fakeStepPid, 100, fakeOptions(fakeTree())); err != nil {
+	if _, err := verifyAgainst(t, req, fakeTree()); err != nil {
 		t.Fatalf("Verify = %v, want the fake helper verified", err)
 	}
 	return req, helper
@@ -571,7 +574,7 @@ func TestAskpassAnswerRequiresVerify(t *testing.T) {
 	h := tree[fakeHelperPid]
 	h.PPid = fakeCallerPid
 	tree[fakeHelperPid] = h
-	if _, err := req.Verify(fakeStepPid, 100, fakeOptions(tree)); err == nil {
+	if _, err := verifyAgainst(t, req, tree); err == nil {
 		t.Fatal("Verify passed a helper that sudo didn't start")
 	}
 	if _, err := req.Answer("secret"); !errors.Is(err, ErrUnverified) {
@@ -586,7 +589,7 @@ func TestAskpassAnswerRequiresVerify(t *testing.T) {
 	case <-time.After(50 * time.Millisecond): // still open, nothing written
 	}
 
-	if _, err := req.Verify(fakeStepPid, 100, fakeOptions(fakeTree())); err != nil {
+	if _, err := verifyAgainst(t, req, fakeTree()); err != nil {
 		t.Fatalf("Verify = %v, want the fake helper verified", err)
 	}
 	if _, err := req.Answer("secret"); err != nil {
@@ -597,16 +600,19 @@ func TestAskpassAnswerRequiresVerify(t *testing.T) {
 	}
 }
 
-// TestNewTestRequestIsUnverified: the test-only constructor hands out a
-// request that Answer still refuses until Verify passes it.
-func TestNewTestRequestIsUnverified(t *testing.T) {
+// TestSeamRequestIsUnverified: the constructor privtest reaches through seam
+// hands out a request that Answer still refuses until Verify passes it.
+func TestSeamRequestIsUnverified(t *testing.T) {
 	dir := shimAuth(t, 0, 0, "") // never the real su, should Answer get that far
 	ours, helper := net.Pipe()
 	defer ours.Close()
 	defer helper.Close()
 	helper.SetDeadline(time.Now().Add(askpassTimeout))
 	go io.Copy(io.Discard, helper) // a wrong answer must not block on the pipe
-	req := NewTestRequest(ours, "p", helperPeer())
+	req := seam.NewRequest(ours, "p", fakeHelperPid, fakeUID, 400).(*Request)
+	if req.Peer != helperPeer() {
+		t.Fatalf("Peer = %+v, want %+v", req.Peer, helperPeer())
+	}
 	if _, err := req.Answer("secret"); !errors.Is(err, ErrUnverified) {
 		t.Fatalf("Answer = %v, want ErrUnverified", err)
 	}

@@ -6,7 +6,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/privilege"
-	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
@@ -57,7 +56,7 @@ func startAskpassServer() *privilege.Server {
 	if err != nil {
 		return nil
 	}
-	s, err := privilege.Listen(os.Getenv("XDG_RUNTIME_DIR"), exe, privilege.ServerOptions{ReadProc: readProc})
+	s, err := privilege.Listen(os.Getenv("XDG_RUNTIME_DIR"), exe, privilege.ServerOptions{})
 	if err != nil {
 		return nil
 	}
@@ -76,14 +75,6 @@ func stopAskpassServer(s *privilege.Server) {
 	}
 }
 
-// ourUID is the uid an askpass peer must run as. A var so tests can pin it
-// instead of depending on who runs the suite.
-var ourUID = os.Getuid
-
-// readProc looks a process up in /proc, for the askpass server and the peer
-// check. A var so tests can stand in a fake process table.
-var readProc = proc.Read
-
 // askpassRequester is who the open askpass request came from, for the popup.
 type askpassRequester struct {
 	step      string // title of the running step it belongs to
@@ -92,10 +83,10 @@ type askpassRequester struct {
 	prompt    string // sudo's prompt, sanitized; untrusted (sudo -p sets it)
 }
 
-// verifyAskpassPeer runs req.Verify against the package's seams. Only a
-// request it passed can be answered (Request.Answer refuses any other).
+// verifyAskpassPeer runs req.Verify for the running step. Only a request it
+// passed can be answered (Request.Answer refuses any other).
 func verifyAskpassPeer(req *privilege.Request, stepPid int, stepStart uint64) (askpassRequester, error) {
-	from, err := req.Verify(stepPid, stepStart, privilege.VerifyOptions{UID: ourUID, ReadProc: readProc})
+	from, err := req.Verify(stepPid, stepStart)
 	if err != nil {
 		return askpassRequester{}, err
 	}

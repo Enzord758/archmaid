@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/privilege/internal/seam"
 	"github.com/Enzord758/archmaid/internal/proc"
 )
 
@@ -12,8 +13,8 @@ import (
 // to the socket — under topgrade that includes every AUR build script — so a
 // request is answered only when it comes from archmaid's own helper, run by
 // sudo, inside the running step's process tree. Verify reads /proc through
-// VerifyOptions.ReadProc, so these tests stand in a fake process table: wrong
-// uid, wrong binary, a parent that isn't sudo, a chain that never reaches the
+// sys.readProc, so these tests stand in a fake process table: wrong uid,
+// wrong binary, a parent that isn't sudo, a chain that never reaches the
 // step, reused pids.
 
 // Fake pids sit above the kernel's PID_MAX_LIMIT (2^22), so none can name a
@@ -46,17 +47,25 @@ func fakeTree() map[int]proc.Info {
 }
 
 // fakeOptions verifies against tree as fakeUID running fakeExe.
-func fakeOptions(tree map[int]proc.Info) VerifyOptions {
-	return VerifyOptions{
-		UID: func() int { return fakeUID },
-		Exe: fakeExe,
-		ReadProc: func(pid int) (proc.Info, error) {
+func fakeOptions(tree map[int]proc.Info) system {
+	return system{
+		uid: func() int { return fakeUID },
+		exe: fakeExe,
+		readProc: func(pid int) (proc.Info, error) {
 			if p, ok := tree[pid]; ok {
 				return p, nil
 			}
 			return proc.Info{}, os.ErrNotExist
 		},
 	}
+}
+
+// verifyAgainst runs req.Verify for the fake step with tree as /proc, as
+// fakeUID running fakeExe.
+func verifyAgainst(t *testing.T, req *Request, tree map[int]proc.Info) (Requester, error) {
+	t.Helper()
+	defer setSystem(fakeOptions(tree))()
+	return req.Verify(fakeStepPid, 100)
 }
 
 // helperPeer is the helper as the server records it at accept.
@@ -97,8 +106,8 @@ func TestPeerVerify(t *testing.T) {
 		// yay exits between the walk and the caller lookup: still ours,
 		// with no binary to name.
 		o := fakeOptions(fakeTree())
-		read, reads := o.ReadProc, 0
-		o.ReadProc = func(pid int) (proc.Info, error) {
+		read, reads := o.readProc, 0
+		o.readProc = func(pid int) (proc.Info, error) {
 			if pid == fakeCallerPid {
 				if reads++; reads > 1 {
 					return proc.Info{}, os.ErrNotExist
@@ -191,18 +200,30 @@ func TestPeerVerifyChainBounded(t *testing.T) {
 	}
 }
 
-// TestPeerVerifyDefaults: with zero VerifyOptions Verify uses the real uid, our
-// own binary and the real /proc — so our own process, which isn't run by
-// sudo, is refused for that, not for its uid or binary.
+// TestPeerVerifyDefaults: outside tests the system is the real one, so
+// Request.Verify uses the real uid, our own binary and the real /proc — and
+// our own process, which isn't run by sudo, is refused for that, not for its
+// uid or binary. seam.SetSystem swaps it only until its restore runs.
 func TestPeerVerifyDefaults(t *testing.T) {
+	if sys.uid != nil || sys.exe != "" || sys.readProc != nil {
+		t.Fatalf("sys = %+v, want the zero (real) system", sys)
+	}
 	self, err := proc.Read(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer := Peer{Pid: os.Getpid(), UID: os.Getuid(), Start: self.Start}
-	_, err = verifyPeer(peer, fakeStepPid, 100, VerifyOptions{})
-	if err == nil || !strings.Contains(err.Error(), "not started by sudo") {
+	req := newRequest(nil, "p", Peer{Pid: os.Getpid(), UID: os.Getuid(), Start: self.Start})
+	if _, err := req.Verify(fakeStepPid, 100); err == nil || !strings.Contains(err.Error(), "not started by sudo") {
 		t.Fatalf("Verify(self) = %v, want it refused as not started by sudo", err)
+	}
+
+	restore := seam.SetSystem(func() int { return fakeUID }, fakeExe, fakeOptions(fakeTree()).readProc)
+	if _, err := newRequest(nil, "p", helperPeer()).Verify(fakeStepPid, 100); err != nil {
+		t.Fatalf("Verify under seam.SetSystem = %v, want the fake helper verified", err)
+	}
+	restore()
+	if sys.uid != nil || sys.exe != "" || sys.readProc != nil {
+		t.Fatalf("after restore sys = %+v, want the zero (real) system", sys)
 	}
 }
 
