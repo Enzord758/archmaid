@@ -38,6 +38,8 @@ type Window struct {
 	// start, or the fallback table.
 	palette runview.Palette
 
+	// banner is the stub's StubBanner (nil on the real Driver).
+	banner  *adw.Banner
 	toasts  *adw.ToastOverlay
 	stack   *adw.ViewStack
 	stopBtn *gtk.Button
@@ -94,7 +96,7 @@ type stepRow struct {
 func newWindow(app *adw.Application, opts Options) *Window {
 	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*adw.AlertDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
-	w.win.SetTitle("archmaid")
+	w.win.SetTitle(w.title())
 	w.win.SetDefaultSize(960, 640)
 
 	w.stopBtn = gtk.NewButtonWithLabel("Stop")
@@ -166,7 +168,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	paned.SetPosition(340)
 	paned.SetShrinkStartChild(false)
 
-	w.status = gtk.NewLabel("Ready")
+	w.status = gtk.NewLabel(w.statusText())
 	w.status.SetXAlign(0)
 	w.status.AddCSSClass("dim-label")
 	w.status.SetMarginStart(12)
@@ -184,6 +186,12 @@ func newWindow(app *adw.Application, opts Options) *Window {
 
 	view := adw.NewToolbarView()
 	view.AddTopBar(header)
+	if opts.Stub {
+		// Always up: a demo must never pass for the real thing.
+		w.banner = adw.NewBanner(StubBanner)
+		w.banner.SetRevealed(true)
+		view.AddTopBar(w.banner)
+	}
 	view.SetContent(w.stack)
 	view.AddBottomBar(w.status)
 	w.toasts = adw.NewToastOverlay()
@@ -404,9 +412,20 @@ func (w *Window) output(remove int, add []string) {
 	}
 }
 
+// title is the window's title: "(stub)" marks a demo.
+func (w *Window) title() string {
+	if w.opts.Stub {
+		return "archmaid (stub)"
+	}
+	return "archmaid"
+}
+
 func (w *Window) statusText() string {
 	m := w.model
 	var parts []string
+	if w.opts.Stub {
+		parts = append(parts, "STUB")
+	}
 	switch {
 	case m.Stopped != "":
 		parts = append(parts, m.Stopped)

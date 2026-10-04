@@ -198,6 +198,15 @@ shim first on PATH), and the audit prefetch with a blocking fake
 consumes it (one lookup), and a declined gate or `Close` cancels and
 reaps it (`TestAuditPrefetch*`).
 
+The stub is only ever `--stub`: `TestParseLaunch` (plain Go) checks that
+`ARCHMAID_GUI_STUB` and any `ARCHMAID_GUI_SCRIPT` leave a launch without it
+on the real Driver and that an unknown script is refused; the stub
+scenarios check the banner, "(stub)" title and STUB status line, and
+`real-dry` their absence. `TestGUIStubOwnInstance` runs unique instances
+(flags 0) under a test-only app id on `headless.sh`'s private session bus:
+with a real window up, a stub launch gets its own window, while a second
+real launch hands its activation over.
+
 ```sh
 cd gui
 go test ./...                                     # runview; the display tests skip

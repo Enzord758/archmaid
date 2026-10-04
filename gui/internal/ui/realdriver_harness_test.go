@@ -242,6 +242,9 @@ func TestGUIRealDriver(t *testing.T) {
 				t.Errorf("row %s", r)
 			}
 		}
+		if rep.Banner != "" || rep.Title != "archmaid" || strings.Contains(rep.FirstStatus, "STUB") {
+			t.Errorf("the real Driver's window reads as the stub: banner %q title %q status %q", rep.Banner, rep.Title, rep.FirstStatus)
+		}
 		if !slices.Contains(rep.Rows, steps.IDOrphansRemove+"=ok") || !slices.Equal(rep.DriverOpts, []string{`dry=true downloads=""`, `dry=true downloads=""`}) {
 			t.Errorf("rows %q drivers %q", rep.Rows, rep.DriverOpts)
 		}

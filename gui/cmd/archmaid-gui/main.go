@@ -1,6 +1,6 @@
 // Command archmaid-gui is archmaid's GTK4/libadwaita front end. It drives
-// the real engine Driver on the polkit path; --stub (or ARCHMAID_GUI_STUB=1)
-// runs it on the stub Driver instead, which touches nothing.
+// the real engine Driver on the polkit path; only --stub runs it on the stub
+// Driver instead, which touches nothing (no environment variable does).
 package main
 
 import (

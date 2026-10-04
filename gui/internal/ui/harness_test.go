@@ -58,6 +58,9 @@ func TestMain(m *testing.M) {
 	if code, relayed := realdriver.Relay(os.Args[1:]); relayed {
 		os.Exit(code)
 	}
+	if mode := os.Getenv(envInstance); mode != "" {
+		os.Exit(runInstanceChild(mode))
+	}
 	if sc := os.Getenv("ARCHMAID_GUI_CHILD"); sc != "" {
 		os.Exit(runChild(sc, os.Getenv("ARCHMAID_GUI_REPORT")))
 	}
@@ -103,6 +106,9 @@ type report struct {
 	LogShown string   // the log opened, and its lines
 	LogLines []string
 	Notice   string
+	// The window's title, the stub's banner if revealed, and the status
+	// line, at the first frame.
+	Title, Banner, FirstStatus string
 	// Outcomes is every run's outcome, in order (real-runs runs several).
 	Outcomes []string
 	// Controls is the window's state right after the engine stopped
@@ -199,6 +205,8 @@ func runChild(scenario, path string) int {
 	if strings.HasPrefix(scenario, "real-") {
 		wiring = startRealWiring(fail)
 		opts.Engine = wiring.Options()
+	} else {
+		opts.Stub = true // as Main runs it for --stub
 	}
 	var sentMu sync.Mutex
 	var died atomic.Bool // engine-stops: the one Driver that dies has
@@ -246,6 +254,10 @@ func runChild(scenario, path string) int {
 							rep.Menu = append(rep.Menu, e.ID)
 						}
 						rep.LastRun = append([]string{w.lastRun.Title}, w.lastRun.Issues...)
+						rep.Title, rep.FirstStatus = w.win.Title(), w.status.Text()
+						if w.banner != nil && w.banner.Revealed() {
+							rep.Banner = w.banner.Title()
+						}
 						if scenario == "logs" {
 							browseLogs(w, rep, fail)
 							return
@@ -586,6 +598,10 @@ func TestGUIFullCleanup(t *testing.T) {
 		if !strings.HasSuffix(r, "=ok") {
 			t.Errorf("row %s", r)
 		}
+	}
+	// A stub window says so: the banner, the title, the status line.
+	if rep.Banner != StubBanner || rep.Title != "archmaid (stub)" || !strings.HasPrefix(rep.FirstStatus, "STUB · ") {
+		t.Errorf("banner %q title %q status %q: want the stub marked as a demo", rep.Banner, rep.Title, rep.FirstStatus)
 	}
 }
 
