@@ -148,7 +148,12 @@ comments and `git log`; this is the "read before you touch it" list.
   `internal/proc/detach.go`, which the guard exempts; `TestTUIDoesNotDetach`
   keeps the TUI off it. Under polkit the AUR-cache step (`yay -Sc`, which
   runs `sudo pacman -Sc`) is `NeedsPriv` without a Verb, like topgrade, so
-  it gets the askpass.
+  it gets the askpass. Since the children are detached, a terminal's
+  ctrl+c or hangup reaches only archmaid-gui, which treats SIGINT, SIGTERM
+  and SIGHUP as Stop and Quit (`gui/internal/ui/signals.go`): the run is
+  aborted and recorded, the groups stopped, and it exits with 128+signal. A
+  second signal exits at once, once `driver.Driver.Aborted` says the record
+  is written; what was still being stopped then gets no SIGKILL from us.
 - **Auth is two-stage (`privilege.Sudo.Authenticate`).** One wrong `sudo -S -v` burns *two*
   `pam_faillock` failures (the wrong password plus sudo's retry hitting EOF), and
   `sudo -A` burns two as well — with Arch's `deny=3`, one typo from lockout. So

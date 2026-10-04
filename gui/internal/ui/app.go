@@ -199,10 +199,17 @@ func Run(args []string, opts Options) int {
 		}
 		w.win.Present()
 	})
+	// SIGINT, SIGTERM and SIGHUP are Stop and Quit (signals.go): the run is
+	// aborted and recorded, its children stopped, then Run returns 128 +
+	// the signal's number.
+	sigs := catchSignals(app, &w)
 	code := app.Run(args)
 	if w != nil {
-		// app.Quit (or a signal) can end the loop with the window still up.
+		// app.Quit can end the loop with the window still up.
 		w.closeDriver()
+	}
+	if sig := sigs.stop(); sig != 0 {
+		return sig
 	}
 	return code
 }

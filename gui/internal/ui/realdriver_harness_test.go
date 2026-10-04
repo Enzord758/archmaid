@@ -132,14 +132,17 @@ func runsClock() func() time.Time {
 	return func() time.Time { return runsStart.Add(time.Duration(n.Add(1)) * time.Minute) }
 }
 
-// childStarted: for real-close and real-close-topgrade, the topgrade shim
-// has written its pid (so the parent can check it is gone); true for every
-// other scenario.
+// childStarted: for the scenarios that stop a hanging topgrade (real-close,
+// real-close-topgrade, real-sigint, real-sighup), the topgrade shim has
+// written its pid and its leftover's (so the parent can check both are
+// gone); true for every other scenario.
 func childStarted(scenario string) bool {
-	if scenario != "real-close" && scenario != "real-close-topgrade" {
+	switch scenario {
+	case "real-close", "real-close-topgrade", "real-sigint", "real-sighup", "real-sigint-twice":
+	default:
 		return true
 	}
-	_, err := os.Stat(filepath.Join(os.Getenv(envShims), "topgrade.pid"))
+	_, err := os.Stat(filepath.Join(os.Getenv(envShims), "topgrade.bg"))
 	return err == nil
 }
 
@@ -211,7 +214,9 @@ fi
 	case "sudo":
 		topgrade += "sudo pacman -Syu || exit 1\n"
 	case "hang":
-		topgrade += "exec sleep 30\n"
+		// It leaves a sleep behind that ignores SIGINT, as a tool's
+		// background helper might: stopping the step must take it too.
+		topgrade += "(trap '' INT; exec sleep 30) >/dev/null 2>&1 &\necho $! > " + q(dir+"/topgrade.bg") + "\nexec sleep 30\n"
 	}
 	yay := "#!/bin/sh\necho $$ > " + q(dir+"/yay.pid") + "\n"
 	if o.yay == "sudo" {
@@ -464,35 +469,105 @@ func TestGUIRealDriver(t *testing.T) {
 		}
 	})
 
-	t.Run("close-topgrade", func(t *testing.T) {
-		dir, env := installShims(t, shimOpts{topgrade: "hang"})
-		state := t.TempDir()
-		rep, _ := child(t, "real-close-topgrade", append(env, "ARCHMAID_GUI_STATE="+state)...)
-		if rep.Outcome != "" {
-			t.Errorf("the run finished (%q) before the window closed", rep.Outcome)
-		}
-		if pid := readLines(t, filepath.Join(dir, "topgrade.pid")); len(pid) != 1 {
-			t.Fatalf("topgrade shim pid %q: it never started", pid)
-		}
-		r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
-		if err != nil || r.Action != actions.IDTopgrade || r.Outcome != "aborted" || r.DryRun {
-			t.Errorf("last-run.json after Stop and Quit: %+v, %v; want topgrade aborted", r, err)
-		}
-		var runs []string
-		ents, err := os.ReadDir(state)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, e := range ents {
-			if e.IsDir() {
-				runs = append(runs, e.Name())
+	// Run topgrade, then end the GUI mid-topgrade: with Stop and Quit, or
+	// with SIGINT (ctrl+c in the terminal it was started from) or SIGHUP
+	// (that terminal closing), which are Stop and Quit too. Each time
+	// last-run.json says topgrade was aborted, the run's folder holds what
+	// it logged (the audit), and neither the topgrade shim nor what it left
+	// running (a sleep that ignores SIGINT) outlives the GUI.
+	for _, tc := range []struct{ name, scenario string }{
+		{"close-topgrade", "real-close-topgrade"},
+		{"sigint", "real-sigint"},
+		{"sighup", "real-sighup"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, env := installShims(t, shimOpts{topgrade: "hang"})
+			state := t.TempDir()
+			rep, _ := child(t, tc.scenario, append(env, "ARCHMAID_GUI_STATE="+state)...)
+			if rep.Outcome != "" {
+				t.Errorf("the run finished (%q) before the GUI was ended", rep.Outcome)
 			}
+			pids := append(readLines(t, filepath.Join(dir, "topgrade.pid")), readLines(t, filepath.Join(dir, "topgrade.bg"))...)
+			if len(pids) != 2 {
+				t.Fatalf("topgrade shim and leftover pids %q: they never started", pids)
+			}
+			for _, p := range pids {
+				if n, _ := strconv.Atoi(p); !ended(n) {
+					t.Errorf("pid %d (topgrade shim or its leftover) outlived the GUI", n)
+				}
+			}
+			r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
+			if err != nil || r.Action != actions.IDTopgrade || r.Outcome != "aborted" || r.DryRun {
+				t.Errorf("last-run.json: %+v, %v; want topgrade aborted", r, err)
+			}
+			var runs []string
+			ents, err := os.ReadDir(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, e := range ents {
+				if e.IsDir() {
+					runs = append(runs, e.Name())
+				}
+			}
+			if len(runs) != 1 {
+				t.Errorf("run folders %q, want the aborted run's", runs)
+			}
+			t.Logf("last-run.json: %+v; run folders %q", r, runs)
+		})
+	}
+}
+
+// A second SIGINT while the first one's Stop and Quit is still stopping
+// topgrade exits at once (130, no report: the window never finished
+// closing), but only after the aborted record is written.
+func TestGUISignalTwice(t *testing.T) {
+	needDisplay(t)
+	dir, env := installShims(t, shimOpts{topgrade: "hang"})
+	state := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(append(os.Environ(), "ARCHMAID_GUI_CHILD=real-sigint-twice",
+		"ARCHMAID_GUI_REPORT="+filepath.Join(t.TempDir(), "report.json"), "ARCHMAID_GUI_STATE="+state), env...)
+	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	var err error
+	select {
+	case err = <-done:
+	case <-time.After(60 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("child still running after 60s")
+	}
+	// The exit came before the leftover's grace ran out: it may still
+	// run, so it goes now.
+	for _, p := range readLines(t, filepath.Join(dir, "topgrade.bg")) {
+		if n, _ := strconv.Atoi(p); n > 0 {
+			_ = syscall.Kill(n, syscall.SIGKILL)
 		}
-		if len(runs) != 1 {
-			t.Errorf("run folders %q, want the aborted run's", runs)
-		}
-		t.Logf("last-run.json: %+v; run folders %q", r, runs)
-	})
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 128+int(syscall.SIGINT) {
+		t.Fatalf("child: %v; want exit status %d (the second SIGINT's, at once)", err, 128+int(syscall.SIGINT))
+	}
+	r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
+	if err != nil || r.Action != actions.IDTopgrade || r.Outcome != "aborted" {
+		t.Errorf("last-run.json: %+v, %v; want topgrade aborted, written before the exit", r, err)
+	}
+}
+
+// ended: pid is gone, or a zombie (its parent, the test binary as
+// subreaper, hasn't reaped it).
+func ended(pid int) bool {
+	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return true
+	}
+	s := string(b)
+	f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+	return len(f) > 0 && f[0] == "Z"
 }
 
 // withTerminal gives the child a controlling terminal, as archmaid-gui

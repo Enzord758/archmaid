@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -135,6 +136,9 @@ type countingDriver struct {
 
 func (d countingDriver) Close() { d.closes.Add(1); d.Driver.Close() }
 
+// Aborted passes the real Driver's through (signals.go waits for it).
+func (d countingDriver) Aborted() <-chan struct{} { return abortedOf(d.Driver) }
+
 func (d countingDriver) Send(c engine.Command) bool {
 	var s string
 	switch c := c.(type) {
@@ -208,6 +212,8 @@ func runChild(scenario, path string) int {
 	case "real-askpass-cancel":
 		action, cancelPassword = actions.IDTopgrade, true
 	case "real-close-topgrade": // Run topgrade, then Stop and Quit mid-topgrade
+		action = actions.IDTopgrade
+	case "real-sigint", "real-sighup", "real-sigint-twice": // Run topgrade, then the signal mid-topgrade
 		action = actions.IDTopgrade
 	default:
 		fail("unknown scenario %q", scenario)
@@ -361,6 +367,28 @@ func runChild(scenario, path string) int {
 				case "stop":
 					stopped = true
 					w.stopBtn.Emit("clicked")
+				case "real-sigint", "real-sighup", "real-sigint-twice":
+					// As from the terminal or a kill: to this process,
+					// the GUI's, by the kernel.
+					stopped = true
+					sig := syscall.SIGINT
+					if scenario == "real-sighup" {
+						sig = syscall.SIGHUP
+					}
+					if err := syscall.Kill(os.Getpid(), sig); err != nil {
+						fail("kill: %v", err)
+					}
+					if scenario == "real-sigint-twice" {
+						// ctrl+c again while the first one's teardown
+						// waits out the leftover's grace: the process
+						// exits as soon as the record is written, with
+						// no report. (Later, not back to back: two
+						// SIGINTs pending at once are one.)
+						go func() {
+							time.Sleep(20 * time.Millisecond)
+							_ = syscall.Kill(os.Getpid(), sig)
+						}()
+					}
 				case "close-midrun", "real-close", "real-close-topgrade":
 					stopped = true
 					w.win.Close()
@@ -394,7 +422,8 @@ func runChild(scenario, path string) int {
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
 				})
-				if scenario == "close-midrun" || scenario == "real-close" || scenario == "real-close-topgrade" {
+				switch scenario {
+				case "close-midrun", "real-close", "real-close-topgrade", "real-sigint", "real-sighup", "real-sigint-twice":
 					fail("the run finished before the window closed")
 				}
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
@@ -446,8 +475,15 @@ func runChild(scenario, path string) int {
 	if err := goleak.Find(ignore); err != nil {
 		rep.Leaked = err.Error()
 	}
-	if code != 0 {
-		fail("exit status %d", code)
+	want := 0
+	switch scenario {
+	case "real-sigint":
+		want = 128 + int(syscall.SIGINT)
+	case "real-sighup":
+		want = 128 + int(syscall.SIGHUP)
+	}
+	if code != want {
+		fail("exit status %d, want %d", code, want)
 	}
 	b, _ := json.Marshal(rep)
 	if err := os.WriteFile(path, b, 0o600); err != nil {
