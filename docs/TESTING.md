@@ -168,6 +168,9 @@ and `yay` are shims. The faillock count, the orphan plan and the
 foreign-package list (so no `pacman` and no AUR request) are fakes, and the
 child's privilege view of `/proc` (`privtest.FakeSystem`) shows the sudo
 shim as `/usr/bin/sudo`, so `Request.Verify` walks the real process tree.
+The helper isn't installed in CI, so the child points `helperclient.Run`'s
+install check at an empty stand-in in the shim dir
+(`helpertest.UseHelperFile`); pkexec still gets the real install path.
 `real-dry` (Full Cleanup as the Settings page's dry run: no shim runs),
 `real-refused` (paccache's dialog refused: "Not authorised", the run goes on;
 the other helper steps show "Waiting for authorisation…" with the
@@ -435,6 +438,11 @@ over a `net.Pipe`), which reaches privilege through the internal `seam`
 package. The TUI's `fakeProcs` is `privtest.FakeSystem`. No production
 caller can hand Verify a process table, and `privtest` panics outside a
 test binary; `scripts/check.sh` fails if a binary links `testing`.
+`internal/helperclient/helpertest` is the same pattern for `helperclient.Run`'s
+install check (`UseHelperFile`, through `helperclient/internal/seam`): it
+moves only the file the check stats, never the `pkexec` argv, which always
+names `HelperPath` (polkit's `exec.path`). helperclient's own tests use
+`export_test.go`.
 
 ## Recipes
 

@@ -28,6 +28,7 @@ import (
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/helperclient"
+	"github.com/Enzord758/archmaid/internal/helperclient/helpertest"
 	"github.com/Enzord758/archmaid/internal/privilege/privtest"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -39,6 +40,10 @@ const (
 	envFaillock = "ARCHMAID_GUI_FAILLOCK" // "", "last" or "locked"
 	shimPw      = "hunter2"               // what the su shim takes
 )
+
+// helperStandIn is the empty file in the shim dir that Run's install check
+// finds (helpertest.UseHelperFile); nothing runs it.
+const helperStandIn = "archmaid-helper"
 
 // childTB is enough of a testing.TB for privtest.FakeSystem in the child,
 // which runs its scenario from TestMain, outside any test.
@@ -77,6 +82,9 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 		}
 		return in, err
 	})
+	// The helper isn't installed here: Run's install check stats installShims'
+	// stand-in instead (pkexec still names helperclient.HelperPath).
+	helpertest.UseHelperFile(&fakeTB, filepath.Join(shims, helperStandIn))
 	direct, cascade := []string{"oldlib"}, []string{"oldlib 1.0-1"}
 	lock := engine.FaillockRead{Deny: 3}
 	switch os.Getenv(envFaillock) {
@@ -159,6 +167,9 @@ fi
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, helperStandIn), nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	return dir, []string{envShims + "=" + dir, "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")}
 }
