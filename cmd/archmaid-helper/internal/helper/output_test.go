@@ -31,6 +31,24 @@ func TestSanitize(t *testing.T) {
 		{"unterminated \x1b[31", "unterminated "},
 		{"trailing esc\x1b", "trailing esc"},
 	}
+	// Invisible characters that can reorder, hide or fake text.
+	for _, r := range []rune{
+		0x200b, 0x200c, 0x200d, 0x200e, 0x200f, // zero-width space/joiners, LRM/RLM
+		0x061c,                                 // Arabic letter mark
+		0xfeff,                                 // BOM / zero-width no-break space
+		0x2060, 0x2061, 0x2062, 0x2063, 0x2064, // word joiner, invisible operators
+		0x202a, 0x202b, 0x202c, 0x202d, 0x202e, // bidi embeddings/overrides
+		0x2066, 0x2067, 0x2068, 0x2069, // bidi isolates
+		0xe0000, 0xe0001, 0xe0020, 0xe0041, 0xe007f, // tag block
+		0x2028, 0x2029, // line/paragraph separators
+		0x115f, 0x1160, 0x3164, 0xffa0, // Hangul fillers
+	} {
+		cases = append(cases, struct{ in, want string }{"a" + string(r) + "b", "ab"})
+	}
+	// Visible neighbours survive.
+	for _, s := range []string{"æ", "‐", "ㅣ", "ﾡ", "\U0001f600", "中"} {
+		cases = append(cases, struct{ in, want string }{s, s})
+	}
 	for _, c := range cases {
 		if got := Sanitize(c.in); got != c.want {
 			t.Errorf("Sanitize(%q) = %q, want %q", c.in, got, c.want)

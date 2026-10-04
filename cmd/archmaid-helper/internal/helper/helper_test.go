@@ -138,6 +138,52 @@ func TestPlanOrphans(t *testing.T) {
 	}
 }
 
+func TestPlanOrphansAllowsUppercaseLocalPackages(t *testing.T) {
+	f := orphanFake("MyTool-git\n", "MyTool-git r12.abc-1\nlibFoo 1.0-1\n")
+	p, err := ComputePlan(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(p.Targets, []string{"MyTool-git"}) || len(p.Items) != 2 {
+		t.Errorf("plan = %+v", p)
+	}
+}
+
+// TestPlanOrphansAsRoot: plan-orphans needs no root, but run as root it must
+// be the installed binary like every other root run.
+func TestPlanOrphansAsRoot(t *testing.T) {
+	t.Run("installed", func(t *testing.T) {
+		o, out := rootOpts(t, orphanFake("", ""))
+		if code := Run([]string{"plan-orphans"}, o); code != ExitOK {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+	})
+	for name, mutate := range map[string]func(o *Options){
+		"wrong path":      func(o *Options) { o.Exe = func() (string, error) { return "/tmp/archmaid-helper", nil } },
+		"no install seam": func(o *Options) { o.Exe = nil },
+		"user-owned": func(o *Options) {
+			o.Stat = func(p string) (FileStat, error) {
+				if p == InstallPath {
+					return FileStat{Uid: 1000, Mode: 0o755}, nil
+				}
+				return rootStat(p)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := orphanFake("a\n", "a 1-1\n")
+			o, out := rootOpts(t, f)
+			mutate(&o)
+			if code := Run([]string{"plan-orphans"}, o); code != ExitRefused {
+				t.Fatalf("exit %d, want 4:\n%s", code, out)
+			}
+			if len(f.queries) != 0 {
+				t.Errorf("ran %q", f.queries)
+			}
+		})
+	}
+}
+
 func TestPlanHashIsOrderIndependentAndCommitsToCascade(t *testing.T) {
 	a := PlanHash([]string{"x", "y"}, []string{"x 1-1", "y 1-1"})
 	if b := PlanHash([]string{"y", "x"}, []string{"y 1-1", "x 1-1"}); a != b {
@@ -260,7 +306,8 @@ func TestRepairValidation(t *testing.T) {
 		"too many":   many,
 		"flag":       {"--overwrite=*"},
 		"dash":       {"-foo"},
-		"upper":      {"Linux"},
+		"dot":        {".hidden"},
+		"non-ascii":  {"pakkæ"},
 		"slash repo": {"core/linux"},
 		"space":      {"a b"},
 		"empty":      {""},
@@ -278,7 +325,9 @@ func TestRepairValidation(t *testing.T) {
 			}
 		})
 	}
-	for _, ok := range []string{"a", "lib32-glibc", "gtk+", "c++utilities", "python3.12", "@scope", "_x", "0ad", strings.Repeat("a", 128)} {
+	for _, ok := range []string{"a", "lib32-glibc", "gtk+", "c++utilities", "python3.12", "@scope", "_x", "0ad", strings.Repeat("a", 128),
+		"Linux", "MyTool-git", "QtCreator", // uppercase: makepkg allows it for local builds
+	} {
 		if !namePattern.MatchString(ok) {
 			t.Errorf("%q should be a valid package name", ok)
 		}

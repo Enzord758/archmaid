@@ -29,7 +29,7 @@ const (
 
 // Input validation.
 var (
-	namePattern  = regexp.MustCompile(`^[a-z0-9@_+][a-z0-9@._+-]{0,127}$`)
+	namePattern  = regexp.MustCompile(`^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$`) // makepkg allows uppercase (local builds)
 	unitPattern  = regexp.MustCompile(`^[A-Za-z0-9:_.@-]{1,250}\.service$`)
 	hashPattern  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	keepPattern  = regexp.MustCompile(`^[1-9]$`)
@@ -134,8 +134,16 @@ func Run(args []string, o Options) int {
 	if o.Runner == nil {
 		return s.finish(ExitFailed, "no runner configured")
 	}
-	if v.root || o.Dev {
+	switch {
+	case v.root || o.Dev:
 		if err := checkPrivilege(o); err != nil {
+			return s.finish(ExitRefused, err.Error())
+		}
+	case o.Euid == 0:
+		// A verb that needs no root may still be run as root (pkexec's
+		// generic action, sudo). Then it must be the installed binary like
+		// any other root run, not a copy anyone could have written.
+		if err := CheckInstall(o.Exe, o.Stat); err != nil {
 			return s.finish(ExitRefused, err.Error())
 		}
 	}

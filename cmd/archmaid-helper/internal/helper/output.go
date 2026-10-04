@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -143,8 +144,9 @@ func sanitizeAll(in []string) []string {
 // Sanitize makes text safe to show in a terminal or GUI: ANSI/VT escape
 // sequences (CSI, OSC, DCS, APC, PM and two-byte ESC forms) are removed
 // whole, remaining C0/C1 control characters and DEL are dropped, a tab
-// becomes a space, invalid UTF-8 becomes U+FFFD, and Unicode bidi overrides
-// and line/paragraph separators (display-spoofing tools) are dropped.
+// becomes a space, invalid UTF-8 becomes U+FFFD, and invisible characters
+// that can reorder, hide or fake text are dropped (see invisible). It drops
+// what the TUI's sanitizer drops.
 func Sanitize(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -163,15 +165,30 @@ func Sanitize(s string) string {
 			b.WriteByte(' ')
 		case r < 0x20, r == 0x7f, r >= 0x80 && r <= 0x9f:
 			// C0, DEL, C1 (incl. the 8-bit CSI 0x9b): drop
-		case r == 0x2028, r == 0x2029,
-			r >= 0x202a && r <= 0x202e,
-			r >= 0x2066 && r <= 0x2069:
-			// line/paragraph separators, bidi embeddings/overrides/isolates
+		case invisible(r):
+			// reorders, hides or fakes text: drop
 		default:
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
+}
+
+// invisible reports whether r is a display-spoofing character: a Unicode
+// format character (category Cf: bidi embeddings, overrides, isolates and
+// marks, zero-width spaces and joiners, U+2060–2064, the BOM, tag
+// characters), any code point in the tag block U+E0000–E007F, the
+// line/paragraph separators U+2028/2029, or a Hangul filler (U+115F,
+// U+1160, U+3164, U+FFA0), which renders as blank space.
+func invisible(r rune) bool {
+	switch {
+	case unicode.Is(unicode.Cf, r),
+		r >= 0xe0000 && r <= 0xe007f,
+		r == 0x2028, r == 0x2029,
+		r == 0x115f, r == 0x1160, r == 0x3164, r == 0xffa0:
+		return true
+	}
+	return false
 }
 
 // skipEscape returns the index just past the escape sequence starting at

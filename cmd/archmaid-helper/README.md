@@ -22,9 +22,9 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `check-files` | `pacman -Qk` | none, read-only. Exit 1 from pacman means "missing files found", which is a result, not a failure | `…check-files` (keep) |
 | `paccache N` | `paccache -r -k N` | `N` ∈ `1`–`9` | `…paccache` (keep) |
 | `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
-| `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**. Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
+| `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
 | `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan; a mismatch emits the new plan and exits **3**, removing nothing | `…remove-orphans` (admin) |
-| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[a-z0-9@_+][a-z0-9@._+-]{0,127}$`; one bad name exits 2. Each package must be installed (`-Qq`), in a sync repo (`-Si`) and really missing files (`-Qk -- pkg`). Any other package is skipped and listed | `…repair` (keep) |
+| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Qq`), in a sync repo (`-Si`) and really missing files (`-Qk -- pkg`). Any other package is skipped and listed | `…repair` (keep) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
 | `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit exits **4**, and the whole request is refused. A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
@@ -112,9 +112,13 @@ on stderr.
 
 All text is sanitized. Whole ANSI/VT escape sequences are removed (CSI, OSC,
 DCS, APC, PM, SOS and the short ESC forms). C0/C1 control characters and DEL
-are dropped, a tab becomes a space, and invalid UTF-8 becomes U+FFFD. Bidi
-overrides and isolates and U+2028/2029 are dropped. Adding an optional field
-is not a schema break; changing or removing one bumps `v`.
+are dropped, a tab becomes a space, and invalid UTF-8 becomes U+FFFD.
+Invisible characters that can reorder, hide or fake text are dropped, the same
+set the TUI's sanitizer drops. These are Unicode format characters (category
+Cf: bidi embeddings, overrides, isolates and marks, zero-width spaces and
+joiners, U+2060–2064, the BOM), the whole tag block U+E0000–E007F, U+2028/2029
+and the Hangul fillers U+115F, U+1160, U+3164 and U+FFA0. Adding an optional
+field is not a schema break; changing or removing one bumps `v`.
 
 ## Exit codes
 
@@ -148,7 +152,9 @@ In order, before anything else:
    `PKEXEC_UID` or `SUDO_UID` must be a decimal uid; `/proc/self/exe` must be
    exactly `/usr/lib/archmaid/archmaid-helper`. That file and every parent up
    to `/` must be root-owned, not group- or other-writable, and not a symlink.
-   The binary must be a regular file without setuid/setgid.
+   The binary must be a regular file without setuid/setgid. `plan-orphans`
+   needs no root, but if it does run as root (sudo, or pkexec's generic
+   action), the install-path and ownership checks still apply.
 4. Validate input (exit 2), take the flock on `/run/archmaid-helper.lock`
    (exit 5), recompute state, then run.
 
