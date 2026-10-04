@@ -163,3 +163,25 @@ func TestEnvValidatePolkit(t *testing.T) {
 		t.Fatalf("Validate = %v: PlanOrphans named under sudo", err)
 	}
 }
+
+// TestYayCacheAskpassUnderPolkit: yay -Sc runs `sudo pacman -Sc` itself.
+// Under polkit (the GUI) it is NeedsPriv without a Verb, as topgrade is:
+// it runs as the user with the askpass, never through the helper. Under
+// sudo (the TUI) it stays as it was, on the primed ticket.
+func TestYayCacheAskpassUnderPolkit(t *testing.T) {
+	a, _ := ByID(IDFullCleanup)
+	for _, polkit := range []bool{false, true} {
+		env := testEnv(false)
+		env.Polkit = polkit
+		queue := a.Steps(env)
+		i := slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDYayCache })
+		if i < 0 {
+			t.Fatal("Full Cleanup has no AUR cache step")
+		}
+		st := queue[i]
+		if st.NeedsPriv != polkit || st.Verb != "" || st.Run != nil || st.Argv[0] != "yay" {
+			t.Errorf("polkit=%v: AUR cache step NeedsPriv=%v Verb=%q Argv=%q; want NeedsPriv=%v, no Verb, yay",
+				polkit, st.NeedsPriv, st.Verb, st.Argv, polkit)
+		}
+	}
+}

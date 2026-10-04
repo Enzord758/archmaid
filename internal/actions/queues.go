@@ -62,6 +62,12 @@ func fullCleanupSteps(env Env) []steps.Step {
 			ID:    steps.IDYayCache,
 			Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned",
 			Argv: []string{"yay", "-Sc", "--noconfirm"},
+			// yay runs `sudo pacman -Sc` itself. Under the TUI that sudo
+			// rides the primed ticket on its terminal; under polkit (the
+			// GUI) there is no ticket and no terminal, so it gets the
+			// askpass like topgrade: NeedsPriv without a Verb, run as the
+			// user with SUDO_ASKPASS, its prompt answered from the GUI.
+			NeedsPriv: env.Polkit,
 		},
 		// Temp files are aged out by the system's own tmpfiles.d rules (on
 		// Arch: /tmp after 10 days, /var/tmp after 30), not a hand-rolled
