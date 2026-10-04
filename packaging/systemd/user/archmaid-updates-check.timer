@@ -1,0 +1,11 @@
+[Unit]
+Description=Hourly pending-updates check for the archmaid bar widget
+
+[Timer]
+OnStartupSec=3min
+OnUnitActiveSec=1h
+RandomizedDelaySec=10min
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

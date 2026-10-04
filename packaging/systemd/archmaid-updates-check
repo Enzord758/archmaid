@@ -1,0 +1,33 @@
+#!/bin/sh
+# Counts pending pacman updates with checkupdates (pacman-contrib) and writes
+# the result for the archmaid DMS widget. Run by archmaid-updates-check.service
+# (a systemd USER unit) as the logged-in user: no root, no sudo. checkupdates
+# syncs its own temporary database, so the system's pacman db is not touched.
+#
+# Output: $XDG_STATE_HOME/archmaid/updates-cache.json (default
+# ~/.local/state/archmaid/), 0600, replaced atomically:
+#   {"v":1,"count":12,"checked":"2026-10-04T17:55:00+02:00"}
+# When checkupdates fails (offline, db locked) the old file is left as it is;
+# the widget treats a count older than 3 days as unknown.
+set -eu
+umask 077
+
+state="${XDG_STATE_HOME:-$HOME/.local/state}/archmaid"
+mkdir -p "$state"
+chmod 700 "$state"
+
+rc=0
+list="$(checkupdates)" || rc=$?
+case "$rc" in
+0) count="$(printf '%s\n' "$list" | grep -c . || true)" ;;
+2) count=0 ;; # checkupdates exits 2 when nothing is pending
+*)
+	echo "archmaid-updates-check: checkupdates failed (exit $rc), keeping the old file" >&2
+	exit 1
+	;;
+esac
+
+tmp="$(mktemp "$state/updates-cache.json.tmp.XXXXXX")"
+trap 'rm -f "$tmp"' EXIT
+printf '{"v":1,"count":%s,"checked":"%s"}\n' "$count" "$(date -Iseconds)" >"$tmp"
+mv -f "$tmp" "$state/updates-cache.json"

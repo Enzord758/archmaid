@@ -1,0 +1,14 @@
+[Unit]
+Description=Count pending pacman updates for the archmaid bar widget
+Documentation=https://github.com/Enzord758/archmaid
+# Network only matters for the sync; a failed run just keeps the old count.
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/archmaid/archmaid-updates-check
+# Read-only check run as the user; stay out of the way of the desktop.
+Nice=19
+IOSchedulingClass=idle
+TimeoutStartSec=5min
+NoNewPrivileges=yes
