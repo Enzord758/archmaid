@@ -1,6 +1,6 @@
 # Entry points for the checks CI runs. Run `make all` before pushing.
 #
-# One Go module at the repo root; the TUI is cmd/archmaid, the root helper
+# One Go module at the repo root; the TUI binary is cmd/archmaid (its code internal/tui), the root helper
 # cmd/archmaid-helper. The GUI is its own module in gui/ (gotk4 needs cgo and
 # GTK, so the root gate never builds it). Paths live ONLY in the variables
 # below (and in `env:` in the CI workflow), so update them in that one spot.

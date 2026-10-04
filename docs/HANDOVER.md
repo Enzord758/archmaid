@@ -14,12 +14,18 @@ end. The gate is `scripts/check.sh`: race tests, vet, gofmt and coverage
 floors (see `TESTING.md`). Verified live against a real Arch system: Full
 Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 
-## Code map (`cmd/archmaid/`, `package main`)
+## Code map (`cmd/archmaid/` `package main`, and `internal/tui/` `package tui`)
+
+`cmd/archmaid` is a thin main; everything else in this table is
+`internal/tui` (moved in P5 T1), the only package that may import
+charmbracelet (`check.sh` layering, which also bars every package under
+`cmd/` from importing it directly).
 
 | File | Owns |
 |---|---|
-| `main.go` | package doc + `main()`: `--askpass` dispatch to `privilege.RunClient`, `startup` (the askpass relay and flag parsing: `parseArgs`: `--dryrun`, `--downloads`, `--help`/`-h`; anything else exits 2 — it writes and deletes nothing), then the engine: `engine.New` with `actionEnv()`, the Driver from `newDriver` (handed the askpass server's requests), the model on it, `forwardEvents` into `tea.NewProgram`; after the program `Close`, `driverReports.flush` to stderr and `waitForDownloads` |
-| `adapter.go` | the TUI as an engine front end (E7): `newDriver` (`driver.New` with `driverDeps`: `privileged()`, `logs()`, `sigkillGrace`, `stepWaitDelay`, the askpass requests, `startPrefetch` and `driverReports.add`; the tests' `tuiDriverDeps` is the same), `forwardEvents`, `engineState` (the Driver and the open prompts' IDs), `applyEvents` (every Event → the model's state: checklist, screen, prompt, output pane, summary), `engineKey` (a key on a prompt → a Command: confirm, password, selection, report, abort), `openAskpass` (the askpass popup over whatever shows; the bg landmine below), and `reportLog` (what the Driver reports that no Event carries, printed after the program) |
+| `cmd/archmaid/main.go` | package doc + `main()`: `startup` (the `--askpass` relay to `privilege.RunClient`, and `parseArgs`, which returns the `flags`: `--dryrun`, `--downloads`, `--help`/`-h`; anything else exits 2 — it writes and deletes nothing), then through `internal/tui`'s API: `tui.Configure` with the flags, `engine.New` with `tui.ActionEnv()`, `tui.StartAskpass`, the Driver from `tui.NewDriver` (handed the askpass server's requests), `tui.Run`; after the program `Close`, then `tui.Finish` (the Driver's reports to stderr, `waitForDownloads`) |
+| `tui.go` | the package doc and the API main calls: `Configure`, `ActionEnv`, `StartAskpass`/`StopAskpass`, `NewDriver`, `Run` (the model on the Driver, `forwardEvents` into `tea.NewProgram`), `Finish` |
+| `adapter.go` | the TUI as an engine front end (E7): `newDriver` (`driver.New` with `driverDeps`: `privileged()`, `logs()`, `sigkillGrace`, `stepWaitDelay`, the askpass requests, `startPrefetch` and `driverReports.add`; the tests' `tuiDriverDeps` is the same), `forwardEvents` (then `engineStoppedMsg` once Events closes: a Driver that closed on its own — a Session panic — gets a notice with the newest report's first line, and any key quits), `engineState` (the Driver and the open prompts' IDs), `applyEvents` (every Event → the model's state: checklist, screen, prompt, output pane, summary), `engineKey` (a key on a prompt → a Command: confirm, password, selection, report, abort), `openAskpass` (the askpass popup over whatever shows; the bg landmine below), and `reportLog` (what the Driver reports that no Event carries, printed after the program) |
 | `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `deleteOldDownloads` (the in-process step's `Run`, abort logging), `waitForDownloads`; the discovery is `internal/actions` |
 | `internal/downloads` | the resolver (`Resolve(Options)`), `Scan(dir, now, Options) Plan`, `Plan.Confirm()`, `Delete(ctx, Plan, Options) (Result, error)`; ctime, Lstat, `os.Root`, the mountinfo boundary and the per-node re-check; no UI, no logging, no env reads |
 | `model.go` | screens, the `model` struct (what the Events left it showing, plus the TUI's own menu, log viewer and pane state), `initialModel`, `Init` (the menu is `actions.Menu`) |
@@ -469,7 +475,7 @@ comments and `git log`; this is the "read before you touch it" list.
   so a background process the child left holding stdout can't keep it
   "running" — no process-group change needed (see the `Setsid` landmine).
 - **The engine's Session is held to the TUI's transcripts.** `sessionTarget`
-  (`cmd/archmaid/transcript_session_test.go`) replays the transcript scenarios
+  (`internal/tui/transcript_session_test.go`) replays the transcript scenarios
   through an `engine.Session`, playing its Effects against the same shims, and
   compares with the goldens the TUI records (through `tuiEngineTarget`, the
   TUI's model on a `syncDriver`), byte for byte; `driverTarget` does the same

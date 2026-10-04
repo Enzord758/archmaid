@@ -31,7 +31,7 @@ Every commit must pass it. In order, it runs `go test -race -count=3 ./...`
 (three runs to shake out flakes), `go vet ./...`, the `gofmt -l .` check, the
 layering check (nothing under `internal/` imports charmbracelet), then a
 coverage run into a temporary profile (removed on exit) and enforces the floors
-set at the top of the script: `MIN_TOTAL` for `cmd/archmaid` plus `internal/...`
+set at the top of the script: `MIN_TOTAL` for `cmd/archmaid` plus `internal/...` (the TUI is `internal/tui`)
 together, and `MIN_ASKPASS` for `internal/privilege/askpass.go` (matched by
 that path suffix), which carries the sudo password. Per-file
 coverage is computed from the profile itself. When coverage rises, raise the
@@ -295,11 +295,11 @@ sudo. See "Manual verification".
 # all from the repo root, the Go module root
 go test -race ./...                 # the quick loop — must be green
 go vet ./... && gofmt -l .          # must print nothing
-go test -run TestAbort ./cmd/archmaid   # a subset by name
-go test ./cmd/archmaid -run Golden -update   # regenerate goldens after a deliberate UI change
-go test -run TestTranscript ./cmd/archmaid   # the transcripts; -update-transcripts rewrites them
-go test -run '^$' -bench StreamView -benchmem ./cmd/archmaid   # UI cost of streaming 5k / 20k lines
-ARCHMAID_PERF_GUARD=1 go test -run TestPerfGuard -v ./cmd/archmaid   # the opt-in perf guard alone
+go test -run TestAbort ./internal/tui   # a subset by name
+go test ./internal/tui -run Golden -update   # regenerate goldens after a deliberate UI change
+go test -run TestTranscript ./internal/tui   # the transcripts; -update-transcripts rewrites them
+go test -run '^$' -bench StreamView -benchmem ./internal/tui   # UI cost of streaming 5k / 20k lines
+ARCHMAID_PERF_GUARD=1 go test -run TestPerfGuard -v ./internal/tui   # the opt-in perf guard alone
 bash cmd/archmaid/e2e/run.sh        # VHS e2e (needs vhs, ttyd, ffmpeg)
 go build -o archmaid ./cmd/archmaid && s="$(mktemp -d)" && HOME="$s" XDG_STATE_HOME="$s/.local/state" ./archmaid --dryrun   # manual poke under a scratch HOME (ground rule 8); logs go to $s/.local/state/archmaid/dryrun/
 scripts/state-guard.sh snapshot > /tmp/before && scripts/state-guard.sh compare /tmp/before   # the real-state-dir guard by hand
@@ -467,7 +467,7 @@ the server's URL and `config(t, url, pkgs...)` a `Config` with the snapshot in
 a temp dir and the log collected.
 
 **Add or change a golden.** Write the test, run
-`go test ./cmd/archmaid -run Golden -update`, then **read the diff** — it should be
+`go test ./internal/tui -run Golden -update`, then **read the diff** — it should be
 exactly the change you intended — before committing the `.golden` file. Prefer
 a direct frame (`viewGolden(t, m)` on a `sizedModel()`, see `golden_test.go`):
 a live teatest program ticks the spinner and the input cursor, so its frames
@@ -487,7 +487,7 @@ on the done's wait status (see `internal/proc/stop_test.go`,
 watcher, golden compare; the TUI's target is `tuiEngineTarget` in
 `transcript_engine_test.go`); `transcript_scenarios_test.go` holds the
 scenarios, each a menu action recorded to
-`cmd/archmaid/testdata/transcripts/<action>_<case>.<mode>.golden` — `.dryrun` under
+`internal/tui/testdata/transcripts/<action>_<case>.<mode>.golden` — `.dryrun` under
 `dryRun`, `.shim` run for real against shims. They characterize today's
 behaviour, bugs included: a fix that changes behaviour changes a golden, and
 the diff is the review.
@@ -498,11 +498,11 @@ The vocabulary is `internal/engine`'s events projected down: the
 `SnapshotChanged` stay the harness's own observations.
 
 ```sh
-go test -run TestTranscript ./cmd/archmaid                       # compare, through the TUI and the Session
-go test -run TestTranscriptSession ./cmd/archmaid                # the Session only (skips say what it can't run yet)
-go test -run 'TestTranscript/fullcleanup_' ./cmd/archmaid        # a subset
-go test -run TestTranscript ./cmd/archmaid -update-transcripts   # rewrite, then read the diff
-go test -race -count=5 -run Transcript ./cmd/archmaid            # must stay deterministic
+go test -run TestTranscript ./internal/tui                       # compare, through the TUI and the Session
+go test -run TestTranscriptSession ./internal/tui                # the Session only (skips say what it can't run yet)
+go test -run 'TestTranscript/fullcleanup_' ./internal/tui        # a subset
+go test -run TestTranscript ./internal/tui -update-transcripts   # rewrite, then read the diff
+go test -race -count=5 -run Transcript ./internal/tui            # must stay deterministic
 ```
 
 **Format.** One event per line, `<kind padded to 5> <fields>`:

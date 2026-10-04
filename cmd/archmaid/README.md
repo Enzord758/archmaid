@@ -165,7 +165,7 @@ Needs Go (`pacman -S go`).
 cd ../..        # repo root: the Go module root
 go mod tidy   # resolve the dependency graph + go.sum
 go build -o archmaid ./cmd/archmaid
-go test ./cmd/archmaid  # unit tests: dry-run safety, sudo retries, screen routing
+go test ./internal/tui ./cmd/archmaid  # unit tests: dry-run safety, sudo retries, screen routing
 go run ./cmd/archmaid --dryrun
 ```
 
