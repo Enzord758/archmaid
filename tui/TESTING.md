@@ -47,6 +47,21 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 | `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (opt-in perf guard; a no-op extra until check.sh reads it) |
 | `make all` | `gate` + `helper-test` — run before pushing |
 
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request; a newer push to
+the same ref cancels the older run. Paths are in the workflow's `env:` block.
+
+| Job | Where | Runs |
+|---|---|---|
+| `core` | `archlinux:latest` container (some discovery tests expect Arch tooling) | `make all`: the gate plus the helper module. Go build and module caches keyed on `go.sum` and the Go version. |
+| `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `tui/e2e/*.txt` as an artifact on failure. |
+| `gui` | not yet | Placeholder in the workflow: headless weston, once the GUI module exists. |
+
+Stays manual (not in CI): a real Full Cleanup, sudo/faillock behaviour, the
+polkit live test on a scratch user, sudo without a tty, and askpass against real
+sudo. See "Manual verification".
+
 ## Running
 
 ```sh
