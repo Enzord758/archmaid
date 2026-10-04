@@ -35,7 +35,9 @@ set at the top of the script: `MIN_TOTAL` for `cmd/archmaid` plus `internal/...`
 together, and `MIN_ASKPASS` for `internal/privilege/askpass.go` (matched by
 that path suffix), which carries the sudo password. Per-file
 coverage is computed from the profile itself. When coverage rises, raise the
-floor in the same commit; never lower one to make a change pass.
+floor in the same commit; never lower one to make a change pass. Around all
+of that, `scripts/state-guard.sh` snapshots the real state dir first and
+compares it last (ground rule 8); a change fails the gate.
 
 ### Perf guard (opt-in)
 
@@ -128,7 +130,8 @@ go test -run TestTranscript ./cmd/archmaid   # the transcripts; -update-transcri
 go test -run '^$' -bench StreamView -benchmem ./cmd/archmaid   # UI cost of streaming 5k / 20k lines
 ARCHMAID_PERF_GUARD=1 go test -run TestPerfGuard -v ./cmd/archmaid   # the opt-in perf guard alone
 bash cmd/archmaid/e2e/run.sh        # VHS e2e (needs vhs, ttyd, ffmpeg)
-go build -o archmaid ./cmd/archmaid && ./archmaid --dryrun   # manual poke; logs go to ~/.local/state/archmaid/dryrun/
+go build -o archmaid ./cmd/archmaid && s="$(mktemp -d)" && HOME="$s" XDG_STATE_HOME="$s/.local/state" ./archmaid --dryrun   # manual poke under a scratch HOME (ground rule 8); logs go to $s/.local/state/archmaid/dryrun/
+scripts/state-guard.sh snapshot > /tmp/before && scripts/state-guard.sh compare /tmp/before   # the real-state-dir guard by hand
 ```
 
 A binary built into `cmd/archmaid/` is gitignored; the ones above land in the repo root, so delete them when done.
@@ -196,6 +199,21 @@ test can delete your files or need root.
    its goroutine when the test ends. A test that calls `startAuditFetch`
    itself reaps it the same way; the transcript driver awaits each fetch
    right after the `Update` that started it.
+8. **Never start the binary against the real HOME — not even `--help`.** A
+   real run folder was lost this way (HANDOVER.md, "Nothing deletes run
+   history at startup"). Any `archmaid` you start — a manual poke, a VHS
+   tape, a test that execs it, an agent checking a flag — gets a scratch
+   `HOME` and `XDG_STATE_HOME` (see "Running" and `e2e/run.sh`). The gate
+   enforces the result: `scripts/check.sh` and `make e2e` snapshot
+   `${XDG_STATE_HOME:-$HOME/.local/state}/archmaid` before they start
+   (`scripts/state-guard.sh`: recursive names, types, sizes and mtimes,
+   read-only) and FAIL with a diff if anything in it changed, even when
+   every test passed. A missing dir must still be missing. So don't run
+   archmaid for real while the gate runs, and never "fix" a guard failure by
+   re-snapshotting: find what wrote there. Startup itself must stay
+   side-effect free: `TestStartupDeletesNothing` runs `--dryrun`, `--help`,
+   bad flags and the askpass relay against a state dir holding
+   `logKeepRuns`+1 runs and fails if any is gone.
 
 ### Test seams
 
@@ -445,7 +463,7 @@ the names.
 | File | Pins |
 |---|---|
 | `internal/sanitize/*_test.go` | `String` for every escape/control/format-character class in both modes, the invalid-UTF-8 and CR behaviour, and the no-copy fast path (with benchmarks); `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName`. Pure unit tests, no UI. |
-| `internal/logstore/logstore_test.go` | The store itself: paths and the dryrun slot, reading creates nothing and reports `ErrEmpty`, 0700/0600 modes fresh and fixed up, entry format, plain-text logs (written and read back), `Prune` keeps the newest runs and spares `dryrun` and strays. |
+| `internal/logstore/logstore_test.go` | The store itself: paths and the dryrun slot, reading creates nothing and reports `ErrEmpty`, 0700/0600 modes fresh and fixed up, entry format, plain-text logs (written and read back), `Prune` keeps the newest runs and spares `dryrun`, strays and its own run; `Options.KeepRuns` rotates only when a real run's first `Append` creates its directory (the new run counted), a dry-run store never prunes. |
 | `internal/steps/steps_test.go` | `LogCategory` defaults to cleanup; `Command`/`Args` split `Argv` (nothing for an in-process step); `Result.Check` refuses `ConfirmNext` together with `InsertNext`, failed or not, and accepts each alone. |
 | `cmd/archmaid-helper/verbs_test.go` | Step verbs and the helper's verb table in lockstep (the one package that can import both): every `steps.Verb*` constant, read from the source, is a helper verb; every non-empty `Verb` on a step the actions build is one too, including the steps only built at run time (Repair's reinstall after its root recheck, the orphan removal the probe inserts, the services disable, the downloads delete), reached by running each discovery and in-process step against shimmed `pacman`/`sudo`/`systemctl`. |
 | `internal/actions/actions_test.go` | The menu table (unique IDs, `ByID`, each entry a queue, a discovery or a front-end entry, discoveries have a `Busy` label); Full Cleanup's step order with and without hyprpm, Run topgrade's; every queued step has a unique `ID` and the right helper `Verb`; `TestNoPrivilegedStepAfterHyprpm`: in no action's queue does a root step, or any in-process step (its result may insert a root step, as the orphan probe's does), follow hyprpm; `DisableUnits`; the audit report is the front end's (`Env.AuditReport`). |
@@ -462,6 +480,7 @@ the names.
 | `overlay_test.go` | Popups float, centered, over their background; ANSI-styled backgrounds keep their width; the abort dialog stays over the running screen. |
 | `resize_test.go` | The output pane never overflows the terminal (running queue, log viewer, resize while a popup is open); askpass prompts over another popup keep the real background; nested popups resolve to the right base screen. |
 | `services_test.go` | Services discovery through `actions.Menu`: against a `systemctl` shim serving the `internal/actions/testdata/systemctl_list_*.txt` fixture system, the batched `is-enabled` with its per-unit fallback picks the enabled-but-inactive units, none is a notice, and an equivalence test runs the old bash pipeline against the same system to prove both select the same units. |
+| `startup_test.go` | Startup deletes nothing (ground rule 8): `--dryrun` (with its own log and last-run writes), a plain start, `--help`/`-h` (usage on stdout, exit 0), an unknown option, a stray argument, a bad `--downloads` (exit 2) and the askpass relay each leave a state dir of `logKeepRuns`+1 runs intact, writing only under `dryrun/`; a real run rotates to `logKeepRuns` (itself included) on its first entry, not before. |
 | `log_hygiene_test.go` | The log through the TUI: opening every category in View log creates no run directory (it would take one of the five prune slots); what a step streamed (colours, a progress bar, an OSC 52 clipboard write) lands in its log as plain text, and an old log still holding raw escapes is shown plain; a store rebuilt because `logDir` moved keeps the process's run-directory name, even a minute later (`logNow`), while entries keep the real time. The store itself (modes, pruning) is `internal/logstore`'s. |
 | `ticks_test.go` | Ticks never multiply: the status refreshes after a finished queue and after the editor are one-offs, not another 4 s loop; a stale keep-alive tick from an ended sudo queue dies instead of running beside the next queue's own. |
 | `repair_test.go` | Repair, through the action's discovery against a `pacman`/`sudo` shim pair that flags different packages as the user and as root: the user scan (`pacman -Qq`, then `pacman -Qkq -- <chunk>` per worker) flags the same packages in the same order for 1, 2, 4, 16 or 100 workers, checks each installed package once and never runs sudo; nothing flagged ends in "No broken packages" with no sudo at all; candidates (`NeedsRoot`) get one probe (password prompt, or straight to the recheck when cached) and one `sudo -n pacman -Qkq -- <candidates>`, and only what root confirms is offered for reinstalling — a package flagged only as the user is dropped; esc drops the held recheck, three wrong passwords end in a notice. Both stages treat a failure with empty stdout as an error (a missing ticket, a failing chunk), never as "nothing broken". |

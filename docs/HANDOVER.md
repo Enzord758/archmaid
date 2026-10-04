@@ -18,7 +18,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 
 | File | Owns |
 |---|---|
-| `main.go` | package doc + `main()`: `--askpass` dispatch to `privilege.RunClient`, the askpass server's requests fed to the program as `askpassMsg`s, flag parsing (`parseArgs`: `--dryrun`, `--downloads`), `pruneLogs`, `tea.NewProgram` |
+| `main.go` | package doc + `main()`: `--askpass` dispatch to `privilege.RunClient`, the askpass server's requests fed to the program as `askpassMsg`s, `startup` (the askpass relay and flag parsing: `parseArgs`: `--dryrun`, `--downloads`, `--help`/`-h`; anything else exits 2 — it writes and deletes nothing), `tea.NewProgram` |
 | `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `deleteOldDownloads` (the in-process step's `Run`, abort logging), `waitForDownloads`; the discovery is `internal/actions` |
 | `internal/downloads` | the resolver (`Resolve(Options)`), `Scan(dir, now, Options) Plan`, `Plan.Confirm()`, `Delete(ctx, Plan, Options) (Result, error)`; ctime, Lstat, `os.Root`, the mountinfo boundary and the per-node re-check; no UI, no logging, no env reads |
 | `model.go` | screens, the `model` struct, `initialModel`, `Init` (the menu is `actions.Menu`) |
@@ -27,7 +27,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `tasks.go` | `runStep`/`stepSpec` (a `steps.Step`'s command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the sudo probe/auth/keep-alive glue, `discoveryMsg` and `discover` (an action's `Discover` as a `tea.Cmd`), `actionEnv` (the `actions.Env` the TUI hands the actions), `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
 | `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`menuAudit`, handed to `internal/actions` as `Env.AuditReport` by `actionEnv`; `auditOutcome` → `actions.Notice`/`Report`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the model's prefetch (`auditFetch`, wrapping `audit.Fetch`), and the styled `renderAudit` |
-| `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process), thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering. `logs()`/`appendLog` are for the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
+| `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process), thin `appendLog`/`readLog` wrappers (the store rotates the run history itself, see the state-dir landmine), and the "Log is empty." rendering. `logs()`/`appendLog` are for the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
 | `askpass.go` | askpass tea glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper), `askpassMsg`/`askpassResultMsg`, `answerAskpass` (`Request.Answer` off the UI thread), `verifyAskpassPeer` (`Request.Verify` with the `readProc`/`ourUID` seams), the popup's `askpassRequester`; the popup itself is `handleAskpass` in `update.go` |
 | `overlay.go` | ANSI-aware popup compositor |
 | `status.go`, `theme.go` | the status line's tea glue (`refreshStatus`, `refreshStatusNow`, the `tickFn` seam; the reading itself is `internal/sysstat`: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
@@ -214,7 +214,7 @@ comments and `git log`; this is the "read before you touch it" list.
   before exiting. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
   run directories are kept, `dryrun/` is a single reused slot, and files in the
-  state-dir root (the AUR snapshot, `last-run.json`) are ignored by `pruneLogs`. Only `appendLog`
+  state-dir root (the AUR snapshot, `last-run.json`) are ignored by the rotation. Only `appendLog`
   creates a run directory (viewing logs must not, or it evicts a real run), and
   logs are private: directories 0700, files 0600.
 - **State files** (under `~/.local/state/archmaid/`, for the planned DMS widget, see
@@ -440,6 +440,20 @@ to:
   (`root_unlock_time`, `even_deny_root`, `admin_group`) are not applied:
   archmaid only asks for the desktop user's own password. Never run the
   `faillock` binary from archmaid or its tests (`testenv` traps it).
+- **Nothing deletes run history at startup.** On 2026-10-04 a real run folder
+  (`~/.local/state/archmaid/20260923-2159`) vanished: `main()` pruned to
+  `KeepRuns` (5) right after `parseArgs`, on every start, and `parseArgs`
+  ignored unknown flags, so an agent's `archmaid --help` against the real
+  HOME started the TUI and evicted the oldest of six runs. Now the rotation
+  lives in the store: `logstore.Options.KeepRuns` makes the `Append` that
+  creates a real run's directory prune (dry-run stores never do, and the
+  run's own directory is never pruned). `startup` (askpass relay, flags,
+  `--help`/`-h` exit 0, anything unknown exit 2) touches nothing on disk;
+  `TestStartupDeletesNothing` pins it. A front-end check that fails before
+  the first log entry (e.g. an `Env.Validate`) is safe by construction — keep
+  it that way: never call `Prune` from a startup path. `scripts/check.sh` and
+  `make e2e` snapshot the real state dir (names, sizes, mtimes) before and
+  after and fail on any difference (`scripts/state-guard.sh`).
 
 ## Open items
 
