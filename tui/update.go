@@ -524,7 +524,7 @@ func (m *model) confirmServices() tea.Cmd {
 	}
 	m.pending = []step{{
 		title: "Disabling services…", logLabel: "Services disabled",
-		command: "sudo", args: append([]string{"systemctl", "disable", "--now"}, sel...),
+		command: "sudo", args: append([]string{"systemctl", "disable", "--now", "--"}, sel...),
 		needsSudo: true, alwaysLog: true,
 	}}
 	return m.beginPending()

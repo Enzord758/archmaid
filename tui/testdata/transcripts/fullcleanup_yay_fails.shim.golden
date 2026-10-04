@@ -1,7 +1,7 @@
 action "Full Cleanup (Recommended)"
 exec  pacman -Qdtq
 exec  pacman -Qqm
-exec  pacman -Rs --print libfoo libbar
+exec  pacman -Rs --print -- libfoo libbar
 exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps
@@ -9,7 +9,7 @@ plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
 plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
-plan  5 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm libfoo libbar sudo confirm optional alwayslog cat=orphans
+plan  5 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm -- libfoo libbar sudo confirm optional alwayslog cat=orphans
 plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
 plan  7 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
@@ -36,7 +36,7 @@ step  4 skipped
 log   cleanup SKIP: Entire package cache removed (declined)
 ask   "Remove 2 orphaned package(s) — 3 total once dependencies cascade?" -> yes
 step  5 running
-exec  sudo -A pacman -Rns --noconfirm libfoo libbar
+exec  sudo -A pacman -Rns --noconfirm -- libfoo libbar
 step  5 ok
 log   orphans OK: Orphaned packages removed
 step  6 running

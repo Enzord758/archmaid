@@ -76,7 +76,7 @@ if want services; then
 	run_tape services
 	[[ -f "$CLEANUP_LOG" ]] || fail "services: no dry-run log at $CLEANUP_LOG"
 	need "$CLEANUP_LOG" "DRYRUN: Services disabled" "services: DRYRUN entry missing"
-	need "$CLEANUP_LOG" "would run: sudo systemctl disable --now fake-beta.service$" \
+	need "$CLEANUP_LOG" "would run: sudo systemctl disable --now -- fake-beta.service$" \
 		"services: the log must name exactly the toggled unit"
 	refuse "$CLEANUP_LOG" "fake-alpha" "services: the untoggled unit leaked into the log"
 	if grep '^systemctl ' "$SHIM_LOG" | grep -qvE '^systemctl (list-|is-enabled )'; then
@@ -92,8 +92,8 @@ if want orphans; then
 	ORPH="$HOME_DIR/.local/state/archmaid/dryrun/orphans.log"
 	[[ -f "$ORPH" ]] || fail "orphans: no dry-run orphans.log"
 	need "$ORPH" "DRYRUN: Orphaned packages removed" "orphans: DRYRUN entry missing"
-	need "$ORPH" "pacman -Rns --noconfirm orphan-one orphan-two$" "orphans: wrong package list in the log"
-	need "$SHIM_LOG" "^pacman -Rs --print orphan-one orphan-two$" "orphans: cascade probe not run"
+	need "$ORPH" "pacman -Rns --noconfirm -- orphan-one orphan-two$" "orphans: wrong package list in the log"
+	need "$SHIM_LOG" "^pacman -Rs --print -- orphan-one orphan-two$" "orphans: cascade probe not run"
 	refuse "$SHIM_LOG" "^pacman -Rns" "orphans: pacman removal actually ran"
 	echo "PASS: orphan confirm showed 2/3 total and logged the dry-run removal"
 fi

@@ -345,7 +345,7 @@ func fullCleanupSteps() []step {
 		}
 		steps = append(steps, step{
 			title: "Removing orphaned packages…", logLabel: "Orphaned packages removed",
-			command: "sudo", args: append([]string{"pacman", "-Rns", "--noconfirm"}, orphans...),
+			command: "sudo", args: append([]string{"pacman", "-Rns", "--noconfirm", "--"}, orphans...),
 			needsSudo: true, optional: true,
 			confirm:   msg,
 			category:  logCategoryOrphans,
@@ -566,7 +566,7 @@ func discoverRepair() tea.Cmd {
 		}
 		return discoveryMsg{kind: "repair", pending: []step{{
 			title: "Reinstalling packages…", logLabel: "Package repair completed",
-			command: "sudo", args: append([]string{"pacman", "-S", "--noconfirm"}, pkgs...),
+			command: "sudo", args: append([]string{"pacman", "-S", "--noconfirm", "--"}, pkgs...),
 			needsSudo: true, optional: true, alwaysLog: true,
 			confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
 		}}}
@@ -631,7 +631,7 @@ func orphanPackages() []string {
 // dropped -n only affects whether removed configs are kept as .pacsave, not
 // what gets selected. Falls back to len(orphans) if the probe itself fails.
 func orphanRemovalTotal(orphans []string) int {
-	args := append([]string{"-Rs", "--print"}, orphans...)
+	args := append([]string{"-Rs", "--print", "--"}, orphans...)
 	out, err := exec.Command("pacman", args...).Output()
 	if err != nil {
 		return len(orphans)
@@ -674,12 +674,12 @@ func enabledServices(units []string) []string {
 	if len(units) == 0 {
 		return nil
 	}
-	out, _ := exec.Command("systemctl", append([]string{"is-enabled"}, units...)...).Output()
+	out, _ := exec.Command("systemctl", append([]string{"is-enabled", "--"}, units...)...).Output()
 	states := nonEmptyLines(string(out))
 	if len(states) != len(units) {
 		states = states[:0]
 		for _, u := range units {
-			o, _ := exec.Command("systemctl", "is-enabled", u).Output()
+			o, _ := exec.Command("systemctl", "is-enabled", "--", u).Output()
 			states = append(states, strings.TrimSpace(string(o)))
 		}
 	}

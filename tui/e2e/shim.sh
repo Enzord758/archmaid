@@ -15,13 +15,13 @@ systemctl)
 	case "$1" in
 	list-unit-files) printf 'fake-alpha.service enabled disabled\nfake-beta.service  enabled disabled\n' ;;
 	list-units) printf 'fake-alpha.service loaded inactive dead Fake Alpha\nfake-beta.service  loaded inactive dead Fake Beta\n' ;;
-	is-enabled) shift; for _ in "$@"; do echo enabled; done ;;
+	is-enabled) shift; [[ "${1:-}" == -- ]] && shift; for _ in "$@"; do echo enabled; done ;;
 	esac
 	;;
 pacman)
 	case "$*" in
 	"-Qdtq") printf 'orphan-one\norphan-two\n' ;;
-	"-Rs --print "*) printf 'orphan-one-1.0\norphan-two-1.0\norphan-dep-1.0\n' ;;
+	"-Rs --print -- "*) printf 'orphan-one-1.0\norphan-two-1.0\norphan-dep-1.0\n' ;;
 	"-Qqm")
 		# The audit step is the one in-process step that really touches a
 		# command under --dryrun; SHIM_BLOCK_QQM holds it open for the abort tape.
