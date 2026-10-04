@@ -126,10 +126,27 @@ test can delete your files or need root.
    home and clear `--downloads` / `ARCHMAID_DOWNLOADS`. Tests that read or write
    run logs or the AUR snapshot also set `logDir = t.TempDir()` (restored on
    cleanup), so nothing lands in the real `~/.local/state/archmaid`.
-   A new test package that can reach the home directory (`os.UserHomeDir`,
-   `user.Current`, `HOME`, `XDG_*`) calls `testenv.Run` from its `TestMain`.
+   Every test package calls `testenv.Run` from its `TestMain` (after any
+   re-exec dispatch it needs, like `--askpass`); `internal/testenv`'s
+   `TestEveryTestPackageRunsUnderTestenv` fails a package that doesn't.
 3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
-   replaced by shell shims placed first on `PATH` (see Recipes).
+   replaced by shell shims placed first on `PATH` (see Recipes). For the
+   privileged ones this is enforced: `testenv.Run` puts traps for `su`,
+   `sudo`, `pkexec`, `runuser`, `faillock` and `pkttyagent` first on `PATH`
+   for the whole package run. A trap logs its argv and exits 97, and if any
+   trap was hit the package FAILs with "a test reached a real privileged
+   binary" and the calls, even when every test passed (a wrong password
+   through the real `su`/`sudo` can cost a pam_faillock failure, and deny=3
+   is one typo from a lockout). A test's own shim dir, prepended to `PATH`
+   or made the whole `PATH`, still wins; a re-exec'd test binary or shell
+   script inherits the traps. `PATH` can't catch an absolute path, so
+   `TestNoAbsolutePrivilegedExec` rejects any Go string literal naming one of
+   these binaries under a system dir (`/usr/bin/sudo`…) outside a short
+   allow-list of literals that are only compared, never run. archmaid-helper
+   runs `/usr/bin/pacman` and friends by absolute path (as root, under
+   pkexec); its verb tests use a fake `Runner` and never execute them, and
+   only the `ExecRunner` tests run real, harmless binaries (`env`, `cat`,
+   `sh`).
 4. **No network.** The AUR RPC is an `httptest` server reached through the
    `aurRPCURL` var. `TestMain` sets `aurRPCURL` to a closed local port, so any
    test that reaches the audit without `fakeAUR` (choosing Full Cleanup or Run

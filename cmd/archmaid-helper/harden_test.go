@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Enzord758/archmaid/cmd/archmaid-helper/internal/helper"
+	"github.com/Enzord758/archmaid/internal/testenv"
 )
 
 // hardenChild is the re-exec'd half of TestHardenProcess: it hardens itself
@@ -82,7 +83,9 @@ func TestMain(m *testing.M) {
 		os.Stderr.WriteString("survived")
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	// The tests proper run under testenv: a scratch home, and traps first on
+	// PATH for su, sudo, pkexec and the like (the children above inherit them).
+	os.Exit(testenv.Run(m))
 }
 
 // signalChild is the re-exec'd half of the signal tests.

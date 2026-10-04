@@ -376,8 +376,11 @@ func TestRepairAuthGiveUpShowsNotice(t *testing.T) {
 
 // TestRepairDiscoveryDoesNotReprobeSudo: the recheck only runs once the
 // ticket is primed, so its result starts the queue directly instead of
-// probing again.
+// probing again. Under dry-run: the queue it starts would otherwise run the
+// real `sudo -n` (testenv's sudo trap caught it).
 func TestRepairDiscoveryDoesNotReprobeSudo(t *testing.T) {
+	dryRun = true
+	defer func() { dryRun = false }()
 	m := repairModel(t)
 	next, _ := m.Update(discoveryMsg{d: actions.Pending{Steps: []steps.Step{
 		{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true},

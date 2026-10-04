@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Enzord758/archmaid/internal/testenv"
 )
 
 // The sudo side: the two-stage prime (su validates burn-free, only a correct
@@ -20,7 +22,10 @@ import (
 
 // TestMain dispatches --askpass the way archmaid's main() does: under `go
 // test` the SUDO_ASKPASS wrapper a Server writes for os.Executable() execs
-// this test binary, so the real round trip runs (TestAskpassEndToEnd).
+// this test binary, so the real round trip runs (TestAskpassEndToEnd). The
+// tests themselves run under testenv: a scratch home, and traps first on PATH
+// for su, sudo, pkexec and the like, so a test that forgets shimAuth fails
+// instead of handing a password to the real su.
 func TestMain(m *testing.M) {
 	if len(os.Args) >= 3 && os.Args[1] == "--askpass" {
 		prompt := ""
@@ -29,7 +34,7 @@ func TestMain(m *testing.M) {
 		}
 		os.Exit(RunClient(os.Args[2], prompt))
 	}
-	os.Exit(m.Run())
+	os.Exit(testenv.Run(m))
 }
 
 // shimAuth installs fake `su` and `sudo` on an exclusive PATH. su exits with
