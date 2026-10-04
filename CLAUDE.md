@@ -1,10 +1,14 @@
 # Working on archmaid as an agent
 
 archmaid runs as root-adjacent tooling on its owner's own machine, and the
-agents that work on it run there too. Two incidents set these rules: an agent
+agents that work on it run there too. Three incidents set these rules: an agent
 ran a real `su` with a wrong password to see what happens, and another ran
 `archmaid --help` to inspect a build, which pruned one of the owner's real
-run folders. Both did something real "just to check".
+run folders. Both did something real "just to check". In the third, an
+unshimmed GUI test ran the owner's real `topgrade -y`, which outlived the
+test and twelve minutes later had yay call the real `sudo pacman -S -y`,
+raising a password pop-up on the owner's desktop and costing a faillock
+failure.
 
 **Rule zero: find out how the code behaves through tests, the e2e harness or by
 reading it. Never by running the product or a privileged tool on the owner's
@@ -25,7 +29,10 @@ machine.**
    `paccache`, `systemd-tmpfiles --clean`, `journalctl --vacuum-*`, and system
    `systemctl`, not even with a harmless-looking argument. When something
    needs a live check, write the exact steps as a guide in your report; the
-   owner runs it.
+   owner runs it. Tests may never reach the real `topgrade`, `yay`, `pacman`
+   or any other privileged or system-changing tool, not even a read-only call:
+   shim it, and `testenv.Run` traps them all and fails the package if one is
+   reached.
 3. **Write only inside your worktree and temp dirs** (`mktemp -d`,
    `t.TempDir()`). Never create, change or delete anything else under `$HOME`,
    in particular `~/.local/state/archmaid`, `~/.config/DankMaterialShell`,
@@ -37,10 +44,11 @@ machine.**
    long-running helper in `timeout` (at most 60 s, at most 8 workers), and
    before reporting confirm with `pgrep` that nothing you started is still
    running. (An unbounded 32-way busy loop once outlived the agent that
-   started it.)
+   started it.) Nothing a test starts may outlive it: `testenv.Run` kills
+   every process the package's tests left running and fails the package.
 5. **Tests follow `docs/TESTING.md`'s ground rules.** Every test package runs
-   under `testenv.Run`, which traps the privileged binaries and isolates
-   `HOME`.
+   under `testenv.Run`, which traps the privileged and system-changing
+   binaries, isolates `HOME` and kills (and fails on) leftover processes.
 6. **Hand in through the gate.** `./scripts/check.sh` and `make e2e` must pass
    (they fail when the real state folder changed). Your report gives
    `git status` (clean), `git log --oneline origin/refactor/p0..HEAD` and
