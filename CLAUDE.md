@@ -1,0 +1,55 @@
+# Working on archmaid as an agent
+
+archmaid runs as root-adjacent tooling on its owner's own machine, and the
+agents that work on it run there too. Two incidents set these rules: an agent
+ran a real `su` with a wrong password to see what happens, and another ran
+`archmaid --help` to inspect a build, which pruned one of the owner's real
+run folders. Both did something real "just to check".
+
+**Rule zero: find out how the code behaves through tests, the e2e harness or by
+reading it. Never by running the product or a privileged tool on the owner's
+machine.**
+
+## Hard rules
+
+1. **Never start archmaid against the real environment.** That covers
+   `archmaid`, `archmaid-gui` and `archmaid-helper`, with any flags, `--help`,
+   `--version` and `--dryrun` included, whether from `go run`, a built binary
+   or `~/.local/bin`. Any start may write or prune `~/.local/state/archmaid`.
+   If a binary must run, run it the way `cmd/archmaid/e2e/run.sh` does: under
+   a scratch `HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME` and `XDG_CACHE_HOME`
+   from `mktemp -d`. To learn what a flag does, read `parseArgs`. To inspect a
+   build, use `go list -deps`, `go version -m`, `nm` or `ls -l`, not execution.
+2. **Never run privileged or system-changing commands.** That means `su`,
+   `sudo`, `pkexec`, `runuser`, `faillock`, `pkttyagent`, `pacman -S/-R/-U/-Syu`,
+   `paccache`, `systemd-tmpfiles --clean`, `journalctl --vacuum-*`, and system
+   `systemctl`, not even with a harmless-looking argument. When something
+   needs a live check, write the exact steps as a guide in your report; the
+   owner runs it.
+3. **Write only inside your worktree and temp dirs** (`mktemp -d`,
+   `t.TempDir()`). Never create, change or delete anything else under `$HOME`,
+   in particular `~/.local/state/archmaid`, `~/.config/DankMaterialShell`,
+   `~/.config/gtk-4.0` and the Downloads folder.
+4. **Leave the owner's session alone.** Don't kill or restart quickshell or
+   dms, don't `systemctl --user enable/start` anything, and don't open
+   windows on the live desktop (run GUI tests headless).
+5. **Tests follow `docs/TESTING.md`'s ground rules.** Every test package runs
+   under `testenv.Run`, which traps the privileged binaries and isolates
+   `HOME`.
+6. **Hand in through the gate.** `./scripts/check.sh` and `make e2e` must pass
+   (they fail when the real state folder changed). Your report gives
+   `git status` (clean), `git log --oneline origin/refactor/p0..HEAD` and
+   `git rev-parse HEAD`.
+7. **Say it first.** If you broke a rule, or aren't sure whether something
+   touched the owner's real state, stop and put it at the top of your report:
+   the exact command and the time. Owning it right away is expected.
+8. **Git:** no push, merge or force-push. Chain shell commands with `&&` only
+   (a `;` chain once committed broken code) and quote glob arguments
+   (the shell is zsh).
+
+## Where things are
+
+- `docs/HANDOVER.md`: the code map, landmines and open items. Read the
+  landmines before touching privilege, downloads, audit or the step queue.
+- `docs/TESTING.md`: how the suite stays safe, the recipes, the coverage map
+  and the gate.
