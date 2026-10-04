@@ -63,6 +63,11 @@ never compile gotk4. gotk4 `v0.4.1` and gotk4-adwaita
 committed (`.gitignore`d): it would pin a toolchain line and fold the GUI's
 requirements into the root build; make one locally for gopls if you like.
 Binary `archmaid-gui`, application id `io.github.enzord758.archmaid`.
+Packaged as its own split package `archmaid-gui-git` (`packaging/arch/PKGBUILD`:
+the binary, `packaging/io.github.enzord758.archmaid.{desktop,metainfo.xml}` and
+the project icon under the application id), pinned to the `archmaid-git` of
+the same build because it runs that build's root helper. `archmaid-git` stays
+GTK-free; the DMS widget opens `archmaid-gui` when it is on PATH, else the TUI.
 
 | Path | Owns |
 |---|---|
@@ -524,8 +529,14 @@ to:
 - **GUI TODOs, waiting for the real Driver (E6):** the polkit dialog →
   helper progress in the checklist (`AuthWaiting{WaitPolkit}`,
   `AuthResolved`, `FaillockState` are recorded in `runview.Model.Auth` but not
-  shown). The stub plays "no" like "yes" (one path per script), so declined
-  paths aren't shown yet.
+  shown). Declined paths come from the stub Catalog's `OnNo`/`OnCancel`
+  branches.
+- **`archmaid-gui-git` ships the stub GUI.** Until E6 wires the real
+  Driver, installing it makes the DMS widget open a window that only replays
+  stub scripts (`packaging/arch/README.md` says not to install it yet). Two
+  launchers are both named "archmaid" once it is installed (the TUI's
+  `archmaid.desktop`, kept as is, and the GUI's); rename the TUI's entry
+  (e.g. "archmaid (terminal)") when the GUI becomes the default front end.
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The

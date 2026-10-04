@@ -1,8 +1,45 @@
-# Arch package (archmaid-git)
+# Arch packages (archmaid-git, archmaid-gui-git)
 
-`PKGBUILD` builds the TUI (`cmd/archmaid/`) and the root helper
-(`cmd/archmaid-helper/`) with `-buildmode=pie -trimpath -mod=readonly
--modcacherw` and makepkg's CGO flags.
+`PKGBUILD` is a split package built from one checkout, with `-buildmode=pie
+-trimpath -mod=readonly -modcacherw` and makepkg's CGO flags for every binary:
+
+- **`archmaid-git`**: the TUI (`cmd/archmaid/`), the root helper
+  (`cmd/archmaid-helper/`), the polkit policy, the DMS widget and the
+  updates timer. No GUI toolkit in its `depends`.
+- **`archmaid-gui-git`**: `archmaid-gui`, built from the `gui/` module
+  (gotk4, cgo), with its `.desktop` entry, icon and AppStream metainfo.
+  It depends on `gtk4`, `libadwaita`, `libgirepository` (gotk4 links
+  `libgirepository-1.0` directly) and on the exact `archmaid-git` of the
+  same build, because it runs the same root helper through `pkexec`.
+
+Building needs `gtk4`, `libadwaita`, `libgirepository` (it owns
+`gobject-introspection-1.0.pc` and `girepository.h` on Arch; the
+`gobject-introspection` package, with g-ir-scanner and python, isn't needed)
+and `pkgconf` as makedepends, whichever package you install. A cold build
+of `archmaid-gui` takes several minutes (gotk4's cgo).
+
+`check()` runs the helper's and the DMS widget's tests and the GUI's plain-Go
+view-model tests (`gui/internal/runview`). The GUI's display tests need a
+private headless weston, so they stay out of `check()`; run `make gui-test`
+from a checkout.
+
+### Why two packages
+
+The DMS widget opens `archmaid-gui` when it is on PATH and falls back to the
+TUI in a terminal, so `archmaid-git` alone is a complete install and the GUI
+is a choice:
+
+- **For the split:** a terminal-only or minimal machine doesn't pull in the
+  GTK4/libadwaita stack (and its GStreamer, Vulkan and X11 libraries); you
+  pick the front end the widget opens by installing `archmaid-gui-git` or
+  not; and the GUI can be held back (it is still a walking skeleton on the
+  stub Driver, see below) without holding back the TUI and helper.
+- **Against:** one more package name, and building either still needs the
+  GUI's makedepends (makepkg runs one `build()` for both).
+
+**Until the GUI drives the real engine (E6), don't install
+`archmaid-gui-git` on a machine where you use the DMS widget:** the widget
+would open the GUI, which only replays the stub's scripts.
 
 ## Build locally (no install)
 
@@ -28,10 +65,19 @@ To keep the tree clean, build in a scratch copy: `mkdir /tmp/pk && cp PKGBUILD
 You run this yourself (it needs root):
 
 ```sh
-makepkg -si      # with the env vars above for a local build
+makepkg -si      # both packages; with the env vars above for a local build
+```
+
+For the TUI only, build without installing and install that one file:
+
+```sh
+makepkg -s
+pacman -U archmaid-git-*.pkg.tar.zst       # as root
 ```
 
 ## What it installs
+
+`archmaid-git`:
 
 | Path | Mode | Notes |
 |---|---|---|
@@ -44,5 +90,14 @@ makepkg -si      # with the env vars above for a local build
 | `/etc/xdg/quickshell/dms-plugins/archmaid/{plugin.json,ArchmaidWidget.qml,state.js}` | 0644 | DMS bar widget (system plugin dir); enable it in DMS |
 | `/usr/lib/archmaid/archmaid-updates-check` | 0755 | runs `checkupdates`, writes the pending count |
 | `/usr/lib/systemd/user/archmaid-updates-check.{service,timer}` | 0644 | hourly user timer; `systemctl --user enable --now archmaid-updates-check.timer` |
+
+`archmaid-gui-git`:
+
+| Path | Mode | Notes |
+|---|---|---|
+| `/usr/bin/archmaid-gui` | 0755 | the GTK4/libadwaita front end |
+| `/usr/share/applications/io.github.enzord758.archmaid.desktop` | 0644 | `Exec=archmaid-gui`, `Terminal=false`; named after the application id so the window's `app_id` matches it |
+| `/usr/share/icons/hicolor/scalable/apps/io.github.enzord758.archmaid.svg` | 0644 | the project icon (`packaging/archmaid.svg`) under the application id |
+| `/usr/share/metainfo/io.github.enzord758.archmaid.metainfo.xml` | 0644 | AppStream; no `project_license` until the repo has a license |
 
 License: `LicenseRef-unknown` until upstream picks one (TODO in the PKGBUILD).

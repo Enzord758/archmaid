@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for archmaid-gui. The id is the GTK application id
+     (gui/internal/ui.AppID) and the .desktop file's basename. project_license
+     is left out until the repository picks a license. -->
+<component type="desktop-application">
+  <id>io.github.enzord758.archmaid</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>archmaid</name>
+  <summary>Keep an Arch Linux system clean and up to date</summary>
+  <description>
+    <p>
+      archmaid runs routine Arch Linux housekeeping from one window: it cleans
+      the package cache, removes orphaned packages, trims the journal and old
+      temporary files, and updates the system.
+    </p>
+    <p>
+      Privileged steps run a fixed root helper through polkit, authorized
+      with your own password. A run shows its plan before it starts and
+      keeps a log.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.enzord758.archmaid.desktop</launchable>
+  <provides>
+    <binary>archmaid-gui</binary>
+  </provides>
+  <url type="homepage">https://github.com/Enzord758/archmaid</url>
+  <url type="bugtracker">https://github.com/Enzord758/archmaid/issues</url>
+  <developer id="io.github.enzord758">
+    <name>Enzord758</name>
+  </developer>
+  <categories>
+    <category>System</category>
+    <category>Settings</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+</component>

@@ -1,6 +1,16 @@
 # Maintainer: TODO
 #
-# Builds the TUI (cmd/archmaid/) and the root helper (cmd/archmaid-helper/) from VCS.
+# Split package from one VCS checkout:
+#   archmaid-git      the TUI (cmd/archmaid/), the root helper
+#                     (cmd/archmaid-helper/), the polkit policy, the DMS widget
+#                     and the updates timer. No GUI toolkit.
+#   archmaid-gui-git  the GTK4/libadwaita front end (the gui/ module, its own
+#                     go.mod), its .desktop entry, icon and AppStream metainfo.
+#                     Depends on the exact archmaid-git it was built with: the
+#                     GUI runs the same root helper through pkexec.
+# The DMS widget opens archmaid-gui when it is on PATH and falls back to the
+# TUI in a terminal, so archmaid-git alone is a complete install.
+#
 # The helper is installed 0755 root:root at the fixed path its polkit policy
 # names. It is NEVER setuid: privilege comes only from pkexec.
 #
@@ -11,30 +21,26 @@
 # See packaging/arch/README.md.
 #
 # TODO before publishing:
-#   - pick a license (the repo has none yet), then set license=() and install it
+#   - pick a license (the repo has none yet), then set license=() and install
+#     it, and add project_license to the metainfo
 #   - for a release: _fragment='tag=vX.Y.Z' (or 'commit=<sha>'), drop the -git
 #     suffix and pkgver(), and replace SKIP with a real checksum
-#   - the GUI (P6b) adds its binary and gotk4 deps here
 
-pkgname=archmaid-git
+pkgbase=archmaid-git
+pkgname=('archmaid-git' 'archmaid-gui-git')
 _pkgname=archmaid
+_appid=io.github.enzord758.archmaid
 pkgver=r0.0000000
 pkgrel=1
-pkgdesc='Arch Linux housekeeping: package cache, orphans, journal, temp files, updates (TUI + polkit helper)'
+pkgdesc='Arch Linux housekeeping: package cache, orphans, journal, temp files, updates'
 arch=('x86_64')
 url='https://github.com/Enzord758/archmaid'
 license=('LicenseRef-unknown')
-# pacman-contrib: checkupdates, run by the updates user timer (packaging/systemd).
-# fakeroot: checkupdates refuses to run without it and pacman-contrib does not
-# pull it in. Both are hard depends: the timer is part of the package.
-depends=('glibc' 'pacman' 'pacman-contrib' 'fakeroot' 'polkit' 'systemd')
-makedepends=('git' 'go')
-optdepends=('dms-shell: archmaid bar widget (installed under /etc/xdg/quickshell/dms-plugins)'
-            'topgrade: system/AUR update step in the TUI'
-            'yay: AUR cache cleaning and updates')
-install=archmaid.install
-provides=("$_pkgname")
-conflicts=("$_pkgname")
+# gtk4, libadwaita: the headers gotk4's cgo builds against. libgirepository:
+# gobject-introspection-1.0.pc and girepository.h, which gotk4's core package
+# asks pkg-config for. On Arch the libgirepository package owns both; the
+# gobject-introspection package (g-ir-scanner, python) isn't needed.
+makedepends=('git' 'go' 'gtk4' 'libadwaita' 'libgirepository' 'pkgconf')
 # Upstream by default; overridable from the environment for local builds.
 _repo="${ARCHMAID_REPO:-https://github.com/Enzord758/archmaid.git}"
 _fragment="${ARCHMAID_FRAGMENT:-branch=main}"
@@ -60,6 +66,9 @@ prepare() {
   _goenv
   cd "$_pkgname"
   go mod download -x
+  # gui/ is its own module (gotk4); its replace points back at the root.
+  cd gui
+  go mod download -x
 }
 
 build() {
@@ -68,6 +77,10 @@ build() {
   cd "$srcdir/$_pkgname"
   go build -o "$srcdir/build/archmaid" ./cmd/archmaid
   go build -o "$srcdir/build/archmaid-helper" ./cmd/archmaid-helper
+  # Same GOFLAGS and CGO flags as the TUI; gotk4's cgo makes this the slow
+  # one (minutes on a cold cache).
+  cd gui
+  go build -o "$srcdir/build/archmaid-gui" ./cmd/archmaid-gui
 }
 
 check() {
@@ -76,9 +89,29 @@ check() {
   cd "$srcdir/$_pkgname"
   go test ./cmd/archmaid-helper/... ./packaging/dms/...
   # The TUI's suite needs a real terminal size and shims; run its gate in CI.
+  # The GUI's plain-Go view model and pump: no gotk4 in the test binary, so
+  # no display and no second cgo build. The display tests (gui/internal/ui)
+  # need a private headless weston (`make gui-test`) and skip unless
+  # ARCHMAID_GUI_DISPLAY_TESTS=1; unset it so a check() started from a shell
+  # that exported it can never open a window on the desktop.
+  cd gui
+  env -u ARCHMAID_GUI_DISPLAY_TESTS go test ./internal/runview/...
 }
 
-package() {
+package_archmaid-git() {
+  pkgdesc='Arch Linux housekeeping: package cache, orphans, journal, temp files, updates (TUI + polkit helper)'
+  # pacman-contrib: checkupdates, run by the updates user timer (packaging/systemd).
+  # fakeroot: checkupdates refuses to run without it and pacman-contrib does not
+  # pull it in. Both are hard depends: the timer is part of the package.
+  depends=('glibc' 'pacman' 'pacman-contrib' 'fakeroot' 'polkit' 'systemd')
+  optdepends=('archmaid-gui-git: GTK4/libadwaita window (the DMS widget opens it instead of the TUI)'
+              'dms-shell: archmaid bar widget (installed under /etc/xdg/quickshell/dms-plugins)'
+              'topgrade: system/AUR update step in the TUI'
+              'yay: AUR cache cleaning and updates')
+  install=archmaid.install
+  provides=("$_pkgname")
+  conflicts=("$_pkgname")
+
   cd "$srcdir/$_pkgname"
   install -Dm0755 "$srcdir/build/archmaid" "$pkgdir/usr/bin/archmaid"
   # Fixed path, root-owned, 0755, never setuid. The helper refuses to run as
@@ -105,4 +138,29 @@ package() {
     "$pkgdir/usr/lib/systemd/user/archmaid-updates-check.timer"
   install -Dm0644 cmd/archmaid-helper/README.md "$pkgdir/usr/share/doc/$_pkgname/helper.md"
   # TODO: install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
+
+package_archmaid-gui-git() {
+  pkgdesc='Arch Linux housekeeping: GTK4/libadwaita front end for archmaid'
+  # The exact archmaid-git of this build: the GUI drives the same root helper
+  # (pkexec /usr/lib/archmaid/archmaid-helper), whose verbs and plan hashes
+  # must match the client's. libgirepository: gotk4 links libgirepository-1.0
+  # directly, and neither gtk4 nor libadwaita pulls it in.
+  depends=("archmaid-git=$pkgver-$pkgrel" 'gtk4' 'libadwaita' 'libgirepository'
+           'glib2' 'glibc')
+  provides=("$_pkgname-gui")
+  conflicts=("$_pkgname-gui")
+
+  cd "$srcdir/$_pkgname"
+  install -Dm0755 "$srcdir/build/archmaid-gui" "$pkgdir/usr/bin/archmaid-gui"
+  # Named after the application id, so the compositor matches the window's
+  # app_id to this entry and its icon.
+  install -Dm0644 "packaging/$_appid.desktop" \
+    "$pkgdir/usr/share/applications/$_appid.desktop"
+  install -Dm0644 "packaging/$_appid.metainfo.xml" \
+    "$pkgdir/usr/share/metainfo/$_appid.metainfo.xml"
+  # The project icon again, under the application id (archmaid.svg stays the
+  # TUI launcher's, in archmaid-git).
+  install -Dm0644 packaging/archmaid.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_appid.svg"
 }

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=archmaid
+GenericName=Arch maintenance
+Comment=Clean caches, remove orphans, update, and tidy your Arch system
+Exec=archmaid-gui
+Icon=io.github.enzord758.archmaid
+Terminal=false
+Categories=System;Settings;
+Keywords=maintenance;cleanup;pacman;orphans;update;topgrade;arch;
+StartupNotify=true
