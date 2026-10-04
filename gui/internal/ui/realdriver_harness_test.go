@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/helperclient"
 	"github.com/Enzord758/archmaid/internal/helperclient/helpertest"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/privilege/privtest"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -93,7 +95,12 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 	case "locked":
 		lock.Failures, lock.Unlock = 3, time.Now().Add(10*time.Minute)
 	}
+	var now func() time.Time
+	if os.Getenv("ARCHMAID_GUI_CHILD") == "real-runs" {
+		now = runsClock()
+	}
 	return realdriver.Start(realdriver.Config{
+		Now:        now,
 		StateDir:   os.Getenv("ARCHMAID_GUI_STATE"),
 		RuntimeDir: shims,
 		Faillock:   func() engine.FaillockRead { return lock },
@@ -106,6 +113,19 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 		WaitDelay: 500 * time.Millisecond,
 		Report:    func(err error) { fail("driver report: %v", err) },
 	})
+}
+
+// realRuns is how many real runs real-runs makes in one window: one more
+// than the history keeps.
+const realRuns = logstore.KeepRuns + 1
+
+// runsStart is real-runs' clock's start; runsClock steps a minute per
+// read, so each Driver (one per Start) stamps its own run directory.
+var runsStart = time.Date(2026, 10, 4, 9, 0, 0, 0, time.Local)
+
+func runsClock() func() time.Time {
+	var n atomic.Int64
+	return func() time.Time { return runsStart.Add(time.Duration(n.Add(1)) * time.Minute) }
 }
 
 // childStarted: for real-close, the topgrade shim has written its pid (so
@@ -222,7 +242,7 @@ func TestGUIRealDriver(t *testing.T) {
 				t.Errorf("row %s", r)
 			}
 		}
-		if !slices.Contains(rep.Rows, steps.IDOrphansRemove+"=ok") || !slices.Equal(rep.DriverOpts, []string{`dry=true downloads=""`}) {
+		if !slices.Contains(rep.Rows, steps.IDOrphansRemove+"=ok") || !slices.Equal(rep.DriverOpts, []string{`dry=true downloads=""`, `dry=true downloads=""`}) {
 			t.Errorf("rows %q drivers %q", rep.Rows, rep.DriverOpts)
 		}
 		for _, f := range []string{"pkexec.log", "sudo.log", "topgrade.pid"} {
@@ -309,6 +329,53 @@ func TestGUIRealDriver(t *testing.T) {
 		}
 		if got := readLines(t, filepath.Join(dir, "sudo.got")); got != nil {
 			t.Errorf("sudo got %q after a cancel", got)
+		}
+	})
+
+	t.Run("runs", func(t *testing.T) {
+		dir, env := installShims(t, shimOpts{})
+		state, cfg := t.TempDir(), t.TempDir()
+		rep, _ := child(t, "real-runs", append(env, "ARCHMAID_GUI_STATE="+state, "XDG_CONFIG_HOME="+cfg)...)
+		if len(rep.Outcomes) != realRuns+1 || slices.ContainsFunc(rep.Outcomes, func(o string) bool { return o != "completed" }) {
+			t.Fatalf("outcomes %q, want %d completed runs", rep.Outcomes, realRuns+1)
+		}
+		// The clock's reads: wiring.Options, the window's first Driver,
+		// then a fresh Driver per Start: realRuns real ones, the dry one.
+		if len(rep.DriverOpts) != realRuns+2 || rep.DriverOpts[realRuns] != `dry=false downloads=""` || rep.DriverOpts[realRuns+1] != `dry=true downloads=""` {
+			t.Errorf("drivers %q: want a fresh one per Start, the last dry", rep.DriverOpts)
+		}
+		if n := int(rep.DriverCloses); n != len(rep.DriverOpts) {
+			t.Errorf("%d Drivers made, %d closed", len(rep.DriverOpts), n)
+		}
+		var want []string
+		for i := 2; i <= realRuns; i++ { // the oldest real run is rotated out
+			want = append(want, runsStart.Add(time.Duration(i+2)*time.Minute).Format("20060102-1504"))
+		}
+		want = append(want, "dryrun")
+		var got []string
+		ents, err := os.ReadDir(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range ents {
+			if e.IsDir() {
+				got = append(got, e.Name())
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("run dirs %q, want %q: one per real run, the %d newest kept, and the dryrun slot", got, want, logstore.KeepRuns)
+		}
+		for _, d := range want {
+			if _, err := os.Stat(filepath.Join(state, d, "topgrade.log")); err != nil {
+				t.Errorf("run dir %s: %v", d, err)
+			}
+		}
+		r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
+		if err != nil || r.Action != "topgrade" || r.DryRun {
+			t.Errorf("the root's last-run.json: %+v, %v; want the last real run's", r, err)
+		}
+		if l := readLines(t, filepath.Join(dir, "pkexec.log")); l != nil {
+			t.Errorf("pkexec ran: %q", l)
 		}
 	})
 

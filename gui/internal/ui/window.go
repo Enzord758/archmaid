@@ -29,12 +29,11 @@ type Window struct {
 	// gen counts the Drivers made; a flush from a replaced one's pump
 	// (already posted when it closed) is dropped.
 	gen int
-	// settings are the Settings page's (saved, or the defaults);
-	// drvSettings those the current Driver was made with. They differ
-	// until the next Start, which makes a fresh Driver.
-	settings, drvSettings settings.Settings
-	set                   *settingsPage
-	model                 *runview.Model
+	// settings are the Settings page's (saved, or the defaults); the
+	// next Start's fresh Driver is made with them.
+	settings settings.Settings
+	set      *settingsPage
+	model    *runview.Model
 	// palette colours the output's ANSI 16: DMS's dank16, read once at
 	// start, or the fallback table.
 	palette runview.Palette
@@ -200,7 +199,6 @@ func newWindow(app *adw.Application, opts Options) *Window {
 func (w *Window) newDriver() {
 	w.gen++
 	gen := w.gen
-	w.drvSettings = w.settings
 	w.drv = w.opts.NewDriver(w.settings.Apply(w.opts.Engine))
 	w.pump = runview.NewPump(w.drv, post, func(evs []engine.Event) {
 		if gen == w.gen {
@@ -224,9 +222,11 @@ func (w *Window) startAction(id string) {
 	if w.busy || w.closed {
 		return
 	}
-	if w.settings != w.drvSettings {
-		w.replaceDriver() // settings apply to the next Start: this one
-	}
+	// Every Start runs on a fresh Driver: one Session and one log store per
+	// run, so each real run gets its own run directory, stamped now (not
+	// when the window opened or the last run ended), and the Settings
+	// page's changes apply to it.
+	w.replaceDriver()
 	w.busy, w.current = true, id
 	w.stopBtn.SetSensitive(true)
 	w.stack.SetVisibleChildName("run")

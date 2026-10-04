@@ -103,6 +103,8 @@ type report struct {
 	LogShown string   // the log opened, and its lines
 	LogLines []string
 	Notice   string
+	// Outcomes is every run's outcome, in order (real-runs runs several).
+	Outcomes []string
 	// Subtitles is every "title: subtitle" a checklist row showed, once.
 	Subtitles []string
 	Leaked    string // goleak's verdict after Run returned, "" if clean
@@ -180,6 +182,8 @@ func runChild(scenario, path string) int {
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
 	case "real-dry", "real-refused", "real-locked", "real-close": // realdriver_harness_test.go
+	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
+		action = actions.IDTopgrade
 	case "real-askpass": // topgrade's sudo asks through the relay
 		action = actions.IDTopgrade
 	case "real-askpass-cancel":
@@ -345,6 +349,19 @@ func runChild(scenario, path string) int {
 				})
 				if scenario == "close-midrun" || scenario == "real-close" {
 					fail("the run finished before the window closed")
+				}
+				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
+				if scenario == "real-runs" && len(rep.Outcomes) <= realRuns {
+					// The next run, from its Overview row again; the last
+					// one with dry run switched on in Settings.
+					glib.TimeoutAdd(50, func() {
+						if len(rep.Outcomes) == realRuns {
+							w.set.dryRun.SetActive(true)
+						}
+						rep.Rows = nil
+						w.menu[action].row.Emit("activated")
+					})
+					return
 				}
 				closeSoon()
 			}
@@ -693,7 +710,8 @@ func TestGUISettings(t *testing.T) {
 	}
 
 	rep, _ = child(t, "repair", env...)
-	if want := want[1:]; !slices.Equal(rep.DriverOpts, want) || rep.DriverCloses != 1 {
+	// The window's first Driver and the Start's fresh one, both with them.
+	if want := []string{want[1], want[1]}; !slices.Equal(rep.DriverOpts, want) || rep.DriverCloses != 2 {
 		t.Errorf("restarted: drivers %q (%d closed), want %q", rep.DriverOpts, rep.DriverCloses, want)
 	}
 }

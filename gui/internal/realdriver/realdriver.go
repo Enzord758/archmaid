@@ -2,7 +2,8 @@
 // (internal/driver) on the polkit path, in plain Go (no gotk4), so the
 // wiring is tested with plain `go test`.
 //
-// What it builds, per Start of the window's Driver (Wiring.New):
+// What it builds, per Driver (Wiring.New; the window makes a fresh one for
+// every Start, so this is per run):
 //
 //   - the Session with engine.AuthPolkit: a root step with a Verb runs
 //     the root helper through pkexec (helperclient.Run, the Driver's
@@ -17,8 +18,16 @@
 //   - the actions' front-end glue the TUI keeps in cmd/archmaid (the AUR
 //     audit step and menu report, the downloads delete step with its abort
 //     record), mirrored here for a front end without lipgloss;
-//   - the log store: one per process and dry-run flag, the run directory
-//     named once (as the TUI's).
+//   - the AUR audit's prefetch (Deps.Prefetch, the TUI's startPrefetch):
+//     the lookup starts when the queue is planned, so it runs while the
+//     gate is up; the audit step awaits it instead of looking up again,
+//     and a declined gate, an abort or Close cancels and reaps it (the
+//     engine's CancelPrefetch, the Driver's Close);
+//   - the log store: a fresh one per Driver, so every run gets its own
+//     <stamp> directory, stamped when the run starts (Config.Now); a dry
+//     run writes to the reused dryrun slot. A real run's first write
+//     rotates the history to logstore.KeepRuns; last-run.json and the
+//     audit's files stay in the state dir's root.
 //
 // The askpass relay (Relay) mirrors the TUI's: sudo runs the wrapper, which
 // execs archmaid-gui --askpass <sock> [prompt]; main hands that to
@@ -92,17 +101,17 @@ type Config struct {
 	KillGrace, WaitDelay time.Duration
 	// Report is told what no Event carries (driver.Deps.Report).
 	Report func(error)
+
+	// Now is read once per Driver (New) to stamp its run directory; nil
+	// is time.Now. Log entries are stamped with the real time.
+	Now func() time.Time
 }
 
-// Wiring makes the GUI's real Drivers. It owns the askpass Server and the
-// log stores; Close it after the last Driver is closed.
+// Wiring makes the GUI's real Drivers. It owns the askpass Server; Close
+// it after the last Driver is closed.
 type Wiring struct {
-	cfg     Config
-	srv     *privilege.Server
-	started time.Time
-
-	mu     sync.Mutex
-	stores map[bool]*logstore.Store
+	cfg Config
+	srv *privilege.Server
 
 	// deleting counts downloads deletions (and their pending abort
 	// records) still in flight; Close waits for them.
@@ -113,7 +122,7 @@ type Wiring struct {
 // TUI's: without one (no runtime dir, say) topgrade's sudo runs `sudo -n`
 // and fails cleanly instead of prompting on a terminal there isn't.
 func Start(cfg Config) *Wiring {
-	w := &Wiring{cfg: cfg, started: time.Now(), stores: map[bool]*logstore.Store{}}
+	w := &Wiring{cfg: cfg}
 	if cfg.NoAskpass {
 		return w
 	}
@@ -151,19 +160,22 @@ func (w *Wiring) Close() {
 // depends on the dry-run flag.
 func (w *Wiring) Options() engine.Options {
 	o := engine.Options{Auth: engine.AuthPolkit}
-	o.Env = w.env(o.Env, false)
+	o.Env = w.env(o.Env, false, w.store(false))
 	return o
 }
 
 // New is the window's NewDriver: a Session for o, always on the polkit
-// path, inside a real Driver. o.Env's Downloads (the Settings page's) is
-// kept; everything else in it is the Wiring's.
+// path, inside a real Driver, with its own log store (one run directory,
+// stamped now) and the audit's prefetch. o.Env's Downloads (the Settings
+// page's) is kept; everything else in it is the Wiring's.
 func (w *Wiring) New(o engine.Options) engine.Driver {
 	o.Auth = engine.AuthPolkit
-	o.Env = w.env(o.Env, o.DryRun)
+	store := w.store(o.DryRun)
+	o.Env = w.env(o.Env, o.DryRun, store)
 	deps := driver.Deps{
 		Priv:      privilege.Sudo{},
-		Log:       w.store(o.DryRun),
+		Log:       store,
+		Prefetch:  w.prefetch(store, o.DryRun),
 		Polkit:    true,
 		Faillock:  w.cfg.Faillock,
 		KillGrace: w.cfg.KillGrace,
@@ -177,9 +189,10 @@ func (w *Wiring) New(o engine.Options) engine.Driver {
 	return driver.New(engine.New(o), deps)
 }
 
-// env completes base for a run: the Session's own fields stay as given
-// (New sets DryRun and Polkit from Options), Downloads too when set.
-func (w *Wiring) env(base actions.Env, dry bool) actions.Env {
+// env completes base for a run that logs to store: the Session's own
+// fields stay as given (New sets DryRun and Polkit from Options),
+// Downloads too when set.
+func (w *Wiring) env(base actions.Env, dry bool, store *logstore.Store) actions.Env {
 	e := base
 	e.DryRun, e.Polkit = dry, true
 	e.PlanOrphans = w.cfg.PlanOrphans
@@ -187,7 +200,6 @@ func (w *Wiring) env(base actions.Env, dry bool) actions.Env {
 		e.PlanOrphans = helperclient.PlanOrphans
 	}
 	e.LookPath = w.cfg.LookPath
-	store := w.store(dry)
 	e.AuditStep = func() steps.Step { return auditStep(w.auditConfig(store, dry)) }
 	e.AuditReport = func(ctx context.Context) actions.Discovery {
 		return menuAudit(ctx, w.auditConfig(store, dry))
@@ -201,18 +213,16 @@ func (w *Wiring) env(base actions.Env, dry bool) actions.Env {
 	return e
 }
 
-// store is the process's log store for dry: one per flag, the run
-// directory named by the first (as the TUI's logs), history rotated only
-// by a real run's first write.
+// store is a run's log store, a fresh one: its run directory is stamped
+// now (Config.Now) and created by the run's first write, which rotates
+// the history to logstore.KeepRuns. A dry run's writes to the dryrun slot
+// and never rotates. It creates nothing on disk itself.
 func (w *Wiring) store(dry bool) *logstore.Store {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	s, ok := w.stores[dry]
-	if !ok {
-		s = logstore.New(logstore.Options{Dir: w.cfg.StateDir, DryRun: dry, Now: runClock(w.started), KeepRuns: logstore.KeepRuns})
-		w.stores[dry] = s
+	now := w.cfg.Now
+	if now == nil {
+		now = time.Now
 	}
-	return s
+	return logstore.New(logstore.Options{Dir: w.cfg.StateDir, DryRun: dry, Now: runClock(now()), KeepRuns: logstore.KeepRuns})
 }
 
 // runClock is time.Now, except for its first call, which names the run
@@ -301,7 +311,11 @@ func menuAudit(ctx context.Context, cfg audit.Config) actions.Discovery {
 }
 
 // auditStep is the audit in front of topgrade (Full Cleanup, Run
-// topgrade): an in-process step whose high finding gates the update.
+// topgrade): an in-process step whose high finding gates the update. Its
+// Prefetch has the Driver start the lookup (prefetch) when the queue is
+// planned, so it runs while the gate is up; the step then awaits that
+// instead of calling Run. Without one, Run audits cfg, captured here when
+// the queue is built (the moment a prefetch would capture it).
 func auditStep(cfg audit.Config) steps.Step {
 	return steps.Step{
 		ID:    steps.IDAURAudit,
@@ -311,7 +325,37 @@ func auditStep(cfg audit.Config) steps.Step {
 			res, err := audit.Run(ctx, cfg, time.Now())
 			return auditStepResult(cfg, res, err)
 		},
+		Prefetch: steps.PrefetchAURAudit,
 	}
+}
+
+// prefetch is Deps.Prefetch for a run logging to store (the TUI's
+// startPrefetch): the AUR audit's lookup, started on the Driver's loop
+// with the config read there; nil for a name it doesn't know. The Driver
+// hands the audit step's ctx to its Run, and cancels and reaps it when the
+// engine drops it (a declined gate, an abort, the run's end) or on Close.
+func (w *Wiring) prefetch(store *logstore.Store, dry bool) func(string) driver.Prefetch {
+	return func(name string) driver.Prefetch {
+		if name != steps.PrefetchAURAudit {
+			return nil
+		}
+		cfg := w.auditConfig(store, dry)
+		return &auditFetch{Fetch: audit.Prefetch(cfg), cfg: cfg}
+	}
+}
+
+// auditFetch is a prefetched audit with the config it captured.
+type auditFetch struct {
+	*audit.Fetch
+	cfg audit.Config
+}
+
+// Run is the audit step's run when the lookup was prefetched: it waits for
+// the fetch rather than starting another. An abort cancels ctx and the
+// fetch, so it returns at once either way.
+func (f *auditFetch) Run(ctx context.Context) steps.Result {
+	res, err := f.Wait(ctx)
+	return auditStepResult(f.cfg, res, err)
 }
 
 // auditStepResult is the audit as the step's result: the report, a gate on

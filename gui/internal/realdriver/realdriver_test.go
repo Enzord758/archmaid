@@ -71,7 +71,7 @@ func TestOptions(t *testing.T) {
 	}
 	dl := t.TempDir()
 	applied := settings.Settings{DryRun: true, Downloads: dl}.Apply(o)
-	e := w.env(applied.Env, applied.DryRun)
+	e := w.env(applied.Env, applied.DryRun, w.store(applied.DryRun))
 	if err := e.Validate(); err != nil || !e.DryRun || e.Downloads().Flag != dl || !e.Downloads().DryRun {
 		t.Errorf("env %v dry %v downloads %+v", err, e.DryRun, e.Downloads())
 	}
@@ -124,7 +124,7 @@ func TestDryRunFullCleanup(t *testing.T) {
 func TestMenuAuditNoForeign(t *testing.T) {
 	w := Start(fakes(t, Config{NoAskpass: true}))
 	defer w.Close()
-	d := w.env(actions.Env{}, false).AuditReport(context.Background())
+	d := w.env(actions.Env{}, false, w.store(false)).AuditReport(context.Background())
 	if n, ok := d.(actions.Notice); !ok || !strings.Contains(n.Text, "No foreign") {
 		t.Errorf("discovery %#v", d)
 	}

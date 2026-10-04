@@ -179,9 +179,18 @@ last-attempt warning, and pkexec gets exactly the six helper verbs),
 "Not authorised · account locked until …"), `real-askpass` and
 `real-askpass-cancel` (the right password reaches the sudo shim; a cancel
 doesn't, topgrade fails), `real-close` (the window closed mid-topgrade: the
-topgrade shim's pid is gone and goleak is clean). The plain-Go
-`gui/internal/realdriver` tests cover the relay, `Options.Validate` and a
-dry Full Cleanup on the real Driver without a display.
+topgrade shim's pid is gone and goleak is clean), `real-runs` (one window,
+`KeepRuns`+1 real Run topgrade runs then a dry one, from the Overview row
+each time, in a scratch state dir with a clock stepping a minute per
+Driver: a fresh Driver per Start, one run directory per real run, the
+oldest rotated out, the dry run in `dryrun/`, `last-run.json` in the
+root). The plain-Go `gui/internal/realdriver` tests cover the relay,
+`Options.Validate`, a dry Full Cleanup on the real Driver without a
+display, the per-run directories and rotation (`TestRunDirs`, a topgrade
+shim first on PATH), and the audit prefetch with a blocking fake
+`Foreign` (no pacman, no AUR): it starts while the gate is up and the step
+consumes it (one lookup), and a declined gate or `Close` cancels and
+reaps it (`TestAuditPrefetch*`).
 
 ```sh
 cd gui
