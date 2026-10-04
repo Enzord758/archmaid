@@ -459,7 +459,9 @@ func (s *Session) stepResult(o *Output, in StepResult) {
 		o.effect(CancelPrefetch{Name: p})
 	}
 	if res.Output != "" {
-		s.output(o, strings.Split(strings.TrimRight(res.Output, "\n"), "\n"))
+		// Sanitized whole, then split, as the TUI does: an escape that spans
+		// a newline swallows it rather than leaving its tail on a line (L7).
+		s.output(o, strings.Split(sanitize.String(strings.TrimRight(res.Output, "\n"), sanitize.KeepSGR), "\n"))
 	}
 	s.settle(o, outcome(res.Err), errText(res.Err))
 	if res.Err == nil && res.InsertNext != nil {

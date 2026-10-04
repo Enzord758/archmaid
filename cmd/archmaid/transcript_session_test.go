@@ -766,11 +766,8 @@ func TestSessionDownloadsRealRunLogsNoAbort(t *testing.T) {
 // L7: an in-process step's output with an escape sequence spanning a
 // newline. The TUI sanitizes Result.Output whole and then splits it
 // (handleStepResult), so the OSC below swallows the newline and the "y"
-// in it; the Session splits first and sanitizes each line, so it shows
-// three lines, the "y" among them. Both are safe; they differ.
+// in it. The Session does the same (stepResult), so both show ab, c.
 func TestSessionInProcOutputLikeTUI(t *testing.T) {
-	t.Skip("fails until Dev 1's L7 fix: the engine's stepResult (queue.go) must sanitize Result.Output whole, " +
-		"then split it, as the TUI does (today the Session shows a, yb, c where the TUI shows ab, c)")
 	const out = "a\x1b]0;x\ny\x07b\nc"
 	probe := actions.Action{ID: "l7probe", Label: "Escape across a newline", Steps: func(actions.Env) []steps.Step {
 		return []steps.Step{{ID: "l7probe", Title: "Printing…", LogLabel: "Printed", AlwaysLog: true,

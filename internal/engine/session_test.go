@@ -724,6 +724,17 @@ func TestSessionYesLabel(t *testing.T) {
 	}
 }
 
+// An in-process result's output is sanitized whole, then split, as the TUI
+// does: an escape that spans a newline swallows it (L7).
+func TestSessionResultOutputSanitizedWhole(t *testing.T) {
+	h := newHarness(t, Options{}, queue("q", inproc("a")))
+	h.start("q")
+	o := h.result(steps.Result{Output: "a\x1b]0;x\ny\x07b\nc\n"})
+	if got := event[OutputChunk](t, o).Lines; !slices.Equal(got, []string{"ab", "c"}) {
+		t.Errorf("lines = %q, want [ab c]", got)
+	}
+}
+
 func TestSplitQuestion(t *testing.T) {
 	for msg, want := range map[string][2]string{
 		"One line?":            {"One line?", ""},
