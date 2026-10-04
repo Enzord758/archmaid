@@ -18,8 +18,17 @@ systemctl)
 	is-enabled) shift; [[ "${1:-}" == -- ]] && shift; for _ in "$@"; do echo enabled; done ;;
 	esac
 	;;
+sudo)
+	# Only the root recheck of Repair's candidates is canned (run.sh allows
+	# exactly `sudo -n -v` and `sudo -n pacman -Qkq`; any other sudo fails the tape).
+	case "$*" in
+	"-n pacman -Qkq -- "*) [[ -n "${SHIM_BROKEN:-}" ]] && printf '%s /usr/share/fake/missing-file\n' "$SHIM_BROKEN" ;;
+	esac
+	;;
 pacman)
 	case "$*" in
+	"-Qq") printf 'fine-pkg\n%s\n' "${SHIM_BROKEN:-other-pkg}" ;;
+	"-Qkq -- "*) [[ -n "${SHIM_BROKEN:-}" ]] && printf '%s /usr/share/fake/missing-file\n' "$SHIM_BROKEN" ;;
 	"-Qdtq") printf 'orphan-one\norphan-two\n' ;;
 	"-Rs --print -- "*) printf 'orphan-one-1.0\norphan-two-1.0\norphan-dep-1.0\n' ;;
 	"-Qqm")

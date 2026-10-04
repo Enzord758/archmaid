@@ -64,12 +64,22 @@ run_tape() {
 		ALL_PROXY=http://127.0.0.1:9 "$@" \
 		vhs "e2e/$name.tape"
 	for c in "${MUTATING[@]}"; do
+		# sudo is allowed only in its two read-only forms: the ticket probe and
+		# Repair's root recheck (the shim only logs them and prints canned output).
+		if [[ $c == sudo ]]; then
+			if grep '^sudo ' "$SHIM_LOG" | grep -qvE '^sudo -n (-v|pacman -Qkq -- )'; then
+				echo "--- shim log ---"; cat "$SHIM_LOG"
+				fail "$name: sudo was invoked for more than the ticket probe and the Qkq recheck"
+			fi
+			continue
+		fi
 		if grep -q "^$c " "$SHIM_LOG"; then
 			echo "--- shim log ---"; cat "$SHIM_LOG"
 			fail "$name: mutating command $c was invoked"
 		fi
 	done
 	CLEANUP_LOG="$HOME_DIR/.local/state/archmaid/dryrun/cleanup.log"
+	STATE_DIR="$HOME_DIR/.local/state/archmaid"
 }
 
 need() { # need FILE PATTERN WHAT
@@ -127,4 +137,79 @@ if want abort; then
 	refuse "$TXT" "Summary|DRYRUN" "abort: an aborted run produced a summary or log entry"
 	refuse "$CLEANUP_LOG" "." "abort: an aborted run wrote to the cleanup log"
 	echo "PASS: abort returned to the menu and recorded nothing"
+fi
+
+if want repair-none; then
+	run_tape repair-none
+	need "$TXT" "No broken packages found" "repair-none: the notice was not shown"
+	need "$SHIM_LOG" "^pacman -Qkq -- " "repair-none: the user scan never ran"
+	refuse "$SHIM_LOG" "^sudo " "repair-none: nothing flagged, yet sudo was used"
+	refuse "$CLEANUP_LOG" "." "repair-none: a notice-only run wrote to the cleanup log"
+	echo "PASS: repair found nothing, showed the notice and never touched sudo"
+fi
+
+if want repair-found; then
+	run_tape repair-found SHIM_BROKEN=broken-pkg
+	need "$SHIM_LOG" "^pacman -Qkq -- .*broken-pkg" "repair-found: the user scan never ran"
+	need "$SHIM_LOG" "^sudo -n pacman -Qkq -- .*broken-pkg$" "repair-found: the root recheck did not go through sudo"
+	need "$TXT" "Reinstall 1 broken package" "repair-found: the reinstall confirm was not shown"
+	refuse "$SHIM_LOG" "pacman -S" "repair-found: a reinstall ran although it was declined"
+	# The step is Optional + AlwaysLog: a declined confirm is on record, and no
+	# reinstall is.
+	need "$CLEANUP_LOG" "[Dd]eclined|[Ss]kipped" "repair-found: the declined reinstall was not logged"
+	refuse "$CLEANUP_LOG" "DRYRUN: Package repair completed" "repair-found: a declined reinstall was logged as done"
+	echo "PASS: repair confirmed the broken package as root, declined, reinstalled nothing"
+	echo "--- $CLEANUP_LOG ---"; cat "$CLEANUP_LOG"
+fi
+
+if want downloads; then
+	# Age is ctime, which touch -d cannot set: files with a year-old mtime must
+	# NOT count as old. Listing old files in the plan would need a clock seam.
+	DL_DIR="$SCRATCH_ROOT/downloads-dir"
+	mkdir -p "$DL_DIR"
+	for f in old-mtime-a.iso old-mtime-b.zip; do
+		: >"$DL_DIR/$f"; touch -d '400 days ago' "$DL_DIR/$f"
+	done
+	: >"$DL_DIR/new.txt"
+	run_tape downloads DL_DIR="$DL_DIR"
+	need "$TXT" "Nothing older than 30 days" "downloads: the nothing-old notice was not shown"
+	for f in old-mtime-a.iso old-mtime-b.zip new.txt; do
+		[[ -e "$DL_DIR/$f" ]] || fail "downloads: $f was deleted"
+	done
+	refuse "$TXT" "old-mtime|new.txt|Delete [0-9]+" "downloads: a plan was shown for files that are not old"
+	refuse "$CLEANUP_LOG" "." "downloads: a notice-only run wrote to the cleanup log"
+	echo "PASS: --downloads honoured; old mtime is not old (ctime), nothing deleted"
+fi
+
+if want help-and-bad-flag; then
+	# No VHS: the binary runs under a scratch HOME like everywhere else here.
+	h="$SCRATCH_ROOT/help-home"; mkdir -p "$h"
+	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" ./archmaid --help 2>&1)" || rc=$?
+	[[ $rc -eq 0 ]] || fail "help: --help exited $rc"
+	[[ "$out" == *"Usage: archmaid"* && "$out" == *"--dryrun"* && "$out" == *"--downloads"* ]] ||
+		fail "help: usage text incomplete: $out"
+	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" ./archmaid --bogus 2>&1)" || rc=$?
+	[[ $rc -eq 2 ]] || fail "help: --bogus exited $rc, want 2"
+	[[ "$out" == *"unknown option"* && "$out" == *"--help"* ]] || fail "help: bad-flag message wrong: $out"
+	[[ -z "$(ls -A "$h")" ]] || fail "help: --help/--bogus wrote under HOME: $(ls -A "$h")"
+	echo "PASS: --help prints usage and exits 0, --bogus exits 2, neither writes anything"
+fi
+
+if want fullcleanup-gate-declined; then
+	run_tape fullcleanup-gate-declined
+	need "$TXT" "Proceed with full cleanup" "gate: the gate was never shown"
+	[[ "$(awk '/Proceed with full cleanup/{a=NR} /Full Cleanup/{m=NR} END{print (m>a)}' "$TXT")" == 1 ]] ||
+		fail "gate: the menu did not reappear after declining"
+	# Only the audit prefetch (pacman -Qqm, read-only) starts at the gate.
+	if grep -qvE "^pacman -Qqm$" "$SHIM_LOG"; then cat "$SHIM_LOG"; fail "gate: a declined gate ran commands"; fi
+	refuse "$TXT" "Summary|DRYRUN" "gate: a declined gate produced a summary"
+	# By design (logstore.OutcomeCancelled: "nothing ran: declined gate") a declined
+	# gate leaves a "cancelled" last-run record, in the dry-run slot only.
+	LR="$STATE_DIR/dryrun/last-run.json"
+	[[ -f "$LR" ]] || fail "gate: no cancelled last-run record in the dry-run slot"
+	need "$LR" '"outcome": *"cancelled"' "gate: the last-run record is not 'cancelled'"
+	refuse "$LR" '"steps_failed": *[1-9]' "gate: the cancelled record counts failed steps"
+	[[ ! -e "$STATE_DIR/last-run.json" ]] || fail "gate: a dry run wrote the real last-run slot"
+	refuse "$CLEANUP_LOG" "." "gate: a declined gate wrote to the cleanup log"
+	echo "PASS: declined gate returned to the menu; nothing ran, only a cancelled dry-run record"
 fi

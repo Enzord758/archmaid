@@ -17,7 +17,7 @@ drive the real binary end to end.
 | Transcript | a recorder fed by a target that runs a whole menu action — today the model pumped through `Update` — against `sh` shims | What an action *does* end to end — programs run, prompts, plan, step results, log entries — as a frontend-agnostic golden. |
 | Layout/render | direct `View()` assertions + `teatest` goldens | Frames at a pinned size and color profile; the output pane never overflowing the terminal. |
 | Real processes | a real `sleep` child, real signals | Only where behaviour *is* the OS (abort → SIGINT → SIGKILL escalation). |
-| E2E | VHS drives the real binary in a pty under `--dryrun`, with every external command shimmed | A few short paths proving the wiring (build, alt-screen, keys, log files): Clear user cache, services multi-select, Full Cleanup's orphan confirm, abort. |
+| E2E | VHS drives the real binary in a pty under `--dryrun`, with every external command shimmed | A few short paths proving the wiring (build, alt-screen, keys, log files): Clear user cache, services multi-select, Full Cleanup's orphan confirm, abort, Repair (nothing found; found + declined), Delete old downloads (`--downloads`; age is ctime, so only the "nothing old" notice is reachable), a declined Full Cleanup gate (cancelled record), `--help`/bad flag. |
 
 Keep new tests at the lowest layer that can prove the behaviour.
 
