@@ -221,8 +221,21 @@ comments and `git log`; this is the "read before you touch it" list.
   if nothing under it has a new ctime; nothing is followed (Lstat, a symlink is
   removed as the link). The delete is an in-process step that checks the
   folder is still the scanned inode, re-checks each entry right before
-  removing it, and removes via `os.Root.RemoveAll` (hence `go 1.25`). Tests
+  removing it, and removes through an `os.Root` (hence `go 1.25`). Tests
   can't set ctimes: they move `downloadsNow` past a mark instead.
+- **The downloads cleaner never crosses a mount point — never use
+  `os.Root.RemoveAll` there.** RemoveAll descends into a filesystem mounted
+  below the folder (a USB disk, sshfs, a bind mount of `~/Documents`) and
+  empties it; those files carry their own old ctimes. `boundary` is the
+  folder's `st_dev` plus every mount point inside it from
+  `/proc/self/mountinfo` (a bind mount keeps the device, so `st_dev` alone
+  misses it; an unreadable mount table fails closed). An entry that is or
+  holds anything outside it is never old, and `removeTree` deletes bottom-up
+  by hand, Lstat-checking each node against the boundary and opening each
+  directory as a nested `os.Root` that must be the inode it Lstat'd.
+  `TestDownloadsMountPoints` mounts tmpfs and bind mounts for real inside
+  `unshare -rm` (skipped where that's unavailable); `statDev` and
+  `mountinfoPath` are the seams for the rest.
 - **Streamed output is batched, and the pane shows only a tail.** A step's
   child writes combined stdout+stderr to one ordered channel: every line, then
   exactly one done. The pump (`waitForStream`) blocks for the first message,

@@ -166,6 +166,12 @@ func xdgDownloadDir(home string) string {
 // folder), age is ctime (which those tools can't set; a rename into the
 // folder bumps it too), a directory entry counts only if nothing inside it is
 // new, and symlinks are judged and removed as links, never followed.
+//
+// Nothing on another filesystem is touched either. A mount point inside the
+// folder (a USB disk, an sshfs, a bind mount of ~/Documents) shows that
+// filesystem's files with their own old ctimes, and RemoveAll would empty
+// it. An entry that is, or holds, a mount point is never old (see boundary),
+// and the delete re-checks every node it touches (removeTree).
 
 // downloadsMaxAge is how long ago an entry's ctime must be for it to go.
 const downloadsMaxAge = 30 * 24 * time.Hour
@@ -198,7 +204,11 @@ func discoverDownloads() tea.Cmd {
 		if err != nil {
 			return notice("Couldn't read " + shown + ": " + pathErrCause(err))
 		}
-		names, err := oldDownloads(root.FS(), downloadsNow().Add(-downloadsMaxAge))
+		b, err := newBoundary(dir, id)
+		if err != nil {
+			return notice("Couldn't read the mount table: " + pathErrCause(err))
+		}
+		names, err := oldDownloads(root.FS(), downloadsNow().Add(-downloadsMaxAge), b)
 		if err != nil {
 			return notice("Couldn't read " + shown + ": " + pathErrCause(err))
 		}
@@ -231,14 +241,14 @@ func downloadsConfirm(shown string, names []string) string {
 
 // oldDownloads lists the entries of fsys's top level that entryIsOld judges
 // older than cutoff, sorted by name. The folder itself is never one.
-func oldDownloads(fsys fs.FS, cutoff time.Time) ([]string, error) {
+func oldDownloads(fsys fs.FS, cutoff time.Time, b boundary) ([]string, error) {
 	entries, err := fs.ReadDir(fsys, ".")
 	if err != nil {
 		return nil, err
 	}
 	var names []string
 	for _, e := range entries {
-		if entryIsOld(fsys, e.Name(), cutoff) {
+		if entryIsOld(fsys, e.Name(), cutoff, b) {
 			names = append(names, e.Name())
 		}
 	}
@@ -251,11 +261,13 @@ var errFresh = errors.New("fresh")
 // entryIsOld reports whether the entry's ctime is before cutoff — and, for a
 // directory, that of everything inside it, so a folder still being used
 // survives. Nothing is followed: a symlink is judged as the link itself
-// (Lstat), and the walk doesn't descend through links. Anything that can't be
-// inspected counts as new.
-func entryIsOld(fsys fs.FS, name string, cutoff time.Time) bool {
+// (Lstat), and the walk doesn't descend through links. Nor does it leave b:
+// an entry that is, or holds, a mount point or anything on another device
+// counts as new, and the walk stops there. Anything that can't be inspected
+// counts as new.
+func entryIsOld(fsys fs.FS, name string, cutoff time.Time, b boundary) bool {
 	fi, err := fs.Lstat(fsys, name)
-	if err != nil || !changedBefore(fi, cutoff) {
+	if err != nil || b.crosses(name, fi) || !changedBefore(fi, cutoff) {
 		return false
 	}
 	if !fi.IsDir() {
@@ -272,8 +284,8 @@ func entryIsOld(fsys fs.FS, name string, cutoff time.Time) bool {
 		if err != nil {
 			return err
 		}
-		if !changedBefore(info, cutoff) {
-			return errFresh
+		if b.crosses(p, info) || !changedBefore(info, cutoff) {
+			return errFresh // and never descend into another filesystem
 		}
 		return nil
 	})
@@ -290,28 +302,104 @@ func changedBefore(fi fs.FileInfo, cutoff time.Time) bool {
 	return time.Unix(st.Ctim.Unix()).Before(cutoff)
 }
 
+// dirID is the downloads folder's device (st_dev) and inode.
+type dirID struct{ dev, ino uint64 }
+
 // dirIdentity is the folder's device and inode, so deletion can tell that the
-// folder it opens is still the one that was scanned.
-func dirIdentity(root *os.Root) ([2]uint64, error) {
+// folder it opens is still the one that was scanned — and which filesystem
+// it must never leave.
+func dirIdentity(root *os.Root) (dirID, error) {
 	fi, err := root.Stat(".")
 	if err != nil {
-		return [2]uint64{}, err
+		return dirID{}, err
 	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
-		return [2]uint64{}, errors.New("no inode information")
+		return dirID{}, errors.New("no inode information")
 	}
-	return [2]uint64{st.Dev, st.Ino}, nil
+	return dirID{st.Dev, st.Ino}, nil
+}
+
+// statDev is the device (st_dev) fi lives on; false without one. A seam:
+// tests stand in another filesystem without mounting one.
+var statDev = func(fi fs.FileInfo) (uint64, bool) {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return st.Dev, true
+}
+
+// mountinfoPath is the mount table; a seam for tests.
+var mountinfoPath = "/proc/self/mountinfo"
+
+// boundary is the one filesystem the cleaner works in: the folder's device,
+// minus every mount point inside the folder. A bind mount (of ~/Documents,
+// say) keeps the device, so st_dev alone can't see it; the mount table can.
+type boundary struct {
+	dev    uint64
+	mounts map[string]bool // mount points strictly inside the folder, as paths from it ("a/b")
+}
+
+// newBoundary is the boundary of dir (resolved; id its identity), with the
+// mount table read now. An unreadable mount table is an error: without it a
+// bind mount would pass for an ordinary folder.
+func newBoundary(dir string, id dirID) (boundary, error) {
+	data, err := os.ReadFile(mountinfoPath)
+	if err != nil {
+		return boundary{}, err
+	}
+	b := boundary{dev: id.dev, mounts: map[string]bool{}}
+	for _, line := range strings.Split(string(data), "\n") {
+		// mount-id parent-id major:minor root mount-point options… (proc(5))
+		f := strings.Fields(line)
+		if len(f) < 5 {
+			continue
+		}
+		if mp := filepath.Clean(unescapeMountPath(f[4])); strictlyInside(mp, dir) {
+			rel, _ := filepath.Rel(dir, mp)
+			b.mounts[filepath.ToSlash(rel)] = true
+		}
+	}
+	return b, nil
+}
+
+// unescapeMountPath undoes the mount table's octal escapes (\040 for a space;
+// tab, newline and backslash likewise).
+func unescapeMountPath(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+4 <= len(s) {
+			if n, err := strconv.ParseUint(s[i+1:i+4], 8, 8); err == nil {
+				out.WriteByte(byte(n))
+				i += 3
+				continue
+			}
+		}
+		out.WriteByte(s[i])
+	}
+	return out.String()
+}
+
+// crosses reports whether the node at rel (its "/"-separated path from the
+// folder), described by its Lstat fi, is outside b: on another device, a
+// mount point, or of unknown device. A mount point Lstats as the root of
+// what is mounted there, so another filesystem shows by its device.
+func (b boundary) crosses(rel string, fi fs.FileInfo) bool {
+	dev, ok := statDev(fi)
+	return !ok || dev != b.dev || b.mounts[rel]
 }
 
 // deleteOldDownloads is the delete step's run: the confirm may have sat open
 // for a while, so right before each removal it re-checks the entry (an entry
-// touched or replaced since the scan is kept), and it removes through an
-// os.Root on the folder, so no path — however it's been swapped for a symlink
-// in the meantime — can resolve outside it. If the folder itself is no longer
+// touched or replaced since the scan, or with a filesystem mounted in it
+// since, is kept), and it removes through an os.Root on the folder, so no
+// path — however it's been swapped for a symlink in the meantime — can
+// resolve outside it. It removes with removeTree, never os.Root.RemoveAll,
+// which would descend into a mount point. If the folder itself is no longer
 // the one scanned, nothing is deleted. In a dry run it only reports. An abort
 // cancels ctx, which stops it between entries: nothing after that is touched.
-func deleteOldDownloads(dir string, id [2]uint64, names []string) func(context.Context) stepResult {
+func deleteOldDownloads(dir string, id dirID, names []string) func(context.Context) stepResult {
 	return func(ctx context.Context) stepResult {
 		shown := displayPath(dir)
 		root, err := os.OpenRoot(dir)
@@ -325,39 +413,103 @@ func deleteOldDownloads(dir string, id [2]uint64, names []string) func(context.C
 				err:    errors.New("downloads folder changed since the scan"),
 			}
 		}
+		b, err := newBoundary(dir, id)
+		if err != nil {
+			return stepResult{output: "Couldn't read the mount table; nothing deleted.", err: err}
+		}
 
 		cutoff := downloadsNow().Add(-downloadsMaxAge)
-		var b strings.Builder
+		var out strings.Builder
 		var errs []error
 		deleted, kept := 0, 0
 		for _, name := range names {
 			if ctx.Err() != nil {
-				fmt.Fprintf(&b, "stopped: aborted before %s\n", displayName(name))
+				fmt.Fprintf(&out, "stopped: aborted before %s\n", displayName(name))
 				errs = append(errs, ctx.Err())
 				break
 			}
 			shownName := displayName(name)
 			switch {
-			case !entryIsOld(root.FS(), name, cutoff):
+			case !entryIsOld(root.FS(), name, cutoff, b):
 				kept++
-				fmt.Fprintf(&b, "kept (changed since the scan): %s\n", shownName)
+				fmt.Fprintf(&out, "kept (changed since the scan): %s\n", shownName)
 			case dryRun:
-				fmt.Fprintf(&b, "[dry-run] would delete: %s\n", shownName)
+				fmt.Fprintf(&out, "[dry-run] would delete: %s\n", shownName)
 			default:
-				if err := root.RemoveAll(name); err != nil {
+				if err := removeTree(root, name, name, b); err != nil {
 					errs = append(errs, err)
-					fmt.Fprintf(&b, "couldn't delete %s: %s\n", shownName, pathErrCause(err))
+					fmt.Fprintf(&out, "couldn't delete %s: %s\n", shownName, pathErrCause(err))
 					continue
 				}
 				deleted++
-				fmt.Fprintf(&b, "deleted: %s\n", shownName)
+				fmt.Fprintf(&out, "deleted: %s\n", shownName)
 			}
 		}
 		if !dryRun {
-			fmt.Fprintf(&b, "\n%d deleted, %d kept, %d failed in %s\n", deleted, kept, len(errs), shown)
+			fmt.Fprintf(&out, "\n%d deleted, %d kept, %d failed in %s\n", deleted, kept, len(errs), shown)
 		}
-		return stepResult{output: b.String(), err: errors.Join(errs...)}
+		return stepResult{output: out.String(), err: errors.Join(errs...)}
 	}
+}
+
+// errOtherFS refuses a removal that would leave the folder's filesystem.
+var errOtherFS = errors.New("another filesystem is mounted in it")
+
+// errSwapped refuses a directory that was swapped between its Lstat and
+// being opened.
+var errSwapped = errors.New("it changed while being deleted")
+
+// removeTree deletes name — an entry of root, at rel from the downloads
+// folder — bottom-up by hand, because os.Root.RemoveAll would empty a
+// filesystem mounted below it. Each node is Lstat'd right before it is
+// touched, and nothing outside b is entered or removed (errOtherFS). A
+// directory is opened as a nested os.Root and must be the very directory
+// that was Lstat'd, so a swap for a symlink is never followed. It stops at
+// the first error and leaves the rest.
+func removeTree(root *os.Root, name, rel string, b boundary) error {
+	fi, err := root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if b.crosses(rel, fi) {
+		return errOtherFS
+	}
+	if fi.IsDir() {
+		if err := removeContents(root, name, rel, fi, b); err != nil {
+			return err
+		}
+	}
+	return root.Remove(name)
+}
+
+// removeContents empties directory name of root (fi its Lstat) through
+// removeTree.
+func removeContents(root *os.Root, name, rel string, fi fs.FileInfo, b boundary) error {
+	sub, err := root.OpenRoot(name)
+	if err != nil {
+		return err
+	}
+	defer sub.Close()
+	if here, err := sub.Lstat("."); err != nil {
+		return err
+	} else if !os.SameFile(fi, here) {
+		return errSwapped
+	}
+	d, err := sub.Open(".")
+	if err != nil {
+		return err
+	}
+	kids, err := d.Readdirnames(-1)
+	d.Close()
+	if err != nil {
+		return err
+	}
+	for _, k := range kids {
+		if err := removeTree(sub, k, rel+"/"+k, b); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // pathErrCause is err without the path a *fs.PathError repeats — the caller

@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -609,6 +613,248 @@ func TestParseArgsDownloads(t *testing.T) {
 		if (err != nil) != tc.wantErr || (!tc.wantErr && downloadsFlag != tc.want) {
 			t.Fatalf("parseArgs(%q): flag=%q err=%v; want flag=%q err=%v",
 				tc.args, downloadsFlag, err, tc.want, tc.wantErr)
+		}
+	}
+}
+
+// ── never another filesystem ─────────────────────────────────────────────────
+
+// withStatDev makes statDev report fi on device dev+1 — another filesystem —
+// whenever foreign(fi) says so.
+func withStatDev(t *testing.T, foreign func(fs.FileInfo) bool) {
+	t.Helper()
+	orig := statDev
+	statDev = func(fi fs.FileInfo) (uint64, bool) {
+		dev, ok := orig(fi)
+		if foreign(fi) {
+			dev++
+		}
+		return dev, ok
+	}
+	t.Cleanup(func() { statDev = orig })
+}
+
+// withMountinfo points mountinfoPath at a fake mount table listing the given
+// mount points (already escaped as the kernel writes them).
+func withMountinfo(t *testing.T, mountPoints ...string) {
+	t.Helper()
+	body := "22 1 0:21 / / rw,relatime shared:1 - ext4 /dev/root rw\n"
+	for i, mp := range mountPoints {
+		body += fmt.Sprintf("%d 22 0:%d / %s rw,relatime shared:%d - ext4 /dev/sdb1 rw\n", 40+i, 40+i, mp, 40+i)
+	}
+	p := filepath.Join(t.TempDir(), "mountinfo")
+	writeFile(t, p, body)
+	orig := mountinfoPath
+	mountinfoPath = p
+	t.Cleanup(func() { mountinfoPath = orig })
+}
+
+// realDir is dir with symlinks resolved, as the resolver hands it on.
+func realDir(t *testing.T, dir string) string {
+	t.Helper()
+	r, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return r
+}
+
+// TestDownloadsSkipOtherFilesystems: an entry on another device, an entry
+// holding something on another device deep inside, and a bind mount (same
+// device, known only from the mount table — here with a space in its name,
+// which the table escapes) are never old, however old their ctimes; the
+// rest still goes.
+func TestDownloadsSkipOtherFilesystems(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	writeFile(t, filepath.Join(dl, "plain.iso"), "x")
+	writeFile(t, filepath.Join(dl, "usb.img"), "x")
+	writeFile(t, filepath.Join(dl, "deep", "a", "mnt", "f.txt"), "x")
+	writeFile(t, filepath.Join(dl, "my docs", "f.txt"), "x")
+	cutoffAt(t, ctimeMark(t))
+	withStatDev(t, func(fi fs.FileInfo) bool { return fi.Name() == "usb.img" || fi.Name() == "mnt" })
+	withMountinfo(t, strings.ReplaceAll(realDir(t, dl), " ", `\040`)+`/my\040docs`)
+
+	s := discoverDownloadStep(t)
+	if !strings.Contains(s.confirm, "Delete 1 item(s)") || !strings.Contains(s.confirm, "plain.iso") {
+		t.Fatalf("confirm = %q, want only plain.iso", s.confirm)
+	}
+	res := s.run(context.Background())
+	if res.err != nil {
+		t.Fatalf("delete step failed: %v\n%s", res.err, res.output)
+	}
+	if exists(filepath.Join(dl, "plain.iso")) {
+		t.Fatal("plain.iso survived")
+	}
+	for _, kept := range []string{"usb.img", "deep/a/mnt/f.txt", "my docs/f.txt"} {
+		if !exists(filepath.Join(dl, kept)) {
+			t.Errorf("%s, across a filesystem boundary, was deleted", kept)
+		}
+	}
+}
+
+// TestDownloadsRecheckSeesNewMount: a filesystem mounted inside an entry after
+// the confirm keeps that entry — the re-check before deleting walks it again.
+func TestDownloadsRecheckSeesNewMount(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	writeFile(t, filepath.Join(dl, "a", "sub", "f.txt"), "x")
+	writeFile(t, filepath.Join(dl, "b", "f.txt"), "x")
+	cutoffAt(t, ctimeMark(t))
+
+	s := discoverDownloadStep(t)
+	if !strings.Contains(s.confirm, "Delete 2 item(s)") {
+		t.Fatalf("confirm = %q, want 2 items", s.confirm)
+	}
+	withMountinfo(t, realDir(t, dl)+"/a/sub") // mounted after the scan
+
+	res := s.run(context.Background())
+	if res.err != nil {
+		t.Fatalf("delete step failed: %v\n%s", res.err, res.output)
+	}
+	if !exists(filepath.Join(dl, "a", "sub", "f.txt")) || exists(filepath.Join(dl, "b")) {
+		t.Fatalf("want a kept and b deleted:\n%s", res.output)
+	}
+	if !strings.Contains(res.output, "kept (changed since the scan): a") {
+		t.Fatalf("output = %q, want a reported kept", res.output)
+	}
+}
+
+// TestRemoveTreeStaysOnItsFilesystem: the removal itself refuses to enter a
+// directory on another device or a mount point — as when a mount appears
+// between the re-check and the removal — and leaves what's below untouched;
+// with nothing in the way it removes the whole tree.
+func TestRemoveTreeStaysOnItsFilesystem(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		foreign func(t *testing.T, dir string) // makes dir/e/sub foreign
+	}{
+		{"another device", func(t *testing.T, dir string) {
+			withStatDev(t, func(fi fs.FileInfo) bool { return fi.Name() == "sub" })
+		}},
+		{"a bind mount", func(t *testing.T, dir string) {
+			withMountinfo(t, dir+"/e/sub")
+		}},
+		{"nothing", func(t *testing.T, dir string) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := realDir(t, t.TempDir())
+			writeFile(t, filepath.Join(dir, "e", "sub", "deeper", "f.txt"), "x")
+			writeFile(t, filepath.Join(dir, "e", "g.txt"), "x")
+			root, err := os.OpenRoot(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer root.Close()
+			id, err := dirIdentity(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.foreign(t, dir)
+			b, err := newBoundary(dir, id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = removeTree(root, "e", "e", b)
+			if tc.name == "nothing" {
+				if err != nil || exists(filepath.Join(dir, "e")) {
+					t.Fatalf("removeTree = %v, exists=%v; want the tree gone", err, exists(filepath.Join(dir, "e")))
+				}
+				return
+			}
+			if !errors.Is(err, errOtherFS) {
+				t.Fatalf("removeTree = %v, want errOtherFS", err)
+			}
+			if !exists(filepath.Join(dir, "e", "sub", "deeper", "f.txt")) {
+				t.Fatal("removeTree deleted inside another filesystem")
+			}
+		})
+	}
+}
+
+// TestUnescapeMountPath: the mount table's octal escapes come back as the
+// bytes they stand for; anything else is left as it is.
+func TestUnescapeMountPath(t *testing.T) {
+	for in, want := range map[string]string{
+		`/home/u/my\040docs`: "/home/u/my docs",
+		`/a\011b\012c\134d`:  "/a\tb\nc\\d",
+		`/trailing\04`:       `/trailing\04`,
+		`/not\9octal`:        `/not\9octal`,
+	} {
+		if got := unescapeMountPath(in); got != want {
+			t.Errorf("unescapeMountPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestDownloadsMountPoints mounts for real, inside a private user and mount
+// namespace (unshare -rm re-runs this test there), so no mount is ever seen
+// outside it: a tmpfs as an entry, a tmpfs deep inside an entry, a bind
+// mount as an entry, and a bind mount appearing inside an entry after the
+// confirm. Every ctime involved is old, so only the boundary keeps them.
+// Skipped where unprivileged user namespaces aren't available.
+func TestDownloadsMountPoints(t *testing.T) {
+	if os.Getenv("ARCHMAID_TEST_IN_USERNS") != "1" {
+		if _, err := exec.LookPath("unshare"); err != nil {
+			t.Skip("unshare not installed")
+		}
+		if out, err := exec.Command("unshare", "-rm", "true").CombinedOutput(); err != nil {
+			t.Skipf("no unprivileged mount namespace: %v %s", err, out)
+		}
+		cmd := exec.Command("unshare", "-rm", os.Args[0],
+			"-test.run=^TestDownloadsMountPoints$", "-test.count=1", "-test.v")
+		cmd.Env = append(os.Environ(), "ARCHMAID_TEST_IN_USERNS=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil || !strings.Contains(string(out), "--- PASS: TestDownloadsMountPoints") {
+			t.Fatalf("in the namespace: %v\n%s", err, out)
+		}
+		return
+	}
+
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	src, late := t.TempDir(), t.TempDir() // bind sources, on the same device as dl
+	writeFile(t, filepath.Join(src, "keep.txt"), "x")
+	writeFile(t, filepath.Join(late, "keep.txt"), "x")
+	writeFile(t, filepath.Join(dl, "plain.iso"), "x")
+	writeFile(t, filepath.Join(dl, "later", "old.txt"), "x")
+	mkdirs(t, filepath.Join(dl, "usb"), filepath.Join(dl, "deep", "a", "mnt"),
+		filepath.Join(dl, "docs"), filepath.Join(dl, "later", "sub"))
+	mount := func(src, dst, fstype string, flags uintptr) {
+		t.Helper()
+		if err := syscall.Mount(src, dst, fstype, flags, ""); err != nil {
+			t.Fatalf("mount %s on %s: %v", src, dst, err)
+		}
+		// Runs before t.TempDir's own cleanup: cleanups are LIFO.
+		t.Cleanup(func() { syscall.Unmount(dst, syscall.MNT_DETACH) })
+	}
+	mount("tmpfs", filepath.Join(dl, "usb"), "tmpfs", 0)
+	writeFile(t, filepath.Join(dl, "usb", "victim.txt"), "x")
+	mount("tmpfs", filepath.Join(dl, "deep", "a", "mnt"), "tmpfs", 0)
+	writeFile(t, filepath.Join(dl, "deep", "a", "mnt", "victim.txt"), "x")
+	mount(src, filepath.Join(dl, "docs"), "", syscall.MS_BIND)
+	cutoffAt(t, ctimeMark(t))
+
+	s := discoverDownloadStep(t)
+	if !strings.Contains(s.confirm, "Delete 2 item(s)") ||
+		!strings.Contains(s.confirm, "plain.iso") || !strings.Contains(s.confirm, "later") {
+		t.Fatalf("confirm = %q, want just plain.iso and later", s.confirm)
+	}
+	mount(late, filepath.Join(dl, "later", "sub"), "", syscall.MS_BIND) // after the confirm
+
+	res := s.run(context.Background())
+	if res.err != nil {
+		t.Fatalf("delete step failed: %v\n%s", res.err, res.output)
+	}
+	if exists(filepath.Join(dl, "plain.iso")) {
+		t.Fatal("plain.iso survived")
+	}
+	for _, kept := range []string{
+		filepath.Join(dl, "usb", "victim.txt"), filepath.Join(dl, "deep", "a", "mnt", "victim.txt"),
+		filepath.Join(dl, "later", "old.txt"), filepath.Join(src, "keep.txt"), filepath.Join(late, "keep.txt"),
+	} {
+		if !exists(kept) {
+			t.Errorf("%s was deleted across a mount point", kept)
 		}
 	}
 }
