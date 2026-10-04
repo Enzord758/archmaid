@@ -116,7 +116,7 @@ func (m model) viewMenu() string {
 
 func (m model) viewPassword() string {
 	head := stepRunStyle.Render("🔒 sudo access required")
-	if m.askpassReq != nil {
+	if m.askpassReq != nil || m.eng.askpassOpen() {
 		head += "\n\n" + m.viewAskpassFrom()
 	}
 	if m.authInFlight {
@@ -137,9 +137,13 @@ func (m model) viewPassword() string {
 // sudo's own prompt — quoted, since whoever runs sudo chooses it (sudo -p).
 func (m model) viewAskpassFrom() string {
 	f := m.askpassFrom
+	caller := f.caller
+	if caller == "" {
+		caller = fmt.Sprintf("%s (pid %d)", sanitize.ClipTail(sanitize.OneLine(orUnknown(f.callerExe)), 40), f.callerPid)
+	}
 	lines := []string{
 		statusStyle.Render("step    ") + f.step,
-		statusStyle.Render("caller  ") + fmt.Sprintf("%s (pid %d)", sanitize.ClipTail(sanitize.OneLine(orUnknown(f.callerExe)), 40), f.callerPid),
+		statusStyle.Render("caller  ") + caller,
 	}
 	if f.prompt != "" {
 		lines = append(lines, statusStyle.Render("prompt  ")+fmt.Sprintf("%q", f.prompt))
@@ -255,7 +259,7 @@ func (m model) viewLog() string {
 // + hint), so resizeOutput's fixed row budget for the log viewer applies.
 func (m model) viewAudit() string {
 	hint := "↑/↓ scroll · q back"
-	if m.auditCommit != nil {
+	if m.auditCommit != nil || m.eng.canAccept() {
 		hint = "↑/↓ scroll · a accept maintainer changes · q back"
 	}
 	return m.header() + "\n" +

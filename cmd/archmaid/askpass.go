@@ -80,6 +80,7 @@ type askpassRequester struct {
 	step      string // title of the running step it belongs to
 	callerExe string // real binary of the process that ran sudo; "" if unreadable
 	callerPid int
+	caller    string // the engine's Requester, as the popup shows it; "" in the old path
 	prompt    string // sudo's prompt, sanitized; untrusted (sudo -p sets it)
 }
 

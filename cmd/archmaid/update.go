@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -29,7 +30,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		if m.eng != nil {
+			if next, cmd, ok := m.engineKey(msg); ok {
+				return next, cmd
+			}
+		}
 		return m.handleKey(msg)
+
+	case engineEventsMsg:
+		if m.eng == nil {
+			return m, nil
+		}
+		return m.applyEvents(msg.evs)
 
 	case statusMsg:
 		m.status = string(msg)
@@ -564,6 +576,11 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 		return m.openLogPicker()
 	case actions.IDEditConfig:
 		return m, editConfig()
+	}
+	if m.eng != nil {
+		// The engine runs the action: its Events say what to show.
+		m.send(engine.Start{Action: a.ID})
+		return m, nil
 	}
 
 	env := actionEnv()

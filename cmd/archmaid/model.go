@@ -130,6 +130,10 @@ type model struct {
 	gate       string
 	gateActive bool
 
+	// eng is the engine side of the model (adapter.go): set, the model runs
+	// its actions on an engine.Driver and derives its state from the Events.
+	eng *engineState
+
 	// needsRoot is a discovery waiting on sudo (Repair's recheck of the
 	// packages its user scan flagged): its Rescan runs once the ticket is
 	// primed, in place of starting a queue.

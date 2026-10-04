@@ -12,6 +12,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/downloads"
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -20,6 +21,7 @@ import (
 type stepState struct {
 	step   steps.Step
 	status steps.Status
+	plan   engine.PlanStep // the step as the engine planned it (engine mode only)
 }
 
 // ── streaming ────────────────────────────────────────────────────────────────

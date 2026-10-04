@@ -334,6 +334,10 @@ type tuiTarget struct {
 
 	confirms []confirmInfo   // each confirm as it was answered (sessionTarget compares)
 	gated    map[string]bool // steps a result's ConfirmNext put a confirm on, by ID
+
+	// frames, when not nil, collects the view at each prompt answered and
+	// at the end (TestTranscriptEngine compares engine mode's).
+	frames []string
 }
 
 // confirmInfo is what the open confirm says past its text, from the model:
@@ -463,11 +467,17 @@ func (tg *tuiTarget) prompt() (tt.Event, error) {
 	case screenRunning, screenDiscovering, screenAbortConfirm:
 		return nil, fmt.Errorf("stalled on screen %d with nothing left to run", tg.m.screen)
 	}
+	if tg.frames != nil {
+		tg.frames = append(tg.frames, tg.m.View())
+	}
 	return nil, nil
 }
 
 // Reply answers the open prompt with keys, or aborts the running step.
 func (tg *tuiTarget) Reply(a tt.Answer) error {
+	if tg.frames != nil {
+		tg.frames = append(tg.frames, tg.m.View())
+	}
 	var keys []tea.Msg
 	switch a.Kind {
 	case "confirm":
