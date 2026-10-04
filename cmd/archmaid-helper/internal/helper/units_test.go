@@ -282,7 +282,7 @@ func TestDisableUnitAlso(t *testing.T) {
 	})
 	t.Run("allowed, and a cycle terminates", func(t *testing.T) {
 		f := installFake(
-			map[string]string{"avahi.service": idle("avahi.service"), "avahi.socket": show("avahi.socket", "avahi.socket", "enabled", "active")},
+			map[string]string{"avahi.service": idle("avahi.service"), "avahi.socket": idle("avahi.socket")},
 			map[string]string{"avahi.service": "[Install]\nWantedBy=multi-user.target\nAlso=avahi.socket\n", "avahi.socket": "[Install]\nWantedBy=sockets.target\nAlso=avahi.service\n"},
 		)
 		o, out := rootOpts(t, f)
@@ -298,7 +298,7 @@ func TestDisableUnitAlso(t *testing.T) {
 	})
 	t.Run("a missing Also unit is not read", func(t *testing.T) {
 		f := installFake(
-			map[string]string{"a.service": idle("a.service"), "gone.socket": "Id=gone.socket\nNames=gone.socket\nLoadState=not-found\n"},
+			map[string]string{"a.service": idle("a.service"), "gone.socket": "Id=gone.socket\nNames=gone.socket\nLoadState=not-found\nActiveState=inactive\n"},
 			map[string]string{"a.service": "[Install]\nAlso=gone.socket\n"},
 		)
 		f.on(unitCatArgv("gone.socket"), reply{err: "No files found for gone.socket.", exit: 1})
@@ -316,6 +316,103 @@ func TestDisableUnitAlso(t *testing.T) {
 		}
 		if len(f.streams) != 0 {
 			t.Errorf("ran %q", f.streams)
+		}
+	})
+}
+
+// avahiFake is the real shape of avahi: the service is triggered by its
+// socket and names it in Also=. service and socket are ActiveStates; the
+// socket is enabled.
+func avahiFake(service, socket string) *fakeRunner {
+	return installFake(
+		map[string]string{
+			"avahi-daemon.service": show("avahi-daemon.service", "avahi-daemon.service dbus-org.freedesktop.Avahi.service", "enabled", service) +
+				"TriggeredBy=avahi-daemon.socket\n",
+			"avahi-daemon.socket": show("avahi-daemon.socket", "avahi-daemon.socket", "enabled", socket) +
+				"WantedBy=sockets.target\n",
+		},
+		map[string]string{
+			"avahi-daemon.service": "[Install]\nWantedBy=multi-user.target\nAlso=avahi-daemon.socket\nAlias=dbus-org.freedesktop.Avahi.service\n",
+			"avahi-daemon.socket":  "[Install]\nWantedBy=sockets.target\n",
+		},
+	)
+}
+
+func TestDisableUnitVetsCompanionsAndTriggers(t *testing.T) {
+	t.Run("failed service with an active socket", func(t *testing.T) {
+		// disable --now would stop only the service; the socket would keep
+		// listening and start it again.
+		msg := refusedWithoutRunning(t, avahiFake("failed", "active"), "avahi-daemon.service")
+		if !strings.Contains(msg, "avahi-daemon.socket") || !strings.Contains(msg, "active") {
+			t.Errorf("error %q does not name the active socket", msg)
+		}
+	})
+	t.Run("a clean pair is allowed", func(t *testing.T) {
+		// Both stopped; the enabled socket is disabled by the same Also=.
+		f := avahiFake("failed", "inactive")
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"disable-unit", "avahi-daemon.service"}, o); code != ExitOK {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/systemctl disable --now -- avahi-daemon.service"}) {
+			t.Errorf("ran %q", got)
+		}
+		if !slices.ContainsFunc(f.queries, func(q []string) bool { return slices.Equal(q, unitCatArgv("avahi-daemon.socket")) }) {
+			t.Errorf("the Also= unit's [Install] was not read: %q", f.queries)
+		}
+	})
+	t.Run("an active trigger outside Also=", func(t *testing.T) {
+		f := installFake(
+			map[string]string{
+				"backup.service": idle("backup.service") + "TriggeredBy=backup.timer\n",
+				"backup.timer":   show("backup.timer", "backup.timer", "enabled", "active"),
+			},
+			map[string]string{"backup.service": "[Install]\nWantedBy=multi-user.target\n"},
+		)
+		if msg := refusedWithoutRunning(t, f, "backup.service"); !strings.Contains(msg, "backup.timer") {
+			t.Errorf("error %q does not name the timer", msg)
+		}
+	})
+	t.Run("an enabled trigger that stays enabled", func(t *testing.T) {
+		f := installFake(
+			map[string]string{
+				"backup.service": idle("backup.service") + "TriggeredBy=backup.path\n",
+				"backup.path":    show("backup.path", "backup.path", "enabled", "inactive"),
+			},
+			map[string]string{"backup.service": "[Install]\nWantedBy=multi-user.target\n"},
+		)
+		if msg := refusedWithoutRunning(t, f, "backup.service"); !strings.Contains(msg, "stays enabled") {
+			t.Errorf("error %q does not explain", msg)
+		}
+	})
+	t.Run("a disabled, stopped trigger is fine", func(t *testing.T) {
+		f := installFake(
+			map[string]string{
+				"backup.service": idle("backup.service") + "TriggeredBy=backup.timer\n",
+				"backup.timer":   show("backup.timer", "backup.timer", "disabled", "inactive"),
+			},
+			map[string]string{"backup.service": "[Install]\nWantedBy=multi-user.target\n"},
+		)
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"disable-unit", "backup.service"}, o); code != ExitOK {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+	})
+	t.Run("a trigger with an odd name", func(t *testing.T) {
+		f := unitFake(map[string]string{"a.service": idle("a.service") + "TriggeredBy=a.socket;rm\n"})
+		refusedWithoutRunning(t, f, "a.service")
+	})
+	t.Run("a masked companion's [Install] is still read", func(t *testing.T) {
+		f := installFake(
+			map[string]string{
+				"a.service": idle("a.service"),
+				"a.socket":  "Id=a.socket\nNames=a.socket\nLoadState=masked\nUnitFileState=masked\nActiveState=inactive\n",
+			},
+			map[string]string{"a.service": "[Install]\nAlso=a.socket\n"},
+		)
+		f.on(unitCatArgv("a.socket"), reply{err: "Unit a.socket is masked.", exit: 1})
+		if msg := refusedWithoutRunning(t, f, "a.service"); !strings.Contains(msg, "a.socket") {
+			t.Errorf("error %q does not name the companion", msg)
 		}
 	})
 }

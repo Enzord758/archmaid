@@ -27,7 +27,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Q`), in a sync repo (`-Si`), really missing files (`-Qk -- pkg`) and installed at exactly the version the first repo listing it has (`-Q` vs. `-Si` → `Version`), so a repair is never a partial upgrade or a downgrade. Any other package is skipped and listed, a version mismatch with the reason `repo has a different version (installed X, repo Y) — update the system first`. If nothing is left to reinstall and a version mismatch is among the reasons, it exits **3**. Then the whole transaction is checked: `pacman -Sp --noconfirm --print-format '%n %v' -- …` (stdout only) must list exactly the packages left, each at its installed version. A dependency it would install or upgrade too, a version that changed meanwhile or a package missing from it exits **3**, reinstalls nothing, and lists every package as skipped (the extra packages are named in the reasons and in `error`). Unparseable `-Sp` output or a failing `-Sp` exits 1 | `…repair` (admin) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
-| `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit exits **4**, and the whole request is refused. A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
+| `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit, a running `Also=` unit, or a trigger that would start the unit again exits **4**, and the whole request is refused (see "Companions and triggers"). A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
 | `upgrade-repos` | `pacman -Syu --noconfirm` | none. Only the GUI uses it; the TUI keeps topgrade | `…upgrade-repos` (admin) |
 | `full-cleanup …` | the sequence below | strict flags, see below | `…full-cleanup` (admin) |
 
@@ -97,8 +97,29 @@ only loaded units, so it would miss `WantedBy=systemd-suspend.service`. Every
 list resets in drop-ins are ignored, so the helper reads too much rather than
 too little. `systemctl disable` also disables the units named in `Also=`, so
 those are checked the same way and their own `Also=` is followed too (at most
-1024 units). An `Also=` value with a specifier (`%i`) or an odd name can't be
-checked, so it is refused. Any hit refuses the whole request with exit 4.
+1024 units). An `Also=` unit's `[Install]` is read whenever its `LoadState`
+isn't `not-found` (a masked one too), and failing to read it refuses. An
+`Also=` value with a specifier (`%i`) or an odd name can't be checked, so it
+is refused. Any hit refuses the whole request with exit 4.
+
+**Companions and triggers** (`disable-unit`). The helper also refuses, with
+exit 4 and the whole request, when disabling wouldn't do what the user was
+shown:
+
+- an `Also=` unit (transitively) is running: its `ActiveState` isn't
+  `inactive` or `failed`. `disable --now` stops only the named units, so a
+  failed `avahi-daemon.service` whose `Also=avahi-daemon.socket` is active
+  would leave the socket listening, disabled, and starting the service again
+  until the next boot;
+- a unit it would disable has a `TriggeredBy` unit (`systemctl show`: a
+  socket, timer, path, …) that is running, or that is enabled (`enabled*`) and
+  not disabled by the same request. It would start the unit again.
+
+It refuses rather than skips so that the result never silently differs from
+the request: the error names the unit, and the caller can stop the companion
+or trigger first, or drop that unit and ask again. A pair that is stopped and
+disabled together (a failed service and its inactive socket named in `Also=`)
+is allowed.
 
 **full-cleanup** takes
 `full-cleanup --keep N [--wipe] [--orphans sha256:…] --journal D`. Flags take
@@ -160,7 +181,7 @@ field is not a schema break; changing or removing one bumps `v`.
 | 1 | a root command failed, or an internal error |
 | 2 | bad usage or input |
 | 3 | state changed since the user confirmed (orphan plan hash mismatch), or `repair` has nothing it may reinstall because the repos have a different version, or reinstalling would pull in or upgrade other packages (update the system first) |
-| 4 | refused: denylisted unit, not root, no `PKEXEC_UID`/`SUDO_UID`, wrong install path/ownership/mode, or a devhelper build run as root |
+| 4 | refused: denylisted unit, a running `Also=` unit or trigger (or an enabled trigger left behind), not root, no `PKEXEC_UID`/`SUDO_UID`, wrong install path/ownership/mode, or a devhelper build run as root |
 | 5 | busy: `/run/archmaid-helper.lock` is held, or `/var/lib/pacman/db.lck` exists (checked only for verbs that run pacman/paccache mutations) |
 
 ## Hardening

@@ -82,41 +82,66 @@ func runDisableUnit(s *session, args []string) int {
 // units in todo: each one's [Install] section (Alias=, WantedBy=, …) and,
 // transitively, every unit named in an Also= line, which systemctl disables
 // along with it. Any of them being denied refuses the whole request.
+//
+// It also refuses (exit 4, the whole request, so the caller can drop that
+// unit and ask again) when disabling wouldn't do what the user was shown:
+//   - an Also= companion is running. `disable --now` stops only the named
+//     units, so e.g. a failed avahi-daemon.service with Also= on an active
+//     avahi-daemon.socket would leave the socket listening, disabled, and
+//     still starting the service until the next boot.
+//   - a unit is triggered (TriggeredBy=: a socket, timer, path, …) by a unit
+//     that is running, or enabled and not disabled by this same request: it
+//     would start the "disabled" unit again.
 func (s *session) vetInstall(todo []string, states map[string]unitState) (int, string) {
 	type item struct{ unit, from string } // from: the requested unit that pulled it in
 	queue := make([]item, 0, len(todo))
 	for _, u := range todo {
 		queue = append(queue, item{u, u})
 	}
-	seen := map[string]bool{}
+	vetted := map[string]unitState{}
+	pulledBy := map[string]string{}
+	var order []string
 	for len(queue) > 0 {
 		it := queue[0]
 		queue = queue[1:]
-		if seen[it.unit] {
+		if _, ok := vetted[it.unit]; ok {
 			continue
 		}
-		seen[it.unit] = true
-		if len(seen) > maxVetted {
+		if len(vetted) >= maxVetted {
 			return ExitRefused, fmt.Sprintf("refusing to disable %s: Also= pulls in more than %d units", it.from, maxVetted)
 		}
+		companion := it.unit != it.from // reached through Also=, not asked for
 		st, ok := states[it.unit]
-		if !ok { // reached through Also=
+		if !ok {
 			var err error
 			if st, err = s.unitState(it.unit); err != nil {
 				return ExitFailed, err.Error()
 			}
 		}
-		if st.load == "loaded" {
+		// A requested unit is loaded (or it was skipped). A companion in any
+		// other state that has files (masked, bad-setting, …) can still
+		// carry an [Install] section, so only a missing one goes unread.
+		if st.load != "not-found" {
 			if err := s.readInstall(it.unit, &st); err != nil {
+				if companion {
+					return ExitRefused, fmt.Sprintf("refusing to disable %s: cannot read the [Install] section of its Also= unit %s: %v", it.from, it.unit, err)
+				}
 				return ExitFailed, err.Error()
 			}
 		}
 		if why := st.denied(); why != "" {
-			if it.unit == it.from {
+			if !companion {
 				return ExitRefused, fmt.Sprintf("refusing to disable %s: %s", it.unit, why)
 			}
 			return ExitRefused, fmt.Sprintf("refusing to disable %s: its Also= disables %s too, and %s", it.from, it.unit, why)
 		}
+		if companion && !stopped(st.active) {
+			return ExitRefused, fmt.Sprintf("refusing to disable %s: its Also= disables %s too, which is %s and would keep running (stop it first)",
+				it.from, it.unit, orUnknown(st.active))
+		}
+		vetted[it.unit] = st
+		pulledBy[it.unit] = it.from
+		order = append(order, it.unit)
 		for _, a := range st.also {
 			if !alsoPattern.MatchString(a) {
 				// Specifiers (%i, …) or anything odd: we can't tell what
@@ -126,7 +151,46 @@ func (s *session) vetInstall(todo []string, states map[string]unitState) (int, s
 			queue = append(queue, item{a, it.from})
 		}
 	}
+	return s.vetTriggers(order, vetted, pulledBy)
+}
+
+// vetTriggers refuses when a unit about to be disabled would be started again
+// by what triggers it: a trigger that is running, or one that is enabled and
+// not among the units being disabled (vetted).
+func (s *session) vetTriggers(order []string, vetted map[string]unitState, pulledBy map[string]string) (int, string) {
+	for _, u := range order {
+		for _, t := range vetted[u].triggeredBy {
+			if !alsoPattern.MatchString(t) {
+				return ExitRefused, fmt.Sprintf("refusing to disable %s: cannot vet %s's trigger %q", pulledBy[u], u, t)
+			}
+			tst, disabledToo := vetted[t]
+			if !disabledToo {
+				var err error
+				if tst, err = s.unitState(t); err != nil {
+					return ExitFailed, err.Error()
+				}
+			}
+			switch {
+			case !stopped(tst.active):
+				return ExitRefused, fmt.Sprintf("refusing to disable %s: %s is triggered by %s, which is %s and would start it again (stop it first)",
+					pulledBy[u], u, t, orUnknown(tst.active))
+			case !disabledToo && strings.HasPrefix(tst.fileState, "enabled"):
+				return ExitRefused, fmt.Sprintf("refusing to disable %s: %s is triggered by %s, which stays %s and would start it again (disable it too)",
+					pulledBy[u], u, t, tst.fileState)
+			}
+		}
+	}
 	return ExitOK, ""
+}
+
+// stopped reports whether an ActiveState means the unit isn't running.
+func stopped(active string) bool { return active == "inactive" || active == "failed" }
+
+func orUnknown(s string) string {
+	if s == "" {
+		return "in an unknown state"
+	}
+	return s
 }
 
 // unitState is what the helper knows about one unit.
@@ -138,6 +202,7 @@ type unitState struct {
 	// so on its own it misses e.g. WantedBy=systemd-suspend.service).
 	wantedBy                []string
 	also                    []string // [Install] Also=
+	triggeredBy             []string // TriggeredBy: sockets, timers, paths, … that start it
 	load, fileState, active string
 }
 
@@ -157,7 +222,7 @@ func (st unitState) denied() string {
 }
 
 func unitShowArgv(u string) []string {
-	return []string{Systemctl, "show", "--property=Id,Names,LoadState,UnitFileState,ActiveState,WantedBy,RequiredBy,UpheldBy", "--", u}
+	return []string{Systemctl, "show", "--property=Id,Names,LoadState,UnitFileState,ActiveState,WantedBy,RequiredBy,UpheldBy,TriggeredBy", "--", u}
 }
 
 func unitCatArgv(u string) []string { return []string{Systemctl, "cat", "--", u} }
@@ -186,6 +251,8 @@ func (s *session) unitState(u string) (unitState, error) {
 			st.active = v
 		case "WantedBy", "RequiredBy", "UpheldBy":
 			st.wantedBy = append(st.wantedBy, strings.Fields(v)...)
+		case "TriggeredBy":
+			st.triggeredBy = append(st.triggeredBy, strings.Fields(v)...)
 		}
 	}
 	return st, nil
