@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -24,9 +26,11 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/helperclient"
 	"github.com/Enzord758/archmaid/internal/helperclient/helpertest"
@@ -128,10 +132,11 @@ func runsClock() func() time.Time {
 	return func() time.Time { return runsStart.Add(time.Duration(n.Add(1)) * time.Minute) }
 }
 
-// childStarted: for real-close, the topgrade shim has written its pid (so
-// the parent can check it is gone); true for every other scenario.
+// childStarted: for real-close and real-close-topgrade, the topgrade shim
+// has written its pid (so the parent can check it is gone); true for every
+// other scenario.
 func childStarted(scenario string) bool {
-	if scenario != "real-close" {
+	if scenario != "real-close" && scenario != "real-close-topgrade" {
 		return true
 	}
 	_, err := os.Stat(filepath.Join(os.Getenv(envShims), "topgrade.pid"))
@@ -140,10 +145,12 @@ func childStarted(scenario string) bool {
 
 // shimOpts: refuse are the helper verbs pkexec refuses (exit 127, as for a
 // dismissed dialog); topgrade is what the topgrade shim does after its
-// first line: "" exits 0, "sudo" runs sudo, "hang" sleeps.
+// first line: "" exits 0, "sudo" runs sudo, "hang" sleeps; yay "sudo" has
+// the yay shim run `sudo pacman -Sc`, as yay -Sc does.
 type shimOpts struct {
 	refuse   []string
 	topgrade string
+	yay      string
 }
 
 // installShims writes the shims into a fresh dir and returns it, with the
@@ -163,11 +170,19 @@ printf '{"v":1,"t":"line","stream":"out","text":"shim %s"}\n' "$verb"
 [ "$verb" = check-files ] && printf '{"v":1,"t":"check","checked":["linux"],"broken":[]}\n'
 printf '{"v":1,"t":"result","ok":true,"code":0,"child_exit":0,"skipped":[]}\n'
 `
+	// The real sudo prefers a terminal to SUDO_ASKPASS: with a controlling
+	// terminal it would prompt there, where a GUI's user isn't looking.
+	// So the shim refuses to run with one at all.
 	sudo := `#!/bin/sh
 printf '%s\n' "$*" >> ` + q(dir+"/sudo.log") + `
+if [ -t 0 ] || sh -c ': </dev/tty' 2>/dev/null; then
+	echo "sudo: would prompt on the terminal" >&2
+	echo tty >> ` + q(dir+"/sudo.tty") + `
+	exit 1
+fi
 [ -n "$SUDO_ASKPASS" ] || { echo "sudo: a password is required" >&2; exit 1; }
 if pw=$("$SUDO_ASKPASS" "[sudo] password for shim: "); then
-	printf '%s\n' "$pw" > ` + q(dir+"/sudo.got") + `
+	printf '%s\n' "$pw" >> ` + q(dir+"/sudo.got") + `
 	echo "sudo shim ran: $*"
 else
 	echo "sudo: no password was provided" >&2
@@ -182,7 +197,11 @@ fi
 	case "hang":
 		topgrade += "exec sleep 30\n"
 	}
-	yay := "#!/bin/sh\necho 'yay shim: cache cleaned'\n"
+	yay := "#!/bin/sh\necho $$ > " + q(dir+"/yay.pid") + "\n"
+	if o.yay == "sudo" {
+		yay += "sudo pacman -Sc || exit 1\n"
+	}
+	yay += "echo 'yay shim: cache cleaned'\n"
 	for name, body := range map[string]string{"pkexec": pkexec, "sudo": sudo, "su": su, "topgrade": topgrade, "yay": yay} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
 			t.Fatal(err)
@@ -223,7 +242,10 @@ func hasRow(subs []string, want string) bool {
 //   - real-askpass, real-askpass-cancel: topgrade's sudo asks through the
 //     relay; the right password reaches the sudo shim, a cancel doesn't;
 //   - real-close: the window closed mid-topgrade: the child is stopped and
-//     nothing outlives the window (goleak, the topgrade shim's pid).
+//     nothing outlives the window (goleak, the topgrade shim's pid);
+//   - close-topgrade: Run topgrade, then the window closed mid-topgrade
+//     with Stop and Quit: last-run.json says topgrade was aborted, and the
+//     run's folder holds what it logged (the audit).
 func TestGUIRealDriver(t *testing.T) {
 	needDisplay(t)
 
@@ -397,4 +419,95 @@ func TestGUIRealDriver(t *testing.T) {
 			t.Errorf("the topgrade shim (pid %d) outlived the window: %v", n, err)
 		}
 	})
+
+	t.Run("tty", func(t *testing.T) {
+		// The GUI started from a shell: its process has a controlling
+		// terminal. topgrade's sudo and yay -Sc's must still ask through
+		// the GUI's askpass dialog, never on that terminal (the sudo shim
+		// fails if it has one).
+		dir, env := installShims(t, shimOpts{topgrade: "sudo", yay: "sudo"})
+		rep, _ := childCmd(t, "real-tty", withTerminal(t), env...)
+		if tty := readLines(t, filepath.Join(dir, "sudo.tty")); tty != nil {
+			t.Errorf("sudo ran with a controlling terminal %d times: it would have prompted there", len(tty))
+		}
+		if rep.Outcome != "completed" || !slices.Contains(rep.Rows, steps.IDTopgrade+"=ok") || !slices.Contains(rep.Rows, steps.IDYayCache+"=ok") {
+			t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
+		}
+		tg, yay := readLines(t, filepath.Join(dir, "topgrade.pid")), readLines(t, filepath.Join(dir, "yay.pid"))
+		if len(rep.PwBodies) != 2 || len(tg) != 1 || len(yay) != 1 ||
+			!strings.Contains(rep.PwBodies[0], "(pid "+tg[0]+")") || !strings.Contains(rep.PwBodies[1], "(pid "+yay[0]+")") {
+			t.Errorf("askpass dialogs %q; want one for the topgrade shim (pid %q), then one for the yay shim (pid %q)", rep.PwBodies, tg, yay)
+		}
+		if got := readLines(t, filepath.Join(dir, "sudo.got")); !slices.Equal(got, []string{shimPw, shimPw}) {
+			t.Errorf("sudo got %q, want the password twice", got)
+		}
+	})
+
+	t.Run("close-topgrade", func(t *testing.T) {
+		dir, env := installShims(t, shimOpts{topgrade: "hang"})
+		state := t.TempDir()
+		rep, _ := child(t, "real-close-topgrade", append(env, "ARCHMAID_GUI_STATE="+state)...)
+		if rep.Outcome != "" {
+			t.Errorf("the run finished (%q) before the window closed", rep.Outcome)
+		}
+		if pid := readLines(t, filepath.Join(dir, "topgrade.pid")); len(pid) != 1 {
+			t.Fatalf("topgrade shim pid %q: it never started", pid)
+		}
+		r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
+		if err != nil || r.Action != actions.IDTopgrade || r.Outcome != "aborted" || r.DryRun {
+			t.Errorf("last-run.json after Stop and Quit: %+v, %v; want topgrade aborted", r, err)
+		}
+		var runs []string
+		ents, err := os.ReadDir(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range ents {
+			if e.IsDir() {
+				runs = append(runs, e.Name())
+			}
+		}
+		if len(runs) != 1 {
+			t.Errorf("run folders %q, want the aborted run's", runs)
+		}
+		t.Logf("last-run.json: %+v; run folders %q", r, runs)
+	})
+}
+
+// withTerminal gives the child a controlling terminal, as archmaid-gui
+// started from a shell has: a session of its own whose terminal is a fresh
+// pty's (its stdin), the other end drained and closed when t ends.
+func withTerminal(t *testing.T) func(*exec.Cmd) {
+	t.Helper()
+	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY, 0)
+	if err != nil {
+		t.Fatalf("open a pty: %v", err)
+	}
+	ioctl := func(req uintptr, arg unsafe.Pointer) {
+		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), req, uintptr(arg)); errno != 0 {
+			t.Fatalf("pty ioctl %#x: %v", req, errno)
+		}
+	}
+	var unlock int32
+	ioctl(syscall.TIOCSPTLCK, unsafe.Pointer(&unlock))
+	var n uint32
+	ioctl(syscall.TIOCGPTN, unsafe.Pointer(&n))
+	slave, err := os.OpenFile("/dev/pts/"+strconv.Itoa(int(n)), os.O_RDWR|syscall.O_NOCTTY, 0)
+	if err != nil {
+		t.Fatalf("open the pty's terminal: %v", err)
+	}
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		_, _ = io.Copy(io.Discard, master) // ends with EIO once the child is gone
+	}()
+	t.Cleanup(func() {
+		slave.Close()
+		master.Close()
+		<-drained
+	})
+	return func(cmd *exec.Cmd) {
+		cmd.Stdin = slave
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	}
 }

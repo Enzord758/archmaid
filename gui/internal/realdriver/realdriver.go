@@ -178,7 +178,10 @@ func (w *Wiring) New(o engine.Options) engine.Driver {
 		Faillock:  w.cfg.Faillock,
 		KillGrace: w.cfg.KillGrace,
 		WaitDelay: w.cfg.WaitDelay,
-		Report:    w.cfg.Report,
+		// No child of the GUI may reach a terminal: one started from a
+		// shell still has the shell's, and sudo would prompt there.
+		Detach: true,
+		Report: w.cfg.Report,
 	}
 	if w.srv != nil {
 		deps.Priv = privilege.Sudo{Wrapper: w.srv.Wrapper()}

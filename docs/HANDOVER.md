@@ -138,7 +138,17 @@ comments and `git log`; this is the "read before you touch it" list.
   (`cmd/archmaid-helper`). That exception is deliberate: the helper runs as root
   through pkexec, runs no sudo, and *does* give every child its own session, so
   a Ctrl-C/Ctrl-Z/hangup at the terminal can't reach pacman mid-transaction.
-  Don't "fix" one by copying the other.
+  Don't "fix" one by copying the other. The GUI is the third case:
+  `proc.Options.Detach` (`driver.Deps.Detach`, set only by
+  `gui/internal/realdriver`) starts each step's child in a session of its
+  own with no controlling terminal, so a GUI started from a shell can't
+  have sudo prompt on that shell's terminal (sudo prefers a tty to
+  `SUDO_ASKPASS`); Stop/Close then signal the child's whole process group
+  and Close waits until it is gone. Its `Setsid` lives only in
+  `internal/proc/detach.go`, which the guard exempts; `TestTUIDoesNotDetach`
+  keeps the TUI off it. Under polkit the AUR-cache step (`yay -Sc`, which
+  runs `sudo pacman -Sc`) is `NeedsPriv` without a Verb, like topgrade, so
+  it gets the askpass.
 - **Auth is two-stage (`privilege.Sudo.Authenticate`).** One wrong `sudo -S -v` burns *two*
   `pam_faillock` failures (the wrong password plus sudo's retry hitting EOF), and
   `sudo -A` burns two as well — with Arch's `deny=3`, one typo from lockout. So

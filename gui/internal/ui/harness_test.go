@@ -200,13 +200,15 @@ func runChild(scenario, path string) int {
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
 	case "engine-stops-askpass": // ... with sudo's askpass dialog open, typed in
 		action = stub.IDFullCleanupAskpass
-	case "real-dry", "real-refused", "real-locked", "real-close": // realdriver_harness_test.go
+	case "real-dry", "real-refused", "real-locked", "real-close", "real-tty": // realdriver_harness_test.go
 	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
 		action = actions.IDTopgrade
 	case "real-askpass": // topgrade's sudo asks through the relay
 		action = actions.IDTopgrade
 	case "real-askpass-cancel":
 		action, cancelPassword = actions.IDTopgrade, true
+	case "real-close-topgrade": // Run topgrade, then Stop and Quit mid-topgrade
+		action = actions.IDTopgrade
 	default:
 		fail("unknown scenario %q", scenario)
 	}
@@ -359,7 +361,7 @@ func runChild(scenario, path string) int {
 				case "stop":
 					stopped = true
 					w.stopBtn.Emit("clicked")
-				case "close-midrun", "real-close":
+				case "close-midrun", "real-close", "real-close-topgrade":
 					stopped = true
 					w.win.Close()
 					if w.quitDialog == nil || w.closed {
@@ -392,7 +394,7 @@ func runChild(scenario, path string) int {
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
 				})
-				if scenario == "close-midrun" || scenario == "real-close" {
+				if scenario == "close-midrun" || scenario == "real-close" || scenario == "real-close-topgrade" {
 					fail("the run finished before the window closed")
 				}
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
@@ -561,10 +563,20 @@ func perf() bool { return os.Getenv("ARCHMAID_GUI_PERF") == "1" }
 // exec its first frame was painted.
 func child(t *testing.T, scenario string, env ...string) (*report, time.Duration) {
 	t.Helper()
+	return childCmd(t, scenario, nil, env...)
+}
+
+// childCmd is child, with prep (when set) applied to the child's command
+// before it starts.
+func childCmd(t *testing.T, scenario string, prep func(*exec.Cmd), env ...string) (*report, time.Duration) {
+	t.Helper()
 	path := t.TempDir() + "/report.json"
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
 	cmd.Env = append(append(os.Environ(), "ARCHMAID_GUI_CHILD="+scenario, "ARCHMAID_GUI_REPORT="+path), env...)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
+	if prep != nil {
+		prep(cmd)
+	}
 	start := time.Now()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
