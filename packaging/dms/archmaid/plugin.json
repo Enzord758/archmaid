@@ -1,0 +1,12 @@
+{
+  "id": "archmaid",
+  "name": "archmaid",
+  "description": "Last archmaid run, pending updates and AUR audit warnings. Read-only; the cleanup itself runs in the archmaid app.",
+  "version": "0.1.0",
+  "author": "Enzord",
+  "icon": "cleaning_services",
+  "type": "widget",
+  "component": "./ArchmaidWidget.qml",
+  "requires_dms": ">=1.4.2",
+  "permissions": ["process"]
+}
