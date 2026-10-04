@@ -22,6 +22,11 @@ type PumpOptions struct {
 	// 512-line flush — append, trim the head, scroll — takes 1–2 ms). 0
 	// means 512.
 	FlushLines int
+	// Ended, when set, runs once on the main thread after the last batch
+	// once the Driver's Events has closed: after its Close, or when the
+	// Driver stopped on its own (a Session panic), possibly without a
+	// Finished. The front end tells the two apart.
+	Ended func()
 }
 
 // Pump carries a Driver's events to the main thread. One goroutine reads
@@ -44,6 +49,8 @@ type Pump struct {
 	lines     int // output lines in queue
 	scheduled bool
 	stats     Stats
+	// ended: Events has closed; endSent: Ended has been run.
+	ended, endSent bool
 
 	done chan struct{}
 }
@@ -112,6 +119,18 @@ func (p *Pump) run(events <-chan engine.Event) {
 		if schedule {
 			p.post(p.flush)
 		}
+	}
+	if p.opts.Ended == nil {
+		return
+	}
+	// One more flush runs Ended once everything queued is applied.
+	p.mu.Lock()
+	p.ended = true
+	schedule := !p.scheduled
+	p.scheduled = true
+	p.mu.Unlock()
+	if schedule {
+		p.post(p.flush)
 	}
 }
 
@@ -195,6 +214,10 @@ func (p *Pump) flush() {
 	batch, lines := p.take()
 	more := len(p.queue) > 0
 	p.scheduled = more
+	end := !more && p.ended && !p.endSent
+	if end {
+		p.endSent = true
+	}
 	p.mu.Unlock()
 	if len(batch) > 0 {
 		start := time.Now()
@@ -211,6 +234,9 @@ func (p *Pump) flush() {
 			p.stats.LastLine = end
 		}
 		p.mu.Unlock()
+	}
+	if end {
+		p.opts.Ended()
 	}
 	if more {
 		p.post(p.flush)

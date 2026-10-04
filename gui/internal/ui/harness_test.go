@@ -105,6 +105,9 @@ type report struct {
 	Notice   string
 	// Outcomes is every run's outcome, in order (real-runs runs several).
 	Outcomes []string
+	// Controls is the window's state right after the engine stopped
+	// (engine-stops): busy, Stop, the menu row, open dialogs, status.
+	Controls string
 	// Subtitles is every "title: subtitle" a checklist row showed, once.
 	Subtitles []string
 	Leaked    string // goleak's verdict after Run returned, "" if clean
@@ -181,6 +184,7 @@ func runChild(scenario, path string) int {
 	case "settings": // home refused, a folder and dry run kept, then a run
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
+	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
 	case "real-dry", "real-refused", "real-locked", "real-close": // realdriver_harness_test.go
 	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
 		action = actions.IDTopgrade
@@ -197,6 +201,7 @@ func runChild(scenario, path string) int {
 		opts.Engine = wiring.Options()
 	}
 	var sentMu sync.Mutex
+	var died atomic.Bool // engine-stops: the one Driver that dies has
 	opts.NewDriver = func(o engine.Options) engine.Driver {
 		flag := "<none>"
 		if o.Env.Downloads != nil {
@@ -212,6 +217,9 @@ func runChild(scenario, path string) int {
 				so.Scripts = stub.Catalog(time.Now())
 			}
 			d = stub.New(script, so)
+			if strings.HasPrefix(scenario, "engine-stops") {
+				d = newDyingDriver(d, &died)
+			}
 		}
 		return countingDriver{Driver: d, closes: &closes, mu: &sentMu, sent: &rep.Sent}
 	}
@@ -332,7 +340,10 @@ func runChild(scenario, path string) int {
 				rep.RunNs = int64(time.Since(started))
 				rep.EndMem = readMem()
 				m := w.model
-				rep.Outcome = m.Finished.Outcome.String()
+				rep.Outcome = "stopped" // the engine stopped: no Finished
+				if m.Finished != nil {
+					rep.Outcome = m.Finished.Outcome.String()
+				}
 				rep.Notice = m.Notice
 				for _, r := range m.Rows {
 					rep.Rows = append(rep.Rows, r.ID+"="+r.State.String())
@@ -360,6 +371,25 @@ func runChild(scenario, path string) int {
 						}
 						rep.Rows = nil
 						w.menu[action].row.Emit("activated")
+					})
+					return
+				}
+				if strings.HasPrefix(scenario, "engine-stops") && len(rep.Outcomes) == 1 {
+					rep.Controls = fmt.Sprintf("busy=%v stop=%v menu=%v dialogs=%d status=%q",
+						w.busy, w.stopBtn.Sensitive(), w.menu[action].row.Sensitive(), len(w.dialogs), w.status.Text())
+					if scenario == "engine-stops-rerun" {
+						glib.TimeoutAdd(50, func() {
+							rep.Rows = nil
+							w.menu[action].row.Emit("activated")
+						})
+						return
+					}
+					// Closing must not ask "Stop the run and quit?".
+					glib.TimeoutAdd(50, func() {
+						w.win.Close()
+						if w.quitDialog != nil || !w.closed {
+							fail("closing after the engine stopped didn't close the window")
+						}
 					})
 					return
 				}

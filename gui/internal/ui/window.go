@@ -200,11 +200,34 @@ func (w *Window) newDriver() {
 	w.gen++
 	gen := w.gen
 	w.drv = w.opts.NewDriver(w.settings.Apply(w.opts.Engine))
+	po := w.opts.Pump
+	po.Ended = func() {
+		// A Driver the window closed (replaced, or the window closing)
+		// has a newer gen or w.closed; any other stopped on its own.
+		if gen == w.gen {
+			w.engineStopped()
+		}
+	}
 	w.pump = runview.NewPump(w.drv, post, func(evs []engine.Event) {
 		if gen == w.gen {
 			w.apply(evs)
 		}
-	}, w.opts.Pump)
+	}, po)
+}
+
+// engineStopped: the current Driver's events ended without the window
+// closing it (a Session panic closes the Driver). The run, if one was
+// going, is over: its dialogs close, the controls and the menu come back
+// with the error shown, and the next Start makes a fresh Driver.
+func (w *Window) engineStopped() {
+	if w.closed {
+		return
+	}
+	for id, d := range w.dialogs {
+		delete(w.dialogs, id)
+		d.ForceClose()
+	}
+	w.redraw(w.model.Stop())
 }
 
 // replaceDriver closes the idle Driver and makes a fresh one with the
@@ -227,7 +250,7 @@ func (w *Window) startAction(id string) {
 	// when the window opened or the last run ended), and the Settings
 	// page's changes apply to it.
 	w.replaceDriver()
-	w.busy, w.current = true, id
+	w.busy, w.current, w.model.Stopped = true, id, ""
 	w.stopBtn.SetSensitive(true)
 	w.stack.SetVisibleChildName("run")
 	w.updateOverview()
@@ -272,7 +295,11 @@ func (w *Window) apply(evs []engine.Event) {
 	if w.closed {
 		return
 	}
-	c := w.model.Apply(evs)
+	w.redraw(w.model.Apply(evs))
+}
+
+// redraw redraws exactly what c says changed.
+func (w *Window) redraw(c runview.Change) {
 	if c.Reset {
 		w.steps.RemoveAll()
 		w.rows = w.rows[:0]
@@ -381,6 +408,8 @@ func (w *Window) statusText() string {
 	m := w.model
 	var parts []string
 	switch {
+	case m.Stopped != "":
+		parts = append(parts, m.Stopped)
 	case m.Finished != nil:
 		parts = append(parts, "Finished: "+m.Finished.Outcome.String())
 		if n := m.Finished.NotRun; n > 0 {

@@ -136,7 +136,13 @@ ending in a notice, the empty last run), `logs` (a scratch state dir with a
 20-day-old failed last-run.json and two runs' logs: the Overview's stale
 warning, View log's run rows, one log opened; the state dir must be
 unchanged after), `settings` (a scratch `XDG_CONFIG_HOME`: the home folder typed as the downloads folder is refused inline, a folder and dry run are kept in `archmaid/gui.json` at 0600, the next Start gets a fresh Driver made with them, both Drivers closed; a second app start begins with them), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
-`close-midrun` (closing mid-run asks first, then closes), `services`,
+`close-midrun` (closing mid-run asks first, then closes), `engine-stops`
+and `engine-stops-rerun` (TestGUIEngineStops: the Driver's events end at the
+second step without a Finished, as after a Session panic: the window leaves
+the running state — not busy, Stop off, the menu back, no dialog open,
+the status line and a toast say "archmaid's engine stopped unexpectedly"
+— closing then closes at once, and a new Start runs on a fresh Driver;
+runview's `TestPumpEndedWithoutFinished` is the plain-Go half), `services`,
 `uncached`, `wrong-password` and `askpass` (from the stub's Catalog: the
 services pick, the up-front password standing in for Full Cleanup's gate,
 the stub's wrong password three times — each retry's dialog shows the error

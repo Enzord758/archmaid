@@ -177,10 +177,13 @@ type Model struct {
 	Busy     string
 	Running  bool
 	Finished *engine.Finished
-	Notice   string
-	Prompt   *Prompt // the open prompt, or nil
-	Stat     engine.StatusUpdated
-	Logs     []engine.LogWritten
+	// Stopped is EngineStopped once the Driver's events ended without a
+	// Finished (Stop); "" otherwise.
+	Stopped string
+	Notice  string
+	Prompt  *Prompt // the open prompt, or nil
+	Stat    engine.StatusUpdated
+	Logs    []engine.LogWritten
 	// Auth is the open AuthWaiting, or nil. A WaitPolkit one also marks
 	// its step's row Waiting until AuthResolved.
 	Auth *engine.AuthWaiting
@@ -274,7 +277,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 	for _, ev := range evs {
 		switch ev := ev.(type) {
 		case engine.QueueStarted:
-			m.Action, m.DryRun, m.Running, m.Finished, m.Notice = ev.Action, ev.DryRun, true, nil, ""
+			m.Action, m.DryRun, m.Running, m.Finished, m.Notice, m.Stopped = ev.Action, ev.DryRun, true, nil, "", ""
 			m.Rows, m.Auth, m.pendingLock = m.Rows[:0], nil, nil
 			for _, s := range ev.Steps {
 				m.Rows = append(m.Rows, Row{ID: s.ID, Title: s.Title, NeedsPriv: s.NeedsPriv, Optional: s.Optional})
@@ -424,6 +427,36 @@ func (m *Model) Apply(evs []engine.Event) Change {
 	}
 	slices.Sort(c.Rows)
 	c.OutRemove, c.OutAppend = m.sync()
+	return c
+}
+
+// EngineStopped is what the GUI says when the Driver's events end without
+// a Finished: the Driver closed on its own (a Session panic).
+const EngineStopped = "archmaid's engine stopped unexpectedly"
+
+// Stop folds in that the Driver's events ended without a Finished: the
+// action is over (Change.Finished, so the page leaves the running state;
+// Model.Finished is nil), the open prompt is closed, a running row
+// reads aborted and a pending one not run, and EngineStopped is the
+// status and a toast. Call it only for a Driver the page didn't close
+// itself.
+func (m *Model) Stop() Change {
+	c := Change{Finished: true, Status: true, Toasts: []string{EngineStopped}}
+	if m.Prompt != nil {
+		c.Closed = append(c.Closed, m.Prompt.ID)
+	}
+	m.Stopped, m.Finished, m.Running, m.Prompt, m.Auth, m.Busy = EngineStopped, nil, false, nil, nil, ""
+	for i := range m.Rows {
+		switch m.Rows[i].State {
+		case RowRunning:
+			m.Rows[i].State, m.Rows[i].Waiting = RowAborted, false
+		case RowPending:
+			m.Rows[i].State = RowNotRun
+		default:
+			continue
+		}
+		c.Rows = append(c.Rows, i)
+	}
 	return c
 }
 
