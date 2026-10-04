@@ -2,9 +2,10 @@
 // instead of running anything: the GUI builds against it until the real
 // Driver lands (E6). It keeps the Driver contract — Send never blocks,
 // events arrive in order, prompts wait for their answer and ignore stale
-// IDs, Abort ends the run with Aborted and Finished — but it doesn't model
-// what an answer changes: a script is one path, and "no" plays it on like
-// "yes". Passwords sent to it are dropped unread.
+// IDs, Abort ends the run with Aborted and Finished. It models what an
+// answer changes only where a script says so: a Cue's OnNo and OnCancel
+// branches play instead of the rest of the script, and without them every
+// answer plays on like "yes". Passwords sent to it are dropped unread.
 //
 // Pacing comes from a Clock: the wall clock for a GUI to watch, or a
 // FakeClock that jumps ahead instead of sleeping, for tests.
@@ -21,9 +22,21 @@ import (
 // publish Event. An event that opens a prompt (NeedsConfirm, NeedsPassword,
 // NeedsSelection, OutputReport with a non-zero ID) holds the script until
 // that prompt is answered or cancelled.
+//
+// A prompt's cue may carry branches. When the prompt is answered no (a
+// Confirm with Yes false, or a Select that picked nothing), OnNo plays
+// instead of the rest of the script; when it is cancelled (CancelPrompt),
+// OnCancel does, or OnNo when OnCancel is nil (the engine reads a cancel as
+// a no). A nil branch means "continue", so a script without branches plays
+// one path. A branch is a whole ending: it must end the run (Finished, then
+// PhaseChanged idle), carrying the tail of the script itself when the run
+// goes on, and its own cues may carry branches. Branches on a cue that
+// opens no prompt are never played.
 type Cue struct {
-	After time.Duration
-	Event engine.Event
+	After    time.Duration
+	Event    engine.Event
+	OnNo     Script
+	OnCancel Script
 }
 
 // Script is a run, played from the top on every Start.
@@ -94,23 +107,29 @@ type Options struct {
 	// Queue is how many Commands Send can hold before it returns false;
 	// 0 means 16.
 	Queue int
+	// Scripts, when non-nil, replaces the single script: Start picks the
+	// script named by its Action, and an action with none ends in a Notice
+	// and Finished{OutcomeNotice}.
+	Scripts map[string]Script
 }
 
 // Driver replays a Script. It implements engine.Driver.
 type Driver struct {
-	script Script
-	clock  Clock
-	events chan engine.Event
-	cmds   chan engine.Command
-	done   chan struct{}
-	exited chan struct{}
-	once   sync.Once
+	script  Script
+	scripts map[string]Script
+	clock   Clock
+	events  chan engine.Event
+	cmds    chan engine.Command
+	done    chan struct{}
+	exited  chan struct{}
+	once    sync.Once
 }
 
 var _ engine.Driver = (*Driver)(nil)
 
 // New starts a Driver that plays script on every engine.Start it is sent
-// (one at a time: a Start while it plays is ignored), and idles otherwise.
+// (or, with opts.Scripts, the script the Start names), one at a time: a
+// Start while it plays is ignored. It idles otherwise.
 func New(script Script, opts Options) *Driver {
 	if opts.Clock == nil {
 		opts.Clock = wallClock{}
@@ -119,12 +138,13 @@ func New(script Script, opts Options) *Driver {
 		opts.Queue = 16
 	}
 	d := &Driver{
-		script: script,
-		clock:  opts.Clock,
-		events: make(chan engine.Event),
-		cmds:   make(chan engine.Command, opts.Queue),
-		done:   make(chan struct{}),
-		exited: make(chan struct{}),
+		script:  script,
+		scripts: opts.Scripts,
+		clock:   opts.Clock,
+		events:  make(chan engine.Event),
+		cmds:    make(chan engine.Command, opts.Queue),
+		done:    make(chan struct{}),
+		exited:  make(chan struct{}),
 	}
 	go d.loop()
 	return d
@@ -185,10 +205,30 @@ type run struct {
 	since   time.Time           // when it started, on the clock
 }
 
-// play replays the script once; false when the Driver was closed.
+// scriptFor is the script a Start for action plays.
+func (d *Driver) scriptFor(action string) Script {
+	if d.scripts == nil {
+		return d.script
+	}
+	if s, ok := d.scripts[action]; ok {
+		return s
+	}
+	return Script{
+		{Event: engine.Notice{Text: "The stub has no script for " + action + "."}},
+		{Event: engine.Finished{Action: action, Outcome: engine.OutcomeNotice}},
+		{Event: engine.PhaseChanged{Phase: engine.PhaseIdle}},
+	}
+}
+
+// play replays the script for action once; false when the Driver was
+// closed.
 func (d *Driver) play(action string) bool {
-	r := &run{action: action, started: d.clock.Now()}
-	for _, cue := range d.script {
+	return d.playScript(&run{action: action, started: d.clock.Now()}, d.scriptFor(action))
+}
+
+// playScript plays script, or the branch an answer picks in its place.
+func (d *Driver) playScript(r *run, script Script) bool {
+	for _, cue := range script {
 		if cue.After > 0 {
 			fired := d.clock.After(cue.After)
 		wait:
@@ -215,11 +255,24 @@ func (d *Driver) play(action string) bool {
 			r.step = nil
 		}
 		if id := promptID(cue.Event); id != 0 {
-			switch d.await(id) {
+			ans, how := d.await(id)
+			switch ans {
 			case closed:
 				return false
 			case aborted:
 				return d.abort(r, id)
+			}
+			branch := cue.OnNo
+			switch how {
+			case yes:
+				branch = nil
+			case cancelled:
+				if cue.OnCancel != nil {
+					branch = cue.OnCancel
+				}
+			}
+			if branch != nil {
+				return d.playScript(r, branch)
 			}
 		}
 	}
@@ -234,32 +287,47 @@ const (
 	closed
 )
 
+// how an open prompt was answered.
+type how int
+
+const (
+	yes       how = iota // a yes, a password or a pick
+	no                   // a no, or nothing picked
+	cancelled            // CancelPrompt
+)
+
 // await holds the script until prompt id is answered, ignoring commands
 // for any other prompt.
-func (d *Driver) await(id engine.PromptID) answer {
+func (d *Driver) await(id engine.PromptID) (answer, how) {
 	for {
 		select {
 		case <-d.done:
-			return closed
+			return closed, yes
 		case c := <-d.cmds:
 			switch c := c.(type) {
 			case engine.Abort:
-				return aborted
+				return aborted, yes
 			case engine.Confirm:
 				if c.Prompt == id {
-					return answered
+					if c.Yes {
+						return answered, yes
+					}
+					return answered, no
 				}
 			case engine.SubmitPassword:
 				if c.Prompt == id {
-					return answered
+					return answered, yes
 				}
 			case engine.Select:
 				if c.Prompt == id {
-					return answered
+					if len(c.Picked) == 0 {
+						return answered, no
+					}
+					return answered, yes
 				}
 			case engine.CancelPrompt:
 				if c.Prompt == id {
-					return answered
+					return answered, cancelled
 				}
 			}
 		}

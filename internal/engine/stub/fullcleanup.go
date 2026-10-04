@@ -18,6 +18,50 @@ type builder struct {
 	script  Script
 	plan    []engine.PlanStep
 	at      map[string]time.Time // step ID → when it started
+	skipped int                  // steps declined so far
+
+	branches bool // give the prompts their OnNo branches
+}
+
+// branch is a copy of b to write an answer's branch on: same moment, same
+// plan, and an empty script.
+func (b *builder) branch() *builder {
+	c := *b
+	c.script = nil
+	c.pending = 0
+	c.plan = append([]engine.PlanStep(nil), b.plan...)
+	c.at = map[string]time.Time{}
+	for k, v := range b.at {
+		c.at[k] = v
+	}
+	return &c
+}
+
+// decline gives the prompt just emitted an OnNo branch (when b writes
+// branches): the step it gates is Skipped and logged, and rest writes
+// what follows. The Optional steps are the ones a "no" lets the run go on
+// without.
+func (b *builder) decline(step string, cat logstore.Category, header string, rest func(*builder)) {
+	if !b.branches {
+		return
+	}
+	sb := b.branch()
+	sb.skip(step, cat, header)
+	rest(sb)
+	b.script[len(b.script)-1].OnNo = sb.script
+}
+
+// skip is a step that never runs: declined.
+func (b *builder) skip(id string, cat logstore.Category, header string) {
+	b.skipped++
+	b.emit(engine.StepDone{ID: id, Index: b.index(id), Status: steps.Skipped})
+	b.log(cat, header)
+}
+
+// finish ends the run.
+func (b *builder) finish(action string, outcome engine.Outcome) {
+	b.emit(engine.Finished{Action: action, Outcome: outcome, Skipped: b.skipped, Elapsed: b.now.Sub(b.started)},
+		engine.PhaseChanged{Phase: engine.PhaseIdle})
 }
 
 func (b *builder) wait(d time.Duration) {
@@ -83,9 +127,21 @@ func (b *builder) log(cat logstore.Category, header string) {
 // steps, the "delete entire cache" confirm, the orphan probe inserting the
 // removal behind itself with its cascade confirm, and a clean finish. Its
 // prompts are IDs 1 (gate), 2 (paccache -rk0) and 3 (orphans); it runs
-// about 9 s of scripted time from start.
-func FullCleanup(start time.Time) Script {
-	b := &builder{now: start, started: start, at: map[string]time.Time{}}
+// about 9 s of scripted time from start. Every prompt is answered yes, and
+// a "no" plays on like one; FullCleanupBranches is the script that follows
+// the answers.
+func FullCleanup(start time.Time) Script { return fullCleanup(start, false) }
+
+// FullCleanupBranches is FullCleanup with its prompts' branches, shaped like
+// the fullcleanup_gate_declined and fullcleanup_decline_optionals
+// transcripts. A no (or a cancel) at the gate ends the run cancelled, before
+// any step. A no at the "delete entire cache" confirm skips that step, and a
+// no at the orphans confirm skips the removal (Finished{Skipped: 1} or 2):
+// either way the run goes on to the end.
+func FullCleanupBranches(start time.Time) Script { return fullCleanup(start, true) }
+
+func fullCleanup(start time.Time, branches bool) Script {
+	b := &builder{now: start, started: start, at: map[string]time.Time{}, branches: branches}
 	b.plan = []engine.PlanStep{
 		{ID: steps.IDAURAudit, Title: "Auditing AUR packages…", InProc: true, AlwaysLog: true, Category: logstore.Audit},
 		{ID: steps.IDTopgrade, Title: "Updating system with topgrade…", Argv: []string{"topgrade", "-y", "--disable", "hyprpm"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Topgrade},
@@ -98,17 +154,17 @@ func FullCleanup(start time.Time) Script {
 		{ID: steps.IDIntegrity, Verb: steps.VerbCheckFiles, Title: "Checking package integrity…", Argv: []string{"sudo", "pacman", "-Qkq"}, NeedsPriv: true, Category: logstore.Cleanup},
 		{ID: steps.IDHyprpm, Title: "Updating Hyprland plugins…", Argv: []string{"hyprpm", "update"}, Category: logstore.Cleanup},
 	}
-	removal := engine.PlanStep{
-		ID: steps.IDOrphansRemove, Verb: steps.VerbRemoveOrphans, Title: "Removing orphaned packages…",
-		Argv:      []string{"sudo", "pacman", "-Rns", "--noconfirm", "--", "libfoo", "libbar"},
-		NeedsPriv: true, Confirm: true, Optional: true, AlwaysLog: true, Category: logstore.Orphans,
-	}
 
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseProbing})
 	b.wait(60 * time.Millisecond)
 	const gate = "Proceed with full cleanup?"
 	b.emit(engine.NeedsConfirm{ID: 1, Kind: engine.ConfirmGate, Title: gate, Msg: gate,
 		Plan: append([]engine.PlanStep(nil), b.plan...), YesLabel: "Proceed"})
+	if branches {
+		sb := b.branch()
+		sb.finish("fullcleanup", engine.OutcomeCancelled)
+		b.script[len(b.script)-1].OnNo = sb.script
+	}
 
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
 	b.emit(engine.QueueStarted{Action: "fullcleanup", Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
@@ -131,15 +187,31 @@ func FullCleanup(start time.Time) Script {
 
 	b.run(steps.IDPaccache, 300*time.Millisecond, "==> no candidate packages found for pruning")
 
+	fcWipe(b)
+	return b.script
+}
+
+// fcWipe writes the run from the "delete entire cache" confirm on.
+func fcWipe(b *builder) {
 	const wipe = "Delete ENTIRE package cache? (can't reinstall without internet)"
 	b.emit(engine.NeedsConfirm{
 		ID: 2, Kind: engine.ConfirmStep, Step: steps.IDPaccacheWipe,
 		Title: "Delete the entire package cache?", Body: "Without it, packages can't be reinstalled offline.",
 		Destructive: true, Msg: wipe, YesLabel: "Delete",
 	})
+	b.decline(steps.IDPaccacheWipe, logstore.Cleanup, "SKIP: Entire package cache removed (declined)", fcOrphans)
 	b.run(steps.IDPaccacheWipe, 200*time.Millisecond)
 	b.log(logstore.Cleanup, "OK: Entire package cache removed")
+	fcOrphans(b)
+}
 
+// fcOrphans writes the run from the orphan probe on.
+func fcOrphans(b *builder) {
+	removal := engine.PlanStep{
+		ID: steps.IDOrphansRemove, Verb: steps.VerbRemoveOrphans, Title: "Removing orphaned packages…",
+		Argv:      []string{"sudo", "pacman", "-Rns", "--noconfirm", "--", "libfoo", "libbar"},
+		NeedsPriv: true, Confirm: true, Optional: true, AlwaysLog: true, Category: logstore.Orphans,
+	}
 	b.run(steps.IDOrphansProbe, 250*time.Millisecond,
 		"2 orphaned package(s): libfoo libbar", "pacman -Rns would remove 3 package(s):", "  libfoo", "  libbar", "  libbaz")
 	b.plan = append(b.plan[:5], append([]engine.PlanStep{removal}, b.plan[5:]...)...)
@@ -150,10 +222,15 @@ func FullCleanup(start time.Time) Script {
 		Direct: []string{"libfoo", "libbar"}, Cascade: []string{"libfoo", "libbar", "libbaz"},
 		Destructive: true, Msg: "Remove 2 orphaned package(s) — 3 total once dependencies cascade?", YesLabel: "Remove",
 	})
+	b.decline(steps.IDOrphansRemove, logstore.Orphans, "SKIP: Orphaned packages removed (declined)", fcRest)
 	b.run(steps.IDOrphansRemove, 700*time.Millisecond,
 		"checking dependencies...", "removing libbaz...", "removing libbar...", "removing libfoo...")
 	b.log(logstore.Orphans, "OK: Orphaned packages removed")
+	fcRest(b)
+}
 
+// fcRest writes the run from the AUR cache step to its end.
+func fcRest(b *builder) {
 	b.run(steps.IDYayCache, 300*time.Millisecond)
 	b.run(steps.IDTmpfiles, 150*time.Millisecond)
 	b.log(logstore.Cleanup, "OK: Temp files cleaned per tmpfiles.d rules")
@@ -162,7 +239,5 @@ func FullCleanup(start time.Time) Script {
 	b.run(steps.IDIntegrity, 900*time.Millisecond)
 	b.run(steps.IDHyprpm, 1200*time.Millisecond, "✔ all plugins are up to date")
 
-	b.emit(engine.Finished{Action: "fullcleanup", Outcome: engine.OutcomeCompleted, Elapsed: b.now.Sub(b.started)})
-	b.emit(engine.PhaseChanged{Phase: engine.PhaseIdle})
-	return b.script
+	b.finish("fullcleanup", engine.OutcomeCompleted)
 }
