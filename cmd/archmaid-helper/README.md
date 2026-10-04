@@ -24,7 +24,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
 | `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan; a mismatch emits the new plan and exits **3**, removing nothing | `…remove-orphans` (admin) |
-| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Qq`), in a sync repo (`-Si`) and really missing files (`-Qk -- pkg`). Any other package is skipped and listed | `…repair` (keep) |
+| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Qq`), in a sync repo (`-Si`) and really missing files (`-Qk -- pkg`). Any other package is skipped and listed | `…repair` (admin) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
 | `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit exits **4**, and the whole request is refused. A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
@@ -34,6 +34,31 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 Action ids are `org.archmaid.helper.<verb>` (see
 `packaging/polkit/org.archmaid.helper.policy`). "keep" is `auth_admin_keep`,
 "admin" is `auth_admin`.
+
+**What "keep" allows.** After the user enters the admin password once, polkit
+keeps the authorization for about five minutes. During that time **any process
+in the same login session** can run that verb again through `pkexec` without a
+prompt. polkit stores a process's temporary authorization against its logind
+session when it has one, so assume the whole session, not just the GUI.
+Question 3 in `tui/TESTING.md` is the live check of this. The authorization
+covers the action, not the arguments: approving `paccache 3` also allows
+`paccache 1`. A verb is "keep" only if it is acceptable for another process of
+the session to re-run it with any argument it accepts:
+
+| Verb | Re-run without a prompt can… | Why that's acceptable |
+|---|---|---|
+| `check-files` | read every package's file list again | read-only, no input |
+| `clean-tmp` | apply the system's `tmpfiles.d` age rules again | no input; the same as the daily `systemd-tmpfiles-clean.timer`, and a second run finds nothing more |
+| `paccache N` | thin the cache down to `N` ≥ 1 versions per package | the only input is one digit; the newest cached version always stays, `-k 0` is the separate admin verb `paccache-wipe`, and removed packages can be fetched again from a mirror or the Arch Linux Archive |
+| `vacuum-journal D` | delete archived journal files older than `D` ≥ 1 week | the only input is one of three fixed windows. Deleted logs are gone for good, but the most recent week is never touched, so a process can't erase a trace of what it just did |
+
+Nothing in the "keep" set takes free-form input. `repair` is **admin** even
+though it rechecks every name, because it takes package names and runs a pacman
+transaction: the packages' install scriptlets and pacman hooks run as root, and
+`pacman -S` installs the sync repo's version, which is newer than the installed
+one if the sync database has been refreshed since the last upgrade. That is not
+something to allow silently for five minutes. It costs nothing in the usual
+flow, because `check-files` → `repair` already asks twice (keep is per action).
 
 The **orphan plan hash** is
 `sha256("archmaid orphan plan v1\n" + "target <name>\n"… + "remove <name> <version>\n"…)`.
@@ -164,9 +189,11 @@ In order, before anything else:
 
 - A local user process, or a compromised GUI, that can call `pkexec` and talk
   to the helper. It can only pick a verb and pass validated arguments; polkit
-  still demands the admin password. "keep" verbs are read-only or bounded and
-  idempotent. Anything destructive or wide is "admin", so it prompts every
-  time.
+  still demands the admin password. "keep" verbs take no free-form input and
+  are read-only or bounded (see "What keep allows"); any process of the
+  session may repeat them for about five minutes after the user authenticates.
+  Anything that runs a pacman transaction, or is destructive or wide, is
+  "admin", so it prompts every time.
 - Confused-deputy input: option injection (every name list follows `--`,
   regexes forbid a leading `-` on package names), `repo/pkg` syntax,
   arbitrary journal windows, `paccache -k 0` smuggled through `paccache`, and

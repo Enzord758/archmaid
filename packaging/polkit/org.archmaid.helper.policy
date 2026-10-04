@@ -6,9 +6,25 @@
   archmaid-helper: one action per verb, matched by pkexec on the exact
   helper path (exec.path) plus the verb (exec.argv1).
 
-  "keep" verbs (auth_admin_keep) are read-only or bounded and idempotent;
-  admin verbs (auth_admin) remove or change something wider and ask every
-  time. full-cleanup covers its whole fixed sequence with one dialog.
+  "keep" verbs (auth_admin_keep): after one password, polkit keeps the
+  authorization for about five minutes, and ANY process in the same login
+  session can run that verb again through pkexec without a prompt, with any
+  argument the helper accepts (keep is per action, not per argv). That is
+  acceptable only for verbs with no free-form input whose effect is
+  read-only or bounded:
+    check-files     read-only, no arguments
+    clean-tmp       no arguments; what systemd-tmpfiles-clean.timer does daily
+    paccache N      N in 1-9: the newest cached version always stays, and
+                    removed packages can be fetched again
+    vacuum-journal  1week/2weeks/1month only: logs from the last week are
+                    never removed
+  repair is auth_admin even though the helper rechecks every name: it runs a
+  pacman transaction (scriptlets and hooks as root, and -S installs the sync
+  repo's version), which should not be repeatable silently for five minutes.
+
+  admin verbs (auth_admin) run a pacman transaction or remove or change
+  something wider, and ask every time. full-cleanup covers its whole fixed
+  sequence with one dialog.
   plan-orphans has no action: it is read-only and runs without root.
 
   Never inactive or remote sessions (allow_any / allow_inactive = no).
@@ -73,7 +89,7 @@
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">repair</annotate>

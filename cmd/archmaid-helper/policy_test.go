@@ -37,7 +37,8 @@ func TestPolicyMatchesVerbs(t *testing.T) {
 	if err := xml.Unmarshal(data, &pc); err != nil {
 		t.Fatal(err)
 	}
-	keep := []string{"check-files", "paccache", "repair", "vacuum-journal", "clean-tmp"}
+	// Each one is justified in README.md "What keep allows"; repair is admin.
+	keep := []string{"check-files", "paccache", "vacuum-journal", "clean-tmp"}
 	var want []string
 	for _, v := range helper.Verbs() {
 		if v != "plan-orphans" { // read-only, no root, no action
