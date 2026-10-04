@@ -54,6 +54,11 @@
 //     and no StepStarted.
 //   - After Aborted, steps still pending get no event; a front end shows
 //     them as not run on Finished{OutcomeAborted} (counted in its NotRun).
+//     An Abort with no step running (at a prompt, during a probe, a
+//     password check or a discovery) ends the action the same way, without
+//     Aborted: after PromptClosed for an open prompt and AuthResolved for
+//     an open AuthWaiting, then Finished — OutcomeCancelled when no step
+//     had started.
 //   - What a step's result changes in the plan (StepInserted, PlanChanged)
 //     comes after that step's StepDone and before the next step's events.
 //   - AuthWaiting is followed by AuthResolved before the step or queue it

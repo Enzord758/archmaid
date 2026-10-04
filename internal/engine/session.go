@@ -219,15 +219,18 @@ func (s *Session) Select(id PromptID, picked []string) Output {
 }
 
 // Abort ends the running action at once: a running step is stopped (a Stop
-// effect) and ends with Aborted, an open prompt is withdrawn (PromptClosed),
-// and the action ends with Finished — OutcomeAborted, or OutcomeCancelled if
-// no step had run. A no-op when idle. Asking "are you sure?" first is the
-// front end's business.
+// effect) and ends with Aborted, a discovery in flight is stopped, an open
+// prompt is withdrawn (PromptClosed), and the action ends with Finished —
+// OutcomeAborted, or OutcomeCancelled if no step had started (abort.go). A
+// no-op when idle. Asking "are you sure?" first is the front end's
+// business.
 func (s *Session) Abort() Output {
 	if s.run == nil {
 		return Output{}
 	}
-	panic(errNotImplemented) // E5
+	var o Output
+	s.abort(&o)
+	return o
 }
 
 // Handle feeds the Session the result of an Effect, or a Driver

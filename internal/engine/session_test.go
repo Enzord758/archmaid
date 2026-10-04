@@ -648,11 +648,6 @@ func TestSessionPanicsOnWhatIsNotBuilt(t *testing.T) {
 		}()
 		f()
 	}
-	h := newHarness(t, Options{}, queue("q", child("a", "x")),
-		actions.Action{ID: "d", Discover: func(context.Context, actions.Env) actions.Discovery { return nil }})
-	h.start("q")
-	expectPanic("Abort", func() { h.s.Abort() })
-
 	for _, d := range []actions.Discovery{actions.Report{Text: "r"}, actions.NeedsSelection{}} {
 		h := newHarness(t, Options{}, actions.Action{ID: "d", Discover: func(context.Context, actions.Env) actions.Discovery { return nil }})
 		seq := effect[Discover](t, h.start("d")).Seq

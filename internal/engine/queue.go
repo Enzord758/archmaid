@@ -578,27 +578,35 @@ func (s *Session) finish(o *Output, outcome Outcome) {
 	if r.planned && outcome != OutcomeNotice {
 		o.effect(WriteLastRun{Record: s.record(outcome, now)})
 	}
-	o.event(Finished{Action: r.action, Outcome: outcome, Errs: r.errs, Skipped: r.skipped, Refused: r.refused, Elapsed: now.Sub(r.started)})
+	notRun := 0
+	for _, sl := range r.plan {
+		if sl.status == steps.Pending {
+			notRun++ // an Abort left it
+		}
+	}
+	o.event(Finished{Action: r.action, Outcome: outcome, Errs: r.errs, Skipped: r.skipped, Refused: r.refused,
+		NotRun: notRun, Elapsed: now.Sub(r.started)})
 	s.run = nil
 	s.setPhase(o, PhaseIdle, "")
 }
 
 // record is the last-run record for an action that ended with outcome. Its
-// outcome follows the TUI's: cancelled whenever no step ran (a declined
-// gate or required first step, a cancelled password), aborted for a queue a
-// declined required step stopped, failed on any failed step, incomplete
-// when a step was refused privilege, else ok; StepsRefused counts those.
+// outcome follows the TUI's: cancelled whenever no step started (a declined
+// gate or required first step, a cancelled password, an Abort before the
+// first step), aborted for a queue an Abort or a declined required step
+// stopped, failed on any failed step, incomplete when a step was refused
+// privilege, else ok; StepsRefused counts those. StepsSkipped counts every
+// step that didn't run to its end: skipped, refused, aborted, and those an
+// Abort left pending (the TUI marks them skipped).
 func (s *Session) record(outcome Outcome, now time.Time) logstore.RunRecord {
 	r := s.run
-	ran, skipped, refused := false, 0, 0
+	ran, skipped, refused := r.anyStarted(), 0, 0
 	for _, st := range r.plan {
 		switch st.status {
-		case steps.OK, steps.Failed:
-			ran = true
 		case steps.AuthRefused:
 			refused++
 			skipped++
-		case steps.Skipped, steps.Aborted:
+		case steps.Skipped, steps.Aborted, steps.Pending:
 			skipped++
 		}
 	}
