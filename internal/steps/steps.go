@@ -116,6 +116,12 @@ type Result struct {
 	InsertNext *Step
 }
 
+// ErrResultTaken is the cause a front end cancels an in-process step's ctx
+// with once it has taken the step's Result (context.WithCancelCause). Every
+// other cancel is an abort, which is how a Run that keeps bookkeeping past
+// its return (the downloads delete's abort record) tells the two apart.
+var ErrResultTaken = errors.New("step result taken")
+
 // ErrConfirmAndInsert is Check's verdict on a result that sets both
 // ConfirmNext and InsertNext: "the next step" would then be the inserted one,
 // and the confirm would gate it instead of the step it was meant for.

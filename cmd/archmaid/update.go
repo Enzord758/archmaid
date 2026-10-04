@@ -733,8 +733,8 @@ type stepResultMsg struct {
 
 // errResultTaken is the cause an in-process step's ctx is cancelled with
 // once the model has taken its result (handleStepResult). Every other cancel
-// is an abort.
-var errResultTaken = errors.New("step result taken")
+// is an abort. It is steps.ErrResultTaken, the cause every front end uses.
+var errResultTaken = steps.ErrResultTaken
 
 // stepAborted reports whether an in-process step's ctx was cancelled by an
 // abort, as opposed to released after its result was taken.

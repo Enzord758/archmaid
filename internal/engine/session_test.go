@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine/enginetest"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/Enzord758/archmaid/internal/sysstat"
@@ -148,6 +150,27 @@ func ids(ps []PlanStep) []string {
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
+
+func TestOptionsValidate(t *testing.T) {
+	err := Options{}.Validate()
+	if err == nil || !strings.Contains(err.Error(), "AuditStep") || !strings.Contains(err.Error(), "DeleteDownloads") {
+		t.Errorf("empty Options: %v, want actions.Env's missing fields", err)
+	}
+	env := actions.Env{
+		AuditStep:   func() steps.Step { return steps.Step{} },
+		AuditReport: func(context.Context) actions.Discovery { return nil },
+		Downloads:   func() downloads.Options { return downloads.Options{} },
+		DeleteDownloads: func(downloads.Plan) func(context.Context, steps.Env) steps.Result {
+			return nil
+		},
+	}
+	if err := (Options{Env: env, Auth: AuthPolkit}).Validate(); err != nil {
+		t.Errorf("complete Options: %v", err)
+	}
+	if err := (Options{Env: env, Auth: AuthPolkit + 1}).Validate(); err == nil || !strings.Contains(err.Error(), "AuthFlow") {
+		t.Errorf("unknown AuthFlow: %v", err)
+	}
+}
 
 func TestSessionIgnoresWhatItCantStart(t *testing.T) {
 	h := newHarness(t, Options{}, queue("q", child("a", "true")), actions.Action{ID: "viewlog"})
@@ -532,6 +555,10 @@ func TestSessionNotGrantedIsAuthRefused(t *testing.T) {
 	o = h.ok()
 	if fin := event[Finished](t, o); fin.Skipped != 1 || fin.Refused != 1 || fin.Errs != 0 || fin.Outcome != OutcomeCompleted {
 		t.Errorf("Finished = %+v", fin)
+	}
+	// Completed, but not a clean run: the record says incomplete.
+	if rec := effect[WriteLastRun](t, o).Record; rec.Outcome != logstore.OutcomeIncomplete || rec.StepsRefused != 1 || rec.StepsSkipped != 1 {
+		t.Errorf("record = %+v", rec)
 	}
 	enginetest.CheckContract(t, h.evs)
 }

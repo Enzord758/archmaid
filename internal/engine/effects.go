@@ -49,6 +49,13 @@ type Discover struct {
 // → StepOutput (children), then exactly one StepExited (child) or
 // StepResult (in-process), all with Seq; PrivilegeGranted with Seq when the
 // backend reports privilege obtained.
+//
+// An in-process step's ctx must be cancellable with a cause
+// (context.WithCancelCause): once the Driver has handed its StepResult to
+// the Session and carried out that Output's Effects, it releases the ctx with
+// steps.ErrResultTaken. Only Stop cancels it with plain context.Canceled,
+// which a step reads as an abort: released any other way, the downloads
+// delete would log a false ABORT record.
 type StartStep struct {
 	Seq  uint64
 	Step steps.Step
@@ -57,7 +64,8 @@ type StartStep struct {
 
 // Stop ends whatever the Effect with Seq started: a child gets SIGINT, then
 // SIGKILL after the grace; an in-process step's or discovery's ctx is
-// cancelled. Its late Inputs are ignored. No Input.
+// cancelled, with plain context.Canceled (an abort, see StartStep). Its late
+// Inputs are ignored. No Input.
 type Stop struct{ Seq uint64 }
 
 // RunHook calls Fn (a step's OnAccept, a result's Commit: the audit's

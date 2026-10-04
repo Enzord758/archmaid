@@ -499,21 +499,26 @@ func (s *Session) finish(o *Output, outcome Outcome) {
 // record is the last-run record for an action that ended with outcome. Its
 // outcome follows the TUI's: cancelled whenever no step ran (a declined
 // gate or required first step, a cancelled password), aborted for a queue a
-// declined required step stopped, failed on any failed step, else ok.
+// declined required step stopped, failed on any failed step, incomplete
+// when a step was refused privilege, else ok; StepsRefused counts those.
 func (s *Session) record(outcome Outcome, now time.Time) logstore.RunRecord {
 	r := s.run
-	ran, skipped := false, 0
+	ran, skipped, refused := false, 0, 0
 	for _, st := range r.plan {
 		switch st.status {
 		case steps.OK, steps.Failed:
 			ran = true
-		case steps.Skipped, steps.AuthRefused, steps.Aborted:
+		case steps.AuthRefused:
+			refused++
+			skipped++
+		case steps.Skipped, steps.Aborted:
 			skipped++
 		}
 	}
 	rec := logstore.RunRecord{
 		Action: r.action, Started: r.started, Finished: now,
-		StepsFailed: r.errs, StepsSkipped: skipped, DryRun: s.opts.DryRun,
+		StepsFailed: r.errs, StepsSkipped: skipped, StepsRefused: refused,
+		DryRun: s.opts.DryRun,
 	}
 	switch {
 	case !ran:
@@ -522,6 +527,8 @@ func (s *Session) record(outcome Outcome, now time.Time) logstore.RunRecord {
 		rec.Outcome = logstore.OutcomeAborted
 	case r.errs > 0:
 		rec.Outcome = logstore.OutcomeFailed
+	case refused > 0:
+		rec.Outcome = logstore.OutcomeIncomplete
 	default:
 		rec.Outcome = logstore.OutcomeOK
 	}

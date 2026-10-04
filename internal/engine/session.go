@@ -25,6 +25,21 @@ type Options struct {
 	Auth AuthFlow
 }
 
+// Validate reports what o leaves out that a Session needs: the required
+// actions.Env fields (actions.Env.Validate) and a known AuthFlow. A front
+// end checks it once, before New; a Session built from an invalid Options
+// fails when it reaches the missing piece.
+func (o Options) Validate() error {
+	var errs []error
+	if err := o.Env.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	if o.Auth != AuthSudo && o.Auth != AuthPolkit {
+		errs = append(errs, fmt.Errorf("engine: unknown AuthFlow %d", o.Auth))
+	}
+	return errors.Join(errs...)
+}
+
 // AuthFlow is how a run obtains privilege. Either way a refusal is one
 // outcome, steps.AuthRefused; the flow only decides when the user is asked.
 type AuthFlow int

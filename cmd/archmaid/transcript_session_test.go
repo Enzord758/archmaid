@@ -8,6 +8,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -90,7 +92,7 @@ type sessionTarget struct {
 
 	fetches  map[string]*auditFetch
 	children map[uint64]*sessionChild
-	release  map[uint64]context.CancelFunc // in-process steps' ctx, by Seq
+	release  map[uint64]context.CancelCauseFunc // in-process steps' ctx, by Seq
 }
 
 type sessionChild struct {
@@ -107,13 +109,19 @@ func newSessionTarget(t *testing.T, shimLog string) *sessionTarget {
 	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
 	t.Cleanup(func() { askpassWrapper = oldWrapper })
 
+	// The run's flags and the TUI's actionEnv, as a front end would hand
+	// them over, checked first.
+	opts := engine.Options{DryRun: dryRun, Env: actionEnv()}
+	if err := opts.Validate(); err != nil {
+		t.Fatal(err)
+	}
 	tg := &sessionTarget{
 		t:        t,
-		s:        engine.New(engine.Options{DryRun: dryRun, Env: actionEnv()}),
+		s:        engine.New(opts),
 		fx:       newEffects(shimLog),
 		fetches:  map[string]*auditFetch{},
 		children: map[uint64]*sessionChild{},
-		release:  map[uint64]context.CancelFunc{},
+		release:  map[uint64]context.CancelCauseFunc{},
 	}
 	t.Cleanup(func() {
 		for _, f := range tg.fetches {
@@ -125,7 +133,7 @@ func newSessionTarget(t *testing.T, shimLog string) *sessionTarget {
 			c.c.Stop()
 		}
 		for _, cancel := range tg.release {
-			cancel()
+			cancel(nil)
 		}
 		if !t.Failed() && !t.Skipped() {
 			enginetest.CheckContract(t, tg.evs)
@@ -181,9 +189,10 @@ func (tg *sessionTarget) Next() (tt.Event, error) {
 		for _, in := range ins {
 			tg.apply(tg.s.Handle(in))
 			if r, ok := in.(engine.StepResult); ok {
-				// The result was taken: release the step's ctx.
+				// The result was taken: release the step's ctx, saying so
+				// (StartStep's contract).
 				if cancel := tg.release[r.Seq]; cancel != nil {
-					cancel()
+					cancel(steps.ErrResultTaken)
 					delete(tg.release, r.Seq)
 				}
 			}
@@ -368,7 +377,7 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 // reports whether it started a child.
 func (tg *sessionTarget) startStep(e engine.StartStep) bool {
 	if run := e.Step.Run; run != nil {
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancelCause(context.Background())
 		tg.release[e.Seq] = cancel
 		if f := tg.fetches[e.Step.Prefetch]; f != nil {
 			run = func(ctx context.Context, _ steps.Env) steps.Result { return f.run(ctx) }
@@ -431,4 +440,27 @@ func transcriptStatus(s steps.Status) tt.Status {
 		return tt.Failed
 	}
 	return tt.Skipped
+}
+
+// A real downloads delete through the Session (in the scratch HOME) is
+// logged once, as done, with no ABORT entry from its own abort bookkeeping:
+// the Session runs the result's Commit (which disarms it), and the target
+// then releases the step's ctx with steps.ErrResultTaken, as StartStep's
+// contract asks (which keeps it quiet even where no Commit runs).
+func TestSessionDownloadsRealRunLogsNoAbort(t *testing.T) {
+	transcriptEnv(t, false)
+	dl := downloadsDir(t)
+	writeFile(t, filepath.Join(dl, "old.iso"), "x")
+	cutoffAt(t, ctimeMark(t))
+	shimLog := installShims(t, nil)
+	mk := func(t *testing.T, shimLog string) tt.Target { return newSessionTarget(t, shimLog) }
+	got := record(t, mk, shimLog, "Delete old downloads", Answer{"confirm", "older than 30 days", "yes"}).Transcript()
+	waitForDownloads(io.Discard)
+	if exists(filepath.Join(dl, "old.iso")) {
+		t.Fatalf("old.iso survived:\n%s", got)
+	}
+	log, err := logs().Read(logCategoryCleanup)
+	if err != nil || !strings.Contains(log, "OK: Old downloads deleted") || strings.Contains(log, "ABORT") {
+		t.Fatalf("cleanup.log = %q (%v), want the OK entry and no ABORT\n%s", log, err, got)
+	}
 }
