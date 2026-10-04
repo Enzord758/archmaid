@@ -104,8 +104,13 @@ type stepState struct {
 // single terminal message with the exit error. Using one ordered channel (line
 // messages followed by exactly one done message) keeps stdout, stderr, and the
 // exit status strictly ordered — no interleaving races between goroutines.
+//
+// Each message is stamped with the launch it belongs to (seq, from
+// model.stepSeq) by the pump that delivers it, so handleStream can drop one
+// from an aborted step even after a new run has started.
 
 type streamMsg struct {
+	seq  int    // the launch this message belongs to (set by waitForStream)
 	line string // a line of combined stdout+stderr (ignored when done)
 	done bool   // true for the final message
 	err  error  // non-nil if the command failed (only meaningful when done)
@@ -190,13 +195,17 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process
 	return cmd.Process
 }
 
-// waitForStream turns the next channel message into a tea.Msg. Re-issue it
-// after every non-done streamMsg to keep pumping the channel through Update.
-// A closed quit (abort) releases a pump that is still waiting, with no msg.
-func waitForStream(ch <-chan streamMsg, quit <-chan struct{}) tea.Cmd {
+// waitForStream turns the next channel message into a tea.Msg, stamped with
+// seq, the launch that owns ch. Re-issue it after every non-done streamMsg to
+// keep pumping the channel through Update. A closed quit (abort) releases a
+// pump that is still waiting, with no msg — but a pump that finds a line ready
+// as quit closes may still deliver it, after the abort and possibly after a
+// new launch: seq is what lets handleStream tell it apart.
+func waitForStream(ch <-chan streamMsg, quit <-chan struct{}, seq int) tea.Cmd {
 	return func() tea.Msg {
 		select {
 		case msg := <-ch:
+			msg.seq = seq
 			return msg
 		case <-quit:
 			return nil

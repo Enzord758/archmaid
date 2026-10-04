@@ -110,7 +110,7 @@ type model struct {
 	proc    *os.Process      // the active step's child process (for abort)
 	stream  chan streamMsg   // output channel for the active step
 	quit    chan struct{}    // closed on abort: releases the active step's stream goroutines
-	stepSeq int              // bumped per launch; an in-process step's result carries it so a stale one is dropped
+	stepSeq int              // bumped per launch and on abort; stream messages and in-process results carry it so stale ones are dropped
 	buf     *strings.Builder // accumulated output of the active step (pointer:
 	//                          strings.Builder must not be copied by value, and
 	//                          the model is copied on every Update)

@@ -1,7 +1,9 @@
 package main
 
 import (
+	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -87,16 +89,18 @@ func TestAbortAcceptSignalsAndMenus(t *testing.T) {
 	}
 }
 
-// TestLateOutputDroppedAfterAbort: once we've left the run (screen == menu),
-// stray stream messages from the dying child are dropped and don't drive state.
+// TestLateOutputDroppedAfterAbort: once the run is aborted, stray stream
+// messages from the dying child are dropped and don't drive state.
 func TestLateOutputDroppedAfterAbort(t *testing.T) {
 	m := fixedModel()
-	m.screen = screenMenu // already aborted back to menu
+	m.screen = screenAbortConfirm
 	m.queue = []stepState{{step: step{title: "x", logLabel: "x"}, status: statusRunning}}
 	m.current = 0
+	m.stepSeq = 1
+	m = update(m, key("y")) // abort back to the menu
 
-	// a late failure message from the killed process
-	next, cmd := m.handleStream(streamMsg{done: true, err: exec.ErrNotFound})
+	// a late failure message from the killed process, stamped by its pump
+	next, cmd := m.handleStream(streamMsg{seq: 1, done: true, err: exec.ErrNotFound})
 	got := next.(model)
 	if got.screen != screenMenu {
 		t.Fatalf("late output must not change screen, got %d", got.screen)
@@ -149,5 +153,86 @@ func TestAbortNilProcSafe(t *testing.T) {
 	got := update(m, key("y"))
 	if got.screen != screenMenu {
 		t.Fatalf("abort with nil proc should still go to menu, got %d", got.screen)
+	}
+}
+
+// TestStaleStreamAfterAbortAndRestart reproduces the abort/restart race
+// deterministically: step A's pump has already taken a line and A's done off
+// the channel (they sit in Bubble Tea's message queue) when ctrl+c aborts A,
+// and a new queue (step B) starts before they are delivered. Neither may touch
+// B: the line must not reach B's pane or log, the done must not finish B, and
+// neither may re-pump (that would put a second reader on B's channel). B's own
+// messages still go through.
+func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
+	dryRun = true // the steps only report what they would run
+	defer func() { dryRun = false }()
+	useLogDir(t, t.TempDir())
+
+	stepA := step{title: "Step A…", logLabel: "Step A", command: "echo", args: []string{"from-A"}}
+	stepB := step{title: "Step B…", logLabel: "Step B", command: "echo", args: []string{"from-B"}}
+
+	m := fixedModel()
+	m.pending = []step{stepA}
+	pumpA := m.beginPending()
+	seqA := m.stepSeq
+
+	// The pump delivers A's line; the next one, released by the abort, finds
+	// A's done ready and delivers it anyway. Taken before the abort so the
+	// test doesn't depend on which select case wins.
+	lateLine, ok := pumpA().(streamMsg)
+	if !ok || lateLine.done || !strings.Contains(lateLine.line, "from-A") {
+		t.Fatalf("expected A's output line, got %#v", lateLine)
+	}
+	lateDone, ok := waitForStream(m.stream, m.quit, seqA)().(streamMsg)
+	if !ok || !lateDone.done {
+		t.Fatalf("expected A's done, got %#v", lateDone)
+	}
+
+	m = update(m, key("ctrl+c"))
+	m = update(m, key("y"))
+	if m.screen != screenMenu {
+		t.Fatalf("abort should return to the menu, got screen=%d", m.screen)
+	}
+
+	m.pending = []step{stepB}
+	pumpB := m.beginPending()
+	if m.screen != screenRunning || m.stepSeq == seqA {
+		t.Fatalf("B should be running under a new seq: screen=%d seq=%d (A's %d)", m.screen, m.stepSeq, seqA)
+	}
+
+	for _, late := range []streamMsg{lateLine, lateDone} {
+		next, cmd := m.Update(late)
+		m = next.(model)
+		if cmd != nil {
+			t.Fatalf("stale %#v re-pumped the stream", late)
+		}
+		if strings.Contains(m.buf.String(), "from-A") {
+			t.Fatalf("A's late line landed in B's pane:\n%s", m.buf.String())
+		}
+		if m.screen != screenRunning || m.current != 0 || m.queue[0].status != statusRunning || m.errs != 0 {
+			t.Fatalf("stale %#v changed B: screen=%d current=%d status=%d errs=%d",
+				late, m.screen, m.current, m.queue[0].status, m.errs)
+		}
+	}
+	if _, err := os.Stat(logPath(logCategoryCleanup)); !os.IsNotExist(err) {
+		t.Fatalf("stale messages wrote a log entry (stat err %v)", err)
+	}
+
+	// B's own line and done are applied as usual.
+	next, cmd := m.Update(pumpB())
+	m = next.(model)
+	if !strings.Contains(m.buf.String(), "from-B") || cmd == nil {
+		t.Fatalf("B's line not applied (pump %v):\n%s", cmd != nil, m.buf.String())
+	}
+	m = update(m, cmd())
+	if m.screen != screenSummary || m.queue[0].status != statusOK {
+		t.Fatalf("B's done should finish it: screen=%d status=%d", m.screen, m.queue[0].status)
+	}
+	data, err := os.ReadFile(logPath(logCategoryCleanup))
+	if err != nil {
+		t.Fatalf("B's dry-run log not written: %v", err)
+	}
+	if log := string(data); !strings.Contains(log, "DRYRUN: Step B") || strings.Contains(log, "from-A") || strings.Contains(log, "Step A") {
+		t.Fatalf("log should hold B only:\n%s", log)
 	}
 }

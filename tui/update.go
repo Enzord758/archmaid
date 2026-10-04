@@ -574,7 +574,7 @@ func (m *model) launch() tea.Cmd {
 	m.quit = make(chan struct{})
 	m.proc = runStepUntil(s, m.stream, m.quit)
 	// The spinner is already ticking (started in Init); just pump the stream.
-	return waitForStream(m.stream, m.quit)
+	return waitForStream(m.stream, m.quit, m.stepSeq)
 }
 
 // stepResultMsg is an in-process step's result (see step.run).
@@ -591,7 +591,9 @@ var sigkillGrace = 5 * time.Second
 // SIGINT (like a terminal ctrl+c) lets tools such as pacman exit cleanly; for
 // sudo steps, sudo relays the signal to the command it runs. If the child
 // ignores SIGINT it's force-killed (SIGKILL) after a grace period. Late output
-// from the dying process is dropped by handleStream's screen guard.
+// from the dying process (and a late in-process result) is dropped by its seq:
+// bumping stepSeq here retires the aborted launch's number before any new run
+// can start.
 func (m *model) abortRunning() {
 	if p := m.proc; p != nil {
 		_ = p.Signal(os.Interrupt)
@@ -604,6 +606,7 @@ func (m *model) abortRunning() {
 		close(m.quit) // nobody reads m.stream anymore: let runStep's goroutines finish
 		m.quit = nil
 	}
+	m.stepSeq++         // the aborted launch is over: its late messages are stale
 	m.sudoAlive = false // stop the keep-alive loop
 	m.screen = screenMenu
 }
@@ -659,17 +662,23 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
-	// Once we've left the run for good (aborted → menu, or finished → summary),
-	// drop late output from the dying child and stop pumping. Keep pumping while
-	// an askpass popup or per-step confirm is up over the running step.
-	if m.screen == screenMenu || m.screen == screenSummary {
+	// A message from any launch but the active one is late output from an
+	// aborted step (abortRunning retires its seq; a new run may have started
+	// since): drop it and stop pumping. Applied, a late line would land in the
+	// new step's pane and log, a late done would finish the new step, and the
+	// re-pump would put a second reader on the new step's channel. This used
+	// to be a screen check (menu/summary), which an abort followed by a new
+	// run slips past. Popups over the running step (askpass, a confirm) don't
+	// matter: its stream keeps pumping underneath. A finished run needs no
+	// guard: nothing is sent after a step's done.
+	if msg.seq != m.stepSeq {
 		return m, nil
 	}
 	if !msg.done {
 		m.buf.WriteString(Sanitize(msg.line, SanitizeKeepSGR) + "\n") // colours only
 		m.output.SetContent(m.buf.String())
 		m.output.GotoBottom()
-		return m, waitForStream(m.stream, m.quit) // keep pumping
+		return m, waitForStream(m.stream, m.quit, m.stepSeq) // keep pumping
 	}
 
 	return m.finishStep(msg.err)
