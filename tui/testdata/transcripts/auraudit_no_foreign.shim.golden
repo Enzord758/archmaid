@@ -1,0 +1,4 @@
+action "Audit AUR packages"
+exec  pacman -Qqm
+note  "No foreign (AUR or locally built) packages installed."
+end   outcome=notice errs=0 skipped=0

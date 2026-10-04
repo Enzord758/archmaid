@@ -1,0 +1,5 @@
+action "Disable unused services"
+exec  systemctl list-unit-files --type=service --state=enabled --no-legend
+exec  systemctl list-units --type=service --state=inactive --no-legend
+pick  [bluetooth.service cups.service docker.service] -> []
+end   outcome=cancelled errs=0 skipped=0

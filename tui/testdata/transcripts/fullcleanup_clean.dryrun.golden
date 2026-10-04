@@ -1,0 +1,45 @@
+action "Full Cleanup (Recommended)"
+exec  pacman -Qdtq
+ask   "Proceed with full cleanup?" -> yes
+plan  8 steps
+plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
+plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
+plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
+plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
+plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
+plan  6 "Cleaning old temp files…" argv=sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + sudo alwayslog cat=cleanup
+plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
+plan  8 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
+step  1 running
+exec  pacman -Qqm
+out   1 No foreign (AUR or locally built) packages installed — nothing to audit.
+step  1 ok
+log   audit DRYRUN: AUR audit
+step  2 running
+out   2 [dry-run] would run: topgrade -y --disable hyprpm
+step  2 ok
+log   topgrade DRYRUN: Topgrade completed
+step  3 running
+out   3 [dry-run] would run: sudo paccache -r
+step  3 ok
+log   cleanup DRYRUN: Old package cache cleaned
+ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> no
+step  4 skipped
+log   cleanup SKIP: Entire package cache removed (declined)
+step  5 running
+out   5 [dry-run] would run: yay -Sc --noconfirm
+step  5 ok
+log   cleanup DRYRUN: AUR cache cleaned
+step  6 running
+out   6 [dry-run] would run: sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+step  6 ok
+log   cleanup DRYRUN: Old temporary files removed
+step  7 running
+out   7 [dry-run] would run: sudo journalctl --vacuum-time=2weeks
+step  7 ok
+log   cleanup DRYRUN: Old logs removed
+step  8 running
+out   8 [dry-run] would run: sudo pacman -Qk
+step  8 ok
+log   cleanup DRYRUN: Package integrity check completed
+end   outcome=completed errs=0 skipped=1

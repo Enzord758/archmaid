@@ -1,0 +1,62 @@
+action "Full Cleanup (Recommended)"
+exec  pacman -Qdtq
+exec  pacman -Rs --print libfoo libbar
+exec  sudo -n -v
+ask   "Proceed with full cleanup?" -> yes
+plan  10 steps
+plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
+plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
+plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
+plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
+plan  5 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm libfoo libbar sudo confirm optional alwayslog cat=orphans
+plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
+plan  7 "Cleaning old temp files…" argv=sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + sudo alwayslog cat=cleanup
+plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
+plan  9 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
+plan  10 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
+step  1 running
+exec  pacman -Qqm
+out   1 1 foreign package(s) checked against the AUR: 0 high, 0 glance, 1 clean
+out   1
+out   1 Nothing flagged.
+step  1 ok
+log   audit OK: AUR audit
+step  2 running
+exec  topgrade -y --disable hyprpm
+out   2 :: Synchronizing package databases...
+out   2 ── Summary ──
+out   2 System update: OK
+step  2 ok
+log   topgrade OK: Topgrade completed
+step  3 running
+exec  sudo -A paccache -r
+step  3 ok
+ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> yes
+step  4 running
+exec  sudo -A paccache -rk0
+step  4 ok
+log   cleanup OK: Entire package cache removed
+ask   "Remove 2 orphaned package(s) — 3 total once dependencies cascade?" -> yes
+step  5 running
+exec  sudo -A pacman -Rns --noconfirm libfoo libbar
+step  5 ok
+log   orphans OK: Orphaned packages removed
+step  6 running
+exec  yay -Sc --noconfirm
+step  6 ok
+step  7 running
+exec  sudo -A find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+step  7 ok
+log   cleanup OK: Old temporary files removed
+step  8 running
+exec  sudo -A journalctl --vacuum-time=2weeks
+step  8 ok
+log   cleanup OK: Old logs removed
+step  9 running
+exec  sudo -A pacman -Qk
+out   9 yay-bin: 12 total files, 0 missing files
+step  9 ok
+step  10 running
+exec  hyprpm update
+step  10 ok
+end   outcome=completed errs=0 skipped=0

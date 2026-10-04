@@ -1,0 +1,13 @@
+action "Audit AUR packages"
+exec  pacman -Qqm
+log   audit AUDIT: AUR audit: 2 checked, 1 flagged
+snap  foo-git="" yay-bin="jguer"
+audit 2 foreign package(s) checked against the AUR
+audit
+audit ✖ 0 look closely  ⚠ 1 glance  ✔ 1 clean
+audit
+audit ⚠ foo-git  orphaned · 0 votes
+audit
+audit First audit: maintainers saved as the baseline. Adoptions and maintainer changes are flagged from the next audit on.
+audit Recent = pushed within 72h, the same window as the yay cooldown hook.
+end   outcome=report errs=0 skipped=0

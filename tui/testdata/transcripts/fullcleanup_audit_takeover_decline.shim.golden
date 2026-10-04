@@ -1,0 +1,52 @@
+action "Full Cleanup (Recommended)"
+exec  pacman -Qdtq
+exec  sudo -n -v
+ask   "Proceed with full cleanup?" -> yes
+plan  9 steps
+plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
+plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
+plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
+plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
+plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
+plan  6 "Cleaning old temp files…" argv=sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + sudo alwayslog cat=cleanup
+plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
+plan  8 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
+plan  9 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
+step  1 running
+exec  pacman -Qqm
+out   1 1 foreign package(s) checked against the AUR: 1 high, 0 glance, 0 clean
+out   1
+out   1 [HIGH] yay-bin  maintainer changed: jguer → mallory
+out   1
+out   1 The flagged maintainers are only recorded if you accept the update; declining keeps them flagged for the next audit.
+step  1 ok
+plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo confirm optional alwayslog cat=topgrade
+log   audit OK: AUR audit
+ask   "yay-bin changed maintainer since the last audit. Update anyway?" -> no
+step  2 skipped
+log   topgrade SKIP: Topgrade completed (declined)
+step  3 running
+exec  sudo -A paccache -r
+step  3 ok
+ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> no
+step  4 skipped
+log   cleanup SKIP: Entire package cache removed (declined)
+step  5 running
+exec  yay -Sc --noconfirm
+step  5 ok
+step  6 running
+exec  sudo -A find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+step  6 ok
+log   cleanup OK: Old temporary files removed
+step  7 running
+exec  sudo -A journalctl --vacuum-time=2weeks
+step  7 ok
+log   cleanup OK: Old logs removed
+step  8 running
+exec  sudo -A pacman -Qk
+out   8 yay-bin: 12 total files, 0 missing files
+step  8 ok
+step  9 running
+exec  hyprpm update
+step  9 ok
+end   outcome=completed errs=0 skipped=2

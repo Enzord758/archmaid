@@ -1,0 +1,12 @@
+action "Run topgrade (system update)"
+exec  sudo -n -v
+plan  1 steps
+plan  1 "Updating system with topgrade…" argv=topgrade -y sudo alwayslog cat=topgrade
+step  1 running
+exec  topgrade -y
+out   1 :: Synchronizing package databases...
+out   1 ── Summary ──
+out   1 System update: OK
+step  1 ok
+log   topgrade OK: Topgrade completed
+end   outcome=completed errs=0 skipped=0

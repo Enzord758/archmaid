@@ -1,0 +1,6 @@
+action "Full Cleanup (Recommended)"
+exec  pacman -Qdtq
+exec  pacman -Rs --print libfoo libbar
+exec  sudo -n -v
+ask   "Proceed with full cleanup?" -> no
+end   outcome=cancelled errs=0 skipped=0

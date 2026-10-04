@@ -1,0 +1,10 @@
+action "Repair broken packages"
+exec  sudo -n -v
+auth  password -> <wrong>
+exec  su $USER -c true
+auth  password -> <wrong>
+exec  su $USER -c true
+auth  password -> <wrong>
+exec  su $USER -c true
+note  "Sudo authentication failed — can't scan for broken packages."
+end   outcome=notice errs=0 skipped=0

@@ -1,0 +1,12 @@
+action "Disable unused services"
+exec  systemctl list-unit-files --type=service --state=enabled --no-legend
+exec  systemctl list-units --type=service --state=inactive --no-legend
+pick  [bluetooth.service cups.service docker.service] -> [bluetooth.service docker.service]
+exec  sudo -n -v
+plan  1 steps
+plan  1 "Disabling services…" argv=sudo systemctl disable --now bluetooth.service docker.service sudo alwayslog cat=cleanup
+step  1 running
+exec  sudo -A systemctl disable --now bluetooth.service docker.service
+step  1 ok
+log   cleanup OK: Services disabled
+end   outcome=completed errs=0 skipped=0

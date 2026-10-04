@@ -1,0 +1,9 @@
+action "Delete old downloads"
+plan  1 steps
+plan  1 "Deleting old downloads…" argv=bash -c find "$HOME/Downloads" -maxdepth 1 -mtime +30 -exec rm -rf {} + confirm optional alwayslog cat=cleanup
+ask   "Delete 3 file(s) older than 30 days in Downloads?" -> yes
+step  1 running
+out   1 [dry-run] would run: bash -c find "$HOME/Downloads" -maxdepth 1 -mtime +30 -exec rm -rf {} +
+step  1 ok
+log   cleanup DRYRUN: Old downloads deleted
+end   outcome=completed errs=0 skipped=0
