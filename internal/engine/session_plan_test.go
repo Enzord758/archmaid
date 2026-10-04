@@ -229,6 +229,29 @@ func TestSessionRefusesBadInserts(t *testing.T) {
 	}
 }
 
+// A plan's Argv carries package names read from pacman: each argument is
+// one plain line, quoted when it holds escapes, C1 controls, bidi overrides
+// or NUL, in QueueStarted and StepInserted alike.
+func TestSessionPlanArgvIsSanitized(t *testing.T) {
+	evil := []string{"lib\x1b]52;c;cHdu\x07foo", "a\u009bb", "x\u202Eexe.txt", "nul\x00l", "plain"}
+	argv := append([]string{"sudo", "pacman", "-Rns", "--"}, evil...)
+	want := []string{"sudo", "pacman", "-Rns", "--",
+		`"lib\x1b]52;c;cHdu\afoo"`, `"a\u009bb"`, "\"x\\u202eexe.txt\"", `"nul\x00l"`, "plain"}
+	ins := steps.Step{ID: "ins", Argv: argv}
+	h := newHarness(t, Options{DryRun: true}, queue("q", inproc("a"), steps.Step{ID: "c", Argv: argv}))
+	qs := event[QueueStarted](t, h.start("q"))
+	if got := qs.Steps[1].Argv; !slices.Equal(got, want) {
+		t.Errorf("QueueStarted argv = %q,\nwant %q", got, want)
+	}
+	si := event[StepInserted](t, h.result(steps.Result{InsertNext: &ins}))
+	if got := si.Step.Argv; !slices.Equal(got, want) {
+		t.Errorf("StepInserted argv = %q,\nwant %q", got, want)
+	}
+	if st := effect[StartStep](t, h.out); st.Step.Argv[4] != evil[0] {
+		t.Error("the step itself must run with its real arguments")
+	}
+}
+
 func TestSessionDownloadsConfirmListsItems(t *testing.T) {
 	dl := inproc(steps.IDDownloads)
 	dl.Confirm, dl.Optional, dl.Items = "Delete 2 item(s)?\n\n  a\n  b", true, []string{"a", "b\nforged"}

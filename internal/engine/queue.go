@@ -184,11 +184,20 @@ func planStep(s steps.Step) PlanStep {
 		NeedsPriv: s.NeedsPriv, Confirm: s.Confirm != "", Optional: s.Optional,
 		AlwaysLog: s.AlwaysLog, Category: s.LogCategory(),
 	}
-	if !p.InProc {
-		p.Argv = slices.Clone(s.Argv)
+	if !p.InProc && s.Argv != nil {
+		// Package names come from pacman's output (the orphan removal,
+		// Repair): each argument is shown on one line, quoted when it holds
+		// anything a terminal or a text renderer would act on.
+		p.Argv = make([]string, len(s.Argv))
+		for i, a := range s.Argv {
+			p.Argv[i] = sanitize.QuoteName(a, maxArg)
+		}
 	}
 	return p
 }
+
+// maxArg bounds one shown argument; real ones are far shorter.
+const maxArg = 4096
 
 // advance moves to the next step: its confirm if it has one, else it runs.
 // Once the password was given up on, a NeedsPriv step is refused without
