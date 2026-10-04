@@ -1,6 +1,77 @@
 # DMS bar widget (P7): design
 
-Status: design only. Optional, low priority. Nothing here changes the TUI or helper.
+Status: **implemented (P7)** as described in "Implementation as built" below; the
+rest of this file is the original design, kept for the data contract (section 3).
+Where they differ, the "as built" section wins. Nothing here changes the TUI or helper.
+
+## Implementation as built
+
+The widget **reads the state files directly**; there is no `archmaid status`
+subcommand (sections 2 and 3 describe that older design). It reads, never writes,
+`$XDG_STATE_HOME/archmaid/` (default `~/.local/state/archmaid/`):
+
+| File | Writer | Fields the widget uses |
+|---|---|---|
+| `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run` |
+| `audit-state.json` | `internal/audit` | `v`, `checked`, `packages`, `high[{pkg,reason}]` |
+| `updates-cache.json` | `archmaid-updates-check` | `v`, `count`, `checked` |
+
+Files: `packaging/dms/archmaid/` (`plugin.json`, `ArchmaidWidget.qml`,
+`state.js` = all parsing and decisions, no I/O), `packaging/systemd/archmaid-updates-check`
+(script) and `packaging/systemd/user/archmaid-updates-check.{service,timer}`.
+
+**Pill**: icon `cleaning_services` plus the pending count (hidden at 0 or unknown).
+Tint: error colour (red) for an unacknowledged high AUR finding or `outcome: failed`;
+warning (orange) for `incomplete` (root steps refused), `aborted`, `cancelled`, or a last
+run older than 14 days; dimmed when no file is readable. **Popout**: those issues, last
+run, updates, audit and up to 5 findings, and two buttons: Run Full Cleanup, Log folder.
+Bar only: no control-center tile.
+
+**Robustness**: a missing, empty, torn, wrong-`v` or wrongly typed file parses to "no
+data", never an error; unknown fields and unknown outcomes are ignored (`unknown`); a
+dry-run record is ignored. `last-run.json` is one record overwritten per run, so the
+14-day rule measures the age of the last run of any kind; after a failed or incomplete
+run the outcome warning stands in for "last successful cleanup" (not recoverable from
+one record). A pending count older than 3 days is shown as unknown. Files are re-read
+every 60 s (the writers replace files by rename).
+
+**Run Full Cleanup** starts `archmaid-gui` if it is on PATH; otherwise `$TERMINAL -e
+archmaid` (`$TERMINAL` may carry arguments, split on spaces, never a shell); if
+`$TERMINAL` is empty, `xdg-terminal-exec archmaid`; if that is missing too, the popout
+says "Set $TERMINAL ..." and nothing starts. Note that DMS only sees `$TERMINAL` if it is
+in the session environment (for example `~/.config/environment.d/` or the compositor's
+env), not only in a shell rc. Authentication happens in the app, never in the widget.
+
+**Pending updates**: `archmaid-updates-check.timer` (systemd USER timer, no root, no
+sudo) runs `archmaid-updates-check` 3 min after the session starts and then every hour
+(+ up to 10 min random delay, Nice 19, idle IO). The script runs `checkupdates`
+(pacman-contrib; own temporary db, needs `fakeroot` but no root) and writes
+`updates-cache.json` (`{"v":1,"count":N,"checked":"<RFC3339>"}`, 0600, atomic) **in the
+archmaid state dir**: one directory for the widget and the same name this document
+planned. When `checkupdates` fails (offline) the old file stays.
+
+**Install** (package): the widget goes to `/etc/xdg/quickshell/dms-plugins/archmaid/`,
+the system plugin directory DMS 1.6.2 reads (`PluginService.systemPluginDirectory`,
+found in the dms binary's embedded QML; a same-id plugin in
+`~/.config/DankMaterialShell/plugins/` shadows it, which is how to develop a change).
+Units go to `/usr/lib/systemd/user/`, the script to `/usr/lib/archmaid/`.
+
+**Enable (owner)**, after installing the package:
+
+1. `systemctl --user enable --now archmaid-updates-check.timer` (for the count).
+2. DMS Settings, Plugins: enable "archmaid" (DMS rescans the directory by itself; if it is
+   not listed, `dms ipc call plugins reload archmaid`).
+3. DMS Settings, Dank Bar: add the "archmaid" widget to a bar section.
+
+Disable: remove the widget from the bar and `systemctl --user disable --now
+archmaid-updates-check.timer`. Without a package, for a trial: copy `packaging/dms/archmaid/`
+to `~/.config/DankMaterialShell/plugins/archmaid/`.
+
+**Checked**: the load test runs the real QML in a scratch quickshell (`qs -p`, own
+config dir, stub `qs.*` modules, no window; see docs/TESTING.md); the DMS-internal APIs
+(`PluginComponent`, `PopoutComponent`, `Proc`, `DankButton`) are matched against the DMS
+1.6.2 source embedded in `/usr/bin/dms`, but the widget was **not** shown in the live
+bar, so look at it once after enabling.
 
 ## Decisions (owner, 2026-10-04)
 

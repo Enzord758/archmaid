@@ -260,6 +260,15 @@ comments and `git log`; this is the "read before you touch it" list.
   Reading it as missing would silently re-baseline over a takeover. Writes are
   atomic (0600 temp + fsync + rename + dir fsync) under a non-blocking flock on
   `aur-maintainers.lock`; a held lock skips the save (logged `WARN`).
+- **DMS widget (P7)** lives in `packaging/dms/archmaid/`; the full description, install and
+  enable steps are in `docs/dms-widget.md` ("Implementation as built"). It only reads
+  `last-run.json`, `audit-state.json` and `updates-cache.json` (the last one written by the
+  `archmaid-updates-check` user timer, `packaging/systemd/`). **The JSON field names of
+  `logstore.RunRecord` and `audit.State` are now a contract with `state.js`**:
+  `packaging/dms/dms_test.go` generates its fixtures from the real writers, so renaming a
+  field fails that test; add new fields freely, bump `v` for removals. The widget already
+  understands `outcome: "incomplete"` + `steps_refused`; the Go writer test only simulates
+  them until `RunRecord` carries them (then use the real writer in `withRefused`).
 - **`audit-state.json` (state-dir root, beside the snapshot) lists the
   unacknowledged high findings** for the DMS widget
   (`audit.State{V, Checked, Packages, High[{Pkg, Reason}], SnapshotPresent,

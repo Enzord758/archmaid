@@ -375,6 +375,27 @@ shims, fakes, then `return record(t, mk, shimLog, "<menu label>",
 answers...)`. Run with `-update-transcripts` and read the new golden line by line
 — it's the spec you're signing off.
 
+## DMS widget and updates timer (`packaging/dms/`)
+
+`go test ./packaging/dms/` (part of `./...`, so of the gate):
+
+- `TestStateJS` makes the real writers (`logstore.WriteLastRun`, `audit.WriteState`, the real
+  `archmaid-updates-check` script with a fake `checkupdates`) produce the state files, writes
+  them into a generated `fixtures.js` beside a copy of `archmaid/state.js` and
+  `tests/tst_state.qml`, and runs them with `qmltestrunner` (offscreen). It covers parsing,
+  neutral "no data" on missing/torn/wrong-version/dry-run input, levels, the 14-day and
+  3-day rules and the launcher choice. Skipped when `qmltestrunner` is missing. It prefers
+  `/usr/lib/qt6/bin/qmltestrunner`, because `/usr/bin/qmltestrunner` on this machine is a
+  stale build that exits 1 silently.
+- `TestUpdatesScript` (count, none, failure leaves no file, 0600/0700) and `TestManifest`.
+- Not in the gate: loading the QML in a real quickshell. Do it by hand in a scratch dir that
+  holds `shell.qml` plus stub `Common/`, `Widgets/`, `Modules/Plugins/` modules (qmldir files
+  with `Theme`, `Proc`, `DankIcon`, `StyledText`, `DankButton`, `PluginComponent`,
+  `PopoutComponent`), a `Loader` of `ArchmaidWidget.qml`, and
+  `WIDGET_DIR=<packaging/dms/archmaid> XDG_STATE_HOME=<scratch> TERMINAL=kitty timeout 20 qs -p <scratch>`.
+  That is a separate quickshell instance (own config id, no window); never touch the running
+  DMS. Last result: widget, both pills and the popout instantiate; the three files are read.
+
 ## Coverage map
 
 What each file pins. Behaviour contracts, not test names — grep the file for
