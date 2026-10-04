@@ -136,7 +136,7 @@ jobs:
     timeout-minutes: 40
     steps:
       - name: Install toolchain, GTK and weston
-        run: pacman -Syu --noconfirm --needed go gcc git make pkgconf gtk4 libadwaita adwaita-icon-theme ttf-dejavu weston dbus
+        run: pacman -Syu --noconfirm --needed go gcc git make diffutils pkgconf gobject-introspection gtk4 libadwaita adwaita-icon-theme ttf-dejavu weston dbus
       - uses: actions/checkout@v7
       - name: Create an unprivileged user
         run: |
