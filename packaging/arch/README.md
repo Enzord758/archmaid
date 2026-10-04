@@ -45,37 +45,39 @@ on the widget until the live run has passed.
 
 ## Build locally (no install)
 
-Only committed state is built, so commit first. From this directory:
+Only committed state is built, so commit first. Build in a scratch copy, so
+`pkg/` and `src/` stay out of the tree. Copy `archmaid.install` along with
+`PKGBUILD` (`install=` names it, and makepkg refuses to build without it). The
+checkout here is `~/archmaid`; use your own path if it lives elsewhere:
 
 ```sh
-ARCHMAID_REPO="file://$(git rev-parse --show-toplevel)" \
-ARCHMAID_FRAGMENT="commit=$(git rev-parse HEAD)" \
-makepkg -f
+P=$(mktemp -d) && cp ~/archmaid/packaging/arch/PKGBUILD ~/archmaid/packaging/arch/archmaid.install "$P"/ && cd "$P" && \
+ARCHMAID_REPO="file://$HOME/archmaid" ARCHMAID_FRAGMENT="commit=$(git -C ~/archmaid rev-parse HEAD)" makepkg -s
 ```
+
+The repo path is given explicitly (`git -C`), because the scratch directory
+isn't a git checkout. This is the build `docs/first-live-run.md` (Part B)
+uses. It leaves `archmaid-git-r<N>.<hash>-1-x86_64.pkg.tar.zst` and
+`archmaid-gui-git-…` in `$P`, where `<hash>` is the first 7 characters of
+the commit.
 
 `ARCHMAID_REPO` / `ARCHMAID_FRAGMENT` override the `source` URL and ref. By
 default the PKGBUILD clones the upstream GitHub repo at `branch=main`. For a
 release, pin `_fragment` to `tag=vX.Y.Z` or `commit=<sha>`.
 
-To keep the tree clean, build in a scratch copy: `mkdir /tmp/pk && cp PKGBUILD
-/tmp/pk && cd /tmp/pk`, then run the command above there.
-
-`pkg/`, `src/` and `*.pkg.tar.*` are gitignored here.
+If you build in this directory instead, `pkg/`, `src/` and `*.pkg.tar.*` are
+gitignored here.
 
 ## Install
 
-You run this yourself (it needs root):
+You run this yourself (it needs root). From `$P`, after the build above:
 
 ```sh
-makepkg -si      # both packages; with the env vars above for a local build
+sudo pacman -U "$P"/archmaid-git-r*.pkg.tar.zst       # the TUI, the helper and the policy
+sudo pacman -U "$P"/archmaid-gui-git-r*.pkg.tar.zst   # the GUI too (see above: first live run only)
 ```
 
-For the TUI only, build without installing and install that one file:
-
-```sh
-makepkg -s
-pacman -U archmaid-git-*.pkg.tar.zst       # as root
-```
+(`makepkg -si` with the same environment builds and installs both at once.)
 
 ## What it installs
 
