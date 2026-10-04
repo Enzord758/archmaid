@@ -89,6 +89,25 @@ func TestGateNoReturnsToMenu(t *testing.T) {
 	}
 }
 
+// TestGateShownWithoutRoot: a gated queue that needs no root has no password
+// prompt to stand in for its gate, so the gate is asked before anything
+// runs (no current action is one; the engine does the same).
+func TestGateShownWithoutRoot(t *testing.T) {
+	m := initialModel()
+	m.gate = "Proceed?"
+	m.pending = []steps.Step{{ID: "a", Title: "a…", Argv: []string{"true"}}}
+	if cmd := m.beginPending(); cmd != nil {
+		t.Fatal("beginPending returned a cmd: something started before the gate")
+	}
+	if m.screen != screenConfirm || !m.gateActive || m.confirmMsg != "Proceed?" || m.bg != screenMenu {
+		t.Fatalf("screen=%d gateActive=%v confirmMsg=%q bg=%d, want the gate over the menu",
+			m.screen, m.gateActive, m.confirmMsg, m.bg)
+	}
+	if len(m.queue) != 0 {
+		t.Fatalf("queued %d steps before the gate was answered", len(m.queue))
+	}
+}
+
 // TestGateYesStartsQueue: accepting the gate starts the queue.
 func TestGateYesStartsQueue(t *testing.T) {
 	dryRun = true

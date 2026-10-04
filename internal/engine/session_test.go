@@ -523,15 +523,21 @@ func TestSessionProbeGateAndKeepAlive(t *testing.T) {
 		})
 	}
 
-	t.Run("no root, no gate", func(t *testing.T) {
+	t.Run("no root: the gate still stands", func(t *testing.T) {
 		a := queue("q", child("a", "true"))
 		a.Gate = "Proceed?"
 		h := newHarness(t, Options{}, a)
 		o := h.start("q")
-		if _, ok := find[NeedsConfirm](o.Events); ok {
-			t.Error("gate asked for a queue that needs no root (the TUI doesn't)")
+		if _, ok := find[Probe](o.Effects); ok {
+			t.Error("probed a queue that needs no root")
 		}
-		event[QueueStarted](t, o)
+		if nc := event[NeedsConfirm](t, o); nc.Kind != ConfirmGate {
+			t.Errorf("gate = %+v", nc)
+		}
+		if _, ok := find[QueueStarted](o.Events); ok {
+			t.Error("planned before the gate was answered")
+		}
+		event[QueueStarted](t, h.confirm(true))
 	})
 }
 

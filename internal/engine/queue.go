@@ -92,7 +92,7 @@ func (s *Session) plan(o *Output, queue []steps.Step, gate string) {
 		}
 	}
 	if !needsPriv(queue) {
-		s.startQueue(o)
+		s.authorized(o) // no password prompt to stand in for the gate
 		return
 	}
 	if s.opts.DryRun || s.opts.Auth == AuthPolkit || r.authed {

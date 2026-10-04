@@ -52,11 +52,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// No password prompt to act as the gate. If this action wants a
 			// proceed-gate, show it; otherwise run straight away.
 			if m.gate != "" {
-				m.bg = screenMenu
-				m.confirmMsg = m.gate
-				m.confirmYes = false
-				m.gateActive = true
-				m.screen = screenConfirm
+				m.showGate()
 				return m, nil
 			}
 			cmd := m.startQueue()
@@ -634,7 +630,22 @@ func (m *model) beginPending() tea.Cmd {
 			return checkSudoCached()
 		}
 	}
+	// No password prompt will stand in for the gate: ask it.
+	if m.gate != "" {
+		m.showGate()
+		return nil
+	}
 	return m.startQueue()
+}
+
+// showGate asks the action's proceed-gate. It is shown whenever no password
+// prompt is: the prompt is the gate otherwise.
+func (m *model) showGate() {
+	m.bg = screenMenu
+	m.confirmMsg = m.gate
+	m.confirmYes = false
+	m.gateActive = true
+	m.screen = screenConfirm
 }
 
 // startQueue initialises the checklist and kicks off the first step. If any
