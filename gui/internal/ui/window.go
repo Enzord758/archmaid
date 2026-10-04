@@ -272,16 +272,32 @@ func (w *Window) stop() {
 	}
 }
 
-// send hands c to the Driver, retrying on the main loop while its queue is
-// full (Send never blocks).
+// send hands c to the current Driver, retrying on the main loop while its
+// queue is full (Send never blocks). Every retry goes to that same Driver:
+// once it has closed (its events ended: closed by the window, or a Session
+// panic) or been replaced, or the window closes, c is dropped. Prompt IDs
+// restart with every Session, so an answer carried over to the next run's
+// Driver could answer that run's prompt (its gate is ID 1 too) before the
+// user saw it.
+//
+// A dropped SubmitPassword's Secret is a Go string, which can't be zeroed
+// (docs/HANDOVER.md → "The GUI password's last copy"); the entry and the
+// bytes it was read into are already wiped, and send lets go of it.
 func (w *Window) send(c engine.Command) {
+	drv, pump, gen := w.drv, w.pump, w.gen
 	tries := 0
 	var try func() bool
 	try = func() bool {
-		if w.closed || w.drv.Send(c) {
+		if w.closed || w.gen != gen || pumpDone(pump) {
+			c = nil
+			return false
+		}
+		if drv.Send(c) {
+			c = nil
 			return false
 		}
 		if tries++; tries == 50 {
+			c = nil
 			w.toast("archmaid couldn't reach the engine")
 			return false
 		}
@@ -289,6 +305,16 @@ func (w *Window) send(c engine.Command) {
 	}
 	if try() {
 		coreglib.TimeoutAdd(20, try)
+	}
+}
+
+// pumpDone: p's Driver's events have ended, so the Driver is closed.
+func pumpDone(p *runview.Pump) bool {
+	select {
+	case <-p.Done():
+		return true
+	default:
+		return false
 	}
 }
 
