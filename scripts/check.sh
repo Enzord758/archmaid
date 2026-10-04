@@ -17,6 +17,29 @@ MIN_ASKPASS=90   # internal/privilege/askpass.go: it carries the sudo password (
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+# The owner's real state dir must come out of the gate exactly as it went in
+# (scripts/state-guard.sh: read-only, names + sizes + mtimes). The compare
+# runs on every exit, so a failing step can't hide a change; a change fails
+# the gate even when everything else passed.
+GUARD_SNAP="$(mktemp)"
+PROFILE=""
+scripts/state-guard.sh snapshot >"$GUARD_SNAP"
+guard_done=0
+guard_compare() {
+	guard_done=1
+	scripts/state-guard.sh compare "$GUARD_SNAP"
+}
+finish() {
+	local rc=$?
+	[[ -n "$PROFILE" ]] && rm -f "$PROFILE"
+	if ((!guard_done)) && ! guard_compare; then
+		rc=1
+	fi
+	rm -f "$GUARD_SNAP"
+	exit "$rc"
+}
+trap finish EXIT
+
 TUI=./cmd/archmaid
 
 # Coverage is measured over the TUI and the packages it is being split into
@@ -57,8 +80,7 @@ if compgen -G 'internal/*/*.go' >/dev/null; then
 fi
 
 echo "==> coverage"
-PROFILE="$(mktemp)"
-trap 'rm -f "$PROFILE"' EXIT
+PROFILE="$(mktemp)" # removed by finish
 if ! out="$(go test -count=1 -coverpkg="$COVERPKG" -coverprofile="$PROFILE" "${COVERTESTS[@]}" 2>&1)"; then
 	echo "$out"
 	exit 1
@@ -113,4 +135,7 @@ if [[ "${ARCHMAID_PERF_GUARD:-}" == 1 ]]; then
 	echo "==> perf guard"
 	go test -count=1 -run '^TestPerfGuard$' -v ./...
 fi
+
+echo "==> real state dir"
+guard_compare
 echo "PASS: gate green"
