@@ -19,8 +19,19 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 TUI=./cmd/archmaid
 
-echo "==> go test -race -count=3 (TUI and helper)"
-go test -race -count=3 ./cmd/archmaid ./cmd/archmaid-helper/...
+# Coverage is measured over the TUI and the packages it is being split into
+# (internal/, from P2 on), so moving code out of cmd/archmaid moves its
+# statements without changing the total. ./internal/... is only named once it
+# has packages: an empty pattern fails `go test`.
+COVERPKG="$TUI"
+COVERTESTS=("$TUI")
+if compgen -G 'internal/*/*.go' >/dev/null; then
+	COVERPKG="$TUI,./internal/..."
+	COVERTESTS+=(./internal/...)
+fi
+
+echo "==> go test -race -count=3 (every package)"
+go test -race -count=3 ./...
 
 echo "==> go vet"
 go vet ./...
@@ -33,10 +44,22 @@ if [[ -n "$unformatted" ]]; then
 	exit 1
 fi
 
+echo "==> layering"
+# The shared packages must stay UI-free so a GUI can use them: nothing under
+# internal/ except internal/tui may pull in Bubble Tea, lipgloss or bubbles.
+if compgen -G 'internal/*/*.go' >/dev/null; then
+	for pkg in $(go list ./internal/... | grep -v '/internal/tui'); do
+		if go list -deps "$pkg" | grep -q '^github.com/charmbracelet/'; then
+			echo "FAIL: $pkg imports github.com/charmbracelet/* (only internal/tui and cmd/archmaid may)"
+			exit 1
+		fi
+	done
+fi
+
 echo "==> coverage"
 PROFILE="$(mktemp)"
 trap 'rm -f "$PROFILE"' EXIT
-if ! out="$(go test -count=1 -coverprofile="$PROFILE" "$TUI" 2>&1)"; then
+if ! out="$(go test -count=1 -coverpkg="$COVERPKG" -coverprofile="$PROFILE" "${COVERTESTS[@]}" 2>&1)"; then
 	echo "$out"
 	exit 1
 fi
