@@ -12,7 +12,7 @@ import (
 // shimRepairScan puts a fake `sudo` + `pacman` pair on PATH for the Repair
 // scan. With sudoOK the sudo shim drops -n and execs its argv (so pacman runs
 // "as root"); otherwise it fails the way `sudo -n` does without a ticket.
-// pacman -Qk prints qkOutput and exits qkExit (1 when files are missing).
+// pacman -Qkq prints qkOutput and exits qkExit (1 when files are missing).
 func shimRepairScan(t *testing.T, sudoOK bool, qkOutput string, qkExit int) {
 	t.Helper()
 	dir := t.TempDir()
@@ -21,7 +21,7 @@ func shimRepairScan(t *testing.T, sudoOK bool, qkOutput string, qkExit int) {
 		sudo = "#!/bin/sh\n[ \"$1\" = \"-n\" ] && shift\nexec \"$@\"\n"
 	}
 	payload := strings.ReplaceAll(qkOutput, "\n", "\\n")
-	pacman := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"-Qk\" ]; then printf '%s'; exit %d; fi\n", payload, qkExit)
+	pacman := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"-Qkq\" ]; then printf '%s'; exit %d; fi\n", payload, qkExit)
 	for name, script := range map[string]string{"sudo": sudo, "pacman": pacman} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
@@ -44,26 +44,42 @@ func repairModel(t *testing.T) model {
 	return m
 }
 
-// TestParseBrokenPackages: only packages with a non-zero missing count are
-// broken — including "10 missing files", which the old `grep -v '0 missing'`
-// silently dropped — and warning lines are ignored.
+// TestParseBrokenPackages: `pacman -Qkq` prints "pkg /path" per missing file;
+// a package with several missing files is listed once, and stray lines (a
+// warning, a bare word) are ignored.
 func TestParseBrokenPackages(t *testing.T) {
-	out := "a52dec: 22 total files, 0 missing files\n" +
-		"warning: amd-ucode: /boot/amd-ucode.img (No such file or directory)\n" +
-		"amd-ucode: 17 total files, 1 missing file\n" +
-		"big: 300 total files, 10 missing files\n" +
-		"nfs-utils: 124 total files, 0 missing files\n"
+	out := "warning: something odd\n" +
+		"amd-ucode /boot/amd-ucode.img\n" +
+		"big /usr/share/big/one\n" +
+		"big /usr/share/big/two\n" +
+		"stray\n"
 	got := parseBrokenPackages(out)
 	want := []string{"amd-ucode", "big"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
+	if got := parseBrokenPackages(""); len(got) != 0 {
+		t.Fatalf("empty output should be no packages, got %v", got)
+	}
 }
 
-// TestBrokenPackagesRunsAsRoot: the scan goes through `sudo -n pacman -Qk`,
+// TestParseBrokenPackagesFixture parses a capture of real -Qkq output shape.
+func TestParseBrokenPackagesFixture(t *testing.T) {
+	data, err := os.ReadFile("testdata/pacman_Qkq.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := parseBrokenPackages(string(data))
+	want := []string{"amd-ucode", "nfs-utils", "big"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}
+
+// TestBrokenPackagesRunsAsRoot: the scan goes through `sudo -n pacman -Qkq`,
 // and pacman's exit 1 (missing files found) is a result, not a failure.
 func TestBrokenPackagesRunsAsRoot(t *testing.T) {
-	shimRepairScan(t, true, "ok: 3 total files, 0 missing files\nbad: 3 total files, 2 missing files\n", 1)
+	shimRepairScan(t, true, "bad /usr/share/bad/a\nbad /usr/share/bad/b\n", 1)
 	got, err := brokenPackages()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

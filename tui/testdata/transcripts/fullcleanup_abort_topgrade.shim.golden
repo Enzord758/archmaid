@@ -10,7 +10,7 @@ plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm 
 plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
 plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
-plan  8 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
+plan  8 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
 plan  9 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
 step  1 running
 exec  pacman -Qqm

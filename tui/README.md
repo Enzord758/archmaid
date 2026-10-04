@@ -50,7 +50,7 @@ straight over via `lipgloss`).
 - **A self-updating status header** via `tea.Tick` (disk/RAM/cache), the thing
   gum couldn't do without redrawing everything by hand.
 - **Dynamic actions** with an async, read-only discovery pass on a spinner
-  screen: repair broken packages (`pacman -Qk`), delete old downloads
+  screen: repair broken packages (`pacman -Qkq`), delete old downloads
   (entries whose ctime is 30+ days old, named in the confirm, re-checked and
   removed in-process through an `os.Root`), and a **multi-select**
   (`screenServices`) of enabled-but-inactive services to disable. "Nothing to do" routes to a notice.

@@ -1,0 +1,5 @@
+amd-ucode /boot/amd-ucode.img
+nfs-utils /var/lib/nfs/statd/sm
+nfs-utils /var/lib/nfs/statd/sm.bak
+big /usr/share/big/one
+big /usr/share/big/two

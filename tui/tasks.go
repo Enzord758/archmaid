@@ -298,7 +298,7 @@ func fullCleanupSteps() []step {
 		},
 		{
 			title: "Checking package integrity…", logLabel: "Package integrity check completed",
-			command: "sudo", args: []string{"pacman", "-Qk"}, needsSudo: true,
+			command: "sudo", args: []string{"pacman", "-Qkq"}, needsSudo: true,
 		},
 	}...)
 
@@ -484,17 +484,17 @@ func discoverRepair() tea.Cmd {
 	}
 }
 
-// brokenPackages lists packages with missing files (pacman -Qk). It runs as
+// brokenPackages lists packages with missing files (pacman -Qkq). It runs as
 // root: as the user, files in root-only dirs (/boot is 700, /var/lib/nfs/statd
 // is rpcuser's) can't be stat'ed and count as "missing", so amd-ucode and
 // nfs-utils got "repaired" on every run. -n: the ticket is already primed, and
 // nothing may prompt on the raw tty.
 func brokenPackages() ([]string, error) {
-	cmd := exec.Command("sudo", "-n", "pacman", "-Qk")
+	cmd := exec.Command("sudo", "-n", "pacman", "-Qkq")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	// pacman -Qk exits 1 when it finds missing files, so an error with a
+	// pacman -Qkq exits 1 when it finds missing files, so an error with a
 	// report on stdout is a result, not a failure.
 	if err != nil && len(bytes.TrimSpace(out)) == 0 {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
@@ -505,16 +505,21 @@ func brokenPackages() ([]string, error) {
 	return parseBrokenPackages(string(out)), nil
 }
 
-// parseBrokenPackages picks the packages out of `pacman -Qk` summary lines
-// ("name: 17 total files, 1 missing file") whose missing count isn't zero.
-// Matches the whole ", 0 missing files" suffix so "10 missing files" counts.
+// parseBrokenPackages picks the packages out of `pacman -Qkq` output, which
+// prints one "name /path/to/missing/file" line per missing file and nothing for
+// healthy packages (plain -Qk prints a summary line for every installed
+// package, ~1400 of them, to report a handful). A package with several missing
+// files is listed once, in first-seen order. Lines whose second field isn't an
+// absolute path (stray warnings) are ignored.
 func parseBrokenPackages(out string) []string {
 	var pkgs []string
+	seen := map[string]bool{}
 	for _, line := range nonEmptyLines(out) {
-		name, rest, ok := strings.Cut(line, ": ")
-		if !ok || !strings.Contains(rest, "total files") || strings.HasSuffix(rest, ", 0 missing files") {
+		name, path, ok := strings.Cut(line, " ")
+		if !ok || !strings.HasPrefix(strings.TrimSpace(path), "/") || seen[name] {
 			continue
 		}
+		seen[name] = true
 		pkgs = append(pkgs, name)
 	}
 	return pkgs

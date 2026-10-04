@@ -439,7 +439,7 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	case "editconfig":
 		return m, editConfig()
 	case "repair":
-		// pacman -Qk must run as root (see brokenPackages), so authenticate
+		// pacman -Qkq must run as root (see brokenPackages), so authenticate
 		// first, the same way Full Cleanup does; the scan follows.
 		m.scanAfterAuth = discoverRepair()
 		m.pwAttempts = 0

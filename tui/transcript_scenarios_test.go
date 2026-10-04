@@ -201,16 +201,15 @@ var transcriptScenarios = []struct {
 
 	{"repair_cached_found.shim", func(t *testing.T) *Driver {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qk", Exit: 1, Out: "" +
-			"foo: 12 total files, 1 missing file\n" +
-			"bar: 30 total files, 0 missing files\n" +
-			"baz: 80 total files, 10 missing files"})})
+		shimLog := installShims(t, Shims{"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qkq", Exit: 1, Out: "" +
+			"foo /usr/share/foo/a\n" +
+			"baz /usr/share/baz/a\n" +
+			"baz /usr/share/baz/b"})})
 		return run(t, shimLog, "Repair broken packages", Answer{"confirm", "Reinstall 2 broken", "yes"})
 	}},
 	{"repair_none.shim", func(t *testing.T) *Driver {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qk",
-			Out: "foo: 12 total files, 0 missing files\nbar: 30 total files, 0 missing files"})})
+		shimLog := installShims(t, Shims{"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qkq"})})
 		return run(t, shimLog, "Repair broken packages")
 	}},
 	{"repair_auth_giveup.shim", func(t *testing.T) *Driver {
@@ -386,7 +385,7 @@ const topgradeOK = ":: Synchronizing package databases...\n── Summary ──
 func fullCleanupShims(cached bool, orphans, cascade string) Shims {
 	return Shims{
 		"pacman":   pacmanRules(orphans, cascade, "yay-bin"),
-		"sudo":     sudoRules(cached, Rule{Prefix: "-A pacman -Qk", Out: "yay-bin: 12 total files, 0 missing files"}),
+		"sudo":     sudoRules(cached, Rule{Prefix: "-A pacman -Qkq"}),
 		"su":       suRules(),
 		"topgrade": {{Prefix: "-y", Out: topgradeOK}},
 		"yay":      nil,

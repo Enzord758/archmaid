@@ -1,5 +1,5 @@
 action "Repair broken packages"
 exec  sudo -n -v
-exec  sudo -n pacman -Qk
+exec  sudo -n pacman -Qkq
 note  "No broken packages found."
 end   outcome=notice errs=0 skipped=0

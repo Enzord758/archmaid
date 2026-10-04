@@ -10,7 +10,7 @@ plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm 
 plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
 plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
-plan  8 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
+plan  8 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
 plan  9 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
 step  1 running
 exec  pacman -Qqm
@@ -43,8 +43,7 @@ exec  sudo -A journalctl --vacuum-time=2weeks
 step  7 ok
 log   cleanup OK: Old logs removed
 step  8 running
-exec  sudo -A pacman -Qk
-out   8 yay-bin: 12 total files, 0 missing files
+exec  sudo -A pacman -Qkq
 step  8 ok
 step  9 running
 exec  hyprpm update

@@ -1,6 +1,6 @@
 action "Repair broken packages"
 exec  sudo -n -v
-exec  sudo -n pacman -Qk
+exec  sudo -n pacman -Qkq
 plan  1 steps
 plan  1 "Reinstalling packages…" argv=sudo pacman -S --noconfirm foo baz sudo confirm optional alwayslog cat=cleanup
 ask   "Reinstall 2 broken package(s)?" -> yes
