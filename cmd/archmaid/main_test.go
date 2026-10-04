@@ -3,12 +3,12 @@ package main
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // key builds a KeyMsg from a string the same way handleKey matches on it.
@@ -37,15 +37,15 @@ func update(m model, msg tea.Msg) model {
 
 // drainStep reads a step's stream to completion, returning the collected output
 // lines and the terminal error.
-func drainStep(ch <-chan streamMsg) ([]string, error) {
+func drainStep(ch <-chan proc.Msg) ([]string, error) {
 	var lines []string
-	for msg := range func() chan streamMsg {
-		out := make(chan streamMsg)
+	for msg := range func() chan proc.Msg {
+		out := make(chan proc.Msg)
 		go func() {
 			for {
 				m := <-ch
 				out <- m
-				if m.done {
+				if m.Done {
 					close(out)
 					return
 				}
@@ -53,34 +53,12 @@ func drainStep(ch <-chan streamMsg) ([]string, error) {
 		}()
 		return out
 	}() {
-		if msg.done {
-			return lines, msg.err
+		if msg.Done {
+			return lines, msg.Err
 		}
-		lines = append(lines, msg.line)
+		lines = append(lines, msg.Line)
 	}
 	return lines, nil
-}
-
-// TestDryRunDoesNotExecute is the safety-critical test: in dry run a step must
-// be reported, not run.
-func TestDryRunDoesNotExecute(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-
-	marker := filepath.Join(t.TempDir(), "marker")
-	ch := make(chan streamMsg, 8)
-	runStep(step{command: "touch", args: []string{marker}}, ch)
-
-	lines, err := drainStep(ch)
-	if err != nil {
-		t.Fatalf("dry-run step should not error, got %v", err)
-	}
-	if _, statErr := os.Stat(marker); statErr == nil {
-		t.Fatalf("dry-run executed the command: %s was created", marker)
-	}
-	if len(lines) == 0 || !strings.Contains(lines[0], "would run") {
-		t.Fatalf("expected a 'would run' line, got %v", lines)
-	}
 }
 
 // TestDryRunLogsEveryStep verifies a successful dry-run step is logged to the
@@ -146,8 +124,8 @@ func TestDryRunFullCleanupExecutesNothing(t *testing.T) {
 		if s.run != nil {
 			continue // in-process (the AUR audit): read-only by contract, covered in fullcleanup_audit_test.go
 		}
-		ch := make(chan streamMsg, 8)
-		runStep(s, ch)
+		ch := make(chan proc.Msg, 8)
+		runStep(s, ch, nil)
 		lines, err := drainStep(ch)
 		if err != nil {
 			t.Fatalf("dry-run step %q errored: %v", s.title, err)
@@ -345,28 +323,6 @@ func TestConfirmYesLaunches(t *testing.T) {
 
 // ── behaviour 4: streaming order + failure ────────────────────────────────────
 
-// TestStreamOrderAndSingleDone: runStep emits output lines in order followed by
-// exactly one done message, for a successful command.
-func TestStreamOrderAndSingleDone(t *testing.T) {
-	ch := make(chan streamMsg, 16)
-	runStep(step{command: "bash", args: []string{"-c", "printf 'one\\ntwo\\nthree\\n'"}}, ch)
-
-	lines, err := drainStep(ch)
-	if err != nil {
-		t.Fatalf("command should succeed, got %v", err)
-	}
-	want := []string{"one", "two", "three"}
-	if strings.Join(lines, ",") != strings.Join(want, ",") {
-		t.Fatalf("lines = %v, want %v", lines, want)
-	}
-	// After the done message the channel must carry nothing more.
-	select {
-	case extra := <-ch:
-		t.Fatalf("expected no message after done, got %+v", extra)
-	case <-time.After(100 * time.Millisecond):
-	}
-}
-
 // TestStreamFailurePropagates: a failing command captures its output, reports a
 // non-nil error, and handleStream marks it failed, bumps errs, and logs FAIL
 // with the captured body.
@@ -377,8 +333,8 @@ func TestStreamFailurePropagates(t *testing.T) {
 	logDir = t.TempDir()
 	defer func() { logDir = oldLogDir }()
 
-	ch := make(chan streamMsg, 16)
-	runStep(step{command: "bash", args: []string{"-c", "echo boom; exit 3"}}, ch)
+	ch := make(chan proc.Msg, 16)
+	runStep(step{command: "bash", args: []string{"-c", "echo boom; exit 3"}}, ch, nil)
 	lines, err := drainStep(ch)
 	if err == nil {
 		t.Fatal("failing command should report a non-nil error")

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // The SUDO_ASKPASS round trip, over a real unix socket: the helper side
@@ -447,8 +449,8 @@ func TestStepChildSeesAskpassEnv(t *testing.T) {
 		{step{command: "topgrade", needsSudo: true}, "[/wrapper]"},
 		{step{command: "yay"}, "[]"},
 	} {
-		ch := make(chan streamMsg, 8)
-		runStep(c.s, ch)
+		ch := make(chan proc.Msg, 8)
+		runStep(c.s, ch, nil)
 		lines, err := drainStep(ch)
 		if err != nil || len(lines) != 1 || lines[0] != c.want {
 			t.Fatalf("%s saw SUDO_ASKPASS %v (err %v), want %s", c.s.command, lines, err, c.want)

@@ -3,10 +3,13 @@ package main
 import (
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // ── abort flow: ctrl+c while a step runs ────────────────────────────────────────
@@ -32,18 +35,39 @@ func TestAbortConfirmShownNotQuit(t *testing.T) {
 	}
 }
 
+// startSleep starts `sleep 30` the way launch starts a step, so the abort
+// tests stop a real proc.Child. It is stopped and released on cleanup.
+func startSleep(t *testing.T) (*proc.Child, chan proc.Msg, chan struct{}) {
+	t.Helper()
+	ch, quit := make(chan proc.Msg, proc.BatchMax), make(chan struct{})
+	child := runStep(step{command: "sleep", args: []string{"30"}}, ch, quit)
+	if child == nil {
+		t.Fatal("sleep did not start")
+	}
+	t.Cleanup(func() {
+		child.Stop()
+		select {
+		case <-quit:
+		default:
+			close(quit)
+		}
+	})
+	return child, ch, quit
+}
+
+// alive reports whether pid is still a process (signal 0 = existence check).
+// Start's goroutine reaps the child as soon as it exits, so a dead child's pid
+// stops existing.
+func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
+
 // TestAbortDeclineResumes: answering "no" returns to the running screen and
 // leaves the process handle intact.
 func TestAbortDeclineResumes(t *testing.T) {
 	m := fixedModel()
 	m.screen = screenAbortConfirm
 	// a harmless real process so we can prove it isn't killed
-	cmd := exec.Command("sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer cmd.Process.Kill()
-	m.proc = cmd.Process
+	child, _, _ := startSleep(t)
+	m.proc = child
 
 	got := update(m, key("n"))
 	if got.screen != screenRunning {
@@ -52,26 +76,20 @@ func TestAbortDeclineResumes(t *testing.T) {
 	if got.proc == nil {
 		t.Fatal("declining must not drop the process handle")
 	}
-	// process should still be alive (signal 0 = existence check)
-	if err := cmd.Process.Signal(syscall.Signal(0)); err != nil {
-		t.Fatalf("process should still be running after decline: %v", err)
+	time.Sleep(50 * time.Millisecond) // give a wrongly sent SIGINT time to land
+	if !alive(child.Pid) {
+		t.Fatal("process should still be running after decline")
 	}
 }
 
-// TestAbortAcceptSignalsAndMenus: answering "yes" signals the child and returns
+// TestAbortAcceptSignalsAndMenus: answering "yes" stops the child and returns
 // to the main menu.
 func TestAbortAcceptSignalsAndMenus(t *testing.T) {
 	m := fixedModel()
 	m.screen = screenAbortConfirm
 	m.confirmYes = true
-
-	cmd := exec.Command("sleep", "30")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	m.proc = cmd.Process
+	m.proc, m.stream, m.quit = startSleep(t)
+	pid := m.proc.Pid
 
 	got := update(m, key("enter"))
 	if got.screen != screenMenu {
@@ -81,11 +99,55 @@ func TestAbortAcceptSignalsAndMenus(t *testing.T) {
 		t.Fatal("accept should clear the process handle")
 	}
 	// the child should be terminated by the signal
-	select {
-	case <-done: // exited — good
-	case <-time.After(3 * time.Second):
-		cmd.Process.Kill()
-		t.Fatal("child was not terminated by abort")
+	deadline := time.Now().Add(3 * time.Second)
+	for alive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatal("child was not terminated by abort")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestAbortDoesNotLeakGoroutines: aborting a step that is still producing
+// output must let every goroutine behind it finish. Before the fix, nothing
+// read m.stream after an abort, so once its buffer filled the scanner blocked
+// on the send, the pipe copier blocked on the scanner and cmd.Wait on the
+// copier: three goroutines (plus the pending pump) leaked per aborted step.
+// internal/proc tests the release itself; this is the model's half of it:
+// abortRunning closes quit and stops the child.
+func TestAbortDoesNotLeakGoroutines(t *testing.T) {
+	old := sigkillGrace
+	sigkillGrace = 10 * time.Millisecond
+	defer func() { sigkillGrace = old }()
+
+	base := runtime.NumGoroutine()
+	for i := 0; i < 5; i++ {
+		m := fixedModel()
+		m.queue = []stepState{{step: step{title: "spam", logLabel: "spam", command: "yes"}}}
+		m.current = -1
+		m.screen = screenRunning
+		pump := m.advance() // launches `yes`, which floods the stream
+
+		// Take one line through Update like the runtime would, leaving the
+		// next pump outstanding, exactly as it is when ctrl+c arrives.
+		next, pump := m.Update(pump())
+		m = next.(model)
+		go pump()
+
+		// Abort only once the stream buffer is full, so the child really is
+		// blocked behind it (the case that leaked).
+		for len(m.stream) < cap(m.stream) {
+			time.Sleep(time.Millisecond)
+		}
+		m.abortRunning()
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > base && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > base {
+		t.Fatalf("goroutines: %d before, %d after 5 aborted steps — leaked %d", base, n, n-base)
 	}
 }
 
@@ -110,36 +172,6 @@ func TestLateOutputDroppedAfterAbort(t *testing.T) {
 	}
 	if got.errs != 0 {
 		t.Fatalf("late output must not tally errors, errs=%d", got.errs)
-	}
-}
-
-// TestAbortEscalatesToSigkill: a child that ignores SIGINT is force-killed
-// after the grace period.
-func TestAbortEscalatesToSigkill(t *testing.T) {
-	old := sigkillGrace
-	sigkillGrace = 200 * time.Millisecond
-	defer func() { sigkillGrace = old }()
-
-	// bash that traps (ignores) SIGINT, then sleeps
-	cmd := exec.Command("bash", "-c", "trap '' INT; sleep 30")
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-
-	m := fixedModel()
-	m.screen = screenAbortConfirm
-	m.confirmYes = true
-	m.proc = cmd.Process
-
-	update(m, key("enter")) // SIGINT (ignored) → escalateKill → SIGKILL after grace
-
-	select {
-	case <-done: // killed — good
-	case <-time.After(3 * time.Second):
-		cmd.Process.Kill()
-		t.Fatal("SIGINT-ignoring child was not force-killed")
 	}
 }
 

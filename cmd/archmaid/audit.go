@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,6 +20,8 @@ import (
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // ── AUR audit ────────────────────────────────────────────────────────────────
@@ -96,7 +97,7 @@ func (f auditFinding) line(width int) string {
 // (pacman -Qqm). Empty when there are none (pacman exits 1), or when ctx ends
 // first (performAudit checks for that).
 func foreignPackages(ctx context.Context) []string {
-	out, _ := exec.CommandContext(ctx, "pacman", "-Qqm").Output()
+	out, _ := proc.Query(ctx, "pacman", "-Qqm")
 	return nonEmptyLines(string(out))
 }
 

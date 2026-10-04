@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -20,6 +18,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // step is one unit of work. A menu action expands into a queue of these; the
@@ -114,11 +114,8 @@ type stepState struct {
 // The whole reason to leave gum: a running command's output streams into the
 // UI live instead of being swallowed by a spinner and dumped in a pager after.
 //
-// runStep launches the command and pushes every output line onto ch, then a
-// single terminal message with the exit error. Using one ordered channel (line
-// messages followed by exactly one done message) keeps stdout, stderr, and the
-// exit status strictly ordered — no interleaving races between goroutines.
-//
+// internal/proc runs the child and puts every output line on one ordered
+// channel, then a single done with the exit error (see proc.Runner.Start).
 // The pump (waitForStream) hands the UI whatever has piled up on the channel
 // as one streamBatchMsg rather than one Update per line: a fast producer
 // (topgrade, pacman -Qk) emits thousands of lines, and a re-render per line
@@ -127,20 +124,8 @@ type stepState struct {
 // handleStream can drop one from an aborted step even after a new run has
 // started.
 
-// streamMsg is one message on a step's channel.
-type streamMsg struct {
-	line string // a line of combined stdout+stderr (ignored when done)
-	done bool   // true for the final message
-	err  error  // non-nil if the command failed (only meaningful when done)
-}
-
-// streamBatchMax caps the lines one streamBatchMsg carries (and sizes a
-// step's channel), so even a flood reaches the screen in steady steps.
-const streamBatchMax = 256
-
-// streamBatchMsg is what the pump delivers: lines from the channel in order,
-// ending with the step's done message if that was among them. Nothing follows
-// a done on the channel, so a batch never spans two steps.
+// streamBatchMsg is what the pump delivers: a proc.Batch stamped with the
+// launch it belongs to.
 type streamBatchMsg struct {
 	seq   int      // the launch this batch belongs to
 	lines []string // raw output lines, in order (may be empty when done)
@@ -149,57 +134,28 @@ type streamBatchMsg struct {
 }
 
 // stepWaitDelay is how long a step's output pipe is still read after its
-// child has exited (exec.Cmd.WaitDelay). Anything the child started in the
-// background — a daemon, a helper topgrade leaves running — inherits the pipe
-// and can hold it open for good; without a bound, cmd.Wait and the scanner
-// waited on it, and the finished step stayed "running". Whatever the child
-// wrote before exiting is read within that window (only a UI stalled for the
-// whole of it could leave some unread in the pipe); then the pipe is closed,
-// and a background process writing to it later gets SIGPIPE/EPIPE like any
-// writer to a closed pipe. Lines already read are always delivered, before
-// the one done. A var so tests can shrink it.
+// child has exited (proc.Options.WaitDelay): something the child left running
+// in the background can't keep the finished step "running". A var so tests
+// can shrink it.
 var stepWaitDelay = 2 * time.Second
 
-// runStep starts the step's command and streams its output on ch, returning the
-// running process so the caller can signal it on abort (nil in dry run or if the
-// command never starts). Start() happens synchronously so the handle is
-// available immediately; scanning and Wait run on a goroutine.
-func runStep(s step, ch chan<- streamMsg) *os.Process {
-	p, _ := runStepUntil(s, ch, nil)
-	return p
+// procOptions is how this run starts its children, read from the package's
+// knobs on the caller's goroutine (a test may swap them between runs).
+func procOptions() proc.Options {
+	return proc.Options{DryRun: dryRun, WaitDelay: stepWaitDelay, KillGrace: sigkillGrace}
 }
 
-// runStepUntil is runStep with an abort signal: once quit is closed nobody
-// reads ch anymore, so every pending send gives up instead of blocking, and
-// the rest of the child's output is drained and discarded. Without that, a
-// full ch blocked the scanner, the scanner blocked the pipe copier, and the
-// copier blocked cmd.Wait — leaking all three goroutines per aborted step. A
-// nil quit never fires (plain runStep).
-//
-// It also returns the child's start time (see procInfo), read before the
-// child can be reaped and its pid reused, so an askpass request can later be
-// tied to this very process (see verifyAskpassPeer). Zero if unknown.
-func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) (*os.Process, uint64) {
-	send := func(msg streamMsg) bool {
-		select {
-		case ch <- msg:
-			return true
-		case <-quit:
-			return false
-		}
-	}
+// runStep starts the step's command and streams its output on ch (see
+// proc.Runner.Start), returning the running child so the caller can stop it
+// on abort (nil in a dry run or if the command never starts). Closing quit
+// releases its goroutines once nobody reads ch; nil never fires.
+func runStep(s step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
+	return proc.New(procOptions()).Start(stepSpec(s), ch, quit)
+}
 
-	// Dry run: don't execute anything mutating — just report what would run.
-	// The step is logged (as a success) in handleStream's dry-run branch.
-	if dryRun {
-		go func() {
-			if send(streamMsg{line: "[dry-run] would run: " + s.command + " " + strings.Join(s.args, " ")}) {
-				send(streamMsg{done: true})
-			}
-		}()
-		return nil, 0
-	}
-
+// stepSpec is the command a step runs. A dry run reports the step's own
+// command line, without the sudo flag added here.
+func stepSpec(s step) proc.Spec {
 	name, args := s.command, s.args
 	if name == "sudo" {
 		// -A: read the password via SUDO_ASKPASS (a TUI popup), never the tty.
@@ -212,57 +168,10 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) (*os.Proces
 		}
 		args = append([]string{flag}, s.args...)
 	}
-	cmd := exec.Command(name, args...)
-	cmd.Env = stepEnv(s)
-	// Bound the wait on the pipe once the child itself is gone (see
-	// stepWaitDelay). Process groups stay as they are: no Setsid/Setpgid,
-	// the step must share archmaid's session for the sudo ticket.
-	cmd.WaitDelay = stepWaitDelay
-
-	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
-	pr, pw := io.Pipe()
-	cmd.Stdout, cmd.Stderr = pw, pw
-
-	if err := cmd.Start(); err != nil {
-		go func() { send(streamMsg{done: true, err: err}) }()
-		return nil, 0
+	return proc.Spec{
+		Name: name, Args: args, Env: stepEnv(s),
+		Display: s.command + " " + strings.Join(s.args, " "),
 	}
-	var start uint64
-	if p, err := readProc(cmd.Process.Pid); err == nil { // not reaped yet: Wait runs below
-		start = p.start
-	}
-
-	go func() {
-		// Scan on a goroutine so cmd.Wait can proceed. close(scanned) lets us
-		// guarantee every line is sent before the done message.
-		scanned := make(chan struct{})
-		go func() {
-			sc := bufio.NewScanner(pr)
-			sc.Buffer(make([]byte, 0, 64*1024), 1<<20) // tolerate long lines (pacman)
-			for sc.Scan() {
-				if !send(streamMsg{line: sc.Text()}) {
-					break // aborted: nobody is reading anymore
-				}
-			}
-			// Keep the pipe drained until the child is gone (aborted, or a
-			// line over the scanner's limit), so it never blocks on a write
-			// and cmd.Wait can return.
-			io.Copy(io.Discard, pr)
-			close(scanned)
-		}()
-
-		err := cmd.Wait()
-		if errors.Is(err, exec.ErrWaitDelay) {
-			// The child exited 0; only something it left running still
-			// held the pipe. The step itself succeeded.
-			err = nil
-		}
-		pw.Close() // unblocks the scanner with EOF
-		<-scanned  // all lines are on the channel before we report done
-		send(streamMsg{done: true, err: err})
-	}()
-
-	return cmd.Process, start
 }
 
 // stepEnv is the environment a step's child runs with: archmaid's own, without
@@ -283,38 +192,19 @@ func stepEnv(s step) []string {
 	return env
 }
 
-// waitForStream waits for the next message on ch, then takes whatever else is
-// already buffered behind it — up to streamBatchMax lines, stopping at the
-// done message — and returns it all as one streamBatchMsg stamped with seq,
-// the launch that owns ch. Re-issue it after every batch without a done to
-// keep pumping the channel through Update. A closed quit (abort) releases a
-// pump that is still waiting, with no msg — but a pump that finds a line ready
-// as quit closes may still deliver it, after the abort and possibly after a
-// new launch: seq is what lets handleStream tell it apart.
-func waitForStream(ch <-chan streamMsg, quit <-chan struct{}, seq int) tea.Cmd {
+// waitForStream is the pump: proc.Next as a tea.Cmd, its batch stamped with
+// seq, the launch that owns ch. Re-issue it after every batch without a done
+// to keep pumping the channel through Update. A closed quit (abort) releases
+// a pump that is still waiting, with no msg — but a pump that finds a line
+// ready as quit closes may still deliver it, after the abort and possibly
+// after a new launch: seq is what lets handleStream tell it apart.
+func waitForStream(ch <-chan proc.Msg, quit <-chan struct{}, seq int) tea.Cmd {
 	return func() tea.Msg {
-		var msg streamMsg
-		select {
-		case msg = <-ch:
-		case <-quit:
+		b, ok := proc.Next(ch, quit, proc.BatchMax)
+		if !ok {
 			return nil
 		}
-		batch := streamBatchMsg{seq: seq}
-		for {
-			if msg.done {
-				batch.done, batch.err = true, msg.err
-				return batch
-			}
-			batch.lines = append(batch.lines, msg.line)
-			if len(batch.lines) >= streamBatchMax {
-				return batch
-			}
-			select {
-			case msg = <-ch:
-			default: // nothing more buffered: deliver what we have
-				return batch
-			}
-		}
+		return streamBatchMsg{seq: seq, lines: b.Lines, done: b.Done, err: b.Err}
 	}
 }
 
@@ -620,7 +510,7 @@ func discoverRepair(candidates []string) tea.Cmd {
 // is only a candidate list for brokenPackages. Chunks are merged in order, so
 // it is what a single `pacman -Qkq` over everything would report.
 func brokenCandidates(workers int) ([]string, error) {
-	installed, err := qkqOutput(exec.Command("pacman", "-Qq"))
+	installed, err := qkqOutput("pacman", "-Qq")
 	if err != nil {
 		return nil, err
 	}
@@ -630,7 +520,7 @@ func brokenCandidates(workers int) ([]string, error) {
 	var wg sync.WaitGroup
 	for i, chunk := range chunks {
 		wg.Go(func() {
-			out, err := qkqOutput(exec.Command("pacman", append([]string{"-Qkq", "--"}, chunk...)...))
+			out, err := qkqOutput("pacman", append([]string{"-Qkq", "--"}, chunk...)...)
 			found[i], errs[i] = parseBrokenPackages(out), err
 		})
 	}
@@ -660,24 +550,25 @@ func chunkStrings(s []string, n int) [][]string {
 // where a full scan as root took ~850. -n: the ticket is already primed, and
 // nothing may prompt on the raw tty.
 func brokenPackages(candidates []string) ([]string, error) {
-	out, err := qkqOutput(exec.Command("sudo", append([]string{"-n", "pacman", "-Qkq", "--"}, candidates...)...))
+	out, err := qkqOutput("sudo", append([]string{"-n", "pacman", "-Qkq", "--"}, candidates...)...)
 	if err != nil {
 		return nil, err
 	}
 	return parseBrokenPackages(out), nil
 }
 
-// qkqOutput runs a pacman query and returns its stdout. pacman -Qkq exits 1
-// when it finds missing files, so an error with a report on stdout is a
-// result, not a failure; an error with nothing on stdout is one, reported
-// with the command's stderr when it has any.
-func qkqOutput(cmd *exec.Cmd) (string, error) {
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+// qkqOutput runs a pacman query (proc.Query) and returns its stdout. pacman
+// -Qkq exits 1 when it finds missing files, so an error with a report on
+// stdout is a result, not a failure; an error with nothing on stdout is one,
+// reported as the command's stderr when it has any.
+func qkqOutput(name string, args ...string) (string, error) {
+	out, err := proc.Query(context.Background(), name, args...)
 	if err != nil && len(bytes.TrimSpace(out)) == 0 {
-		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return "", errors.New(msg)
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			if msg := strings.TrimSpace(string(exit.Stderr)); msg != "" {
+				return "", errors.New(msg)
+			}
 		}
 		return "", err
 	}
@@ -757,7 +648,7 @@ func findOrphans(ctx context.Context) stepResult {
 // anymore (pacman -Qdtq). pacman reports "none" by exiting 1 without a word,
 // so that is an empty list; any other failure is an error.
 func orphanPackages(ctx context.Context) ([]string, error) {
-	out, err := pacmanQuery(ctx, "-Qdtq")
+	out, err := proc.Query(ctx, "pacman", "-Qdtq")
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 1 && len(out) == 0 && len(exit.Stderr) == 0 {
 		return nil, nil
@@ -776,25 +667,11 @@ func orphanPackages(ctx context.Context) ([]string, error) {
 // -Rns — the dropped -n only affects whether removed configs are kept as
 // .pacsave, not what gets selected.
 func orphanRemovalPreview(ctx context.Context, orphans []string) ([]string, error) {
-	out, err := pacmanQuery(ctx, append([]string{"-Rs", "--print", "--"}, orphans...)...)
+	out, err := proc.Query(ctx, "pacman", append([]string{"-Rs", "--print", "--"}, orphans...)...)
 	if err != nil {
 		return nil, err
 	}
 	return nonEmptyLines(string(out)), nil
-}
-
-// pacmanQuery runs a read-only pacman query under ctx (an abort kills it) and
-// returns its stdout; a failure carries pacman's stderr as the error text
-// when there is any (and as ExitError.Stderr).
-func pacmanQuery(ctx context.Context, args ...string) ([]byte, error) {
-	out, err := exec.CommandContext(ctx, "pacman", args...).Output()
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		if msg := strings.TrimSpace(string(exit.Stderr)); msg != "" {
-			return out, fmt.Errorf("%s: %w", msg, err)
-		}
-	}
-	return out, err
 }
 
 // servicesExclude is systemd-internal/oneshot noise that is never offered for
@@ -832,12 +709,12 @@ func enabledServices(units []string) []string {
 	if len(units) == 0 {
 		return nil
 	}
-	out, _ := exec.Command("systemctl", append([]string{"is-enabled", "--"}, units...)...).Output()
+	out, _ := proc.Query(context.Background(), "systemctl", append([]string{"is-enabled", "--"}, units...)...)
 	states := nonEmptyLines(string(out))
 	if len(states) != len(units) {
 		states = states[:0]
 		for _, u := range units {
-			o, _ := exec.Command("systemctl", "is-enabled", "--", u).Output()
+			o, _ := proc.Query(context.Background(), "systemctl", "is-enabled", "--", u)
 			states = append(states, strings.TrimSpace(string(o)))
 		}
 	}
@@ -855,8 +732,8 @@ func enabledServices(units []string) []string {
 // the inactive units first and checks only those with one is-enabled call.
 func discoverServices() tea.Cmd {
 	return func() tea.Msg {
-		out, _ := exec.Command("systemctl", "list-units", "--type=service", "--all",
-			"--state=inactive", "--plain", "--no-legend").Output()
+		out, _ := proc.Query(context.Background(), "systemctl", "list-units", "--type=service", "--all",
+			"--state=inactive", "--plain", "--no-legend")
 		svcs := enabledServices(parseInactiveServices(string(out)))
 		if len(svcs) == 0 {
 			return discoveryMsg{kind: "services", notice: "No enabled-but-inactive services found."}

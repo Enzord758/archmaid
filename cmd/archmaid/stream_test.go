@@ -1,18 +1,14 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // pumpAll runs a step's pump to its done the way the runtime would, starting
@@ -42,7 +38,7 @@ func streamingModel(s step, chanCap int) (model, tea.Cmd) {
 	m.current = 0
 	m.resizeOutput()
 	m.stepSeq = 1
-	m.stream = make(chan streamMsg, chanCap)
+	m.stream = make(chan proc.Msg, chanCap)
 	m.quit = make(chan struct{})
 	return m, waitForStream(m.stream, m.quit, m.stepSeq)
 }
@@ -55,55 +51,17 @@ func numbered(n int) []string {
 	return lines
 }
 
-// TestStreamBatchesBufferedLines: the pump takes everything already buffered
-// in one batch, at most streamBatchMax lines, in order, and ends the batch at
-// the done message (which nothing follows). Every batch carries the seq.
-func TestStreamBatchesBufferedLines(t *testing.T) {
-	const n = 2*streamBatchMax + 10
-	ch := make(chan streamMsg, n+1)
-	for _, l := range numbered(n) {
-		ch <- streamMsg{line: l}
-	}
-	ch <- streamMsg{done: true, err: os.ErrClosed}
-
-	var got []string
-	var sizes []int
-	for {
-		b := waitForStream(ch, nil, 7)().(streamBatchMsg)
-		if b.seq != 7 {
-			t.Fatalf("batch seq = %d, want 7", b.seq)
-		}
-		got = append(got, b.lines...)
-		sizes = append(sizes, len(b.lines))
-		if b.done {
-			if b.err != os.ErrClosed {
-				t.Fatalf("done err = %v, want the step's error", b.err)
-			}
-			break
-		}
-	}
-	if fmt.Sprint(sizes) != fmt.Sprint([]int{streamBatchMax, streamBatchMax, 10}) {
-		t.Fatalf("batch sizes = %v, want %d, %d, then 10 with the done", sizes, streamBatchMax, streamBatchMax)
-	}
-	if strings.Join(got, ",") != strings.Join(numbered(n), ",") {
-		t.Fatal("lines out of order or lost across batches")
-	}
-	if len(ch) != 0 {
-		t.Fatalf("%d messages left after the done", len(ch))
-	}
-}
-
-// TestStreamBatchDoneAlone: a done with nothing before it is a batch of its
-// own, and a pump that finds nothing buffered after a line delivers just that.
-func TestStreamBatchDoneAlone(t *testing.T) {
-	ch := make(chan streamMsg, 4)
-	ch <- streamMsg{line: "only"}
-	if b := waitForStream(ch, nil, 1)().(streamBatchMsg); b.done || len(b.lines) != 1 || b.lines[0] != "only" {
-		t.Fatalf("got %#v, want just the one line", b)
-	}
-	ch <- streamMsg{done: true}
-	if b := waitForStream(ch, nil, 1)().(streamBatchMsg); !b.done || len(b.lines) != 0 {
-		t.Fatalf("got %#v, want a bare done", b)
+// TestStreamPumpStampsSeq: the pump (proc.Next as a tea.Cmd) stamps every
+// batch with its launch's seq and carries the lines and the done through;
+// proc's own tests cover the batching.
+func TestStreamPumpStampsSeq(t *testing.T) {
+	ch := make(chan proc.Msg, 4)
+	ch <- proc.Msg{Line: "one"}
+	ch <- proc.Msg{Line: "two"}
+	ch <- proc.Msg{Done: true, Err: os.ErrClosed}
+	b := waitForStream(ch, nil, 7)().(streamBatchMsg)
+	if b.seq != 7 || strings.Join(b.lines, ",") != "one,two" || !b.done || b.err != os.ErrClosed {
+		t.Fatalf("got %#v, want seq 7, both lines and the done", b)
 	}
 }
 
@@ -112,7 +70,7 @@ func TestStreamBatchDoneAlone(t *testing.T) {
 func TestStreamPumpReleasedByAbort(t *testing.T) {
 	quit := make(chan struct{})
 	close(quit)
-	if msg := waitForStream(make(chan streamMsg), quit, 1)(); msg != nil {
+	if msg := waitForStream(make(chan proc.Msg), quit, 1)(); msg != nil {
 		t.Fatalf("aborted pump returned %#v, want nil", msg)
 	}
 }
@@ -178,9 +136,9 @@ func TestStreamAlwaysLogKeepsFullOutput(t *testing.T) {
 		category: logCategoryTopgrade, alwaysLog: true}, n+1)
 	lines := numbered(n)
 	for _, l := range lines {
-		m.stream <- streamMsg{line: l}
+		m.stream <- proc.Msg{Line: l}
 	}
-	m.stream <- streamMsg{done: true}
+	m.stream <- proc.Msg{Done: true}
 
 	updates := 0
 	for m.queue[0].status == statusRunning {
@@ -192,7 +150,7 @@ func TestStreamAlwaysLogKeepsFullOutput(t *testing.T) {
 	if m.queue[0].status != statusOK {
 		t.Fatalf("step status = %d, want OK", m.queue[0].status)
 	}
-	if want := (n + streamBatchMax - 1) / streamBatchMax; updates != want {
+	if want := (n + proc.BatchMax - 1) / proc.BatchMax; updates != want {
 		t.Fatalf("%d lines took %d updates, want %d batches", n, updates, want)
 	}
 
@@ -212,102 +170,6 @@ func TestStreamAlwaysLogKeepsFullOutput(t *testing.T) {
 	}
 }
 
-// killHolder SIGKILLs the background process a shim step reported with a
-// "holder <pid>" line, so a test never leaves its `sleep 30` behind.
-func killHolder(t *testing.T, line string) {
-	t.Helper()
-	pid, err := strconv.Atoi(strings.TrimPrefix(line, "holder "))
-	if err != nil || pid <= 0 {
-		t.Fatalf("no holder pid in %q", line)
-	}
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
-}
-
-// waitGoroutines fails t unless the goroutine count falls back to base.
-func waitGoroutines(t *testing.T, base int, within time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(within)
-	for runtime.NumGoroutine() > base && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if n := runtime.NumGoroutine(); n > base {
-		t.Fatalf("goroutines: %d before, %d after — leaked %d", base, n, n-base)
-	}
-}
-
-// TestStreamStepNotHeldByBackgroundChild: a step whose child starts something
-// in the background that keeps the output pipe (a daemon, a helper topgrade
-// leaves running) is done once the child exits — within stepWaitDelay, not
-// when the background process lets go. Every line the child wrote comes
-// before exactly one done, which carries the child's own exit status (a
-// clean exit is a success, not exec's ErrWaitDelay), and nothing is left
-// running behind it.
-func TestStreamStepNotHeldByBackgroundChild(t *testing.T) {
-	old := stepWaitDelay
-	stepWaitDelay = 200 * time.Millisecond
-	defer func() { stepWaitDelay = old }()
-
-	for _, tc := range []struct {
-		exit int
-		want func(error) bool
-	}{
-		{0, func(err error) bool { return err == nil }},
-		{3, func(err error) bool {
-			var ee *exec.ExitError
-			return errors.As(err, &ee) && ee.ExitCode() == 3
-		}},
-	} {
-		t.Run(fmt.Sprintf("exit%d", tc.exit), func(t *testing.T) {
-			base := runtime.NumGoroutine()
-			ch := make(chan streamMsg, 16)
-			script := fmt.Sprintf(`echo one; sleep 30 & echo "holder $!"; echo two; exit %d`, tc.exit)
-			began := time.Now()
-			if p, _ := runStepUntil(step{command: "bash", args: []string{"-c", script}}, ch, nil); p == nil {
-				t.Fatal("step did not start")
-			}
-
-			var lines []string
-			var done streamMsg
-			timeout := time.After(5 * time.Second)
-		read:
-			for {
-				select {
-				case msg := <-ch:
-					if msg.done {
-						done = msg
-						break read
-					}
-					lines = append(lines, msg.line)
-					if strings.HasPrefix(msg.line, "holder ") {
-						killHolder(t, msg.line)
-					}
-				case <-timeout:
-					t.Fatalf("no done after 5s (lines so far %q): the background sleep held the step open", lines)
-				}
-			}
-			elapsed := time.Since(began)
-
-			if len(lines) != 3 || lines[0] != "one" || !strings.HasPrefix(lines[1], "holder ") || lines[2] != "two" {
-				t.Fatalf("lines = %q, want one, holder <pid>, two", lines)
-			}
-			if !tc.want(done.err) {
-				t.Fatalf("done err = %v, want the child's own exit %d", done.err, tc.exit)
-			}
-			// The sleep really held the pipe (else this proves nothing), and
-			// only for about stepWaitDelay.
-			if elapsed < stepWaitDelay || elapsed > stepWaitDelay+2*time.Second {
-				t.Fatalf("done after %v, want about stepWaitDelay (%v)", elapsed, stepWaitDelay)
-			}
-			select {
-			case msg := <-ch:
-				t.Fatalf("message after the done: %#v", msg)
-			case <-time.After(100 * time.Millisecond):
-			}
-			waitGoroutines(t, base, 2*time.Second)
-		})
-	}
-}
-
 // benchStream measures what streaming n lines of output costs the UI thread:
 // every message the pump delivers goes through Update and is followed by a
 // View, as Bubble Tea's renderer does. The whole output is already buffered on
@@ -323,9 +185,9 @@ func benchStream(b *testing.B, n int) {
 		b.StopTimer()
 		m, pump := streamingModel(step{title: "Streaming…", logLabel: "Streamed"}, n+1)
 		for _, l := range lines {
-			m.stream <- streamMsg{line: l}
+			m.stream <- proc.Msg{Line: l}
 		}
-		m.stream <- streamMsg{done: true}
+		m.stream <- proc.Msg{Done: true}
 		b.StartTimer()
 
 		for m.queue[0].status == statusRunning {

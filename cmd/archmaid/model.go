@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"net"
-	"os"
 	"strings"
 	"time"
 
@@ -11,6 +10,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // ── screens ──────────────────────────────────────────────────────────────────
@@ -115,9 +116,8 @@ type model struct {
 	// running-queue state
 	queue   []stepState
 	current int              // index into queue
-	proc    *os.Process      // the active step's child process (for abort)
-	procAt  uint64           // proc's start time, to tie askpass requests to it (see verifyAskpassPeer)
-	stream  chan streamMsg   // output channel for the active step
+	proc    *proc.Child      // the active step's child (for abort; its Start ties askpass requests to it, see verifyAskpassPeer)
+	stream  chan proc.Msg    // output channel for the active step
 	quit    chan struct{}    // closed on abort: releases the active step's stream goroutines
 	stepSeq int              // bumped per launch and on abort; stream messages and in-process results carry it so stale ones are dropped
 	buf     *strings.Builder // accumulated output of the active step (pointer:

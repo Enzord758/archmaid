@@ -2,20 +2,20 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // askpass routes sudo password prompts to a TUI popup instead of the tty. The
@@ -114,7 +114,7 @@ type askpassServer struct {
 	sock        string
 	wrapper     string
 	readTimeout time.Duration
-	readProc    func(pid int) (procInfo, error) // readProc, fixed at start
+	readProc    func(pid int) (proc.Info, error) // readProc, fixed at start
 }
 
 // startAskpassServer creates a private directory under XDG_RUNTIME_DIR, opens
@@ -257,19 +257,10 @@ func (s *askpassServer) peerOf(conn net.Conn) (askpassPeer, error) {
 	if err != nil {
 		return askpassPeer{}, err
 	}
-	return askpassPeer{pid: int(cred.Pid), uid: int(cred.Uid), start: p.start}, nil
+	return askpassPeer{pid: int(cred.Pid), uid: int(cred.Uid), start: p.Start}, nil
 }
 
 // ── vetting a request ────────────────────────────────────────────────────────
-
-// procInfo is what the askpass check reads about one process.
-type procInfo struct {
-	ppid  int
-	start uint64 // start time: field 22 of /proc/<pid>/stat, in ticks since boot
-	comm  string // field 2 of /proc/<pid>/stat: the executed file's name
-	euid  int    // effective uid, from /proc/<pid>/status
-	exe   string // /proc/<pid>/exe, or "" when we may not read it
-}
 
 // ourUID is the uid a peer must run as. A var so tests can pin it instead of
 // depending on who runs the suite.
@@ -277,50 +268,7 @@ var ourUID = os.Getuid
 
 // readProc looks a process up in /proc. A var so tests can stand in a fake
 // process table.
-var readProc = readProcFS
-
-// readProcFS reads pid's procInfo from /proc. The exe link of a process we
-// may not ptrace — another user's, or a setuid one like sudo — is unreadable;
-// exe is then left empty rather than failing the lookup.
-func readProcFS(pid int) (procInfo, error) {
-	dir := "/proc/" + strconv.Itoa(pid)
-	stat, err := os.ReadFile(dir + "/stat")
-	if err != nil {
-		return procInfo{}, err
-	}
-	// "pid (comm) state ppid …": comm may hold spaces and parentheses itself,
-	// so it runs from the first "(" to the last ")".
-	open, end := bytes.IndexByte(stat, '('), bytes.LastIndexByte(stat, ')')
-	if open < 0 || end < open {
-		return procInfo{}, fmt.Errorf("pid %d: malformed stat", pid)
-	}
-	f := strings.Fields(string(stat[end+1:])) // f[0] is field 3
-	if len(f) < 20 {
-		return procInfo{}, fmt.Errorf("pid %d: short stat", pid)
-	}
-	ppid, err1 := strconv.Atoi(f[1])
-	start, err2 := strconv.ParseUint(f[19], 10, 64)
-	if err1 != nil || err2 != nil {
-		return procInfo{}, fmt.Errorf("pid %d: malformed stat", pid)
-	}
-	info := procInfo{ppid: ppid, start: start, comm: string(stat[open+1 : end]), euid: -1}
-
-	status, err := os.ReadFile(dir + "/status")
-	if err != nil {
-		return procInfo{}, err
-	}
-	for _, line := range strings.Split(string(status), "\n") {
-		if rest, ok := strings.CutPrefix(line, "Uid:"); ok {
-			if ids := strings.Fields(rest); len(ids) >= 2 { // real, effective, …
-				info.euid, _ = strconv.Atoi(ids[1])
-			}
-		}
-	}
-	if exe, err := os.Readlink(dir + "/exe"); err == nil {
-		info.exe = strings.TrimSuffix(exe, " (deleted)")
-	}
-	return info, nil
-}
+var readProc = proc.Read
 
 // sudoPath is sudo's binary; the askpass helper's parent must be it.
 const sudoPath = "/usr/bin/sudo"
@@ -359,40 +307,40 @@ func verifyAskpassPeer(peer askpassPeer, stepPid int, stepStart uint64) (askpass
 	if err != nil {
 		return askpassRequester{}, fmt.Errorf("pid %d is gone", peer.pid)
 	}
-	if helper.start != peer.start {
+	if helper.Start != peer.start {
 		return askpassRequester{}, fmt.Errorf("pid %d was reused since it connected", peer.pid)
 	}
-	if self, err := os.Executable(); err != nil || helper.exe != self {
-		return askpassRequester{}, fmt.Errorf("pid %d is %s, not archmaid's askpass helper", peer.pid, orUnknown(helper.exe))
+	if self, err := os.Executable(); err != nil || helper.Exe != self {
+		return askpassRequester{}, fmt.Errorf("pid %d is %s, not archmaid's askpass helper", peer.pid, orUnknown(helper.Exe))
 	}
-	sudo, err := readProc(helper.ppid)
+	sudo, err := readProc(helper.PPid)
 	if err != nil || !isSudo(sudo) {
-		return askpassRequester{}, fmt.Errorf("pid %d was not started by sudo (parent pid %d)", peer.pid, helper.ppid)
+		return askpassRequester{}, fmt.Errorf("pid %d was not started by sudo (parent pid %d)", peer.pid, helper.PPid)
 	}
 
-	pid, p, child := helper.ppid, sudo, helper
+	pid, p, child := helper.PPid, sudo, helper
 	for depth := 0; ; depth++ {
-		if p.start > child.start {
+		if p.Start > child.Start {
 			return askpassRequester{}, fmt.Errorf("pid %d was reused", pid)
 		}
 		if pid == stepPid {
-			if p.start != stepStart {
+			if p.Start != stepStart {
 				return askpassRequester{}, fmt.Errorf("the step's pid %d was reused", pid)
 			}
 			break
 		}
-		if p.ppid <= 1 || depth >= maxAskpassChain {
+		if p.PPid <= 1 || depth >= maxAskpassChain {
 			return askpassRequester{}, fmt.Errorf("pid %d's sudo was not started by the running step", peer.pid)
 		}
-		child, pid = p, p.ppid
+		child, pid = p, p.PPid
 		if p, err = readProc(pid); err != nil {
 			return askpassRequester{}, fmt.Errorf("pid %d's sudo was not started by the running step", peer.pid)
 		}
 	}
 
-	from := askpassRequester{callerPid: sudo.ppid}
-	if caller, err := readProc(sudo.ppid); err == nil {
-		from.callerExe = caller.exe
+	from := askpassRequester{callerPid: sudo.PPid}
+	if caller, err := readProc(sudo.PPid); err == nil {
+		from.callerExe = caller.Exe
 	}
 	return from, nil
 }
@@ -405,11 +353,11 @@ func verifyAskpassPeer(peer askpassPeer, stepPid int, stepStart uint64) (askpass
 // name, though, so a symlink named sudo to another setuid-root binary passes
 // too; none of Arch's starts a user program as its child without
 // authenticating first. If exe is readable it must be sudoPath.
-func isSudo(p procInfo) bool {
-	if p.exe != "" {
-		return p.exe == sudoPath
+func isSudo(p proc.Info) bool {
+	if p.Exe != "" {
+		return p.Exe == sudoPath
 	}
-	return p.euid == 0 && p.comm == "sudo"
+	return p.EUID == 0 && p.Comm == "sudo"
 }
 
 func orUnknown(s string) string {

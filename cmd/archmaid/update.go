@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +11,8 @@ import (
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // ── update ───────────────────────────────────────────────────────────────────
@@ -194,7 +195,7 @@ func (m model) handleAskpass(msg askpassMsg) (tea.Model, tea.Cmd) {
 		m.noteOutput("archmaid: refused a second sudo password request while one is open")
 		return m, nil
 	}
-	from, err := verifyAskpassPeer(msg.peer, m.proc.Pid, m.procAt)
+	from, err := verifyAskpassPeer(msg.peer, m.proc.Pid, m.proc.Start)
 	if err != nil {
 		msg.conn.Close()
 		m.noteOutput("archmaid: refused a sudo password request: " + err.Error())
@@ -714,9 +715,9 @@ func (m *model) launch() tea.Cmd {
 		}
 		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run(ctx)} }
 	}
-	m.stream = make(chan streamMsg, streamBatchMax)
+	m.stream = make(chan proc.Msg, proc.BatchMax)
 	m.quit = make(chan struct{})
-	m.proc, m.procAt = runStepUntil(s, m.stream, m.quit)
+	m.proc = runStep(s, m.stream, m.quit)
 	// The spinner is already ticking (started in Init); just pump the stream.
 	return waitForStream(m.stream, m.quit, m.stepSeq)
 }
@@ -728,13 +729,13 @@ type stepResultMsg struct {
 }
 
 // sigkillGrace is how long a child gets to honour SIGINT before it's forcibly
-// killed on abort. A var so tests can shrink it.
+// killed on abort (proc.Options.KillGrace). A var so tests can shrink it.
 var sigkillGrace = 5 * time.Second
 
-// abortRunning signals the active step's child to stop and returns to the menu.
-// SIGINT (like a terminal ctrl+c) lets tools such as pacman exit cleanly; for
-// sudo steps, sudo relays the signal to the command it runs. If the child
-// ignores SIGINT it's force-killed (SIGKILL) after a grace period. Late output
+// abortRunning stops the active step's child and returns to the menu.
+// proc.Child.Stop sends SIGINT (like a terminal ctrl+c), which lets tools such
+// as pacman exit cleanly — for sudo steps, sudo relays it to the command it
+// runs — and SIGKILLs a child that ignores it after sigkillGrace. Late output
 // from the dying process (and a late in-process result) is dropped by its seq:
 // bumping stepSeq here retires the aborted launch's number before any new run
 // can start. An in-process step (the AUR audit, the downloads delete) also has
@@ -746,13 +747,8 @@ func (m *model) abortRunning() {
 		m.stepCancel = nil
 	}
 	m.dropAuditFetch()
-	if p := m.proc; p != nil {
-		_ = p.Signal(os.Interrupt)
-		// grace read here (caller goroutine), not inside escalateKill, so the
-		// spawned goroutine doesn't race a test that swaps sigkillGrace.
-		go escalateKill(p, sigkillGrace)
-		m.proc = nil
-	}
+	m.proc.Stop() // nil-safe; the grace was fixed at launch (procOptions)
+	m.proc = nil
 	if m.quit != nil {
 		close(m.quit) // nobody reads m.stream anymore: let runStep's goroutines finish
 		m.quit = nil
@@ -761,14 +757,6 @@ func (m *model) abortRunning() {
 	m.sudoAlive = false // stop the keep-alive loop
 	m.screen = screenMenu
 	m.recordRun(logstore.OutcomeAborted)
-}
-
-// escalateKill force-terminates p if it hasn't exited within grace. p.Kill() is
-// a no-op (returns an ignored error) once the process has been reaped by
-// runStep's cmd.Wait, and never touches a reused PID.
-func escalateKill(p *os.Process, grace time.Duration) {
-	time.Sleep(grace)
-	_ = p.Kill() // SIGKILL — cannot be caught or ignored
 }
 
 func (m model) resolveConfirm() (tea.Model, tea.Cmd) {

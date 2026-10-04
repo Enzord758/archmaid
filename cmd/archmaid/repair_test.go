@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -266,14 +265,14 @@ exit 0
 // TestQkqOutput: pacman's exit 1 with a report on stdout is a result; an
 // error with an empty stdout is reported with stderr, or the exit status.
 func TestQkqOutput(t *testing.T) {
-	out, err := qkqOutput(exec.Command("sh", "-c", "echo 'bad /usr/bad'; exit 1"))
+	out, err := qkqOutput("sh", "-c", "echo 'bad /usr/bad'; exit 1")
 	if err != nil || out != "bad /usr/bad\n" {
 		t.Fatalf("exit 1 with a report: got %q, %v", out, err)
 	}
-	if _, err := qkqOutput(exec.Command("sh", "-c", "echo nope >&2; exit 1")); err == nil || err.Error() != "nope" {
+	if _, err := qkqOutput("sh", "-c", "echo nope >&2; exit 1"); err == nil || err.Error() != "nope" {
 		t.Fatalf("want stderr as the error, got %v", err)
 	}
-	if _, err := qkqOutput(exec.Command("sh", "-c", "exit 3")); err == nil || !strings.Contains(err.Error(), "exit status 3") {
+	if _, err := qkqOutput("sh", "-c", "exit 3"); err == nil || !strings.Contains(err.Error(), "exit status 3") {
 		t.Fatalf("want the exit status, got %v", err)
 	}
 }

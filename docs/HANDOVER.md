@@ -24,7 +24,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
 | `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
-| `tasks.go` | `step`, `runStep` (streams a child's output), `waitForStream` (pumps it to the UI in batches), the step queues, sudo probe/auth/keep-alive, discovery commands, `editConfig` |
+| `tasks.go` | `step`, `runStep`/`stepSpec` (a step's command, sudo flag and environment, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, sudo probe/auth/keep-alive, discovery commands, `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
 | `audit.go` | the AUR audit: RPC lookup, classification, maintainer snapshot, report |
 | `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun`, thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering |
@@ -39,6 +39,13 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
 | `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories`; `WriteLastRun`/`ReadLastRun` for `last-run.json` (`RunRecord`, see state files below) |
 | `internal/sysstat` | `Paths`/`DefaultPaths`, `Read(Paths) Status`, `Status.Line()`, the df/du/free-style size formatters; no UI imports |
+
+Shared packages under `internal/` are UI-free (the gate fails any that imports
+charmbracelet, except `internal/tui`):
+
+| Package | Owns |
+|---|---|
+| `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace}`, its combined output streamed as `Msg`s on one ordered channel, the dry-run echo, `ErrWaitDelay` → success on a clean exit), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
 
 ## Decisions and landmines
 
@@ -85,7 +92,7 @@ comments and `git log`; this is the "read before you touch it" list.
   `verifyAskpassPeer` requires: our uid; the same start time as at accept (pid
   not reused); `/proc/<pid>/exe` = `os.Executable()` (the wrapper execs us);
   a parent that is sudo; and a parent chain that reaches the step's child,
-  matched on pid *and* the start time `runStepUntil` captured before anything
+  matched on pid *and* the start time `proc.Runner.Start` captured (`Child.Start`) before anything
   could reap it. A user can't read sudo's `/proc/<pid>/exe` (setuid root; it
   needs ptrace access), so "is sudo" is: exe = `/usr/bin/sudo` when readable,
   else euid 0 and comm `sudo`. A user process can't get euid 0, but comm comes
@@ -274,8 +281,9 @@ comments and `git log`; this is the "read before you touch it" list.
   `mountinfoPath` are the seams for the rest.
 - **Streamed output is batched, and the pane shows only a tail.** A step's
   child writes combined stdout+stderr to one ordered channel: every line, then
-  exactly one done. The pump (`waitForStream`) blocks for the first message,
-  then takes whatever else is already buffered — up to `streamBatchMax` (256)
+  exactly one done (`proc.Runner.Start`). The pump (`waitForStream`, over
+  `proc.Next`) blocks for the first message,
+  then takes whatever else is already buffered — up to `proc.BatchMax` (256)
   lines, stopping at the done — and delivers it as one `streamBatchMsg`
   stamped with the launch's `stepSeq`; `handleStream` applies the whole batch
   with one `SetContent`, or drops it if the seq is stale. A slow producer gets
@@ -289,7 +297,7 @@ comments and `git log`; this is the "read before you touch it" list.
   regress past 3×, see `TESTING.md` → Perf guard). The pane follows new output only while it's at the bottom; a
   user who scrolled up stays put, and when the tail drops old lines their
   offset moves with the text. A step is done when its child exits: the pipe
-  is read for at most `stepWaitDelay` (2 s, `exec.Cmd.WaitDelay`) after that,
+  is read for at most `stepWaitDelay` (2 s, `proc.Options.WaitDelay` → `exec.Cmd.WaitDelay`) after that,
   so a background process the child left holding stdout can't keep it
   "running" — no process-group change needed (see the `Setsid` landmine).
 - **`m.bg` is one field, not a stack.** A popup that overwrites it with its own

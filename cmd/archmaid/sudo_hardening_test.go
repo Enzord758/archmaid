@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // ── sudo -A on every sudo step ────────────────────────────────────────────────
@@ -37,8 +39,8 @@ func TestSudoStepGetsDashA(t *testing.T) {
 	shimEchoArgs(t, "sudo")
 	withAskpassWrapper(t, "/wrapper")
 
-	ch := make(chan streamMsg, 8)
-	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch)
+	ch := make(chan proc.Msg, 8)
+	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch, nil)
 	lines, err := drainStep(ch)
 	if err != nil {
 		t.Fatalf("shimmed sudo should exit 0, got %v", err)
@@ -56,8 +58,8 @@ func TestSudoStepWithoutAskpassGetsDashN(t *testing.T) {
 	shimEchoArgs(t, "sudo")
 	withAskpassWrapper(t, "")
 
-	ch := make(chan streamMsg, 8)
-	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch)
+	ch := make(chan proc.Msg, 8)
+	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch, nil)
 	lines, err := drainStep(ch)
 	if err != nil {
 		t.Fatalf("shimmed sudo should exit 0, got %v", err)
@@ -71,8 +73,8 @@ func TestSudoStepWithoutAskpassGetsDashN(t *testing.T) {
 func TestNonSudoStepUnchanged(t *testing.T) {
 	shimEchoArgs(t, "topgrade")
 
-	ch := make(chan streamMsg, 8)
-	runStep(step{command: "topgrade", args: []string{"-y"}}, ch)
+	ch := make(chan proc.Msg, 8)
+	runStep(step{command: "topgrade", args: []string{"-y"}}, ch, nil)
 	lines, err := drainStep(ch)
 	if err != nil {
 		t.Fatalf("shimmed topgrade should exit 0, got %v", err)

@@ -4,10 +4,11 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // Who may have the password. Anything that inherited SUDO_ASKPASS can connect
@@ -35,15 +36,15 @@ const fakeUID = 1000
 // fakeProcs replaces readProc with a lookup in procs for the test, and pins
 // ourUID to fakeUID.
 
-func fakeProcs(t *testing.T, procs map[int]procInfo) {
+func fakeProcs(t *testing.T, procs map[int]proc.Info) {
 	t.Helper()
 	old, oldUID := readProc, ourUID
 	ourUID = func() int { return fakeUID }
-	readProc = func(pid int) (procInfo, error) {
+	readProc = func(pid int) (proc.Info, error) {
 		if p, ok := procs[pid]; ok {
 			return p, nil
 		}
-		return procInfo{}, os.ErrNotExist
+		return proc.Info{}, os.ErrNotExist
 	}
 	t.Cleanup(func() { readProc, ourUID = old, oldUID })
 }
@@ -51,18 +52,18 @@ func fakeProcs(t *testing.T, procs map[int]procInfo) {
 // askpassTree is the happy path, topgrade → yay → sudo → archmaid --askpass,
 // as a user sees it: sudo's exe link is unreadable (setuid root), but it runs
 // with euid 0 under the name "sudo".
-func askpassTree(t *testing.T) map[int]procInfo {
+func askpassTree(t *testing.T) map[int]proc.Info {
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	uid := fakeUID
-	return map[int]procInfo{
-		fakeStepPid:   {ppid: os.Getpid(), start: 100, comm: "topgrade", euid: uid, exe: "/usr/bin/topgrade"},
-		fakeCallerPid: {ppid: fakeStepPid, start: 200, comm: "yay", euid: uid, exe: "/usr/bin/yay"},
-		fakeSudoPid:   {ppid: fakeCallerPid, start: 300, comm: "sudo", euid: 0},
-		fakeHelperPid: {ppid: fakeSudoPid, start: 400, comm: "askpass.sh", euid: uid, exe: self},
+	return map[int]proc.Info{
+		fakeStepPid:   {PPid: os.Getpid(), Start: 100, Comm: "topgrade", EUID: uid, Exe: "/usr/bin/topgrade"},
+		fakeCallerPid: {PPid: fakeStepPid, Start: 200, Comm: "yay", EUID: uid, Exe: "/usr/bin/yay"},
+		fakeSudoPid:   {PPid: fakeCallerPid, Start: 300, Comm: "sudo", EUID: 0},
+		fakeHelperPid: {PPid: fakeSudoPid, Start: 400, Comm: "askpass.sh", EUID: uid, Exe: self},
 	}
 }
 
@@ -97,7 +98,7 @@ func TestVerifyAskpassPeer(t *testing.T) {
 		// As root the exe link is readable; then it must be sudo's binary.
 		tree := askpassTree(t)
 		sudo := tree[fakeSudoPid]
-		sudo.exe = sudoPath
+		sudo.Exe = sudoPath
 		tree[fakeSudoPid] = sudo
 		fakeProcs(t, tree)
 		if _, err := verifyAskpassPeer(helperPeer(), fakeStepPid, 100); err != nil {
@@ -107,38 +108,38 @@ func TestVerifyAskpassPeer(t *testing.T) {
 
 	refusals := []struct {
 		name      string
-		edit      func(tree map[int]procInfo, peer *askpassPeer)
+		edit      func(tree map[int]proc.Info, peer *askpassPeer)
 		stepPid   int
 		stepStart uint64
 		want      string // in the error
 	}{
 		{name: "wrong uid", want: "not ours",
-			edit: func(_ map[int]procInfo, peer *askpassPeer) { peer.uid = fakeUID + 1 }},
+			edit: func(_ map[int]proc.Info, peer *askpassPeer) { peer.uid = fakeUID + 1 }},
 		{name: "helper gone", want: "gone",
-			edit: func(tree map[int]procInfo, _ *askpassPeer) { delete(tree, fakeHelperPid) }},
+			edit: func(tree map[int]proc.Info, _ *askpassPeer) { delete(tree, fakeHelperPid) }},
 		{name: "helper pid reused since accept", want: "reused",
-			edit: func(_ map[int]procInfo, peer *askpassPeer) { peer.start = 399 }},
+			edit: func(_ map[int]proc.Info, peer *askpassPeer) { peer.start = 399 }},
 		{name: "not archmaid", want: "/usr/bin/python3",
-			edit: setProc(fakeHelperPid, func(p *procInfo) { p.exe = "/usr/bin/python3" })},
+			edit: setProc(fakeHelperPid, func(p *proc.Info) { p.Exe = "/usr/bin/python3" })},
 		{name: "helper exe unreadable", want: "unknown program",
-			edit: setProc(fakeHelperPid, func(p *procInfo) { p.exe = "" })},
+			edit: setProc(fakeHelperPid, func(p *proc.Info) { p.Exe = "" })},
 		{name: "user process named sudo", want: "not started by sudo",
-			edit: setProc(fakeSudoPid, func(p *procInfo) { p.euid = fakeUID })},
+			edit: setProc(fakeSudoPid, func(p *proc.Info) { p.EUID = fakeUID })},
 		{name: "root process not named sudo", want: "not started by sudo",
-			edit: setProc(fakeSudoPid, func(p *procInfo) { p.comm = "pkexec" })},
+			edit: setProc(fakeSudoPid, func(p *proc.Info) { p.Comm = "pkexec" })},
 		{name: "readable exe that isn't sudo", want: "not started by sudo",
-			edit: setProc(fakeSudoPid, func(p *procInfo) { p.exe = "/home/u/bin/sudo" })},
+			edit: setProc(fakeSudoPid, func(p *proc.Info) { p.Exe = "/home/u/bin/sudo" })},
 		{name: "parent gone", want: "not started by sudo",
-			edit: func(tree map[int]procInfo, _ *askpassPeer) { delete(tree, fakeSudoPid) }},
+			edit: func(tree map[int]proc.Info, _ *askpassPeer) { delete(tree, fakeSudoPid) }},
 		{name: "chain misses the step", stepPid: 4242, want: "not started by the running step"},
 		{name: "chain broken", want: "not started by the running step",
-			edit: func(tree map[int]procInfo, _ *askpassPeer) { delete(tree, fakeCallerPid) }},
+			edit: func(tree map[int]proc.Info, _ *askpassPeer) { delete(tree, fakeCallerPid) }},
 		{name: "step pid reused", stepStart: 99, want: "step's pid"},
 		{name: "ancestor pid reused", want: "reused",
 			// a parent can't have started after its child
-			edit: setProc(fakeCallerPid, func(p *procInfo) { p.start = 350 })},
+			edit: setProc(fakeCallerPid, func(p *proc.Info) { p.Start = 350 })},
 		{name: "cycle", want: "not started by the running step",
-			edit: setProc(fakeCallerPid, func(p *procInfo) { p.ppid = fakeSudoPid; p.start = 300 })},
+			edit: setProc(fakeCallerPid, func(p *proc.Info) { p.PPid = fakeSudoPid; p.Start = 300 })},
 	}
 	for _, c := range refusals {
 		t.Run(c.name, func(t *testing.T) {
@@ -166,54 +167,11 @@ func TestVerifyAskpassPeer(t *testing.T) {
 }
 
 // setProc returns an edit that changes pid's entry in the fake tree.
-func setProc(pid int, change func(*procInfo)) func(map[int]procInfo, *askpassPeer) {
-	return func(tree map[int]procInfo, _ *askpassPeer) {
+func setProc(pid int, change func(*proc.Info)) func(map[int]proc.Info, *askpassPeer) {
+	return func(tree map[int]proc.Info, _ *askpassPeer) {
 		p := tree[pid]
 		change(&p)
 		tree[pid] = p
-	}
-}
-
-// TestReadProcFS reads the real /proc: our own entry matches what the runtime
-// says, a child started after us has us as parent and a later start time, a
-// root process's exe link is unreadable to a user (which is why isSudo can't
-// rely on it), and a missing pid is an error.
-func TestReadProcFS(t *testing.T) {
-	self, err := readProcFS(os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-	exe, _ := os.Executable()
-	if self.ppid != os.Getppid() || self.euid != os.Geteuid() || self.exe != exe || self.start == 0 || self.comm == "" {
-		t.Fatalf("self = %+v; want ppid %d, euid %d, exe %s and a start time", self, os.Getppid(), os.Geteuid(), exe)
-	}
-
-	child := exec.Command("sleep", "10")
-	if err := child.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer child.Wait()
-	defer child.Process.Kill()
-	kid, err := readProcFS(child.Process.Pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if kid.ppid != os.Getpid() || kid.start < self.start {
-		t.Fatalf("child = %+v; want ppid %d and a start time ≥ %d", kid, os.Getpid(), self.start)
-	}
-
-	if os.Geteuid() != 0 {
-		init, err := readProcFS(1)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if init.euid != 0 || init.exe != "" {
-			t.Fatalf("pid 1 = %+v; want euid 0 and an unreadable exe", init)
-		}
-	}
-
-	if _, err := readProcFS(fakeStepPid); err == nil {
-		t.Fatal("no error for a pid that can't exist")
 	}
 }
 
@@ -231,11 +189,7 @@ func sudoStepRunning(t *testing.T, m model) model {
 	}
 	m.queue[m.current].step.needsSudo = true
 	m.queue[m.current].status = statusRunning
-	p, err := os.FindProcess(fakeStepPid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	m.proc, m.procAt = p, 100
+	m.proc = &proc.Child{Pid: fakeStepPid, Start: 100}
 	return m
 }
 
@@ -315,7 +269,7 @@ func TestAskpassRefusedRequestIsNoted(t *testing.T) {
 	m.screen = screenRunning
 	tree := askpassTree(t)
 	helper := tree[fakeHelperPid]
-	helper.exe = "/tmp/evil\x1b]52;c;Zm9v\x07"
+	helper.Exe = "/tmp/evil\x1b]52;c;Zm9v\x07"
 	tree[fakeHelperPid] = helper
 	fakeProcs(t, tree)
 
@@ -405,11 +359,11 @@ func TestAskpassServerReportsPeer(t *testing.T) {
 	req := recv(t, s.reqs, "the request")
 	defer req.conn.Close()
 
-	self, err := readProcFS(os.Getpid())
+	self, err := proc.Read(os.Getpid())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (askpassPeer{pid: os.Getpid(), uid: os.Getuid(), start: self.start}); req.peer != want {
+	if want := (askpassPeer{pid: os.Getpid(), uid: os.Getuid(), start: self.Start}); req.peer != want {
 		t.Fatalf("peer = %+v, want %+v", req.peer, want)
 	}
 }
