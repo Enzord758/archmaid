@@ -27,17 +27,25 @@ const (
 	fakeHelperPid = 5_000_300 // archmaid --askpass, exec'd by the wrapper
 )
 
-// fakeProcs replaces readProc with a lookup in procs for the test.
+// fakeUID is our uid in the fake process table. It is fixed, never the real
+// uid: the suite must give the same answers as root (CI's container) and as a
+// user, and "a user process" must never coincide with root's uid 0.
+const fakeUID = 1000
+
+// fakeProcs replaces readProc with a lookup in procs for the test, and pins
+// ourUID to fakeUID.
+
 func fakeProcs(t *testing.T, procs map[int]procInfo) {
 	t.Helper()
-	old := readProc
+	old, oldUID := readProc, ourUID
+	ourUID = func() int { return fakeUID }
 	readProc = func(pid int) (procInfo, error) {
 		if p, ok := procs[pid]; ok {
 			return p, nil
 		}
 		return procInfo{}, os.ErrNotExist
 	}
-	t.Cleanup(func() { readProc = old })
+	t.Cleanup(func() { readProc, ourUID = old, oldUID })
 }
 
 // askpassTree is the happy path, topgrade → yay → sudo → archmaid --askpass,
@@ -49,7 +57,7 @@ func askpassTree(t *testing.T) map[int]procInfo {
 	if err != nil {
 		t.Fatal(err)
 	}
-	uid := os.Getuid()
+	uid := fakeUID
 	return map[int]procInfo{
 		fakeStepPid:   {ppid: os.Getpid(), start: 100, comm: "topgrade", euid: uid, exe: "/usr/bin/topgrade"},
 		fakeCallerPid: {ppid: fakeStepPid, start: 200, comm: "yay", euid: uid, exe: "/usr/bin/yay"},
@@ -60,7 +68,7 @@ func askpassTree(t *testing.T) map[int]procInfo {
 
 // helperPeer is the helper as the server records it at accept.
 func helperPeer() askpassPeer {
-	return askpassPeer{pid: fakeHelperPid, uid: os.Getuid(), start: 400}
+	return askpassPeer{pid: fakeHelperPid, uid: fakeUID, start: 400}
 }
 
 // TestVerifyAskpassPeer: the happy path names sudo's caller; every way a
@@ -105,7 +113,7 @@ func TestVerifyAskpassPeer(t *testing.T) {
 		want      string // in the error
 	}{
 		{name: "wrong uid", want: "not ours",
-			edit: func(_ map[int]procInfo, peer *askpassPeer) { peer.uid = os.Getuid() + 1 }},
+			edit: func(_ map[int]procInfo, peer *askpassPeer) { peer.uid = fakeUID + 1 }},
 		{name: "helper gone", want: "gone",
 			edit: func(tree map[int]procInfo, _ *askpassPeer) { delete(tree, fakeHelperPid) }},
 		{name: "helper pid reused since accept", want: "reused",
@@ -115,7 +123,7 @@ func TestVerifyAskpassPeer(t *testing.T) {
 		{name: "helper exe unreadable", want: "unknown program",
 			edit: setProc(fakeHelperPid, func(p *procInfo) { p.exe = "" })},
 		{name: "user process named sudo", want: "not started by sudo",
-			edit: setProc(fakeSudoPid, func(p *procInfo) { p.euid = os.Getuid() })},
+			edit: setProc(fakeSudoPid, func(p *procInfo) { p.euid = fakeUID })},
 		{name: "root process not named sudo", want: "not started by sudo",
 			edit: setProc(fakeSudoPid, func(p *procInfo) { p.comm = "pkexec" })},
 		{name: "readable exe that isn't sudo", want: "not started by sudo",

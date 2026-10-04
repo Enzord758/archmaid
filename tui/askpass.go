@@ -271,6 +271,10 @@ type procInfo struct {
 	exe   string // /proc/<pid>/exe, or "" when we may not read it
 }
 
+// ourUID is the uid a peer must run as. A var so tests can pin it instead of
+// depending on who runs the suite.
+var ourUID = os.Getuid
+
 // readProc looks a process up in /proc. A var so tests can stand in a fake
 // process table.
 var readProc = readProcFS
@@ -348,7 +352,7 @@ type askpassRequester struct {
 // time than its child is a reused pid, and the walk refuses it. On success it
 // returns sudo's caller for the popup; the caller fills in step and prompt.
 func verifyAskpassPeer(peer askpassPeer, stepPid int, stepStart uint64) (askpassRequester, error) {
-	if peer.uid != os.Getuid() {
+	if peer.uid != ourUID() {
 		return askpassRequester{}, fmt.Errorf("pid %d runs as uid %d, not ours", peer.pid, peer.uid)
 	}
 	helper, err := readProc(peer.pid)
