@@ -42,10 +42,11 @@ func foreignPackages(ctx context.Context) ([]string, error) {
 // currentAuditConfig is every setting an audit reads, taken from the package
 // vars: the AUR endpoint, the snapshot file (read, and later written by the
 // result's Commit), the deadline, whether this is a dry run, and the log
-// store its entries go to. Call it on the model's goroutine, before the audit
-// goes off on its own (the menu action's Cmd, the step's run, a prefetch), so
-// the audit never reads those vars while something else (a test, mostly)
-// changes them.
+// store its entries go to. It is called before the program starts
+// (actionEnv, for the menu audit) or on the Driver's loop (auditStep when a
+// queue is built, startAuditFetch for a prefetch), before the audit goes
+// off on its own, so the audit never reads those vars while something else
+// (a test, mostly) changes them.
 func currentAuditConfig() audit.Config {
 	store := logs()
 	return audit.Config{
@@ -143,16 +144,17 @@ func auditStep() steps.Step {
 }
 
 // auditFetch is the current action's audit, prefetched (audit.Prefetch) with
-// the config it captured. The model owns it (model.auditFetch) and cancels it
-// when the run is abandoned before or during the step: esc on the password
-// prompt, a declined gate, an abort.
+// the config it captured: a driver.Prefetch. The Driver owns it (Deps.
+// Prefetch, startPrefetch) and cancels it when the run is abandoned before
+// or during the step: esc on the password prompt, a declined gate, an
+// abort, Close.
 type auditFetch struct {
 	*audit.Fetch
 	cfg audit.Config
 }
 
-// startAuditFetch starts the audit with the config read here, on the model's
-// goroutine.
+// startAuditFetch starts the audit with the config read here, on the
+// Driver's loop.
 func startAuditFetch() *auditFetch {
 	cfg := currentAuditConfig()
 	return &auditFetch{Fetch: audit.Prefetch(cfg), cfg: cfg}

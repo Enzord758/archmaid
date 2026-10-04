@@ -58,8 +58,10 @@ var logNow = time.Now
 // store is rebuilt if either has changed since it was made; in a real run that
 // never happens after startup.
 //
-// It reads logDir and dryRun, so call it on the model's goroutine (or before
-// the program starts). Work that runs off it — a Cmd, an in-process step, a
+// It reads logDir and dryRun, which only main (before the program starts)
+// and tests set, so call it before the program starts, on the model's
+// goroutine or on the Driver's loop (the audit's config). Work that runs off
+// those — a Cmd, an in-process step, a
 // context.AfterFunc — takes the *logstore.Store captured where it was set up
 // instead: a Store never changes once made and is safe from any goroutine.
 // The mutex only keeps the cache itself whole.

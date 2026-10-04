@@ -51,6 +51,7 @@ func main() {
 	waitForDownloads(os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
+		stopAskpassServer(srv) // os.Exit skips the defer: remove the socket and wrapper
 		os.Exit(1)
 	}
 }
