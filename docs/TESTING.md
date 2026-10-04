@@ -421,10 +421,11 @@ back through `Handle`. It maps:
 | `QueueStarted`, `StepInserted`, `PlanChanged` | the same, `Step` from the `PlanStep`'s flags; a `PlanChanged` whose flags equal the plan line already written is dropped (a new confirm text alone isn't recorded, as in `tuiTarget`) |
 | `StepStarted`, `StepDone` (`Skipped`/`AuthRefused` → `skipped`) | `StepStarted`, `StepDone` |
 | `OutputChunk` | one `OutputLine` per line |
-| `NeedsConfirm{Msg}`, `NeedsPassword` | the prompt; `Reply` calls `Confirm(id, yes)` with its ID |
+| `NeedsConfirm{Msg}`, `NeedsPassword` | the prompt; `Reply` calls `Confirm(id, yes)` or `SubmitPassword(id, pw)` (the su shim's password for "correct") with its ID |
 | `Notice` | `Notice` |
 | `Finished` | the `Outcome` (`Outcome.String`, `Errs`, `Skipped`) |
-| `LogWritten` | not recorded itself: the log entries come from disk (`effects`), and each one the Session reports must be among them |
+| `LogWritten` | not recorded itself: the log entries come from disk (`effects`), and each one the Session reports must be among them, in order within its category (entries written in one go come ordered by file) |
+| `AuthWaiting`, `AuthResolved`, `FaillockState`, `PromptClosed` | nothing; `Authenticate` runs `privileged().Authenticate` against the shims, `ReadFaillock` is answered with a fixed count, never the real tally |
 
 `Exec`, `LogWritten` and `SnapshotChanged` come from `effects`, called where
 `tuiTarget` calls it: execs after each piece of work (a step child's with its
@@ -435,10 +436,7 @@ also held to the engine's ordering contract (`enginetest.CheckContract`).
 
 What the Session can't do yet is skipped by name with the reason
 (`sessionSkips`), never silently, and a skip naming no scenario fails the
-test. Today 20 of 31 scenarios pass byte for byte; skipped are the password
-prompt and Repair's root recheck (E3: `fullcleanup_uncached_password_ok`,
-`fullcleanup_three_wrong_passwords`, `repair_auth_giveup`,
-`repair_cached_found`, `repair_false_positive`), abort (E5:
+test. Today 25 of 31 scenarios pass byte for byte; skipped are abort (E5:
 `fullcleanup_abort_topgrade`, `fullcleanup_abort_sigkill`), the services
 selection (E5: `services_select2`, `services_none_selected`) and the audit
 report (E5: `auraudit_first_baseline`, `auraudit_takeover`). Goldens are

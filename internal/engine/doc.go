@@ -104,6 +104,15 @@
 // count (ReadFaillock) and report it as FaillockState, so a front end can
 // warn before the attempt that locks the account.
 //
+// As built (E3/E4): the count is read before the up-front sudo prompt and
+// before each polkit helper step (a child with a Verb). The sudo prompt is
+// shown even on a locked account (the front end has the FaillockState); a
+// helper step on a locked account ends AuthRefused without starting, so no
+// polkit dialog is shown that can't succeed. An unreadable count is not
+// reported and changes nothing. AuthResolved{Granted: false} with
+// AttemptsLeft 0 also ends a password check whose askpass request was
+// withdrawn because its step ended; that step settles as its exit says.
+//
 // # Transcripts
 //
 // The events line up with internal/testtranscript's, so a sessionTarget
