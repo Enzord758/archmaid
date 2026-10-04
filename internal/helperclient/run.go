@@ -133,6 +133,12 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 			g.grant()
 			emit(engine.PrivilegeGranted{Seq: seq})
 		}
+		if evs := d.takeParts(); len(evs) > 0 {
+			flush() // the lines before belong to the part before
+			for _, e := range evs {
+				emit(e.input(seq))
+			}
+		}
 		batch = append(batch, lines...)
 	}, func(more bool) {
 		if !more || len(batch) >= batchMax {
@@ -340,6 +346,8 @@ func (d *decoder) outcome(exit int, waitErr error, stderr string) Outcome {
 		o.Err = fmt.Errorf("the root helper ended without a result (%s)%s", exitText(exit, waitErr), stderrText(stderr))
 	case d.res.Code != exit:
 		o.Err = fmt.Errorf("%w: result code %d, but the helper exited %s", ErrProtocol, d.res.Code, exitText(exit, waitErr))
+	case d.comb != nil && (d.comb.done > 0 || d.res.OK):
+		o.Err = d.combinedOutcome()
 	case d.verb == steps.VerbRemoveOrphans && d.res.Code == exitStale && d.res.ChildExit == nil:
 		// The plan, recomputed as root, no longer hashes to the confirmed
 		// one, and no root command ran.

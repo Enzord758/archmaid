@@ -40,6 +40,7 @@ const (
 	evPlan     = "plan"
 	evCheck    = "check"
 	evResult   = "result"
+	evDone     = "done" // full-cleanup only (combined.go)
 )
 
 // decoder reads one helper run's JSON lines. The first protocol error is
@@ -52,6 +53,7 @@ type decoder struct {
 	res     *Result
 	check   *Check
 	plan    *steps.OrphanPlan // plan-orphans' plan event (plan.go)
+	comb    *combined         // a full-cleanup call's parts (combined.go), or nil
 	unknown int
 	err     error
 }
@@ -60,6 +62,9 @@ func newDecoder(st steps.Step) *decoder {
 	d := &decoder{verb: st.Verb}
 	if st.Verb == steps.VerbCheckFiles && len(st.Items) > 0 {
 		d.items = st.Items
+	}
+	if st.Verb == steps.VerbFullCleanup {
+		d.comb = &combined{parts: st.Parts, cur: -1}
 	}
 	return d
 }
@@ -103,6 +108,9 @@ func (d *decoder) feed(line []byte) (out []string, start bool) {
 	case !d.granted && t != evStart:
 		d.fail("%q before the start line", t)
 		return nil, false
+	}
+	if out, ok := d.feedCombined(t, line); ok {
+		return out, false
 	}
 	switch t {
 	case evStart:
@@ -238,5 +246,10 @@ func (d *decoder) readResult(line []byte) []string {
 		out = append(out, fmt.Sprintf("Skipped %s: %s", s.Name, s.Reason))
 	}
 	d.res = r
+	if d.comb != nil {
+		// Each part said what it skipped in its own progress; the last
+		// part's output is not the place for the others'.
+		return nil
+	}
 	return out
 }

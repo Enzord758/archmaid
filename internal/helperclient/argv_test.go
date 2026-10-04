@@ -75,7 +75,8 @@ func TestArgvRefused(t *testing.T) {
 		{"plan-orphans", steps.Step{Verb: steps.VerbPlanOrphans}, ErrNoAction},
 		{"remove-orphans has no typed hash", steps.Step{Verb: steps.VerbRemoveOrphans, Items: []string{"a"}}, ErrUnsupported},
 		{"unknown verb", steps.Step{Verb: "rm"}, ErrUnsupported},
-		{"full-cleanup", steps.Step{Verb: "full-cleanup"}, ErrUnsupported},
+		{"full-cleanup without parts", steps.Step{Verb: "full-cleanup"}, ErrBadParts},
+		{"parts on another verb", steps.Step{Verb: steps.VerbPaccache, Parts: []steps.Step{{Verb: steps.VerbPaccache}}}, ErrBadParts},
 		{"repair without names", steps.Step{Verb: steps.VerbRepair}, ErrBadItems},
 		{"repair 257 names", steps.Step{Verb: steps.VerbRepair, Items: manyNames(257)}, ErrBadItems},
 		{"repair flag", steps.Step{Verb: steps.VerbRepair, Items: []string{"a", "--root=/"}}, ErrBadItems},
@@ -158,14 +159,14 @@ func TestArgvMatchesPolicy(t *testing.T) {
 		}
 		actionVerbs[argv1] = true
 		st := steps.Step{Verb: argv1, Items: sample[argv1]}
-		if argv1 == steps.VerbRemoveOrphans {
+		switch argv1 {
+		case steps.VerbRemoveOrphans:
 			p := goodPlan()
 			st.Items, st.Cascade, st.Plan = p.Direct, p.Cascade, &p
+		case steps.VerbFullCleanup:
+			st = fullCleanupCall(true, true)
 		}
 		got, err := Argv(st)
-		if errors.Is(err, ErrUnsupported) {
-			continue // full-cleanup: not built from a step yet
-		}
 		if err != nil {
 			t.Errorf("%s: Argv: %v", a.ID, err)
 			continue
@@ -175,7 +176,7 @@ func TestArgvMatchesPolicy(t *testing.T) {
 		}
 	}
 	for _, v := range []string{steps.VerbCheckFiles, steps.VerbRepair, steps.VerbDisableUnit, steps.VerbPaccache,
-		steps.VerbVacuumJournal, steps.VerbPaccacheWipe, steps.VerbCleanTmp, steps.VerbRemoveOrphans} {
+		steps.VerbVacuumJournal, steps.VerbPaccacheWipe, steps.VerbCleanTmp, steps.VerbRemoveOrphans, steps.VerbFullCleanup} {
 		if !actionVerbs[v] {
 			t.Errorf("Argv builds %s, but the policy has no action with that argv1", v)
 		}

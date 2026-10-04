@@ -101,6 +101,8 @@ var (
 //	paccache-wipe, clean-tmp: none (Items must be empty)
 //	remove-orphans  Plan.Hash (see orphanArgs: the Plan must pass CheckPlan
 //	                and be exactly the step's Items and Cascade)
+//	full-cleanup    from Parts, the steps one call covers (fullCleanupArgs:
+//	                the helper's parts in its order, each valid as its verb)
 //
 // plan-orphans (ErrNoAction), remove-orphans without a Plan and unknown
 // verbs (ErrUnsupported) are refused, as is a step without a Verb
@@ -117,6 +119,9 @@ func Argv(st steps.Step) ([]string, error) {
 func verbArgs(st steps.Step) ([]string, error) {
 	if st.Plan != nil && st.Verb != steps.VerbRemoveOrphans {
 		return nil, fmt.Errorf("%w: a plan on %q", ErrBadPlan, st.Verb)
+	}
+	if len(st.Parts) > 0 && st.Verb != steps.VerbFullCleanup {
+		return nil, fmt.Errorf("%w: parts on %q", ErrBadParts, st.Verb)
 	}
 	switch st.Verb {
 	case "":
@@ -138,6 +143,8 @@ func verbArgs(st steps.Step) ([]string, error) {
 		return fixed(st, JournalSpan)
 	case steps.VerbPaccacheWipe, steps.VerbCleanTmp:
 		return fixed(st)
+	case steps.VerbFullCleanup:
+		return fullCleanupArgs(st)
 	case steps.VerbPlanOrphans:
 		return nil, fmt.Errorf("%w: %s", ErrNoAction, st.Verb)
 	default:
