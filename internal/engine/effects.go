@@ -61,10 +61,11 @@ type StartStep struct {
 type Stop struct{ Seq uint64 }
 
 // RunHook calls Fn (a step's OnAccept, a result's Commit: the audit's
-// snapshot save) before the next Effect. → HookDone with Seq.
+// snapshot save; a report's Accept) before the next Effect. → HookDone with
+// Seq.
 type RunHook struct {
 	Seq  uint64
-	Step string // the step it belongs to
+	Step string // the step it belongs to; "" for a report's Accept
 	Fn   func() error
 }
 

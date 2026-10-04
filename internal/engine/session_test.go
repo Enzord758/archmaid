@@ -530,7 +530,7 @@ func TestSessionNotGrantedIsAuthRefused(t *testing.T) {
 		t.Errorf("log = %+v", got)
 	}
 	o = h.ok()
-	if fin := event[Finished](t, o); fin.Skipped != 1 || fin.Errs != 0 {
+	if fin := event[Finished](t, o); fin.Skipped != 1 || fin.Refused != 1 || fin.Errs != 0 || fin.Outcome != OutcomeCompleted {
 		t.Errorf("Finished = %+v", fin)
 	}
 	enginetest.CheckContract(t, h.evs)

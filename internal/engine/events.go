@@ -141,6 +141,11 @@ type NeedsConfirm struct {
 	// Msg is the whole question as one string, exactly as the TUI shows it
 	// and transcripts record it.
 	Msg string
+	// Commits: "yes" also runs the result's Commit (the audit's snapshot
+	// save, as the step's OnAccept). False on a gate that stands for a
+	// refused result (steps.Result.Check): that step runs on "yes", but
+	// nothing is committed.
+	Commits bool
 }
 
 // PasswordKind is which password prompt a NeedsPassword is.
@@ -270,7 +275,7 @@ type AuditReport struct {
 	Total    int // foreign packages checked
 	Findings []AuditFinding
 	// CanAccept: there are high findings a yes on the report records as
-	// checked.
+	// checked; it is true exactly when the discovery's Report.Accept is set.
 	CanAccept bool
 }
 
@@ -308,6 +313,24 @@ type Finished struct {
 	Outcome       Outcome
 	Errs, Skipped int
 	Elapsed       time.Duration
+	// Refused counts the AuthRefused steps, a part of Skipped: a queue that
+	// completed with Refused > 0 is an incomplete run (last-run.json says
+	// so), though its Outcome stays OutcomeCompleted.
+	Refused int
+	// NotRun counts the steps an Abort left pending: they got no event and
+	// are not in Skipped. A front end shows them as not run.
+	NotRun int
+}
+
+// ReportAccepted: the user accepted an OutputReport's findings (Confirm(ID,
+// true) on a report whose Audit.CanAccept). It follows the RunHook that ran
+// the report's Accept (and its HookDone), and comes before
+// Finished{OutcomeReport}. Saved says whether the save worked; Text is the
+// message to show ("Maintainer changes accepted: …", or why not).
+type ReportAccepted struct {
+	ID    PromptID
+	Saved bool
+	Text  string
 }
 
 func (QueueStarted) isEvent()   {}
@@ -330,3 +353,4 @@ func (StatusUpdated) isEvent()  {}
 func (Notice) isEvent()         {}
 func (OutputReport) isEvent()   {}
 func (Finished) isEvent()       {}
+func (ReportAccepted) isEvent() {}

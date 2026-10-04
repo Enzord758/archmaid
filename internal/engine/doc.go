@@ -52,6 +52,8 @@
 //   - A step that never runs (declined, behind a declined required step,
 //     privilege not granted) gets one StepDone with Skipped or AuthRefused
 //     and no StepStarted.
+//   - After Aborted, steps still pending get no event; a front end shows
+//     them as not run on Finished{OutcomeAborted} (counted in its NotRun).
 //   - What a step's result changes in the plan (StepInserted, PlanChanged)
 //     comes after that step's StepDone and before the next step's events.
 //   - AuthWaiting is followed by AuthResolved before the step or queue it
@@ -106,12 +108,21 @@
 //
 // The events line up with internal/testtranscript's, so a sessionTarget
 // maps them one to one: QueueStarted, StepInserted, PlanChanged,
-// StepStarted, StepDone, Aborted, LogWritten, NeedsConfirm (Msg is the
-// transcript's Text), NeedsPassword, NeedsSelection (Items), Notice and
-// OutputReport (Text) by name; OutputChunk splits into one OutputLine per
-// line; Finished is the Target's Outcome (Outcome.String is the transcript
-// word). Step indexes are 0-based plan positions in both. A transcript's
-// Exec and SnapshotChanged are the harness's own observations of the
+// StepStarted, StepDone, Aborted, NeedsConfirm (Msg is the transcript's
+// Text), NeedsPassword, NeedsSelection (Items), Notice and OutputReport
+// (Text) by name; OutputChunk splits into one OutputLine per line; Finished
+// is the Target's Outcome (Outcome.String is the transcript word, so a
+// completed queue with Refused > 0 is still "completed"). StepDone's
+// status maps as the TUI's checklist draws it: steps.AuthRefused is the
+// transcript's skipped. Step indexes are 0-based plan positions in both.
+//
+// LogWritten is not mapped one to one: a transcript's log lines are the
+// harness's diff of the log files (as for the TUI), taken after a batch of
+// events and grouped by category file, so several entries written in one
+// go are ordered by file, not as the events came
+// (fullcleanup_three_wrong_passwords). A sessionTarget takes them the same
+// way and checks that every LogWritten is among them. A transcript's Exec
+// and SnapshotChanged are likewise the harness's own observations of the
 // system, not engine events; PhaseChanged, StatusUpdated, PromptClosed,
 // AuthWaiting, AuthResolved and FaillockState have no transcript line.
 package engine

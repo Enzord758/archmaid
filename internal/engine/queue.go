@@ -36,7 +36,7 @@ type run struct {
 	prompt    PromptID
 	promptFor promptKind
 
-	errs, skipped int
+	errs, skipped, refused int
 }
 
 // slot is one step of the plan and how it stands.
@@ -198,7 +198,7 @@ func (s *Session) askStep(o *Output) {
 	nc := NeedsConfirm{
 		ID: r.prompt, Kind: ConfirmStep, Step: st.ID,
 		Title: title, Body: body, Msg: msg,
-		Destructive: destructive[st.ID],
+		Destructive: destructive[st.ID], Commits: st.OnAccept != nil,
 	}
 	switch {
 	case r.plan[r.cur].gated:
@@ -445,8 +445,11 @@ func (s *Session) settle(o *Output, status steps.Status, errText string) {
 	switch status {
 	case steps.Failed:
 		r.errs++
-	case steps.Skipped, steps.AuthRefused:
+	case steps.Skipped:
 		r.skipped++
+	case steps.AuthRefused:
+		r.skipped++
+		r.refused++
 	}
 	o.event(StepDone{ID: st.step.ID, Index: r.cur, Status: status, Elapsed: elapsed, Err: errText})
 }
@@ -488,7 +491,7 @@ func (s *Session) finish(o *Output, outcome Outcome) {
 	if r.planned {
 		o.effect(WriteLastRun{Record: s.record(outcome, now)})
 	}
-	o.event(Finished{Action: r.action, Outcome: outcome, Errs: r.errs, Skipped: r.skipped, Elapsed: now.Sub(r.started)})
+	o.event(Finished{Action: r.action, Outcome: outcome, Errs: r.errs, Skipped: r.skipped, Refused: r.refused, Elapsed: now.Sub(r.started)})
 	s.run = nil
 	s.setPhase(o, PhaseIdle, "")
 }

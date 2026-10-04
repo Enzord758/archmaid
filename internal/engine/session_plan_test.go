@@ -83,7 +83,7 @@ func TestSessionConfirmNextGatesTheNextStep(t *testing.T) {
 			t.Errorf("PlanChanged = %+v", pc)
 		}
 		nc := event[NeedsConfirm](t, o)
-		if nc.Kind != ConfirmAuditGate || nc.Step != "topgrade" || nc.Msg != "foo changed maintainer. Update anyway?" || nc.Destructive {
+		if nc.Kind != ConfirmAuditGate || nc.Step != "topgrade" || nc.Msg != "foo changed maintainer. Update anyway?" || nc.Destructive || !nc.Commits {
 			t.Errorf("gate = %+v", nc)
 		}
 		o = h.confirm(yes)
@@ -156,7 +156,7 @@ func TestSessionRefusedResultKeepsTheGate(t *testing.T) {
 		if got := event[LogWritten](t, o); got.Header != "FAIL: audit done" {
 			t.Errorf("log = %+v", got)
 		}
-		if got := event[NeedsConfirm](t, o); got.Kind != ConfirmAuditGate || got.Step != "topgrade" {
+		if got := event[NeedsConfirm](t, o); got.Kind != ConfirmAuditGate || got.Step != "topgrade" || got.Commits {
 			t.Errorf("the gate didn't stand: %+v", got)
 		}
 		o = h.confirm(yes)
