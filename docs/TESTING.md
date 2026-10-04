@@ -132,7 +132,10 @@ dialog), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
 `close-midrun` (closing mid-run asks first, then closes), `idle` (first frame
 and RAM), `flood` (50k unpaced lines, dropping off: the view's real capacity),
 `flood-paced` (100 lines every 10 ms = 10k lines/s, default pump: nothing may
-drop), `flood-default` (unpaced, default pump). Every scenario also checks
+drop), `flood-default` (unpaced, default pump), `flood-colour` (as `flood`,
+every line in colour with seven SGR spans: bold, the 16 colours, 256-colour
+and 24-bit; it also checks that every visible output row carries its Pango
+attributes). Every scenario also checks
 that `Close` was called on the Driver and that no goroutine is left after
 `Run` returns (goleak, against the goroutines from before the app started).
 
@@ -165,6 +168,7 @@ libadwaita 1.9.4, go1.27.1), headless weston, warm:
 | 10k lines/s paced: p95 (max), dropped | ≤ 4 ms | 0.96 ms (2.6), 0 | 0.90 ms (2.0), 0 |
 | RSS after 50k lines | < 200 MB | 320–341 MB | 142–149 MB |
 | Frame work (before → after paint), paced p95 | — | 6.0 ms | 5.0 ms |
+| 50k unpaced, all colour (`flood-colour`): rate; flush p95 (max) | ≥ 5k lines/s; ≤ 4 ms | — | ~95k lines/s; 3.4 ms (9.8) |
 
 The max flush is the first one (the checklist's rows and the first output
 rows are created). The RAM over budget with Vulkan (and the GL renderer:
@@ -174,6 +178,14 @@ own, so the Vulkan numbers are the closest to the desktop we can get without
 opening a window there. Before the follow-the-bottom fix the list's head trim
 cost 6 ms a flush (the visible rows were rebound each time): keep the newest
 line in view while appending.
+
+Colour costs in the rows, not in the model: a line is stored raw and
+stripped (`runview.StripSGR`, ~0.15 µs) as it arrives, and its spans are
+parsed (`ParseSGR`, ~0.7 µs for seven spans) and turned into a Pango
+attribute list only when a row binds it, so only the ~30 visible lines pay.
+`BenchmarkApplyFlushColour` (a 512-line colourful flush through the model) is
+~80 µs; the rest of the colour flood's p95 is GTK measuring the bound rows'
+multi-run Pango layouts while the list scrolls.
 
 **archmaid-gui renders with cairo by default.** `ui.DefaultRenderer`, called
 first thing in `main` (and in the harness's child, so the tests measure what

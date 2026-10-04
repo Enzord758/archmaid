@@ -29,6 +29,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
+	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"go.uber.org/goleak"
 
 	"github.com/Enzord758/archmaid/gui/internal/runview"
@@ -53,23 +54,26 @@ func TestMain(m *testing.M) {
 
 // report is what a child scenario measured.
 type report struct {
-	Scenario     string
-	FirstFrame   int64 // unix ns of the first painted frame
-	IdleMem      mem   // 1.5 s after the first frame, before any run
-	EndMem       mem   // when the run finished
-	Outcome      string
-	Rows         []string // "id=state"
-	Prompts      []engine.PromptID
-	Lines        int // the model's count of output lines
-	Dropped      int
-	ViewLines    uint // lines in the output list at the end
-	LastLine     string
-	Pump         runview.Stats
-	RunNs        int64 // Start click → Finished applied
-	Frames       []time.Duration
-	DriverCloses int32
-	Leaked       string // goleak's verdict after Run returned, "" if clean
-	Errors       []string
+	Scenario   string
+	FirstFrame int64 // unix ns of the first painted frame
+	IdleMem    mem   // 1.5 s after the first frame, before any run
+	EndMem     mem   // when the run finished
+	Outcome    string
+	Rows       []string // "id=state"
+	Prompts    []engine.PromptID
+	Lines      int // the model's count of output lines
+	Dropped    int
+	ViewLines  uint // lines in the output list at the end
+	LastLine   string
+	// Labels are the output rows on screen at the end; Coloured those
+	// with Pango attributes.
+	Labels, Coloured int
+	Pump             runview.Stats
+	RunNs            int64 // Start click → Finished applied
+	Frames           []time.Duration
+	DriverCloses     int32
+	Leaked           string // goleak's verdict after Run returned, "" if clean
+	Errors           []string
 }
 
 // countingDriver counts Close calls.
@@ -96,6 +100,8 @@ func runChild(scenario, path string) int {
 		script, opts.Action = runview.Flood(time.Now(), 50000, 100, 10*time.Millisecond), "flood"
 	case "flood-default": // unpaced, default pump (drops what the view can't keep)
 		script, opts.Action = runview.Flood(time.Now(), 50000, 1, 0), "flood"
+	case "flood-colour": // as flood, every line in colour (seven spans)
+		script, opts.Action, opts.Pump = runview.FloodColour(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
 	case "idle", "fullcleanup", "stop", "close-midrun":
 	default:
 		fail("unknown scenario %q", scenario)
@@ -174,6 +180,10 @@ func runChild(scenario, path string) int {
 					rep.LastLine = out[len(out)-1]
 				}
 				rep.Pump = w.pump.Stats()
+				// Count the coloured rows once the last batch is drawn.
+				glib.TimeoutAdd(20, func() {
+					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
+				})
 				if scenario == "close-midrun" {
 					fail("the run finished before the window closed")
 				}
@@ -195,6 +205,23 @@ func runChild(scenario, path string) int {
 		return 3
 	}
 	return 0
+}
+
+// countLabels walks the output list's widgets: the labels showing text,
+// and how many of them carry attributes (colour).
+func countLabels(root *gtk.Widget) (labels, coloured int) {
+	for c := root.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+		w := gtk.BaseWidget(c)
+		if l, ok := c.(*gtk.Label); ok && w.Mapped() && l.Text() != "" {
+			labels++
+			if l.Attributes() != nil {
+				coloured++
+			}
+		}
+		n, k := countLabels(w)
+		labels, coloured = labels+n, coloured+k
+	}
+	return labels, coloured
 }
 
 // mem is the process's memory, in KiB: RSS (VmRSS; shared libraries count
@@ -344,7 +371,7 @@ func TestGUIFirstFrameAndIdleRAM(t *testing.T) {
 // lines/s, main-thread work per batch p95 ≤ 4 ms, RSS after < 200 MB.
 func TestGUIThroughput(t *testing.T) {
 	needDisplay(t)
-	for _, sc := range []string{"flood", "flood-paced", "flood-default"} {
+	for _, sc := range []string{"flood", "flood-paced", "flood-default", "flood-colour"} {
 		rep, _ := child(t, sc)
 		s := rep.Pump
 		span := s.LastLine.Sub(s.FirstLine)
@@ -358,7 +385,15 @@ func TestGUIThroughput(t *testing.T) {
 		t.Logf("%s: %d lines (%d dropped, %d in view) in %v (first→last line %v) = %.0f lines/s; %d flushes, apply p95 %v max %v; %d frames, frame work p95 %v max %v; idle %v → after %v",
 			sc, rep.Lines, rep.Dropped, rep.ViewLines, run.Round(time.Millisecond), span.Round(time.Millisecond), rate,
 			s.Flushes, s.P95(), s.Max(), len(rep.Frames), fp95, fmax, rep.IdleMem, rep.EndMem)
-		if rep.Outcome != "completed" || rep.Lines != 50000 || rep.ViewLines != runview.OutputCap || rep.LastLine != runview.FloodLine(50000, 50000) {
+		last := runview.FloodLine(50000, 50000)
+		if sc == "flood-colour" {
+			last = runview.FloodColourLine(50000, 50000)
+			t.Logf("%s: %d of %d visible output rows coloured", sc, rep.Coloured, rep.Labels)
+			if rep.Labels == 0 || rep.Coloured != rep.Labels {
+				t.Errorf("%s: %d of %d visible output rows coloured, want all", sc, rep.Coloured, rep.Labels)
+			}
+		}
+		if rep.Outcome != "completed" || rep.Lines != 50000 || rep.ViewLines != runview.OutputCap || rep.LastLine != last {
 			t.Errorf("%s: outcome %q, %d lines, %d in view ending %q", sc, rep.Outcome, rep.Lines, rep.ViewLines, rep.LastLine)
 		}
 		if sc != "flood-default" && rep.Dropped != 0 {

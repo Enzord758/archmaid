@@ -18,6 +18,34 @@ const FloodID = "flood"
 // chunks (0: as fast as the reader takes them). Every tenth line carries an
 // SGR colour, like real pacman output.
 func Flood(start time.Time, n, perChunk int, every time.Duration) stub.Script {
+	return flood(start, n, perChunk, every, floodRaw)
+}
+
+// FloodColour is Flood with every line in colour, seven styled spans each:
+// bold and the 16 colours, a 256-colour and a 24-bit one, the worst case
+// for the parser and the view.
+func FloodColour(start time.Time, n, perChunk int, every time.Duration) stub.Script {
+	return flood(start, n, perChunk, every, colourRaw)
+}
+
+func floodRaw(j, n int) string {
+	if j%10 == 0 {
+		return fmt.Sprintf("\x1b[1;32m==>\x1b[0m line %d: checking package files", j+1)
+	}
+	return fmt.Sprintf("line %d: (%d/%d) checking keys in keyring", j+1, j+1, n)
+}
+
+func colourRaw(j, n int) string {
+	return fmt.Sprintf("\x1b[1;34m::\x1b[0m \x1b[1mline %d\x1b[22m (\x1b[32m%d\x1b[39m/\x1b[93m%d\x1b[0m) \x1b[38;5;208mupgrading\x1b[0m \x1b[38;2;120;180;255mlib%d\x1b[0m \x1b[4;31m[!]\x1b[0m",
+		j+1, j+1, n, j%97)
+}
+
+// FloodColourLine is line i (1-based) of a FloodColour script, as text.
+func FloodColourLine(i, n int) string {
+	return fmt.Sprintf(":: line %d (%d/%d) upgrading lib%d [!]", i, i, n, (i-1)%97)
+}
+
+func flood(start time.Time, n, perChunk int, every time.Duration, raw func(j, n int) string) stub.Script {
 	if perChunk <= 0 {
 		perChunk = 1
 	}
@@ -30,11 +58,7 @@ func Flood(start time.Time, n, perChunk int, every time.Duration) stub.Script {
 	for i := 0; i < n; i += perChunk {
 		lines := make([]string, 0, perChunk)
 		for j := i; j < min(i+perChunk, n); j++ {
-			if j%10 == 0 {
-				lines = append(lines, fmt.Sprintf("\x1b[1;32m==>\x1b[0m line %d: checking package files", j+1))
-			} else {
-				lines = append(lines, fmt.Sprintf("line %d: (%d/%d) checking keys in keyring", j+1, j+1, n))
-			}
+			lines = append(lines, raw(j, n))
 		}
 		s = append(s, stub.Cue{After: every, Event: engine.OutputChunk{ID: FloodID, Index: 0, Lines: lines}})
 	}

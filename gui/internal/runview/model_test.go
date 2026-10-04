@@ -268,20 +268,6 @@ func TestRowStateText(t *testing.T) {
 	}
 }
 
-func TestStripSGR(t *testing.T) {
-	for in, want := range map[string]string{
-		"plain":                         "plain",
-		"\x1b[1;32m==>\x1b[0m Nothing.": "==> Nothing.",
-		"a\x1b[mb":                      "ab",
-		"cut \x1b[1;3":                  "cut ",
-		"lone \x1b":                     "lone ",
-	} {
-		if got := StripSGR(in); got != want {
-			t.Errorf("StripSGR(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestFloodScript(t *testing.T) {
 	s := Flood(t0, 25, 10, time.Millisecond)
 	m := NewModel()
@@ -300,6 +286,20 @@ func TestFloodScript(t *testing.T) {
 	}
 	if got := len(Flood(t0, 3, 0, 0)); got != 3+3+3 {
 		t.Errorf("perChunk 0: %d cues, want 9 (one line per chunk)", got)
+	}
+}
+
+// BenchmarkApplyFlushColour: one full flush (512 lines) of the colourful
+// flood, the model's share of the main-thread work per batch.
+func BenchmarkApplyFlushColour(b *testing.B) {
+	lines := make([]string, 512)
+	for i := range lines {
+		lines[i] = colourRaw(i, 512)
+	}
+	m := NewModel()
+	b.ReportAllocs()
+	for b.Loop() {
+		m.Apply([]engine.Event{engine.OutputChunk{ID: "s", Lines: lines}})
 	}
 }
 

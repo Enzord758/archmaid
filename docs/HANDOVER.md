@@ -67,7 +67,7 @@ Binary `archmaid-gui`, application id `io.github.enzord758.archmaid`.
 | Path | Owns |
 |---|---|
 | `gui/cmd/archmaid-gui` | `main` → `ui.Main` |
-| `gui/internal/runview` | plain Go, no gotk4: `Model` (the Run page's state: checklist `Row`s keyed on step ID, the open confirm, phase/status, the output ring capped at `OutputCap` = 10k lines; `Apply(events) Change` says exactly what to redraw, including the output diff `OutRemove`/`OutAppend` so a batch bigger than the cap never inserts a line only to drop it), `Pump` (one goroutine reads `Driver.Events()`, merges adjacent `OutputChunk`s of a step, drops the oldest queued lines past `MaxPending` counting them in `Dropped`, and posts one flush at a time to the main thread; a flush applies at most `FlushLines` = 512 lines, so a flood is sliced into ~1–2 ms pieces), `Flood` (the 50k-line stub script) |
+| `gui/internal/runview` | plain Go, no gotk4: `Model` (the Run page's state: checklist `Row`s keyed on step ID, the open confirm, phase/status, the output ring capped at `OutputCap` = 10k lines; `Apply(events) Change` says exactly what to redraw, including the output diff `OutRemove`/`OutAppend` so a batch bigger than the cap never inserts a line only to drop it), `Pump` (one goroutine reads `Driver.Events()`, merges adjacent `OutputChunk`s of a step, drops the oldest queued lines past `MaxPending` counting them in `Dropped`, and posts one flush at a time to the main thread; a flush applies at most `FlushLines` = 512 lines, so a flood is sliced into ~1–2 ms pieces), `Flood`, `FloodColour` (the 50k-line stub scripts), `ParseSGR`/`StripSGR` (output SGR → text + styled spans; only SGR is interpreted, anything else is dropped), `Palette` (DMS's dank16 read from `$XDG_CACHE_HOME/DankMaterialShell/dms-colors.json`, by its `mode`, else the fixed `FallbackPalette`; 16–255 are the xterm cube and greys) |
 | `gui/internal/ui` | the only gotk4 package: `Main` (picks the stub script, `ARCHMAID_GUI_SCRIPT=flood` for the 50k one), `Run`, `Window` (header with Run/Stop, checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList`, status bar, toasts, `AdwAlertDialog` per `NeedsConfirm` with "No" as default and close response and a red "Yes" for `Destructive`, close-mid-run confirm). `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
 | `gui/scripts/headless.sh` | runs a command against a private `weston --backend=headless` and a private, activation-free D-Bus, so GUI tests never open a window on the desktop |
 
@@ -515,7 +515,7 @@ to:
   `AuthResolved`, `FaillockState` are recorded in `runview.Model.Auth` but not
   shown) and the askpass dialog for the AUR step (`NeedsPassword` →
   `SubmitPassword`); today a password, selection or report prompt is
-  cancelled with a toast. ANSI colour is stripped, not rendered (P6b step 2).
+  cancelled with a toast.
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The

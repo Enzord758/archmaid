@@ -8,6 +8,7 @@ import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -23,6 +24,9 @@ type Window struct {
 	drv   engine.Driver
 	pump  *runview.Pump
 	model *runview.Model
+	// palette colours the output's ANSI 16: DMS's dank16, read once at
+	// start, or the fallback table.
+	palette runview.Palette
 
 	toasts  *adw.ToastOverlay
 	runBtn  *gtk.Button
@@ -57,7 +61,7 @@ type stepRow struct {
 }
 
 func newWindow(app *adw.Application, opts Options) *Window {
-	w := &Window{app: app, opts: opts, model: runview.NewModel(), dialogs: map[engine.PromptID]*adw.AlertDialog{}}
+	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*adw.AlertDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
 	w.win.SetTitle("archmaid")
 	w.win.SetDefaultSize(960, 640)
@@ -89,7 +93,17 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	})
 	factory.ConnectBind(func(obj *coreglib.Object) {
 		item := obj.Cast().(*gtk.ListItem)
-		item.Child().(*gtk.Label).SetText(item.Item().Cast().(*gtk.StringObject).String())
+		label := item.Child().(*gtk.Label)
+		text := item.Item().Cast().(*gtk.StringObject).String()
+		label.SetText(text)
+		// The list mirrors the model's view line for line (apply keeps
+		// them in step), so the colour spans are found by position; the
+		// text check guards that.
+		var attrs *pango.AttrList
+		if l, ok := w.model.ViewLine(int(item.Position())); ok && l.Text == text && len(l.Spans) > 0 {
+			attrs = pango.AttrListFromString(l.Attrs(&w.palette))
+		}
+		label.SetAttributes(attrs)
 	})
 	w.outView = gtk.NewListView(gtk.NewNoSelection(w.out), &factory.ListItemFactory)
 	w.outView.AddCSSClass("monospace")

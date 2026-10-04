@@ -165,10 +165,24 @@ type Model struct {
 }
 
 // NewModel is an empty Model.
-func NewModel() *Model { return &Model{out: ring{buf: make([]string, OutputCap)}} }
+func NewModel() *Model { return &Model{out: ring{buf: make([]entry, OutputCap)}} }
 
-// Output is the lines the view holds, oldest first.
+// Output is the lines the view holds, oldest first, as plain text.
 func (m *Model) Output() []string { return m.out.lines() }
+
+// ViewLine is line i (0 = the oldest) of the view as of the last Apply,
+// with its colour spans; false when i is out of range.
+func (m *Model) ViewLine(i int) (Line, bool) {
+	seq := m.viewLo + i
+	if i < 0 || seq >= m.viewHi || seq < m.out.total-len(m.out.buf) {
+		return Line{}, false
+	}
+	e := m.out.buf[seq%len(m.out.buf)]
+	if e.raw == e.text {
+		return Line{Text: e.text}, true
+	}
+	return ParseSGR(e.raw), true
+}
 
 // row finds the row for a step: by ID (the contract's key), else by index.
 func (m *Model) row(id string, index int) int {
@@ -243,9 +257,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 			}
 			m.Lines += len(ev.Lines) + ev.Dropped
 			for _, l := range ev.Lines {
-				// TODO(P6b-2): ANSI → spans with the dank16 palette; the
-				// skeleton shows plain text.
-				m.push(StripSGR(l))
+				m.out.push(entry{raw: l, text: StripSGR(l)})
 			}
 			c.Status = true
 		case engine.StepDone:
@@ -341,7 +353,9 @@ func doneState(s steps.Status) RowState {
 	return RowPending
 }
 
-func (m *Model) push(line string) { m.out.push(line) }
+// push adds a line archmaid wrote itself (a step header, a drop notice):
+// plain text, no SGR parsing.
+func (m *Model) push(line string) { m.out.push(entry{raw: line, text: line}) }
 
 // sync is the output diff since the last Apply: the view drops the lines
 // that left the ring and gains the new ones that are still in it, so a
@@ -360,49 +374,28 @@ func (m *Model) sync() (remove int, add []string) {
 
 // ring holds the last len(buf) lines of a sequence of total lines.
 type ring struct {
-	buf   []string
+	buf   []entry
 	total int
 }
 
-func (r *ring) push(s string) {
-	r.buf[r.total%len(r.buf)] = s
+// entry is an output line: raw as it came (SGR kept) and its plain text.
+// The spans are parsed from raw only when a row shows the line (ViewLine),
+// so a flood pays for stripping, not for styling 10k lines nobody sees.
+type entry struct{ raw, text string }
+
+func (r *ring) push(e entry) {
+	r.buf[r.total%len(r.buf)] = e
 	r.total++
 }
 
-// since is the lines from sequence number from (still in the ring) on.
+// since is the text of the lines from sequence number from (still in the
+// ring) on.
 func (r *ring) since(from int) []string {
 	out := make([]string, 0, r.total-from)
 	for i := from; i < r.total; i++ {
-		out = append(out, r.buf[i%len(r.buf)])
+		out = append(out, r.buf[i%len(r.buf)].text)
 	}
 	return out
 }
 
 func (r *ring) lines() []string { return r.since(max(r.total-len(r.buf), 0)) }
-
-// StripSGR removes ANSI escape sequences (the engine leaves only SGR
-// colour in output lines) and returns plain text.
-func StripSGR(s string) string {
-	i := 0
-	for i < len(s) && s[i] != 0x1b {
-		i++
-	}
-	if i == len(s) {
-		return s
-	}
-	b := make([]byte, 0, len(s))
-	for i := 0; i < len(s); i++ {
-		if s[i] != 0x1b {
-			b = append(b, s[i])
-			continue
-		}
-		if i+1 < len(s) && s[i+1] == '[' {
-			j := i + 2
-			for j < len(s) && (s[j] < 0x40 || s[j] > 0x7e) {
-				j++
-			}
-			i = j
-		}
-	}
-	return string(b)
-}
