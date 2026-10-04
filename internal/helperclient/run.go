@@ -109,16 +109,7 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 	})
 	flush()
 	waitErr := cmd.Wait()
-
-	exit := -1
-	var ee *exec.ExitError
-	switch {
-	case waitErr == nil:
-		exit = 0
-	case errors.As(waitErr, &ee):
-		exit = ee.ExitCode()
-	}
-	o := d.outcome(exit, waitErr, stderr.String())
+	o := d.outcome(exitCode(waitErr), waitErr, stderr.String())
 	if o.Check != nil {
 		emit(engine.HelperCheck{Seq: seq, Broken: slices.Clone(o.Check.Broken)})
 	}
@@ -177,9 +168,10 @@ func (d *decoder) outcome(exit int, waitErr error, stderr string) Outcome {
 	switch {
 	case d.err != nil:
 		o.Err = d.err
-	case !d.granted && (exit == exitNotAuthorized || exit == exitDismissed):
+	case !d.granted && d.verb != steps.VerbPlanOrphans && (exit == exitNotAuthorized || exit == exitDismissed):
 		// No output at all (any line would have been a start line or a
-		// protocol error): pkexec never ran the helper.
+		// protocol error): pkexec never ran the helper. (plan-orphans runs
+		// without pkexec, so for it these are just exits.)
 		o.NotGranted = true
 		o.Err = fmt.Errorf("%w: %s exited %d", ErrNotGranted, Pkexec, exit)
 	case !d.granted:
@@ -188,6 +180,10 @@ func (d *decoder) outcome(exit int, waitErr error, stderr string) Outcome {
 		o.Err = fmt.Errorf("the root helper ended without a result (%s)%s", exitText(exit, waitErr), stderrText(stderr))
 	case d.res.Code != exit:
 		o.Err = fmt.Errorf("%w: result code %d, but the helper exited %s", ErrProtocol, d.res.Code, exitText(exit, waitErr))
+	case d.verb == steps.VerbRemoveOrphans && d.res.Code == exitStale && d.res.ChildExit == nil:
+		// The plan, recomputed as root, no longer hashes to the confirmed
+		// one, and no root command ran.
+		o.Err = ErrOrphansChanged
 	case !d.res.OK:
 		msg := d.res.Error
 		if msg == "" {

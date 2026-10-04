@@ -12,8 +12,10 @@
 //	pkexec /usr/lib/archmaid/archmaid-helper <verb> <args…>
 //
 // started directly (never through a shell), with the args built from the
-// step's typed fields (Verb, Items) and fixed constants, never from Argv or
-// any free text. pkexec is found on PATH like su and sudo (no production
+// step's typed fields (Verb, Items, Plan) and fixed constants, never from
+// Argv or any free text. The one helper call made without pkexec is the
+// read-only plan-orphans (PlanOrphans), which the orphan removal is built
+// from (plan.go). pkexec is found on PATH like su and sudo (no production
 // code runs a privileged binary by absolute path; see internal/testenv), the
 // helper by its fixed install path, which is the polkit policy's exec.path.
 //
@@ -73,7 +75,7 @@ var (
 	// root and is run directly, not through pkexec).
 	ErrNoAction = errors.New("helperclient: verb has no polkit action")
 	// ErrUnsupported: the step carries no typed field for an argument the
-	// verb needs (remove-orphans' plan hash), or the verb is unknown.
+	// verb needs (remove-orphans without a Plan), or the verb is unknown.
 	ErrUnsupported = errors.New("helperclient: verb not supported")
 	// ErrBadItems: the step's Items are not what the verb takes.
 	ErrBadItems = errors.New("helperclient: bad items for verb")
@@ -95,10 +97,13 @@ var (
 //	paccache        PaccacheKeep
 //	vacuum-journal  JournalSpan
 //	paccache-wipe, clean-tmp: none (Items must be empty)
+//	remove-orphans  Plan.Hash (see orphanArgs: the Plan must pass CheckPlan
+//	                and be exactly the step's Items and Cascade)
 //
-// plan-orphans (ErrNoAction), remove-orphans and unknown verbs
-// (ErrUnsupported) are refused, as is a step without a Verb (ErrNoVerb) or
-// with Items its verb doesn't take (ErrBadItems).
+// plan-orphans (ErrNoAction), remove-orphans without a Plan and unknown
+// verbs (ErrUnsupported) are refused, as is a step without a Verb
+// (ErrNoVerb), with Items its verb doesn't take (ErrBadItems), or with a
+// Plan that is bad or on any other verb (ErrBadPlan).
 func Argv(st steps.Step) ([]string, error) {
 	args, err := verbArgs(st)
 	if err != nil {
@@ -108,9 +113,14 @@ func Argv(st steps.Step) ([]string, error) {
 }
 
 func verbArgs(st steps.Step) ([]string, error) {
+	if st.Plan != nil && st.Verb != steps.VerbRemoveOrphans {
+		return nil, fmt.Errorf("%w: a plan on %q", ErrBadPlan, st.Verb)
+	}
 	switch st.Verb {
 	case "":
 		return nil, fmt.Errorf("%w (step %q)", ErrNoVerb, st.ID)
+	case steps.VerbRemoveOrphans:
+		return orphanArgs(st)
 	case steps.VerbCheckFiles:
 		if len(st.Items) == 0 {
 			return nil, nil

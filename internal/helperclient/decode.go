@@ -51,6 +51,7 @@ type decoder struct {
 	granted bool
 	res     *Result
 	check   *Check
+	plan    *steps.OrphanPlan // plan-orphans' plan event (plan.go)
 	unknown int
 	err     error
 }
@@ -135,8 +136,11 @@ func (d *decoder) feed(line []byte) (out []string, start bool) {
 		// The helper sends one line, already sanitized; a newline here
 		// would still only ever make more lines, never a control sequence.
 		return strings.Split(sanitize.String(*e.Text, sanitize.KeepSGR), "\n"), false
-	case evProgress, evPlan:
+	case evProgress:
 		return nil, false // known; nothing for the engine
+	case evPlan:
+		d.readPlan(line)
+		return nil, false
 	case evCheck:
 		d.readCheck(line)
 		return nil, false

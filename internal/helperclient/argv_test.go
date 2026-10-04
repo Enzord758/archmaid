@@ -46,6 +46,9 @@ func TestArgv(t *testing.T) {
 			[]string{"pkexec", HelperPath, "paccache-wipe"}},
 		{"clean-tmp", steps.Step{Verb: steps.VerbCleanTmp, Argv: junk},
 			[]string{"pkexec", HelperPath, "clean-tmp"}},
+		{"remove-orphans", steps.Step{Verb: steps.VerbRemoveOrphans, Argv: junk, Items: goodDirect, Cascade: goodCascade,
+			Plan: &steps.OrphanPlan{Hash: PlanHash(goodDirect, goodCascade), Direct: goodDirect, Cascade: goodCascade}},
+			[]string{"pkexec", HelperPath, "remove-orphans", PlanHash(goodDirect, goodCascade)}},
 		{"256 names", steps.Step{Verb: steps.VerbRepair, Items: manyNames(256)},
 			append([]string{"pkexec", HelperPath, "repair"}, manyNames(256)...)},
 	}
@@ -160,9 +163,14 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			continue
 		}
 		actionVerbs[argv1] = true
-		got, err := Argv(steps.Step{Verb: argv1, Items: sample[argv1]})
+		st := steps.Step{Verb: argv1, Items: sample[argv1]}
+		if argv1 == steps.VerbRemoveOrphans {
+			p := goodPlan()
+			st.Items, st.Cascade, st.Plan = p.Direct, p.Cascade, &p
+		}
+		got, err := Argv(st)
 		if errors.Is(err, ErrUnsupported) {
-			continue // remove-orphans, full-cleanup: not built from a step yet
+			continue // full-cleanup: not built from a step yet
 		}
 		if err != nil {
 			t.Errorf("%s: Argv: %v", a.ID, err)
@@ -173,7 +181,7 @@ func TestArgvMatchesPolicy(t *testing.T) {
 		}
 	}
 	for _, v := range []string{steps.VerbCheckFiles, steps.VerbRepair, steps.VerbDisableUnit, steps.VerbPaccache,
-		steps.VerbVacuumJournal, steps.VerbPaccacheWipe, steps.VerbCleanTmp} {
+		steps.VerbVacuumJournal, steps.VerbPaccacheWipe, steps.VerbCleanTmp, steps.VerbRemoveOrphans} {
 		if !actionVerbs[v] {
 			t.Errorf("Argv builds %s, but the policy has no action with that argv1", v)
 		}
