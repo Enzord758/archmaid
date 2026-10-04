@@ -130,8 +130,8 @@ func TestLogPickerGolden(t *testing.T) {
 // hand-built result (classify stamps ages from the clock, so it isn't used).
 func TestAuditReportGolden(t *testing.T) {
 	res := auditResult{
-		total:       6,
-		hadBaseline: true,
+		total:    6,
+		baseline: baselineOK,
 		findings: []auditFinding{
 			{name: "some-aur-tool", high: true, flags: []string{"maintainer changed: alice → mallory"}},
 			{name: "orphaned-thing-git", flags: []string{"orphaned", "0 votes"}},

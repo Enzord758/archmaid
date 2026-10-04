@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -194,25 +196,50 @@ func baselinePath() string {
 	return filepath.Join(resolveLogDir(), "aur-maintainers.json")
 }
 
+// baselineState is what loadBaseline found on disk.
+type baselineState int
+
+const (
+	baselineMissing baselineState = iota // no snapshot yet: the first audit
+	baselineOK
+	// baselineCorrupt: a snapshot exists but can't be read or parsed. It is
+	// never treated as missing: that would silently re-baseline and wave
+	// through exactly the maintainer change the snapshot exists to catch.
+	baselineCorrupt
+)
+
 // loadBaseline reads the previous audit's name → maintainer map ("" =
-// orphaned). ok is false when there's no usable snapshot (first audit).
-func loadBaseline() (map[string]string, bool) {
+// orphaned). Only a file that doesn't exist reads as baselineMissing; any
+// other read error, invalid JSON, or a JSON null is baselineCorrupt.
+func loadBaseline() (map[string]string, baselineState) {
 	b, err := os.ReadFile(baselinePath())
-	if err != nil {
-		return nil, false
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return nil, baselineMissing
+	case err != nil:
+		return nil, baselineCorrupt
 	}
-	m := map[string]string{}
-	if json.Unmarshal(b, &m) != nil {
-		return nil, false
+	var m map[string]string
+	if json.Unmarshal(b, &m) != nil || m == nil {
+		return nil, baselineCorrupt
 	}
-	return m, true
+	return m, baselineOK
 }
 
-// saveBaseline records each audited package's current maintainer, keeping the
-// old value for any package the AUR didn't report this time (a transient
-// removal must not erase its history). Best-effort: a failed write just means
-// the next audit has nothing to diff against.
-func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string) {
+// snapshotFinding is the finding a corrupt snapshot turns into. Without a
+// readable baseline no maintainer change can be detected, so the audit fails
+// closed: high severity, gating the update like a takeover would.
+func snapshotFinding() auditFinding {
+	return auditFinding{
+		name: "maintainer snapshot", high: true,
+		flags: []string{"unreadable: maintainer changes can't be checked, re-verify maintainers by hand"},
+	}
+}
+
+// nextBaseline is the snapshot to save: each audited package's current
+// maintainer, keeping the old value for any package the AUR didn't report
+// this time (a transient removal must not erase its history).
+func nextBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string) map[string]string {
 	next := make(map[string]string, len(pkgs))
 	for _, name := range pkgs {
 		if ai, ok := info[name]; ok {
@@ -225,21 +252,99 @@ func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string
 			next[name] = p
 		}
 	}
+	return next
+}
+
+// saveBaseline records the audited packages' maintainers (see nextBaseline
+// and writeBaseline).
+func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string) error {
+	return writeBaseline(nextBaseline(pkgs, info, prev))
+}
+
+// errSnapshotLocked: another archmaid holds the snapshot lock, so this save
+// is skipped rather than racing it.
+var errSnapshotLocked = errors.New("another archmaid is saving the AUR snapshot")
+
+// writeBaseline replaces the snapshot atomically, under an exclusive lock: a
+// 0600 temp file in the same directory is written, fsynced and renamed over
+// the snapshot, then the directory is fsynced, so a crash leaves the old
+// snapshot or the new one, never a torn file. A corrupt snapshot on disk is
+// first renamed to aur-maintainers.json.corrupt-<time>, kept for inspection
+// rather than overwritten. A held lock returns errSnapshotLocked unwritten.
+func writeBaseline(next map[string]string) error {
 	b, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
-		return
+		return err
 	}
-	os.MkdirAll(filepath.Dir(baselinePath()), 0o755)
-	os.WriteFile(baselinePath(), b, 0o644)
+	dir := filepath.Dir(baselinePath())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	unlock, err := lockBaseline(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	if _, state := loadBaseline(); state == baselineCorrupt {
+		aside := baselinePath() + ".corrupt-" + time.Now().Format("20060102-150405")
+		if err := os.Rename(baselinePath(), aside); err != nil {
+			return err
+		}
+	}
+
+	tmp, err := os.CreateTemp(dir, "aur-maintainers.json.tmp-*") // mode 0600
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // fails harmlessly once renamed
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), baselinePath()); err != nil {
+		return err
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync() // make the rename itself durable
+}
+
+// lockBaseline takes an exclusive, non-blocking flock on aur-maintainers.lock
+// (left on disk: deleting a lock file races its next user) and returns the
+// unlock func, or errSnapshotLocked if another process holds it.
+func lockBaseline(dir string) (func(), error) {
+	f, err := os.OpenFile(filepath.Join(dir, "aur-maintainers.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errSnapshotLocked
+		}
+		return nil, err
+	}
+	return func() { f.Close() }, nil // closing the fd releases the flock
 }
 
 // ── the action ───────────────────────────────────────────────────────────────
 
 // auditResult is one completed audit.
 type auditResult struct {
-	total       int // foreign packages checked
-	findings    []auditFinding
-	hadBaseline bool
+	total    int // foreign packages checked
+	findings []auditFinding
+	baseline baselineState // the snapshot this audit was diffed against
 }
 
 func (r auditResult) high() int {
@@ -252,13 +357,24 @@ func (r auditResult) high() int {
 	return n
 }
 
+// clean is how many packages had nothing flagged. A corrupt snapshot's finding
+// isn't a package, so it doesn't count against them.
+func (r auditResult) clean() int {
+	n := r.total - len(r.findings)
+	if r.baseline == baselineCorrupt {
+		n++
+	}
+	return n
+}
+
 // errNoForeign means there was nothing to audit.
 var errNoForeign = errors.New("no foreign packages installed")
 
 // performAudit runs the audit and advances the maintainer snapshot (except in
 // a dry run, which reads it but never writes it). Shared by the menu action
 // and Full Cleanup's audit step. Any error other than errNoForeign is the AUR
-// lookup failing.
+// lookup failing. A corrupt snapshot becomes a high-severity finding of its
+// own (see snapshotFinding).
 func performAudit(now time.Time) (auditResult, error) {
 	pkgs := foreignPackages()
 	if len(pkgs) == 0 {
@@ -268,12 +384,17 @@ func performAudit(now time.Time) (auditResult, error) {
 	if err != nil {
 		return auditResult{}, err
 	}
-	prev, hadBaseline := loadBaseline()
-	findings := classifyAll(pkgs, info, prev, hadBaseline, now)
-	if !dryRun {
-		saveBaseline(pkgs, info, prev)
+	prev, state := loadBaseline()
+	findings := classifyAll(pkgs, info, prev, state == baselineOK, now)
+	if state == baselineCorrupt {
+		findings = append([]auditFinding{snapshotFinding()}, findings...)
 	}
-	return auditResult{total: len(pkgs), findings: findings, hadBaseline: hadBaseline}, nil
+	if !dryRun {
+		if err := saveBaseline(pkgs, info, prev); err != nil {
+			appendLog(logCategoryAudit, "WARN", "AUR snapshot not saved: "+err.Error(), "")
+		}
+	}
+	return auditResult{total: len(pkgs), findings: findings, baseline: state}, nil
 }
 
 // discoverAURAudit runs the audit off the UI thread and returns it as a
@@ -321,7 +442,10 @@ func runAuditStep() stepResult {
 		return stepResult{output: "Couldn't reach the AUR: " + shortErr(err), err: err}
 	}
 	r := stepResult{output: auditText(res)}
-	if who := highNames(res.findings); who != "" {
+	if res.baseline == baselineCorrupt {
+		// Fail closed: with no readable snapshot, a takeover would go unseen.
+		r.confirmNext = "The AUR maintainer snapshot is unreadable, so maintainer changes can't be checked. Update anyway?"
+	} else if who := highNames(res.findings); who != "" {
 		// Name the packages: the popup covers the report that explains it.
 		r.confirmNext = who + " changed maintainer since the last audit. Update anyway?"
 	}
@@ -364,7 +488,7 @@ func shortErr(err error) string {
 // logAudit records a menu-run audit in the audit log category so a closed
 // report stays reviewable from "View log". Plain text — no styling in logs.
 func logAudit(res auditResult) {
-	label := fmt.Sprintf("AUR audit: %d checked, %d flagged", res.total, len(res.findings))
+	label := fmt.Sprintf("AUR audit: %d checked, %d flagged", res.total, res.total-res.clean())
 	appendLog(logCategoryAudit, "AUDIT", label, findingLines(res.findings))
 }
 
@@ -389,23 +513,27 @@ func auditText(res auditResult) string {
 	high := res.high()
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d foreign package(s) checked against the AUR: %d high, %d glance, %d clean\n\n",
-		res.total, high, len(res.findings)-high, res.total-len(res.findings))
+		res.total, high, len(res.findings)-high, res.clean())
 	if len(res.findings) == 0 {
 		b.WriteString("Nothing flagged.\n")
 	}
 	b.WriteString(findingLines(res.findings))
-	if note := baselineNote(res.hadBaseline); note != "" {
+	if note := baselineNote(res.baseline); note != "" {
 		b.WriteString("\n" + note + "\n")
 	}
 	return b.String()
 }
 
 // baselineNote explains the snapshot state, or "" when there's nothing to say.
-func baselineNote(hadBaseline bool) string {
+func baselineNote(state baselineState) string {
 	switch {
-	case !hadBaseline && dryRun:
+	case state == baselineCorrupt && dryRun:
+		return "The maintainer snapshot is unreadable (dry run: left as is) — maintainer changes can't be detected until it's replaced."
+	case state == baselineCorrupt:
+		return "The maintainer snapshot was unreadable, so maintainer changes couldn't be detected. It was kept as aur-maintainers.json.corrupt-<time> and a fresh baseline saved."
+	case state == baselineMissing && dryRun:
 		return "No maintainer snapshot yet (dry run: not saved) — maintainer changes can't be detected until a real audit saves one."
-	case !hadBaseline:
+	case state == baselineMissing:
 		return "First audit: maintainers saved as the baseline. Adoptions and maintainer changes are flagged from the next audit on."
 	case dryRun:
 		return "Dry run: compared against the saved snapshot; the snapshot was not updated."
@@ -430,7 +558,7 @@ func renderAudit(res auditResult) string {
 	b.WriteString(fmt.Sprintf("%s  %s  %s\n\n",
 		stepFailStyle.Render(fmt.Sprintf("✖ %d look closely", high)),
 		stepSkipStyle.Render(fmt.Sprintf("⚠ %d glance", len(res.findings)-high)),
-		stepOKStyle.Render(fmt.Sprintf("✔ %d clean", res.total-len(res.findings))),
+		stepOKStyle.Render(fmt.Sprintf("✔ %d clean", res.clean())),
 	))
 
 	width := nameWidth(res.findings)
@@ -446,7 +574,7 @@ func renderAudit(res auditResult) string {
 	}
 
 	b.WriteString("\n")
-	if note := baselineNote(res.hadBaseline); note != "" {
+	if note := baselineNote(res.baseline); note != "" {
 		b.WriteString(statusStyle.Render(note) + "\n")
 	}
 	b.WriteString(statusStyle.Render("Recent = pushed within 72h, the same window as the yay cooldown hook."))

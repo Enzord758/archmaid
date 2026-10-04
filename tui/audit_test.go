@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -207,16 +208,18 @@ func TestFetchAURInfoErrors(t *testing.T) {
 
 func TestBaselineRoundTripAndKeepsMissing(t *testing.T) {
 	auditEnv(t)
-	if _, ok := loadBaseline(); ok {
-		t.Fatal("no snapshot should exist yet")
+	if _, state := loadBaseline(); state != baselineMissing {
+		t.Fatalf("no snapshot should exist yet, state = %d", state)
 	}
 	prev := map[string]string{"gone": "carol", "kept": "old"}
 	info := map[string]aurInfo{"kept": {Name: "kept", Maintainer: strp("new")}, "orph": {Name: "orph"}}
-	saveBaseline([]string{"kept", "orph", "gone"}, info, prev)
+	if err := saveBaseline([]string{"kept", "orph", "gone"}, info, prev); err != nil {
+		t.Fatal(err)
+	}
 
-	got, ok := loadBaseline()
-	if !ok {
-		t.Fatal("snapshot not saved")
+	got, state := loadBaseline()
+	if state != baselineOK {
+		t.Fatalf("snapshot not saved, state = %d", state)
 	}
 	want := map[string]string{"kept": "new", "orph": "", "gone": "carol"} // absent-from-AUR keeps its old value
 	for k, v := range want {
@@ -226,11 +229,98 @@ func TestBaselineRoundTripAndKeepsMissing(t *testing.T) {
 	}
 }
 
-func TestBaselineCorruptFileIsTreatedAsMissing(t *testing.T) {
+// TestBaselineCorruptFileIsNotMissing: an unreadable snapshot must never read
+// as "first audit" — that would silently re-baseline over a takeover.
+func TestBaselineCorruptFileIsNotMissing(t *testing.T) {
+	for name, content := range map[string]string{"invalid JSON": "{not json", "JSON null": "null", "empty": ""} {
+		t.Run(name, func(t *testing.T) {
+			auditEnv(t)
+			os.WriteFile(baselinePath(), []byte(content), 0o600)
+			if m, state := loadBaseline(); state != baselineCorrupt || m != nil {
+				t.Fatalf("state = %d, map = %v, want baselineCorrupt and no data", state, m)
+			}
+		})
+	}
+	t.Run("unreadable", func(t *testing.T) {
+		auditEnv(t)
+		os.Mkdir(baselinePath(), 0o700) // reading a directory fails with EISDIR, not ENOENT
+		if _, state := loadBaseline(); state != baselineCorrupt {
+			t.Fatalf("state = %d, want baselineCorrupt", state)
+		}
+	})
+}
+
+// TestSaveBaselineIsAtomicAndPrivate: the snapshot is 0600 and no temp file
+// is left behind.
+func TestSaveBaselineIsAtomicAndPrivate(t *testing.T) {
 	auditEnv(t)
-	os.WriteFile(baselinePath(), []byte("{not json"), 0o644)
-	if _, ok := loadBaseline(); ok {
-		t.Fatal("a corrupt snapshot must read as 'no baseline', not as data")
+	for _, m := range []string{"alice", "bob"} { // create, then replace
+		if err := saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp(m)}}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fi, err := os.Stat(baselinePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Fatalf("snapshot mode = %v, want 0600", fi.Mode().Perm())
+	}
+	if got, _ := loadBaseline(); got["p"] != "bob" {
+		t.Fatalf("snapshot = %v, want the second save", got)
+	}
+	entries, _ := os.ReadDir(filepath.Dir(baselinePath()))
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".tmp-") {
+			t.Fatalf("temp file left behind: %s", e.Name())
+		}
+	}
+}
+
+// TestSaveBaselineSkipsWhenLocked: while another process holds the lock, a
+// save is skipped (errSnapshotLocked) and the snapshot is left alone.
+func TestSaveBaselineSkipsWhenLocked(t *testing.T) {
+	auditEnv(t)
+	saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp("alice")}}, nil)
+
+	unlock, err := lockBaseline(filepath.Dir(baselinePath())) // a separate fd: flock conflicts in-process too
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp("mallory")}}, nil)
+	if !errors.Is(err, errSnapshotLocked) {
+		t.Fatalf("err = %v, want errSnapshotLocked", err)
+	}
+	if got, _ := loadBaseline(); got["p"] != "alice" {
+		t.Fatalf("a locked save must not write, snapshot = %v", got)
+	}
+	unlock()
+	if err := saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp("bob")}}, nil); err != nil {
+		t.Fatalf("save after unlock: %v", err)
+	}
+}
+
+// TestCorruptSnapshotFailsClosed: an unreadable snapshot is a high finding
+// that gates the update, and the bad file is kept aside, not overwritten.
+func TestCorruptSnapshotFailsClosed(t *testing.T) {
+	auditEnv(t)
+	shimPacmanForeign(t, "steady\n")
+	fakeAUR(t, map[string]aurInfo{"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10}})
+	os.WriteFile(baselinePath(), []byte("{garbage"), 0o600)
+
+	r := runAuditStep()
+	if r.err != nil || !strings.Contains(r.confirmNext, "snapshot is unreadable") {
+		t.Fatalf("err=%v confirmNext=%q, want the unreadable-snapshot gate", r.err, r.confirmNext)
+	}
+	if !strings.Contains(r.output, "[HIGH] maintainer snapshot") || !strings.Contains(r.output, "1 high, 0 glance, 1 clean") {
+		t.Fatalf("output:\n%s", r.output)
+	}
+	aside, _ := filepath.Glob(baselinePath() + ".corrupt-*")
+	if len(aside) != 1 {
+		t.Fatalf("corrupt snapshot should be kept aside, found %v", aside)
+	}
+	if b, _ := os.ReadFile(aside[0]); string(b) != "{garbage" {
+		t.Fatalf("set-aside file = %q", b)
 	}
 }
 
@@ -253,7 +343,7 @@ func TestRunAuditFirstThenTakeover(t *testing.T) {
 	if !strings.Contains(first.report, "First audit") || !strings.Contains(first.report, "Nothing flagged") {
 		t.Fatalf("first report:\n%s", first.report)
 	}
-	if _, ok := loadBaseline(); !ok {
+	if _, state := loadBaseline(); state != baselineOK {
 		t.Fatal("first audit must save the baseline")
 	}
 
