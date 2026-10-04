@@ -17,7 +17,6 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/enginetest"
-	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/steps"
 
 	tt "github.com/Enzord758/archmaid/internal/testtranscript"
@@ -63,11 +62,7 @@ func newDriverTarget(t *testing.T, shimLog string) *driverTarget {
 		t.Fatal(err)
 	}
 	tg := &driverTarget{fx: newEffects(shimLog), contract: enginetest.NewChecker(t)}
-	tg.d = newSyncDriver(engine.New(opts), syncDeps{
-		Priv: privileged(), Log: logs(),
-		// Never the real tally: the shimmed su keeps no count.
-		Faillock: func() (privilege.Status, error) { return privilege.Status{Deny: 3}, nil },
-	})
+	tg.d = newSyncDriver(engine.New(opts), syncDeps{Priv: privileged(), Log: logs()})
 	tg.d.afterWork = func() { tg.push(tg.fx.execs()...) }
 	t.Cleanup(func() {
 		tg.d.Close()
@@ -266,44 +261,32 @@ func (tg *driverTarget) open(id engine.PromptID, ev tt.Event) {
 	tg.prompt, tg.promptID = ev, id
 }
 
-// Live, the syncDriver delivers an action's Events on its channel, in
-// order, ending in Finished; Close then closes the channel and refuses
-// further Commands.
-func TestSyncDriverLive(t *testing.T) {
+// Close aborts the running action, closes Events and refuses further
+// Commands; a second Close is a no-op.
+func TestSyncDriverClose(t *testing.T) {
 	transcriptEnv(t, false)
 	installShims(t, nil)
-	probe := actions.Action{ID: "liveprobe", Label: "Live probe", Steps: func(actions.Env) []steps.Step {
-		return []steps.Step{{ID: "liveprobe", Title: "Printing…", LogLabel: "Printed", AlwaysLog: true,
-			Run: func(context.Context, steps.Env) steps.Result { return steps.Result{Output: "a\nb"} }}}
+	probe := actions.Action{ID: "closeprobe", Label: "Close probe", Steps: func(actions.Env) []steps.Step {
+		return []steps.Step{{ID: "closeprobe", Title: "Printing…", LogLabel: "Printed",
+			Run: func(context.Context, steps.Env) steps.Result { return steps.Result{Output: "a"} }}}
 	}}
 	old := actions.Menu
 	actions.Menu = append(slices.Clone(old), probe)
 	t.Cleanup(func() { actions.Menu = old })
 
-	d := newSyncDriver(engine.New(engine.Options{Env: actionEnv()}), syncDeps{Priv: privileged(), Log: logs(), Live: true})
+	d := newSyncDriver(engine.New(engine.Options{Env: actionEnv()}), syncDeps{Priv: privileged(), Log: logs()})
 	if !d.Send(engine.Start{Action: probe.ID}) {
 		t.Fatal("Send refused Start")
 	}
-	var kinds []string
-	timeout := time.After(10 * time.Second)
-	for done := false; !done; {
-		select {
-		case ev := <-d.Events():
-			kinds = append(kinds, strings.TrimPrefix(fmt.Sprintf("%T", ev), "engine."))
-			_, done = ev.(engine.Finished)
-		case <-timeout:
-			t.Fatalf("no Finished; got %v", kinds)
-		}
-	}
-	want := "PhaseChanged QueueStarted StepStarted OutputChunk StepDone LogWritten Finished"
-	if got := strings.Join(kinds, " "); got != want {
-		t.Errorf("events = %s\nwant     %s", got, want)
-	}
 	d.Close()
-	for range d.Events() { // drained or not, it is closed
+	if _, open := <-d.Events(); open {
+		t.Error("Events is still open after Close")
 	}
 	if d.Send(engine.Abort{}) {
 		t.Error("Send after Close was accepted")
 	}
-	d.Close() // twice is fine
+	if evs := d.Pull(); len(evs) != 0 {
+		t.Errorf("Pull after Close = %v", evs)
+	}
+	d.Close()
 }
