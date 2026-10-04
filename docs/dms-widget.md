@@ -120,8 +120,17 @@ Found: dms-shell 1.6.2-1, quickshell 0.3.1-1.1. Installed plugins in
 
 **Pill** (icon + one number; icon tint carries state):
 - icon `cleaning_services`; text = pending updates count (hidden when 0 or unknown).
-- tint: normal (`surfaceText`), warning if last run > 14 days ago (configurable),
-  error colour if unacknowledged high AUR findings > 0 or last run failed.
+- tint: normal (`surfaceText`), warning if last run > 14 days ago (configurable)
+  or the last run was `incomplete`, error colour if unacknowledged high AUR
+  findings > 0 or last run failed.
+- **`incomplete` never clears the staleness warning.** It means steps were
+  refused privilege (wrong passwords, a refused helper), so the cleanup did not
+  happen. `last-run.json` only holds the latest run, so the widget cannot tell
+  how long ago the last complete cleanup was. It therefore shows the warning
+  tint as soon as it reads an `incomplete` record, however recent
+  `finished` is, and keeps it until a later run ends `ok`. The popout says
+  "Last run incomplete: N steps not run (authentication refused)", with N taken
+  from `steps_refused`.
 - vertical bar: icon only plus a small badge.
 
 **Popout** (340 x ~320):
@@ -178,8 +187,9 @@ optional `checkupdates` (see below), no network.
   "generated": "2026-10-04T18:02:11+02:00",
   "last_run": {
     "time": "2026-10-04T17:48:40+02:00",
-    "outcome": "ok",            // ok | failed | aborted | dryrun | unknown
+    "outcome": "ok",            // ok | failed | incomplete | aborted | dryrun | unknown
     "steps_failed": 0,
+    "steps_refused": 0,
     "dry_run": false
   },
   "log_dir": "/home/enzord/.local/state/archmaid",
@@ -209,14 +219,21 @@ user timer does and writes the cache).
   (written by `logstore.WriteLastRun` at the end of every queue: temp + fsync + rename,
   0600, state dir 0700), one record, overwritten each run:
   `{"v":1,"action":"fullcleanup","started":"<RFC3339>","finished":"<RFC3339>",
-  "outcome":"ok|failed|aborted|cancelled","steps_failed":0,"steps_skipped":0,"dry_run":false}`.
+  "outcome":"ok|failed|incomplete|aborted|cancelled","steps_failed":0,"steps_skipped":0,
+  "steps_refused":0,"dry_run":false}`.
   `action` is the menu id (`fullcleanup`, `usercache`, `repair`, `downloads`,
   `topgrade`, `services`, `auraudit`). `cancelled` = nothing ran (declined gate or
   password prompt, sudo gave up with every step skipped); `aborted` = stopped part-way
-  (ctrl+c, or a declined required step). A dry run never touches this file: it writes
+  (ctrl+c, or a declined required step); `incomplete` = nothing failed, but some steps
+  never ran because privilege was refused (sudo gave up after three wrong passwords
+  part-way, a refused helper). `steps_skipped` counts every step that didn't run;
+  `steps_refused` is the part of it refused privilege (an additive v1 field: a record
+  written before it existed reads as 0, and such a record never says `incomplete`).
+  Precedence when several apply: `cancelled` (nothing ran), then `aborted`, `failed`,
+  `incomplete`, `ok`. A dry run never touches this file: it writes
   `dryrun/last-run.json` instead (`dry_run:true`), so the widget reads the top-level file
-  only. `status --json` maps `last_run.time` = `finished`, `steps_failed`, `dry_run`, and
-  `outcome` straight through (`unknown` when the file is absent; `dryrun` is never
+  only. `status --json` maps `last_run.time` = `finished`, `steps_failed`,
+  `steps_refused`, `dry_run`, and `outcome` straight through (`unknown` when the file is absent; `dryrun` is never
   reported from the real file). Absent file = "no record yet", not an error.
 - AUR: `audit-state.json` (state-dir root, **implemented**) is the source for
   `aur.high*` and the snapshot flags; the snapshot's age comes from the mtime of

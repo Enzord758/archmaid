@@ -125,14 +125,19 @@ func categoryLabel(cat logCategory) string { return cat.Label() }
 // logCategoryLabels drives the "View log" category picker, in display order.
 var logCategoryLabels = logstore.Categories
 
-// queueOutcome classifies a queue that has just ended: cancelled when no step
-// ran at all (every one skipped, e.g. sudo gave up), aborted when a declined
-// required step stopped it, failed on any failed step, otherwise ok.
+// queueOutcome classifies a queue that has just ended, first match wins:
+// cancelled when no step ran at all (every one skipped, e.g. sudo gave up),
+// aborted when a declined required step stopped it, failed on any failed
+// step, incomplete when a step was refused privilege (sudo gave up part-way:
+// the run is not a clean one, whatever ran fine), otherwise ok.
 func (m *model) queueOutcome(declined bool) string {
-	ran := false
+	ran, refused := false, false
 	for _, q := range m.queue {
-		if q.status == steps.OK || q.status == steps.Failed {
+		switch q.status {
+		case steps.OK, steps.Failed:
 			ran = true
+		case steps.AuthRefused:
+			refused = true
 		}
 	}
 	switch {
@@ -142,6 +147,8 @@ func (m *model) queueOutcome(declined bool) string {
 		return logstore.OutcomeAborted
 	case m.errs > 0:
 		return logstore.OutcomeFailed
+	case refused:
+		return logstore.OutcomeIncomplete
 	}
 	return logstore.OutcomeOK
 }
@@ -155,15 +162,19 @@ func (m *model) recordRun(outcome string) {
 		return
 	}
 	m.runDone = true
-	skipped := 0
+	skipped, refused := 0, 0
 	for _, q := range m.queue {
 		switch q.status {
-		case steps.Skipped, steps.AuthRefused, steps.Aborted:
+		case steps.AuthRefused:
+			refused++
+			skipped++
+		case steps.Skipped, steps.Aborted:
 			skipped++
 		}
 	}
 	_ = logs().WriteLastRun(logstore.RunRecord{
 		Action: m.runAction, Started: m.runStarted, Finished: time.Now(),
-		Outcome: outcome, StepsFailed: m.errs, StepsSkipped: skipped, DryRun: dryRun,
+		Outcome: outcome, StepsFailed: m.errs, StepsSkipped: skipped,
+		StepsRefused: refused, DryRun: dryRun,
 	})
 }

@@ -218,7 +218,8 @@ comments and `git log`; this is the "read before you touch it" list.
   logs are private: directories 0700, files 0600.
 - **State files** (under `~/.local/state/archmaid/`, for the planned DMS widget, see
   `docs/dms-widget.md`). `last-run.json` is written by `model.recordRun` (cmd/archmaid/log.go)
-  exactly once per queue, at its end: summary (`ok`/`failed` by `errs`; `cancelled` if no
+  exactly once per queue, at its end: summary (`ok`/`failed` by `errs`; `incomplete` when
+  nothing failed but a step was refused sudo, counted in `steps_refused`; `cancelled` if no
   step ran, e.g. sudo gave up), ctrl+c abort (`aborted`), a declined required step
   (`aborted`, or `cancelled` if nothing ran yet), a declined gate or cancelled password
   prompt (`cancelled`). `runDone` makes it idempotent; `activate`/`resetRun` re-arm it. The

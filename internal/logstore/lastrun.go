@@ -12,10 +12,14 @@ const LastRunFile = "last-run.json"
 
 // Outcomes a RunRecord can carry.
 const (
-	OutcomeOK        = "ok"        // every step that ran succeeded
-	OutcomeFailed    = "failed"    // at least one step failed
-	OutcomeAborted   = "aborted"   // stopped part-way (abort, or a declined required step)
-	OutcomeCancelled = "cancelled" // nothing ran: declined gate, cancelled password, auth gave up
+	OutcomeOK     = "ok"     // every step ran, or was declined at its own confirm, and succeeded
+	OutcomeFailed = "failed" // at least one step failed
+	// OutcomeIncomplete: nothing failed, but some steps never ran because
+	// privilege was refused (sudo gave up after wrong passwords, the root
+	// helper was refused); StepsRefused says how many. Not a clean run.
+	OutcomeIncomplete = "incomplete"
+	OutcomeAborted    = "aborted"   // stopped part-way (abort, or a declined required step)
+	OutcomeCancelled  = "cancelled" // nothing ran: declined gate, cancelled password, auth gave up
 )
 
 // RunRecord summarises one finished queue, for readers that only want "how did
@@ -25,10 +29,14 @@ type RunRecord struct {
 	Action       string    `json:"action"` // the menu action's id
 	Started      time.Time `json:"started"`
 	Finished     time.Time `json:"finished"`
-	Outcome      string    `json:"outcome"` // ok | failed | aborted | cancelled
+	Outcome      string    `json:"outcome"` // ok | failed | incomplete | aborted | cancelled
 	StepsFailed  int       `json:"steps_failed"`
-	StepsSkipped int       `json:"steps_skipped"`
-	DryRun       bool      `json:"dry_run"`
+	StepsSkipped int       `json:"steps_skipped"` // every step that didn't run, refused ones included
+	// StepsRefused is the part of StepsSkipped that didn't run because
+	// privilege was refused. Added within v1: a reader of an older record
+	// sees 0.
+	StepsRefused int  `json:"steps_refused"`
+	DryRun       bool `json:"dry_run"`
 }
 
 // lastRunPath is where the record lives: <root>/last-run.json, except that a

@@ -9,6 +9,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
+	tt "github.com/Enzord758/archmaid/internal/testtranscript"
 )
 
 // lastRunModel is a model mid-queue for action id, with the given step statuses.
@@ -67,6 +68,68 @@ func TestLastRunNothingRanIsCancelled(t *testing.T) {
 	if r := readLastRun(t); r.Outcome != "cancelled" || r.StepsSkipped != 2 {
 		t.Fatalf("record = %+v", r)
 	}
+}
+
+// A step refused sudo didn't run: the run is incomplete, not ok, and the
+// record says how many were refused.
+func TestLastRunRefusedIsIncomplete(t *testing.T) {
+	useLogDir(t, t.TempDir())
+	m := lastRunModel("fullcleanup", steps.OK, steps.AuthRefused, steps.Skipped, steps.AuthRefused, steps.OK)
+	m.advance()
+	r := readLastRun(t)
+	if r.Outcome != "incomplete" || r.StepsRefused != 2 || r.StepsSkipped != 3 || r.StepsFailed != 0 {
+		t.Fatalf("record = %+v, want incomplete with 2 refused of 3 skipped", r)
+	}
+}
+
+// A failure outranks a refusal: the run failed.
+func TestLastRunFailedOutranksIncomplete(t *testing.T) {
+	useLogDir(t, t.TempDir())
+	m := lastRunModel("fullcleanup", steps.OK, steps.Failed, steps.AuthRefused)
+	m.errs = 1
+	m.advance()
+	if r := readLastRun(t); r.Outcome != "failed" || r.StepsRefused != 1 {
+		t.Fatalf("record = %+v, want failed with 1 refused", r)
+	}
+}
+
+// End to end: three wrong passwords give up on sudo, the user-level steps
+// still run, so Full Cleanup is incomplete with every sudo step refused.
+func TestLastRunThreeWrongPasswordsIsIncomplete(t *testing.T) {
+	d := runScenario(t, "fullcleanup_three_wrong_passwords.shim")
+	refused := 0
+	for _, q := range d.m.queue {
+		if q.status == steps.AuthRefused {
+			refused++
+		}
+	}
+	if refused != 7 {
+		t.Fatalf("%d steps refused, want 7 (did the scenario change?)", refused)
+	}
+	r := readLastRun(t)
+	if r.Action != "fullcleanup" || r.Outcome != "incomplete" || r.StepsRefused != refused ||
+		r.StepsSkipped != refused || r.StepsFailed != 0 {
+		t.Fatalf("record = %+v, want incomplete with %d refused", r, refused)
+	}
+}
+
+// runScenario runs the transcript scenario name on a tuiTarget, for a test
+// that checks more than its golden does (the model it left behind, d.m).
+func runScenario(t *testing.T, name string) *Driver {
+	t.Helper()
+	for _, sc := range transcriptScenarios {
+		if sc.name != name {
+			continue
+		}
+		var tg *tuiTarget
+		r := sc.run(t, func(t *testing.T, shimLog string) tt.Target {
+			tg = newTUITarget(t, shimLog)
+			return tg
+		})
+		return &Driver{r, tg}
+	}
+	t.Fatalf("no transcript scenario %q", name)
+	return nil
 }
 
 func TestLastRunAborted(t *testing.T) {
