@@ -236,7 +236,8 @@ comments and `git log`; this is the "read before you touch it" list.
   `maxVisibleLines` (2000) from `m.tail`. One update per line with the whole
   buffer re-split each time was quadratic: 5k lines cost ~1 s of CPU and
   ~1.8 GB of allocations, 20k lines ~5 s (`BenchmarkStreamView*`, now ~5 ms
-  and ~21 ms). The pane follows new output only while it's at the bottom; a
+  and ~21 ms; `ARCHMAID_PERF_GUARD=1 scripts/check.sh` fails if they
+  regress past 3×, see `TESTING.md` → Perf guard). The pane follows new output only while it's at the bottom; a
   user who scrolled up stays put, and when the tail drops old lines their
   offset moves with the text. A step is done when its child exits: the pipe
   is read for at most `stepWaitDelay` (2 s, `exec.Cmd.WaitDelay`) after that,

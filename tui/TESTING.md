@@ -35,6 +35,33 @@ set at the top of the script: `MIN_TOTAL` for the whole package and
 coverage is computed from the profile itself. When coverage rises, raise the
 floor in the same commit; never lower one to make a change pass.
 
+### Perf guard (opt-in)
+
+```sh
+ARCHMAID_PERF_GUARD=1 ../scripts/check.sh   # the gate, then the perf guard
+```
+
+With `ARCHMAID_PERF_GUARD=1` set, the gate ends with one more step:
+`TestPerfGuard` (`perfguard_test.go`), run without `-race` or coverage (it
+skips itself under either, and without the variable). It runs
+`BenchmarkStreamView5k`, `BenchmarkStreamView20k` and `BenchmarkSystemStatus`
+through `testing.Benchmark` and fails if one is over 3× its baseline (best of
+up to three runs, so a single noisy run doesn't fail it). `StreamView20k` is
+the one that catches the streaming pane going quadratic again (it would be
+~250× over). The baselines are the dev machine's (Ryzen 7 7800X3D, 16
+threads, go1.27.1), which is why the guard isn't in the default gate:
+
+| Benchmark | Baseline (ns/op, median of 6) | Fails above |
+|---|---|---|
+| `StreamView5k` | 5.4 ms | 16.2 ms |
+| `StreamView20k` | 20.6 ms | 61.8 ms |
+| `SystemStatus` | 28.2 µs | 84.6 µs |
+
+Run it before and after touching `output.go`, `waitForStream`/`handleStream`,
+`View` or `status.go`. On another machine, or after a deliberate change,
+re-measure with `go test -run '^$' -bench 'StreamView|SystemStatus' -count=6
+./...` and update the baselines in the test.
+
 ## Make targets
 
 A root `Makefile` wraps everything CI runs; paths live in variables at its top.
@@ -44,7 +71,7 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 | `make gate` | `scripts/check.sh` (TUI module) |
 | `make helper-test` | `go test -race`, `go vet`, `gofmt -l` in `cmd/archmaid-helper` (its own module) |
 | `make e2e` | `bash tui/e2e/run.sh` (needs vhs, ttyd, ffmpeg) |
-| `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (opt-in perf guard; a no-op extra until check.sh reads it) |
+| `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (the gate, then the opt-in perf guard — see "Perf guard") |
 | `make all` | `gate` + `helper-test` — run before pushing |
 
 ## CI
@@ -71,6 +98,7 @@ go test -run TestAbort ./...        # a subset by name
 go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
 go test -run TestTranscript ./...   # the transcripts; -update-transcripts rewrites them
 go test -run '^$' -bench StreamView -benchmem ./...   # UI cost of streaming 5k / 20k lines
+ARCHMAID_PERF_GUARD=1 go test -run TestPerfGuard -v ./...   # the opt-in perf guard alone
 bash e2e/run.sh                     # VHS e2e (needs vhs, ttyd, ffmpeg)
 go build -o archmaid . && ./archmaid --dryrun   # manual poke; logs go to ~/.local/state/archmaid/dryrun/
 ```
@@ -258,6 +286,7 @@ the names.
 | `auth_test.go` | Two-stage prime: a wrong password never reaches `sudo` (no faillock burn), and su runs as `su -s /usr/bin/true <user>`; a correct one mints the ticket; a lockout notice is surfaced verbatim; submit locks the input and ignores all keys until the result arrives. |
 | `abort_test.go` | ctrl+c opens a confirm instead of quitting; "no" resumes with the child alive; "yes" really terminates a real child; a SIGINT-ignoring child is SIGKILLed after the grace period; late output after an abort is dropped, by its step sequence, so even once a new queue has started an aborted step's late line never reaches the new step's pane or log and its late done never finishes it. `abort_leak_test.go`: aborts leave no goroutine behind, both for a child blocked on a full stream and for one that left a background process holding its output pipe. |
 | `stream_test.go` | The pump batches what's buffered (at most `streamBatchMax` lines, in order, ending at the done, nothing left behind, seq on every batch); an aborted pump returns nil. The pane follows output only at the bottom: scrolled up, new batches don't yank it, and when the tail drops old lines the line being read stays on top. A 20k-line `alwaysLog` step logs all 20k lines in order while the pane holds the newest 2000. A step whose child leaves a background process holding its output pipe is done within `stepWaitDelay` of the child's exit, with every line, one done carrying the child's own status, and no goroutine left behind. `BenchmarkStreamView5k`/`20k`: Update + View cost of streaming a flood (guarded by `TestPerfGuard`, opt-in). |
+| `perfguard_test.go` | Opt-in (`ARCHMAID_PERF_GUARD=1`): the streaming and status-line benchmarks stay under 3× the dev machine's baselines; see Perf guard above. |
 | `overlay_test.go` | Popups float, centered, over their background; ANSI-styled backgrounds keep their width; the abort dialog stays over the running screen. |
 | `resize_test.go` | The output pane never overflows the terminal (running queue, log viewer, resize while a popup is open); askpass prompts over another popup keep the real background; nested popups resolve to the right base screen. |
 | `services_test.go` | Services discovery: `parseInactiveServices` on a captured `list-units` fixture (the `●` not-found row, masked, template instances, excluded names), the batched `is-enabled` with its per-unit fallback, and an equivalence test running the old bash pipeline against the same fixture system (`testdata/systemctl_list_*.txt` served by a shim) to prove both select the same units. |

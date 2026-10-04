@@ -5,6 +5,8 @@
 #
 # Usage:
 #   scripts/check.sh
+#   ARCHMAID_PERF_GUARD=1 scripts/check.sh   # also run the perf guard (opt-in:
+#                                            # its thresholds are machine-specific)
 set -euo pipefail
 
 # Coverage floors, in percent of statements. Raise them when coverage rises;
@@ -76,5 +78,13 @@ floor askpass.go /askpass.go "$MIN_ASKPASS"
 
 if ((failed)); then
 	exit 1
+fi
+
+# Opt-in: the timings behind TestPerfGuard's thresholds are the dev machine's,
+# so the default gate stays fast and machine-independent. It runs without
+# -race or coverage (the test skips itself under either).
+if [[ "${ARCHMAID_PERF_GUARD:-}" == 1 ]]; then
+	echo "==> perf guard"
+	go test -count=1 -run '^TestPerfGuard$' -v ./...
 fi
 echo "PASS: gate green"
