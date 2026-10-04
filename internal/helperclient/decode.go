@@ -152,6 +152,9 @@ func (d *decoder) feed(line []byte) (out []string, start bool) {
 	}
 }
 
+// decode is plain json.Unmarshal, which also takes non-canonical JSON
+// (duplicate keys, keys in another case, unknown fields); that is accepted
+// on purpose, as the only writer is the helper's own json.Encoder.
 func (d *decoder) decode(line []byte, v any) bool {
 	if err := json.Unmarshal(line, v); err != nil {
 		d.fail("malformed %s line: %v", d.verb, err)
