@@ -2,6 +2,24 @@
 
 Status: design only. Optional, low priority. Nothing here changes the TUI or helper.
 
+## Decisions (owner, 2026-10-04)
+
+These settle the open questions below and override any alternative the rest of
+this document still mentions.
+
+1. **State files: yes.** archmaid writes `last-run.json` and `audit-state.json`
+   under `~/.local/state/archmaid/`, so the widget can show the last run's
+   outcome and unacknowledged high AUR findings. Writers land with the
+   engine/logstore work, ahead of the widget, so the data exists when it ships.
+2. **Pending updates come from a systemd user timer** that runs `checkupdates`
+   read-only and writes `updates-cache.json` (a later, "could" item). Not from a
+   cache the TUI/GUI write as a side effect.
+3. **"Run Full Cleanup" opens the GTK app when installed, otherwise the TUI in
+   `$TERMINAL`** (not a hard-coded kitty).
+4. **Staleness warning after 14 days** without a cleanup.
+5. **The package installs the widget** so the user only enables it in DMS. **Bar
+   only** — no control-center tile.
+
 ## 1. How DMS plugins work on this machine
 
 Found: dms-shell 1.6.2-1, quickshell 0.3.1-1.1. Installed plugins in
