@@ -41,7 +41,11 @@ func main() {
 		}
 	}()
 
-	if _, err := p.Run(); err != nil {
+	_, err := p.Run()
+	// An aborted downloads deletion finishes its current entry and logs what
+	// it deleted; don't cut that short by exiting.
+	waitForDownloads(os.Stderr)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}

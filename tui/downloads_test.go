@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -12,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // isolateDownloads gives the test a scratch $HOME and XDG config dir, and
@@ -563,9 +566,107 @@ func TestDownloadsThroughTheUI(t *testing.T) {
 	if exists(filepath.Join(dl, "old.iso")) {
 		t.Fatal("old.iso survived")
 	}
+	waitForDownloads(io.Discard) // an abort record, had commit not disarmed it
 	log, _ := os.ReadFile(logPath(logCategoryCleanup))
 	if !strings.Contains(string(log), "OK: Old downloads deleted") || !strings.Contains(string(log), "deleted: old.iso") {
 		t.Fatalf("cleanup.log should record the deletion:\n%s", log)
+	}
+	if strings.Count(string(log), ": Old downloads deleted") != 1 {
+		t.Fatalf("cleanup.log should hold exactly one entry:\n%s", log)
+	}
+}
+
+// startDownloadsDelete puts four old files in ~/Downloads, runs discovery and
+// says yes, returning the model and the delete step's Cmd; logs go to a
+// scratch dir.
+func startDownloadsDelete(t *testing.T) (model, tea.Cmd, string) {
+	t.Helper()
+	home := isolateDownloads(t)
+	oldLog := logDir
+	logDir = t.TempDir()
+	t.Cleanup(func() { logDir = oldLog })
+	dl := filepath.Join(home, "Downloads")
+	for _, n := range []string{"a.txt", "b.txt", "c.txt", "d.txt"} {
+		writeFile(t, filepath.Join(dl, n), "x")
+	}
+	cutoffAt(t, ctimeMark(t))
+	m := update(initialModel(), discoverDownloads()())
+	next, cmd := m.Update(key("y"))
+	if cmd == nil {
+		t.Fatal("confirming should launch the delete step")
+	}
+	return next.(model), cmd, dl
+}
+
+// abortRun answers the running screen's ctrl+c with "yes, abort".
+func abortRun(t *testing.T, m model) model {
+	t.Helper()
+	m = update(update(m, key("ctrl+c")), key("y"))
+	if m.screen != screenMenu {
+		t.Fatalf("screen=%d after abort, want the menu", m.screen)
+	}
+	return m
+}
+
+// TestDownloadsAbortMidDeletionIsLogged: aborting partway through the delete
+// drops the step's result, but cleanup.log still names exactly the entries
+// that were deleted, and where it stopped.
+func TestDownloadsAbortMidDeletionIsLogged(t *testing.T) {
+	m, cmd, dl := startDownloadsDelete(t)
+	reached, resume := make(chan struct{}), make(chan struct{})
+	downloadsEntryHook = func(name string) {
+		if name == "c.txt" {
+			close(reached)
+			<-resume
+		}
+	}
+	t.Cleanup(func() { downloadsEntryHook = nil })
+	msgs := make(chan tea.Msg, 1)
+	go func() { msgs <- cmd() }()
+
+	<-reached // a.txt and b.txt are gone
+	m = abortRun(t, m)
+	close(resume)
+	m = update(m, <-msgs) // stale: dropped
+	if m.screen != screenMenu {
+		t.Fatalf("screen=%d, the aborted result must be dropped", m.screen)
+	}
+
+	log, _ := os.ReadFile(logPath(logCategoryCleanup))
+	for _, want := range []string{"ABORT: Old downloads deleted (aborted)",
+		"deleted: a.txt", "deleted: b.txt", "stopped: aborted before c.txt", "2 deleted, 0 kept, 0 failed"} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("cleanup.log lacks %q:\n%s", want, log)
+		}
+	}
+	if strings.Contains(string(log), "deleted: c.txt") || strings.Contains(string(log), "deleted: d.txt") ||
+		strings.Count(string(log), ": Old downloads deleted") != 1 {
+		t.Fatalf("cleanup.log should hold one entry, naming only a.txt and b.txt:\n%s", log)
+	}
+	if exists(filepath.Join(dl, "a.txt")) || !exists(filepath.Join(dl, "c.txt")) || !exists(filepath.Join(dl, "d.txt")) {
+		t.Fatal("want a.txt deleted, c.txt and d.txt kept")
+	}
+}
+
+// TestDownloadsAbortAfterTheRunIsLogged: an abort that lands after the delete
+// finished but before the model took its result still leaves the record —
+// the result is dropped, so the step writes it.
+func TestDownloadsAbortAfterTheRunIsLogged(t *testing.T) {
+	m, cmd, dl := startDownloadsDelete(t)
+	msg := cmd() // the whole delete runs
+	m = abortRun(t, m)
+	waitForDownloads(io.Discard)
+	m = update(m, msg) // stale: dropped
+	if m.screen != screenMenu {
+		t.Fatalf("screen=%d, the aborted result must be dropped", m.screen)
+	}
+	log, _ := os.ReadFile(logPath(logCategoryCleanup))
+	if !strings.Contains(string(log), "ABORT: Old downloads deleted (aborted)") ||
+		!strings.Contains(string(log), "deleted: d.txt") || strings.Count(string(log), ": Old downloads deleted") != 1 {
+		t.Fatalf("cleanup.log should hold one abort entry naming every deletion:\n%s", log)
+	}
+	if exists(filepath.Join(dl, "a.txt")) {
+		t.Fatal("a.txt survived")
 	}
 }
 

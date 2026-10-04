@@ -841,10 +841,6 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 	if msg.seq != m.stepSeq || m.screen == screenMenu || m.screen == screenSummary {
 		return m, nil
 	}
-	if m.stepCancel != nil {
-		m.stepCancel() // the step is done; release its ctx
-		m.stepCancel = nil
-	}
 	m.dropAuditFetch() // consumed (if this was the audit)
 	if msg.output != "" {
 		out := Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR)
@@ -864,6 +860,13 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		next.onAccept = msg.commit
 	} else if msg.confirmNext == "" && msg.commit != nil {
 		msg.commit()
+	}
+	// Only now release the step's ctx: until commit has run, a cancelled ctx
+	// means an abort to the step (deleteOldDownloads logs its own outcome
+	// then, and commit is what tells it the result was taken after all).
+	if m.stepCancel != nil {
+		m.stepCancel()
+		m.stepCancel = nil
 	}
 	return m.finishStep(msg.err)
 }

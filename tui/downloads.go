@@ -6,11 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -399,58 +401,126 @@ func (b boundary) crosses(rel string, fi fs.FileInfo) bool {
 // which would descend into a mount point. If the folder itself is no longer
 // the one scanned, nothing is deleted. In a dry run it only reports. An abort
 // cancels ctx, which stops it between entries: nothing after that is touched.
+//
+// An aborted run's result is dropped (stepSeq), and finishStep never logs
+// it, so a real run puts what it deleted on record itself: when it sees the
+// abort, and — should the abort land after it returned but before the model
+// took its result — from a context.AfterFunc that the result's commit
+// (called only when the result is taken) disarms. Either way cleanup.log gets
+// one entry naming exactly what was deleted.
 func deleteOldDownloads(dir string, id dirID, names []string) func(context.Context) stepResult {
 	return func(ctx context.Context) stepResult {
-		shown := displayPath(dir)
-		root, err := os.OpenRoot(dir)
-		if err != nil {
-			return stepResult{err: err}
+		downloadsRunning.Add(1)
+		defer downloadsRunning.Done()
+		res := deleteOldDownloadsNow(ctx, dir, id, names)
+		if dryRun {
+			return res // nothing deleted; finishStep logs the DRYRUN entry
 		}
-		defer root.Close()
-		if got, err := dirIdentity(root); err != nil || got != id {
-			return stepResult{
-				output: shown + " is not the folder that was scanned anymore; nothing deleted.",
-				err:    errors.New("downloads folder changed since the scan"),
+		if ctx.Err() != nil {
+			logAbortedDownloads(res.output)
+			return res
+		}
+		if ctx.Done() == nil {
+			return res // can't be aborted (a test's context.Background())
+		}
+		downloadsRunning.Add(1) // until the AfterFunc has run or been disarmed
+		stop := context.AfterFunc(ctx, func() {
+			defer downloadsRunning.Done()
+			logAbortedDownloads(res.output)
+		})
+		res.commit = func() error {
+			if stop() {
+				downloadsRunning.Done()
 			}
+			return nil
 		}
-		b, err := newBoundary(dir, id)
-		if err != nil {
-			return stepResult{output: "Couldn't read the mount table; nothing deleted.", err: err}
-		}
-
-		cutoff := downloadsNow().Add(-downloadsMaxAge)
-		var out strings.Builder
-		var errs []error
-		deleted, kept := 0, 0
-		for _, name := range names {
-			if ctx.Err() != nil {
-				fmt.Fprintf(&out, "stopped: aborted before %s\n", displayName(name))
-				errs = append(errs, ctx.Err())
-				break
-			}
-			shownName := displayName(name)
-			switch {
-			case !entryIsOld(root.FS(), name, cutoff, b):
-				kept++
-				fmt.Fprintf(&out, "kept (changed since the scan): %s\n", shownName)
-			case dryRun:
-				fmt.Fprintf(&out, "[dry-run] would delete: %s\n", shownName)
-			default:
-				if err := removeTree(root, name, name, b); err != nil {
-					errs = append(errs, err)
-					fmt.Fprintf(&out, "couldn't delete %s: %s\n", shownName, pathErrCause(err))
-					continue
-				}
-				deleted++
-				fmt.Fprintf(&out, "deleted: %s\n", shownName)
-			}
-		}
-		if !dryRun {
-			fmt.Fprintf(&out, "\n%d deleted, %d kept, %d failed in %s\n", deleted, kept, len(errs), shown)
-		}
-		return stepResult{output: out.String(), err: errors.Join(errs...)}
+		return res
 	}
 }
+
+// downloadsRunning counts deletions (and their pending abort records) still
+// in flight, so main can let them finish before the process exits.
+var downloadsRunning sync.WaitGroup
+
+// waitForDownloads blocks until no deletion is in flight, saying why on w if
+// that takes a moment. After an abort a run stops at the end of the entry it
+// is deleting, so this is short.
+func waitForDownloads(w io.Writer) {
+	done := make(chan struct{})
+	go func() { downloadsRunning.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		fmt.Fprintln(w, "archmaid: waiting for the downloads deletion to stop…")
+		<-done
+	}
+}
+
+// logAbortedDownloads records an aborted real run's output — what it deleted
+// and where it stopped — in place of the entry finishStep would have written.
+func logAbortedDownloads(output string) {
+	appendLog(logCategoryCleanup, "ABORT", "Old downloads deleted (aborted)", output)
+}
+
+// deleteOldDownloadsNow is deleteOldDownloads' work.
+func deleteOldDownloadsNow(ctx context.Context, dir string, id dirID, names []string) stepResult {
+	shown := displayPath(dir)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return stepResult{err: err}
+	}
+	defer root.Close()
+	if got, err := dirIdentity(root); err != nil || got != id {
+		return stepResult{
+			output: shown + " is not the folder that was scanned anymore; nothing deleted.",
+			err:    errors.New("downloads folder changed since the scan"),
+		}
+	}
+	b, err := newBoundary(dir, id)
+	if err != nil {
+		return stepResult{output: "Couldn't read the mount table; nothing deleted.", err: err}
+	}
+
+	cutoff := downloadsNow().Add(-downloadsMaxAge)
+	var out strings.Builder
+	var errs []error
+	deleted, kept, failed := 0, 0, 0
+	for _, name := range names {
+		if downloadsEntryHook != nil {
+			downloadsEntryHook(name)
+		}
+		if ctx.Err() != nil {
+			fmt.Fprintf(&out, "stopped: aborted before %s\n", displayName(name))
+			errs = append(errs, ctx.Err())
+			break
+		}
+		shownName := displayName(name)
+		switch {
+		case !entryIsOld(root.FS(), name, cutoff, b):
+			kept++
+			fmt.Fprintf(&out, "kept (changed since the scan): %s\n", shownName)
+		case dryRun:
+			fmt.Fprintf(&out, "[dry-run] would delete: %s\n", shownName)
+		default:
+			if err := removeTree(root, name, name, b); err != nil {
+				errs = append(errs, err)
+				failed++
+				fmt.Fprintf(&out, "couldn't delete %s: %s\n", shownName, pathErrCause(err))
+				continue
+			}
+			deleted++
+			fmt.Fprintf(&out, "deleted: %s\n", shownName)
+		}
+	}
+	if !dryRun {
+		fmt.Fprintf(&out, "\n%d deleted, %d kept, %d failed in %s\n", deleted, kept, failed, shown)
+	}
+	return stepResult{output: out.String(), err: errors.Join(errs...)}
+}
+
+// downloadsEntryHook, if set, runs before each entry is handled (before the
+// abort check) — a seam for tests to abort mid-deletion.
+var downloadsEntryHook func(name string)
 
 // errOtherFS refuses a removal that would leave the folder's filesystem.
 var errOtherFS = errors.New("another filesystem is mounted in it")

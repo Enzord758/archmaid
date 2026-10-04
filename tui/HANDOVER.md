@@ -138,7 +138,14 @@ comments and `git log`; this is the "read before you touch it" list.
   success too, and a `SKIP … (declined)` entry when their confirm is declined:
   anything that removes or overwrites something, topgrade (the step that changes
   the most), and the AUR audit. That keeps what those steps did auditable from
-  archmaid's own log. Logs are split into
+  archmaid's own log. An aborted in-process step's result is dropped by
+  `stepSeq`, so `finishStep` never logs it; the downloads delete therefore
+  writes its own `ABORT` entry (exactly what it deleted, and where it
+  stopped) when it sees the abort, or from a `context.AfterFunc` if the abort
+  lands after it returned — the result's `commit` disarms that when the
+  result is taken, which is why `handleStepResult` releases the step's ctx
+  only *after* `commit`. `main` waits for such a run (`waitForDownloads`)
+  before exiting. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
   run directories are kept, `dryrun/` is a single reused slot, and files in the
   state-dir root (the AUR snapshot) are ignored by `pruneLogs`. Only `appendLog`
