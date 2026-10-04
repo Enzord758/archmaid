@@ -657,6 +657,10 @@ func TestSessionPanicsOnWhatIsNotBuilt(t *testing.T) {
 		h := newHarness(t, Options{}, actions.Action{ID: "d", Discover: func(context.Context, actions.Env) actions.Discovery { return nil }})
 		seq := effect[Discover](t, h.start("d")).Seq
 		expectPanic(reflectName(d), func() { h.s.Handle(Discovered{Seq: seq, Discovery: d}) })
+		// Nothing changed: the discovery is still the one awaited.
+		if o := h.s.Handle(Discovered{Seq: seq, Discovery: actions.Notice{Text: "n"}}); len(o.Events) == 0 {
+			t.Errorf("%s: the panic left the Session changed", reflectName(d))
+		}
 	}
 }
 

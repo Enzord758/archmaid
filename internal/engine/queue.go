@@ -524,6 +524,13 @@ func (s *Session) discovered(o *Output, in Discovered) {
 	if r == nil || in.Seq == 0 || in.Seq != r.discoverSeq {
 		return
 	}
+	switch in.Discovery.(type) {
+	case actions.Notice, actions.Pending, actions.NeedsRoot:
+	default:
+		// NeedsSelection, Report (E5); checked before anything changes, so
+		// a recovered panic leaves the Session as it was.
+		panic(errNotImplemented)
+	}
 	r.discoverSeq = 0
 	switch d := in.Discovery.(type) {
 	case actions.Notice:
@@ -533,8 +540,6 @@ func (s *Session) discovered(o *Output, in Discovered) {
 		s.plan(o, d.Steps, "")
 	case actions.NeedsRoot:
 		s.needsRoot(o, d)
-	default:
-		panic(errNotImplemented) // NeedsSelection, Report (E5)
 	}
 }
 
