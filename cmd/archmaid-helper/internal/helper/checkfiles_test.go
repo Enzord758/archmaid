@@ -195,3 +195,61 @@ func TestCheckFilesNamesMax(t *testing.T) {
 		t.Fatalf("want one pacman -Qk -- with %d names, got %d argvs", maxNames, len(f.streams))
 	}
 }
+
+// TestCheckFilesFullCheckEvent: the full check (no names) also ends in a
+// check event, listing every package pacman printed a summary for, in its
+// order, and the broken ones. It fails on a helper whose full check only
+// relays pacman's text.
+func TestCheckFilesFullCheckEvent(t *testing.T) {
+	f := newFake().on(checkFilesArgv(), reply{
+		out: "a: 3 total files, 0 missing files\n" +
+			"b: 1 total file, 1 missing file\n" +
+			"c: 40 total files, 2 missing files\n",
+		err:  "warning: b: /usr/bin/b (No such file or directory)\n",
+		exit: 1,
+	})
+	o, out := rootOpts(t, f)
+	if code := Run([]string{"check-files"}, o); code != ExitOK {
+		t.Fatalf("exit %d, want 0; output:\n%s", code, out)
+	}
+	if got, want := join(f.streams), []string{"/usr/bin/pacman -Qk"}; !slices.Equal(got, want) {
+		t.Fatalf("ran %q, want %q", got, want)
+	}
+	if !strings.Contains(out.String(), `{"v":1,"t":"check","checked":["a","b","c"],"broken":["b","c"]}`) {
+		t.Errorf("want the full check's check event, got:\n%s", out)
+	}
+	evs := events(t, out)
+	if evs[len(evs)-2]["t"] != EventCheck {
+		t.Errorf("the check event must come right before the result:\n%s", out)
+	}
+	if len(ofType(evs, EventLine)) != 4 {
+		t.Errorf("want pacman's 4 lines relayed:\n%s", out)
+	}
+	if res := result(t, out); res["child_exit"] != float64(1) {
+		t.Errorf("child_exit %v, want 1", res["child_exit"])
+	}
+}
+
+// TestCheckFilesFullNoneBroken: a clean full check is broken [], never null.
+func TestCheckFilesFullNoneBroken(t *testing.T) {
+	f := newFake().on(checkFilesArgv(), reply{out: "a: 3 total files, 0 missing files\n"})
+	o, out := rootOpts(t, f)
+	if code := Run([]string{"check-files"}, o); code != ExitOK {
+		t.Fatalf("exit %d, want 0; output:\n%s", code, out)
+	}
+	if !strings.Contains(out.String(), `{"v":1,"t":"check","checked":["a"],"broken":[]}`) {
+		t.Errorf("want an exact check line with broken [], got:\n%s", out)
+	}
+}
+
+// TestCheckFilesFullPacmanFails: a failing full check has no check event.
+func TestCheckFilesFullPacmanFails(t *testing.T) {
+	f := newFake().on(checkFilesArgv(), reply{err: "error: failed to init\n", exit: 2})
+	o, out := rootOpts(t, f)
+	if code := Run([]string{"check-files"}, o); code != ExitFailed {
+		t.Fatalf("exit %d, want %d; output:\n%s", code, ExitFailed, out)
+	}
+	if n := len(ofType(events(t, out), EventCheck)); n != 0 {
+		t.Errorf("a failed check must not report a check event, got %d", n)
+	}
+}

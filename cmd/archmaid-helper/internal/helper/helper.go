@@ -250,9 +250,15 @@ var checkFilesOK = []int{1}
 
 // runCheckFiles checks every installed package's files, or with names just
 // those packages' (Repair's root recheck of its user scan's candidates).
+// Either way a run that gets pacman's verdict ends in a check event.
 func runCheckFiles(s *session, args []string) int {
 	if len(args) == 0 {
-		return s.single("Checking package files", checkFilesArgv(), checkFilesOK...)
+		release, code := s.lock()
+		if code != ExitOK {
+			return code
+		}
+		defer release()
+		return s.checkPackages(nil)
 	}
 	if msg := checkNames(args); msg != "" {
 		return s.usage("%s", msg)
@@ -315,13 +321,18 @@ func (s *session) checkInstalled(names []string) (int, string) {
 // step, and then reports each package's summary line in one check event:
 // checked lists the packages it read a summary for, broken those of them
 // missing files. A package without a summary is skipped ("could not check
-// its files") and is in neither list.
+// its files") and is in neither list. With no names (nil) it runs the full
+// `pacman -Qk` and reports every summary line, in pacman's order.
 func (s *session) checkPackages(names []string) int {
 	label := fmt.Sprintf("Checking %d package(s) for missing files", len(names))
+	argv := checkPackagesArgv(names)
+	if names == nil {
+		label, argv = "Checking package files", checkFilesArgv()
+	}
 	s.em.Progress(1, 1, label)
 	var mu sync.Mutex // Stream drains stdout and stderr concurrently
 	var out strings.Builder
-	exit, err := s.o.Runner.Stream(checkPackagesArgv(names), func(stream, text string) {
+	exit, err := s.o.Runner.Stream(argv, func(stream, text string) {
 		if stream == "out" {
 			mu.Lock()
 			out.WriteString(text + "\n")
@@ -337,6 +348,14 @@ func (s *session) checkPackages(names []string) int {
 		return s.finish(ExitFailed, fmt.Sprintf("%s: %s exited %d", label, Pacman, exit))
 	}
 	checked, broken := []string{}, []string{}
+	if names == nil {
+		for _, sum := range qkSummaries(out.String()) {
+			checked = append(checked, sum.name)
+			if sum.missing > 0 {
+				broken = append(broken, sum.name)
+			}
+		}
+	}
 	for _, n := range names {
 		missing, ok := missingFiles(out.String(), n)
 		if !ok {
@@ -624,6 +643,29 @@ func syncVersion(out string) (string, bool) {
 }
 
 var qkSummary = regexp.MustCompile(`^(\S+): [0-9]+ total files?, ([0-9]+) missing files?$`)
+
+// qkSum is one package's `pacman -Qk` summary line.
+type qkSum struct {
+	name    string
+	missing int
+}
+
+// qkSummaries parses every summary line of `pacman -Qk` output, in order.
+func qkSummaries(out string) []qkSum {
+	var sums []qkSum
+	for _, l := range nonEmptyLines(out) {
+		m := qkSummary.FindStringSubmatch(l)
+		if m == nil {
+			continue
+		}
+		n := 0
+		if _, err := fmt.Sscan(m[2], &n); err != nil {
+			continue
+		}
+		sums = append(sums, qkSum{m[1], n})
+	}
+	return sums
+}
 
 // missingFiles parses pkg's `pacman -Qk` summary line.
 func missingFiles(out, pkg string) (int, bool) {

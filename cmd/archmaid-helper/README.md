@@ -20,7 +20,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 
 | Verb | Root command | Input / recheck | polkit action (`allow_active`) |
 |---|---|---|---|
-| `check-files [pkg…]` | `pacman -Qk`, or with names `pacman -Qk -- …` | read-only. Exit 1 from pacman means "missing files found", which is a result, not a failure. With no names it checks every package. With names (Repair's root recheck of the user scan's candidates) it takes 1–256 of them, each =~ the `repair` name pattern (so none starts with `-`), none twice, and each installed (`pacman -Qq`); anything else exits 2 before `-Qk` runs. It then emits one `check` event (`checked`, `broken`) before the result; a name without a summary line is skipped (`could not check its files`). Any pacman exit but 0/1 exits 1 with no `check` event | `…check-files` (keep) |
+| `check-files [pkg…]` | `pacman -Qk`, or with names `pacman -Qk -- …` | read-only. Exit 1 from pacman means "missing files found", which is a result, not a failure. With no names it checks every package. With names (Repair's root recheck of the user scan's candidates) it takes 1–256 of them, each =~ the `repair` name pattern (so none starts with `-`), none twice, and each installed (`pacman -Qq`); anything else exits 2 before `-Qk` runs. Either way it then emits one `check` event (`checked`, `broken`) before the result: with names, a name without a summary line is skipped (`could not check its files`); without, it lists every package pacman printed a summary for. Any pacman exit but 0/1 exits 1 with no `check` event | `…check-files` (keep) |
 | `paccache N` | `paccache -r -k N` | `N` ∈ `1`–`9` | `…paccache` (keep) |
 | `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
@@ -168,7 +168,7 @@ on stderr.
 | `progress` | `step`, `of` (1-based), `label` |
 | `line` | `stream` (`out`/`err`), `text`: one line of child output (`\n`, `\r\n` or a lone `\r` ends a line; lines over 8 KiB are split) |
 | `plan` | `targets` (orphans), `items` (`"name version"` of everything removed), `total` = `len(items)`, `hash` |
-| `check` | `check-files` with names only: `checked` (the names pacman printed a summary for), `broken` (those of them missing files); both arrays, never `null` |
+| `check` | `check-files` (with or without names): `checked` (the packages pacman printed a summary for), `broken` (those of them missing files); both arrays, never `null` |
 | `result` | `ok` (= `code == 0`), `code`, `child_exit` (exit status of the last root command run, `null` if none ran), `skipped` (`[{name, reason}]`, never `null`); `error` (string) when something went wrong |
 
 All text is sanitized. Whole ANSI/VT escape sequences are removed (CSI, OSC,

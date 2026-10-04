@@ -128,7 +128,7 @@ func (e *Emitter) Plan(p Plan) {
 	})
 }
 
-// Check reports a check-files run over named packages: checked are the
+// Check reports a check-files run (named packages or all): checked are the
 // packages whose files were checked, broken those of them missing files.
 // Both are always arrays, never null.
 func (e *Emitter) Check(checked, broken []string) {
