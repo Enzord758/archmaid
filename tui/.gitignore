@@ -4,5 +4,5 @@
 /tui
 
 # VHS e2e artifacts
-e2e/run.txt
-e2e/run.gif
+e2e/*.txt
+e2e/*.gif

@@ -17,7 +17,7 @@ real-binary end-to-end run.
 | Transcript | a driver pumping a whole menu action through `Update` against `sh` shims | What an action *does* end to end — programs run, prompts, plan, step results, log entries — as a frontend-agnostic golden. |
 | Layout/render | direct `View()` assertions + `teatest` goldens | Frames at a pinned size and color profile; the output pane never overflowing the terminal. |
 | Real processes | a real `sleep` child, real signals | Only where behaviour *is* the OS (abort → SIGINT → SIGKILL escalation). |
-| E2E | VHS drives the real binary in a pty under `--dryrun` | One smoke path proving the wiring (build, alt-screen, keys, log file). |
+| E2E | VHS drives the real binary in a pty under `--dryrun`, with every external command shimmed | A few short paths proving the wiring (build, alt-screen, keys, log files): Clear user cache, services multi-select, Full Cleanup's orphan confirm, abort. |
 
 Keep new tests at the lowest layer that can prove the behaviour.
 
@@ -228,7 +228,7 @@ the names.
 | `transcript_*_test.go` + `testdata/transcripts/` | Whole actions end to end against shims — see Transcripts above and the scenario names. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
 | `golden_test.go` + `testdata/` | Direct `View()` goldens at 80×24: the summary for each outcome (ok, issues, skipped, aborted); the password popup over the menu (masked input, and with the attempts-left error); a confirm over the running checklist; the log picker; the audit report; a notice; the discovering spinner. |
-| `e2e/run.tape` + `run.sh` | The real binary under `--dryrun` in a throwaway `HOME`: menu → Clear user cache → confirm → asserts `dryrun/cleanup.log` contains the `DRYRUN:` entry. |
+| `e2e/*.tape` + `run.sh` + `shim.sh` | The real binary under `--dryrun`, one tape each, in a throwaway `HOME` with a shim dir first on `PATH` (every external command is a symlink to `shim.sh`, which only logs argv to a file and prints canned output; `run.sh` checks the shadowing first and that no mutating shim ran). `clear-cache`: asserts the `DRYRUN:` entry. `services`: toggles one of two shimmed units; the log names exactly that unit and `systemctl` only ever listed. `orphans`: Full Cleanup's confirm reads "2 … 3 total" (from the tape's `.txt`) and `orphans.log` has the dry-run removal. `abort`: ctrl+c on the blocked audit step, confirm; back on the menu, nothing logged. `bash e2e/run.sh services abort` runs a subset; generated `e2e/*.txt` is gitignored. |
 
 ## Known gaps
 
@@ -236,10 +236,10 @@ the names.
   Cleanup of the real binary via VHS, real AUR, with a scratch `HOME` whose
   seeded snapshot gave one real package a fake previous maintainer. A VHS tape
   for it would need a stable fake AUR, so it isn't in `e2e/`.
-- **E2E covers only Clear user cache.** Candidates: the services multi-select
-  (fake `systemctl` via a PATH shim), Full Cleanup's orphan confirm (shimmed
-  `pacman`), and abort. The audit screen needs a fake AUR, so it stays a unit
-  test.
+- **E2E abort uses the audit step:** under `--dryrun` every other step is stubbed
+  and finishes instantly, so the in-process audit (blocked on a shimmed
+  `pacman -Qqm`) is the only step that can be held open. The audit screen itself
+  still needs a fake AUR, so it stays a unit test.
 - **Inherently not automated:** the OS-level terminal handover inside
   `tea.ExecProcess` (we assert the command built, not that the editor takes
   over); `tea.Tick`'s wall-clock firing (a library primitive); that `sudo`
