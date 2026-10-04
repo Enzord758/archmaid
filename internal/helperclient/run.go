@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/helperclient/internal/seam"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -155,8 +156,20 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 var ErrHelperMissing = errors.New("archmaid-helper is not installed")
 
 // helperFile is the file helperInstalled checks: HelperPath, except in
-// tests, where export_test.go points it at a stand-in.
+// tests, where export_test.go (this package's) or helpertest (other
+// packages', through seam) points it at a stand-in. It is never what Run
+// starts: Argv always names HelperPath.
 var helperFile = HelperPath
+
+// Other packages' tests move helperFile through helpertest, by way of seam,
+// which only internal/helperclient's own packages can import.
+func init() {
+	seam.SetHelperFile = func(path string) func() {
+		old := helperFile
+		helperFile = path
+		return func() { helperFile = old }
+	}
+}
 
 // helperInstalled is nil when helperFile is a regular file. It only saves
 // a password prompt that can't succeed; polkit and the helper's own install

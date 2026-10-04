@@ -115,7 +115,8 @@ for pkg in $(go list ./cmd/...); do
 	fi
 done
 # Test-only code stays out of the binaries: no main package may link the
-# testing package (privilege/privtest and testenv are for _test.go files).
+# testing package (privilege/privtest, helperclient/helpertest and testenv are
+# for _test.go files).
 for pkg in $(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./cmd/...); do
 	if go list -deps "$pkg" | grep -qx 'testing'; then
 		echo "FAIL: $pkg links the testing package; test helpers belong in _test.go files"
