@@ -24,7 +24,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
 | `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan; a mismatch emits the new plan and exits **3**, removing nothing | `…remove-orphans` (admin) |
-| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Qq`), in a sync repo (`-Si`) and really missing files (`-Qk -- pkg`). Any other package is skipped and listed | `…repair` (admin) |
+| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Q`), in a sync repo (`-Si`), really missing files (`-Qk -- pkg`) and installed at exactly the version the first repo listing it has (`-Q` vs. `-Si` → `Version`), so a repair is never a partial upgrade or a downgrade. Any other package is skipped and listed, a version mismatch with the reason `repo has a different version (installed X, repo Y) — update the system first`. If nothing is left to reinstall and a version mismatch is among the reasons, it exits **3** | `…repair` (admin) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
 | `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit exits **4**, and the whole request is refused. A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
@@ -54,10 +54,10 @@ the session to re-run it with any argument it accepts:
 
 Nothing in the "keep" set takes free-form input. `repair` is **admin** even
 though it rechecks every name, because it takes package names and runs a pacman
-transaction: the packages' install scriptlets and pacman hooks run as root, and
-`pacman -S` installs the sync repo's version, which is newer than the installed
-one if the sync database has been refreshed since the last upgrade. That is not
-something to allow silently for five minutes. It costs nothing in the usual
+transaction: the packages' install scriptlets and pacman hooks run as root.
+(It only reinstalls a package whose repo version equals the installed one, so
+it can't be used for a partial upgrade.) That is not something to allow
+silently for five minutes. It costs nothing in the usual
 flow, because `check-files` → `repair` already asks twice (keep is per action).
 
 The **orphan plan hash** is
@@ -158,7 +158,7 @@ field is not a schema break; changing or removing one bumps `v`.
 | 0 | ok (including "nothing to do" and skips) |
 | 1 | a root command failed, or an internal error |
 | 2 | bad usage or input |
-| 3 | state changed since the user confirmed (orphan plan hash mismatch) |
+| 3 | state changed since the user confirmed (orphan plan hash mismatch), or `repair` has nothing it may reinstall because the repos have a different version (update the system first) |
 | 4 | refused: denylisted unit, not root, no `PKEXEC_UID`/`SUDO_UID`, wrong install path/ownership/mode, or a devhelper build run as root |
 | 5 | busy: `/run/archmaid-helper.lock` is held, or `/var/lib/pacman/db.lck` exists (checked only for verbs that run pacman/paccache mutations) |
 
@@ -206,7 +206,9 @@ In order, before anything else:
   disabling critical units directly, through an alias or through `Also=`.
 - TOCTOU between confirm and act. remove-orphans recomputes the plan and
   requires the hash the user saw. repair and disable-unit recheck each target
-  as root and skip anything that no longer qualifies.
+  as root and skip anything that no longer qualifies; repair also skips a
+  package whose repo version differs from the installed one, so a refreshed
+  sync database can't turn a repair into a partial upgrade.
 - Environment and fd attacks on the root process (`LD_PRELOAD`, `PATH`,
   `GCONV_PATH`, `IFS`, leaked fds). Control and escape sequences in output
   reaching a terminal or GUI.

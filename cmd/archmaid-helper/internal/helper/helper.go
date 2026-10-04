@@ -353,14 +353,23 @@ func runRepair(s *session, args []string) int {
 	defer release()
 
 	var broken []string
+	versionSkips := 0
 	for _, p := range pkgs {
-		if reason := s.repairable(p); reason != "" {
+		reason, otherVersion := s.repairable(p)
+		if reason != "" {
 			s.skip(p, reason)
+			if otherVersion {
+				versionSkips++
+			}
 			continue
 		}
 		broken = append(broken, p)
 	}
 	if len(broken) == 0 {
+		if versionSkips > 0 {
+			return s.finish(ExitStale, "nothing to repair: the repos have a different version of the broken "+
+				"package(s), so reinstalling would be a partial upgrade — update the system first")
+		}
 		return s.finish(ExitOK, "")
 	}
 	ok, msg := s.step(1, 1, fmt.Sprintf("Reinstalling %d package(s)", len(broken)), repairArgv(broken))
@@ -370,28 +379,73 @@ func runRepair(s *session, args []string) int {
 	return s.finish(ExitOK, "")
 }
 
-// repairable returns "" if pkg is installed, available in a sync repo and
-// really missing files; otherwise the reason it is skipped.
-func (s *session) repairable(pkg string) string {
+// repairable returns "" if pkg is installed, available in a sync repo at
+// exactly its installed version and really missing files; otherwise the
+// reason it is skipped. otherVersion reports that the repo's version is
+// the obstacle: `pacman -S` installs the repo's version, so reinstalling
+// would be a partial upgrade (or a downgrade).
+func (s *session) repairable(pkg string) (reason string, otherVersion bool) {
 	r := s.o.Runner
-	if _, _, exit, err := r.Query([]string{Pacman, "-Qq", "--", pkg}); err != nil || exit != 0 {
-		return "not installed"
+	qOut, _, exit, err := r.Query([]string{Pacman, "-Q", "--", pkg})
+	if err != nil || exit != 0 {
+		return "not installed", false
 	}
-	if _, _, exit, err := r.Query([]string{Pacman, "-Si", "--", pkg}); err != nil || exit != 0 {
-		return "not in a sync repository"
+	siOut, _, exit, err := r.Query([]string{Pacman, "-Si", "--", pkg})
+	if err != nil || exit != 0 {
+		return "not in a sync repository", false
 	}
 	out, _, _, err := r.Query([]string{Pacman, "-Qk", "--", pkg})
 	if err != nil {
-		return "could not check its files"
+		return "could not check its files", false
 	}
 	missing, ok := missingFiles(out, pkg)
 	switch {
 	case !ok:
-		return "could not check its files"
+		return "could not check its files", false
 	case missing == 0:
-		return "no missing files"
+		return "no missing files", false
 	}
-	return ""
+	installed, okQ := installedVersion(qOut, pkg)
+	repo, okSi := syncVersion(siOut)
+	switch {
+	case !okQ || !okSi:
+		return "could not compare its installed and repo versions", false
+	case installed != repo:
+		return fmt.Sprintf("repo has a different version (installed %s, repo %s) — update the system first", installed, repo), true
+	}
+	return "", false
+}
+
+// installedVersion parses `pacman -Q -- pkg`: one line, "name version".
+func installedVersion(out, pkg string) (string, bool) {
+	lines := nonEmptyLines(out)
+	if len(lines) != 1 {
+		return "", false
+	}
+	f := strings.Fields(lines[0])
+	if len(f) != 2 || f[0] != pkg {
+		return "", false
+	}
+	return f[1], true
+}
+
+// syncVersion parses the Version of the first package in `pacman -Si --
+// pkg` (LC_ALL=C, so the labels are English). A package in several repos is
+// listed once per repo in pacman.conf order, and the first is the one
+// `pacman -S` installs.
+func syncVersion(out string) (string, bool) {
+	for _, l := range nonEmptyLines(out) {
+		k, v, ok := strings.Cut(l, ":")
+		if !ok || strings.TrimSpace(k) != "Version" {
+			continue
+		}
+		f := strings.Fields(v)
+		if len(f) != 1 {
+			return "", false
+		}
+		return f[0], true
+	}
+	return "", false
 }
 
 var qkSummary = regexp.MustCompile(`^(\S+): [0-9]+ total files?, ([0-9]+) missing files?$`)

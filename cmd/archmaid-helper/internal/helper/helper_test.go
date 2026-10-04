@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"slices"
@@ -259,21 +260,44 @@ func TestRemoveOrphansNoneLeft(t *testing.T) {
 
 // ---- repair ----------------------------------------------------------------
 
+func pq(args ...string) []string { return append([]string{Pacman}, args...) }
+
+// siInfo is `pacman -Si` output for pkg in one repo.
+func siInfo(repo, pkg, version string) string {
+	return "Repository      : " + repo + "\nName            : " + pkg + "\nVersion         : " + version +
+		"\nDescription     : x: y\nArchitecture    : x86_64\n\n"
+}
+
+// onPkg fakes pkg as installed at installed, in core at repo (unless repo is
+// ""), with missing files missing.
+func onPkg(f *fakeRunner, pkg, installed, repo string, missing int) *fakeRunner {
+	f.on(pq("-Q", "--", pkg), reply{out: pkg + " " + installed + "\n"})
+	if repo != "" {
+		f.on(pq("-Si", "--", pkg), reply{out: siInfo("core", pkg, repo)})
+	}
+	qk := reply{out: fmt.Sprintf("%s: 10 total files, %d missing files\n", pkg, missing)}
+	if missing > 0 {
+		qk.exit = 1
+	}
+	return f.on(pq("-Qk", "--", pkg), qk)
+}
+
 func TestRepair(t *testing.T) {
-	q := func(args ...string) []string { return append([]string{Pacman}, args...) }
-	f := newFake().
-		// broken: installed, in repo, missing files
-		on(q("-Qk", "--", "broken"), reply{out: "broken: 10 total files, 2 missing files\n", exit: 1}).
-		// healthy: installed, in repo, nothing missing
-		on(q("-Qk", "--", "healthy"), reply{out: "healthy: 10 total files, 0 missing files\n"}).
-		// aur: installed but not in a repo
-		on(q("-Si", "--", "aur"), reply{exit: 1, err: "error: package 'aur' was not found"}).
-		// gone: not installed
-		on(q("-Qq", "--", "gone"), reply{exit: 1}).
-		// odd: -Qk output unparseable
-		on(q("-Qk", "--", "odd"), reply{out: "something else\n"})
+	f := newFake()
+	// broken: installed, in repo at the same version, missing files
+	onPkg(f, "broken", "1.0-1", "1.0-1", 2)
+	// healthy: installed, in repo, nothing missing
+	onPkg(f, "healthy", "1.0-1", "1.0-1", 0)
+	// aur: installed but not in a repo
+	onPkg(f, "aur", "1.0-1", "", 2).on(pq("-Si", "--", "aur"), reply{exit: 1, err: "error: package 'aur' was not found"})
+	// gone: not installed
+	f.on(pq("-Q", "--", "gone"), reply{exit: 1})
+	// odd: -Qk output unparseable
+	onPkg(f, "odd", "1.0-1", "1.0-1", 2).on(pq("-Qk", "--", "odd"), reply{out: "something else\n"})
+	// garbled: the versions can't be read
+	onPkg(f, "garbled", "1.0-1", "1.0-1", 2).on(pq("-Si", "--", "garbled"), reply{out: "Name : garbled\n"})
 	o, out := rootOpts(t, f)
-	if code := Run([]string{"repair", "healthy", "broken", "aur", "gone", "odd", "broken"}, o); code != ExitOK {
+	if code := Run([]string{"repair", "healthy", "broken", "aur", "gone", "odd", "garbled", "broken"}, o); code != ExitOK {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- broken"}) {
@@ -282,6 +306,7 @@ func TestRepair(t *testing.T) {
 	want := map[string]string{
 		"healthy": "no missing files", "aur": "not in a sync repository",
 		"gone": "not installed", "odd": "could not check its files",
+		"garbled": "could not compare its installed and repo versions",
 	}
 	got := skippedNames(t, out)
 	for k, v := range want {
@@ -292,6 +317,121 @@ func TestRepair(t *testing.T) {
 	for _, qa := range f.queries {
 		if i := slices.Index(qa, "--"); i < 0 || i != len(qa)-2 {
 			t.Errorf("probe without -- before the name: %q", qa)
+		}
+	}
+}
+
+func TestRepairNeverCausesAPartialUpgrade(t *testing.T) {
+	const newer = "repo has a different version (installed 1.0-1, repo 1.1-1) — update the system first"
+	t.Run("equal versions are reinstalled", func(t *testing.T) {
+		f := newFake()
+		onPkg(f, "a", "1:2.0.3-4", "1:2.0.3-4", 1)
+		onPkg(f, "b", "1.0-1", "1.0-1", 3)
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "a", "b"}, o); code != ExitOK {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- a b"}) {
+			t.Errorf("ran %q", got)
+		}
+		if sk := skippedNames(t, out); len(sk) != 0 {
+			t.Errorf("skipped %v", sk)
+		}
+	})
+	t.Run("newer in the repo is exit 3", func(t *testing.T) {
+		f := newFake()
+		onPkg(f, "a", "1.0-1", "1.1-1", 2)
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "a"}, o); code != ExitStale {
+			t.Fatalf("exit %d, want 3:\n%s", code, out)
+		}
+		if len(f.streams) != 0 {
+			t.Errorf("ran %q", f.streams)
+		}
+		res := result(t, out)
+		if msg, _ := res["error"].(string); !strings.Contains(msg, "update the system first") {
+			t.Errorf("error %q does not explain", msg)
+		}
+		if res["child_exit"] != nil {
+			t.Errorf("child_exit = %v, want null", res["child_exit"])
+		}
+		if got := skippedNames(t, out)["a"]; got != newer {
+			t.Errorf("skip a = %q, want %q", got, newer)
+		}
+	})
+	t.Run("older in the repo is not a downgrade", func(t *testing.T) {
+		f := newFake()
+		onPkg(f, "a", "1.1-1", "1.0-1", 2)
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "a"}, o); code != ExitStale {
+			t.Fatalf("exit %d, want 3:\n%s", code, out)
+		}
+		if len(f.streams) != 0 {
+			t.Errorf("ran %q", f.streams)
+		}
+	})
+	t.Run("the first repo decides", func(t *testing.T) {
+		// pacman -S takes the first repo in pacman.conf order, as -Si lists it.
+		f := newFake()
+		onPkg(f, "a", "1.0-1", "", 2).on(pq("-Si", "--", "a"), reply{out: siInfo("cachyos-core-v4", "a", "1.1-1") + siInfo("core", "a", "1.0-1")})
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "a"}, o); code != ExitStale {
+			t.Fatalf("exit %d, want 3:\n%s", code, out)
+		}
+	})
+	t.Run("mixed: only the equal ones are reinstalled", func(t *testing.T) {
+		f := newFake()
+		onPkg(f, "same", "2.0-1", "2.0-1", 1)
+		onPkg(f, "newer", "1.0-1", "1.1-1", 1)
+		onPkg(f, "healthy", "1.0-1", "1.1-1", 0)
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "newer", "same", "healthy"}, o); code != ExitOK {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- same"}) {
+			t.Errorf("ran %q", got)
+		}
+		sk := skippedNames(t, out)
+		if sk["newer"] != newer || sk["healthy"] != "no missing files" || len(sk) != 2 {
+			t.Errorf("skipped %v", sk)
+		}
+	})
+	t.Run("nothing broken stays exit 0", func(t *testing.T) {
+		f := newFake()
+		onPkg(f, "healthy", "1.0-1", "1.0-1", 0)
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "healthy"}, o); code != ExitOK {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+	})
+}
+
+func TestRepairVersionParsing(t *testing.T) {
+	for _, c := range []struct {
+		out, want string
+		ok        bool
+	}{
+		{"a 1.0-1\n", "1.0-1", true},
+		{"a 1.0-1 extra\n", "", false},
+		{"b 1.0-1\n", "", false},
+		{"a 1.0-1\na 1.0-1\n", "", false},
+		{"", "", false},
+	} {
+		if v, ok := installedVersion(c.out, "a"); v != c.want || ok != c.ok {
+			t.Errorf("installedVersion(%q) = %q, %v", c.out, v, ok)
+		}
+	}
+	for _, c := range []struct {
+		out, want string
+		ok        bool
+	}{
+		{siInfo("core", "a", "1:2.3-4"), "1:2.3-4", true},
+		{"Name : a\nVersion :\n", "", false},
+		{"Name : a\nVersion : 1 2\n", "", false},
+		{"Name : a\n", "", false},
+	} {
+		if v, ok := syncVersion(c.out); v != c.want || ok != c.ok {
+			t.Errorf("syncVersion(%q) = %q, %v", c.out, v, ok)
 		}
 	}
 }
