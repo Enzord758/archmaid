@@ -510,12 +510,13 @@ func runAudit(now time.Time) discoveryMsg {
 	return msg
 }
 
-// auditStep is Full Cleanup's first step: the audit, run in-process. It sits
-// directly in front of topgrade so that a high-severity finding (an adoption
-// or maintainer change) can put a confirm in front of the update — the one
-// step that would build a taken-over AUR package. Declining skips only the
-// update; the rest of the cleanup still runs. The audit can't *hold back* a
-// single package; that's the yay cooldown hook's job (see HANDOVER.md).
+// auditStep is the first step of Full Cleanup and of Run topgrade: the audit,
+// run in-process. It sits directly in front of topgrade so that a
+// high-severity finding (an adoption or maintainer change) can put a confirm
+// in front of the update — the one step that would build a taken-over AUR
+// package. Declining skips only the update; in Full Cleanup the rest of the
+// cleanup still runs. The audit can't *hold back* a single package; that's the
+// yay cooldown hook's job (see HANDOVER.md).
 //
 // alwaysLog: the step's own log entry is the audit record, so unlike the menu
 // action it doesn't call logAudit. It never needs sudo.

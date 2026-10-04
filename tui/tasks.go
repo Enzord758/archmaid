@@ -301,13 +301,19 @@ func fullCleanupSteps() []step {
 }
 
 func topgradeSteps() []step {
-	// needsSudo: topgrade shells out to sudo internally, so prime + keep-alive
-	// credentials (otherwise its sudo prompt lands raw on the terminal).
-	return []step{{
-		title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-		command: "topgrade", args: []string{"-y"}, needsSudo: true,
-		category: logCategoryTopgrade, alwaysLog: true,
-	}}
+	return []step{
+		// The same AUR audit gate as Full Cleanup: topgrade runs yay, so a
+		// maintainer change must be able to stop the update (see auditStep).
+		auditStep(),
+		// needsSudo: topgrade shells out to sudo internally, so prime +
+		// keep-alive credentials (otherwise its sudo prompt lands raw on the
+		// terminal).
+		{
+			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
+			command: "topgrade", args: []string{"-y"}, needsSudo: true,
+			category: logCategoryTopgrade, alwaysLog: true,
+		},
+	}
 }
 
 func clearUserCacheSteps() []step {

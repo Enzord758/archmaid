@@ -63,10 +63,11 @@ straight over via `lipgloss`).
   and not on the AUR at all (locally built `-debug` companions are ignored). It
   makes archmaid's only network call, never changes the system, and results
   also land in the `AUR audit` log category. A dry run reads the snapshot but
-  doesn't advance it. **Full Cleanup runs it as its first step**, directly in
-  front of topgrade: a high-severity finding puts a confirm naming the
-  package(s) in front of the update (defaults to No; declining skips only the
-  update, and the rest of the cleanup runs). A maintainer change is only
+  doesn't advance it. **Full Cleanup and Run topgrade run it as their first
+  step**, directly in front of topgrade: a high-severity finding puts a
+  confirm naming the package(s) in front of the update (defaults to No;
+  declining skips only the update, and in Full Cleanup the rest of the
+  cleanup runs). A maintainer change is only
   recorded once accepted (that confirm, or `a` on the audit report), so until
   then it's flagged on every audit; an unreadable snapshot is flagged high
   too, never treated as a first audit. An unreachable AUR fails that step

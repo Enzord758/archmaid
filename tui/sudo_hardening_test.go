@@ -58,7 +58,7 @@ func TestNonSudoStepUnchanged(t *testing.T) {
 // standalone action and Full Cleanup's first step must be marked needsSudo to
 // get priming + keep-alive.
 func TestTopgradeStepsNeedSudo(t *testing.T) {
-	if s := topgradeSteps()[0]; !s.needsSudo {
+	if s := standaloneTopgrade(); !s.needsSudo {
 		t.Fatal("standalone topgrade step must be needsSudo")
 	}
 	shimPacman(t, "")

@@ -83,7 +83,7 @@ func TestHyprpmStepOmittedWhenNotInstalled(t *testing.T) {
 // deliberately unmodified — nothing runs after it, so hyprpm inside topgrade
 // is harmless there.
 func TestStandaloneTopgradeKeepsHyprpm(t *testing.T) {
-	tg := topgradeSteps()[0]
+	tg := standaloneTopgrade()
 	if strings.Contains(strings.Join(tg.args, " "), "--disable") {
 		t.Fatalf("standalone topgrade args = %v, want no --disable", tg.args)
 	}

@@ -80,7 +80,7 @@ comments and `git log`; this is the "read before you touch it" list.
   records a baseline. It is archmaid's only network call. A dry run reads the
   snapshot but never advances it.
 - **Saving the snapshot is the acknowledgement, so it happens only on accept.**
-  `performAudit` never writes; callers run a commit. Full Cleanup hands it to
+  `performAudit` never writes; callers run a commit. The audit step hands it to
   topgrade's gate as `step.onAccept`: "yes" saves (logged `ACCEPT`), "no" or an
   abort drops it, so the same change gates the next run too. With nothing high
   it saves at once. The menu audit saves everything *except* the high findings
@@ -92,7 +92,8 @@ comments and `git log`; this is the "read before you touch it" list.
   Reading it as missing would silently re-baseline over a takeover. Writes are
   atomic (0600 temp + fsync + rename + dir fsync) under a non-blocking flock on
   `aur-maintainers.lock`; a held lock skips the save (logged `WARN`).
-- **Full Cleanup opens with the audit, directly in front of topgrade.** It runs
+- **Full Cleanup and Run topgrade open with the audit, directly in front of
+  topgrade** (one `auditStep`, gated identically). It runs
   as an in-process step (`step.run`, a `tea.Cmd` — not a shell command, and not
   signalable; an abort just drops its late result via `stepSeq`). A
   high-severity finding (adoption or maintainer change) uses
@@ -128,7 +129,5 @@ to:
 
 ## Open items
 
-- **The audit gate only covers Full Cleanup.** The standalone "Run topgrade"
-  action updates without an audit.
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.

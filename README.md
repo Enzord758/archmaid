@@ -35,7 +35,7 @@ Full details in [`INSTALL.md`](INSTALL.md).
 | Clear user cache | Deletes everything under `~/.cache` |
 | Repair broken packages | Finds packages with missing files (`pacman -Qk`) and reinstalls them |
 | Delete old downloads | Deletes files in `~/Downloads` older than 30 days |
-| Run topgrade | Runs a system update via topgrade, streaming its output live |
+| Run topgrade | Audits your AUR packages first, exactly as Full Cleanup does (a maintainer change since the last audit is named and asked about — declining skips the update), then runs a system update via topgrade, streaming its output live |
 | Disable unused services | Lists systemd services that are enabled but not currently running, and lets you multi-select which to disable |
 | Edit topgrade config | Opens `~/.config/topgrade.toml` in `$EDITOR`, creating it with sane defaults first if it doesn't exist |
 | Audit AUR packages | Read-only check of your foreign packages against the AUR: flags adopted or maintainer-changed packages (compared with your previous audit), orphaned or out-of-date ones, very recent pushes, and packages no longer on the AUR |

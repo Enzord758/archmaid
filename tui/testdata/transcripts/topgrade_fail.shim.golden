@@ -1,12 +1,17 @@
 action "Run topgrade (system update)"
 exec  sudo -n -v
-plan  1 steps
-plan  1 "Updating system with topgrade…" argv=topgrade -y sudo alwayslog cat=topgrade
+plan  2 steps
+plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
+plan  2 "Updating system with topgrade…" argv=topgrade -y sudo alwayslog cat=topgrade
 step  1 running
+out   1 No foreign (AUR or locally built) packages installed — nothing to audit.
+step  1 ok
+log   audit OK: AUR audit
+step  2 running
 exec  topgrade -y
-out   1 error: failed to commit transaction (conflicting files)
-out   1 ── Summary ──
-out   1 System update: FAILED
-step  1 failed
+out   2 error: failed to commit transaction (conflicting files)
+out   2 ── Summary ──
+out   2 System update: FAILED
+step  2 failed
 log   topgrade FAIL: Topgrade completed
 end   outcome=completed errs=1 skipped=0

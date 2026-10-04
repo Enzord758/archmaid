@@ -75,7 +75,7 @@ func TestTopgradeStepsAlwaysLog(t *testing.T) {
 	shimPacman(t, "")
 	full := fullCleanupSteps()
 	i := findStep(full, "topgrade")
-	for name, s := range map[string]step{"standalone": topgradeSteps()[0], "Full Cleanup": full[i]} {
+	for name, s := range map[string]step{"standalone": standaloneTopgrade(), "Full Cleanup": full[i]} {
 		if !s.alwaysLog || s.category != logCategoryTopgrade {
 			t.Errorf("%s topgrade: alwaysLog=%v category=%q, want true/topgrade", name, s.alwaysLog, s.category)
 		}
