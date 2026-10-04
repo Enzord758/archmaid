@@ -732,8 +732,9 @@ var sigkillGrace = 5 * time.Second
 // ignores SIGINT it's force-killed (SIGKILL) after a grace period. Late output
 // from the dying process (and a late in-process result) is dropped by its seq:
 // bumping stepSeq here retires the aborted launch's number before any new run
-// can start. An in-process step (the AUR audit) also has its ctx cancelled, so
-// it returns at once rather than running on unseen.
+// can start. An in-process step (the AUR audit, the downloads delete) also has
+// its ctx cancelled, so it returns at once rather than running on unseen; the
+// downloads delete stops between entries and logs what it removed itself.
 func (m *model) abortRunning() {
 	if m.stepCancel != nil {
 		m.stepCancel()

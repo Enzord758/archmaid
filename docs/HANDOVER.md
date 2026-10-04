@@ -240,8 +240,11 @@ comments and `git log`; this is the "read before you touch it" list.
   if nothing under it has a new ctime; nothing is followed (Lstat, a symlink is
   removed as the link). The delete is an in-process step that checks the
   folder is still the scanned inode, re-checks each entry right before
-  removing it, and removes through an `os.Root` (hence `go 1.25`). Tests
-  can't set ctimes: they move the clock (`Options.Now`, `downloadsNow` in cmd) past a mark instead.
+  removing it, and removes through an `os.Root` (hence `go 1.25`). An abort
+  cancels its ctx, which stops it between entries (nothing after that is
+  touched), and the run is still logged: an `ABORT` entry naming exactly what
+  it deleted (see Logging policy). Tests can't set ctimes: they move the
+  clock (`Options.Now`, `downloadsNow` in cmd) past a mark instead.
 - **The downloads cleaner never crosses a mount point — never use
   `os.Root.RemoveAll` there.** RemoveAll descends into a filesystem mounted
   below the folder (a USB disk, sshfs, a bind mount of `~/Documents`) and
