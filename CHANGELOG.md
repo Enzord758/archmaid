@@ -2,12 +2,15 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit that made the change; the range is `5585358..refactor/p0` (tip 8540b78).
+the commit that made the change; the range is `5585358..refactor/p0` (249 commits, tip f46230a).
 
 ## [Unreleased]
 
 ### Read this first
 
+- **The TUI is new underneath.** It now runs on the engine and the real Driver, and the old queue logic is deleted. It should behave the same (all 31 transcript goldens, the view goldens and the 9 e2e checks are identical), but it has not been run live yet: do a first live run by hand with `docs/first-live-run.md` before you rely on it (4a2fb23, 1fe2148, 7652f35).
+- If the engine stops unexpectedly (an internal panic), the TUI now shows "archmaid's engine stopped unexpectedly: ..." and any key quits; the full reports go to stderr. Ctrl-C always gets you out, also from a password check that never answers (5de7e0c, 73b22cd).
+- **The GUI (`archmaid-gui`) exists but is not live-tested. Don't install `archmaid-gui-git` yet.** `archmaid-git` (the TUI, helper, policy and widget) is a complete install on its own (afc0991, 4a1ca95).
 - `archmaid --help` now prints help and exits 0, and unknown options now exit 2 instead of being ignored (13eb21a).
 - History rotation now keeps 5 runs including the current one, instead of 5 old ones plus the current one (420733b, 13eb21a).
 
@@ -96,7 +99,7 @@ the commit that made the change; the range is `5585358..refactor/p0` (tip 8540b7
 
 ### Added
 
-- `archmaid-helper`: a root-side verb engine (`check-files`, `paccache`, `paccache-wipe`, `plan-orphans`, `remove-orphans`, `repair`, `vacuum-journal`, `clean-tmp`, `disable-unit`, `full-cleanup`) with JSON-lines v1 output, exit codes 0-5, an install-location check and a hardened process; its tests need no root. The TUI does not call it yet (a3a30a0, dcf6afc, 5eb3fbb).
+- `archmaid-helper`: a root-side verb engine (`check-files`, `paccache`, `paccache-wipe`, `plan-orphans`, `remove-orphans`, `repair`, `vacuum-journal`, `clean-tmp`, `disable-unit`, `full-cleanup`) with JSON-lines v1 output, exit codes 0-5, an install-location check and a hardened process; its tests need no root. The TUI and the GUI call it through polkit and `helperclient` as of the later entries (a3a30a0, dcf6afc, 5eb3fbb).
 - Helper `disable-unit` refuses firewall, MAC/audit, NVIDIA sleep, sleep-target, bus, serial-getty and power units (firewalld, nftables, apparmor, auditd, tlp, upower ...), checking names, D-Bus aliases and `[Install]` (Alias, WantedBy, RequiredBy, UpheldBy, Also) the way systemd parses it (88412f7, 614f49b, 35ea7ba).
 - Helper `disable-unit` also refuses when an `Also=` companion is still active or a running or enabled socket/timer/path would restart the unit (54f4b66).
 - Helper `repair` reinstalls a package only at its installed version and only when the whole transaction is exactly the broken set, so it can never cause a partial upgrade (b0ad2cd, 34db02f).
@@ -118,13 +121,49 @@ the commit that made the change; the range is `5585358..refactor/p0` (tip 8540b7
 - DMS bar widget `archmaid` (`packaging/dms/archmaid/`): a pill with the pending-update count, tinted red for an unacknowledged high AUR finding or a failed run and orange for incomplete, aborted or cancelled runs or a last run older than 14 days; a popout with the details and Run Full Cleanup / Log folder buttons. It only reads the state files (f1655bc).
 - User timer `archmaid-updates-check.timer` (no root): runs `checkupdates` 3 min after login and hourly and writes `updates-cache.json` in the state dir. The package installs the widget to `/etc/xdg/quickshell/dms-plugins/archmaid/`, the units to `/usr/lib/systemd/user/` (41b3c9c, dc856e3). Enable steps are in `docs/dms-widget.md` (e22c4f8).
 - `privilege.FaillockStatus(user, now)` reads pam_faillock's tally and config (read-only, runs nothing) so a front end can refuse to prompt a locked account and warn before the last allowed attempt (d718dd0).
-- `internal/engine`: the frozen engine API (Session, Input, Output, Event, Effect, Driver, `Secret` that never prints) for the TUI and the GUI; the Session panics until E1. `internal/engine/stub` is a scripted Driver with a ready-made Full Cleanup run (b295907).
+- `internal/engine`: the frozen engine API (Session, Input, Output, Event, Effect, Driver, `Secret` that never prints) for the TUI and the GUI; the Session was only an API at this point (it is complete as of the later entries). `internal/engine/stub` is a scripted Driver with a ready-made Full Cleanup run (b295907).
 - `actions.Env.Validate` names every required field left nil; the TUI refuses to start on an incomplete Env, and `Report.Accept` replaces an untyped `Audit` (1dc3241).
 - CLAUDE.md: rules for agents (never start archmaid against the real environment, no privileged commands, write only in the worktree, bound every background process, hand in through the gate) (24fc249, 0a4bb37, 8540b78).
 - `internal/testenv` puts traps for `su`, `sudo`, `pkexec`, `runuser`, `faillock` and `pkttyagent` first on PATH; a test that reaches one fails its package. `TestEveryTestPackageRunsUnderTestenv` and `TestNoAbsolutePrivilegedExec` keep new packages wired (f932158).
 - The helper's verbs and the `steps.Verb*` constants are checked against each other, and any step after hyprpm that needs root fails the tests (4e19c69).
 - `scripts/state-guard.sh`: `check.sh` and `e2e/run.sh` fail if the real `~/.local/state/archmaid` changes; the e2e harness traps pkexec, runuser and faillock and runs the binary under a scratch `XDG_STATE_HOME` (b19256f, 9613503).
 - `make bench` / `scripts/bench-compare.sh` and a CI `bench` job comparing base and HEAD with benchstat; documented in `docs/TESTING.md` (5135b92, 6a4794c, 67dd62e).
+
+### Added (since 8540b78)
+
+- The engine is complete: `engine.Session` runs queues, authentication (password, faillock, polkit), mid-run askpass for the running sudo step only, Abort from a step, a prompt or a wait, discovery pick lists and reports, last-run records and all 31 scenarios; confirms are labelled by what they do and the gate confirm previews its plan (faaa289, 63417ba, beedf24, 2bbd4e7, 042a2ec, 956606a, 71db9a3, d9a55e0).
+- `internal/driver`: the real `engine.Driver` around a Session (sudo path), used by the TUI and the GUI (26a4c91).
+- `helperclient`: runs a helper step through `pkexec` and maps its JSON lines to engine Inputs (af11008, 8d036dc). Under polkit, Repair rechecks its candidates through the helper's `check-files`, which now takes package names and ends in a check event (bf97a0a, 916a88d, b732a88, 771310c).
+- Under polkit, orphans are removed from the plan the user saw: the step carries the plan's hash and `remove-orphans` is run from it, and the client's plan is tied to the helper's own (a508c72, c8452ec, 2a71f74, 3b647b9).
+- `archmaid-gui`, a GTK4/libadwaita front end in `gui/`: run page, decision dialogs for every prompt kind, overview, logs and a Settings page (downloads folder, dry run), output in the dank16 colours, steps an abort left shown as not run, and "Waiting for authorisation..." on polkit steps. It runs on the real Driver with polkit and its own askpass relay; `--stub` or `ARCHMAID_GUI_STUB=1` keep the scripted stub. It renders with cairo unless `GSK_RENDERER` is set (5e5fa7a, fb01c7b, b5f40e6, 8735472, 258b789, 1bd7257, 2e5d39a, bf9dad0, 67dc330, 4d5ba8c).
+- Split packaging: `archmaid-git` (TUI, helper, policy, widget, timer; no GUI toolkit) and `archmaid-gui-git` (GUI, desktop entry, AppStream data, icon; depends on gtk4, libadwaita, libgirepository and the same archmaid-git). The DMS widget opens `archmaid-gui` when it is on PATH and falls back to the TUI (afc0991, 4a1ca95).
+- Test infrastructure: the contract checker is stricter (AuthWaiting before its AuthResolved, plan changes after their step's StepDone, every Session Output checked as it comes); `sessionTarget` and `driverTarget` replay every scenario through the Session and the real Driver; an askpass test goes through the TUI's real socket into the real Driver; `e2e` has 9 checks (tapes for repair, downloads, the declined gate and `--help`/bad flag were added); the gate keeps its full race-test output when it fails; the headless GUI harness and a `gui` CI job (9777208, 1660c04, 880a299, d4c9705, 5cef060, 20e36d0, f422a39, 3bc1119, 0fc75f2, 392a05e, 563d046).
+- `docs/polkit-keep-session-check.md`: a live check of `auth_admin_keep` inside a real session, with an optional part on a pkexec killed in the dialog (e1125c5, 8fcd6da).
+
+### Changed (since 8540b78)
+
+- `cmd/archmaid` is a thin main (command line, askpass relay, building the Session and Driver); the TUI lives in `internal/tui`, with its goldens. No packages under `internal/` or `cmd/` may import charmbracelet directly (7652f35).
+- The TUI's model is derived from engine Events and no longer runs actions itself; behaviour goes into the engine, never back into `update.go` (65ac47c, 4a2fb23, e5e1e82).
+- The menu audit stops with the Driver: quitting during "Audit AUR packages" no longer waits up to 20 s or saves a snapshot afterwards (629d448).
+- Under polkit, a missing helper reads "archmaid-helper is not installed at <path>" instead of looking like a refused password (ea97314).
+- `proc` strips an inherited `SUDO_ASKPASS` from every child without an explicit environment, and wrapped or combined-flag sudo is held to the same check, dry run too (534fa34, a1979d2).
+- Engine `Options.Validate` checks the Env the way `New` will set it up (81f458d).
+- The benchmarks changed shape with the move to the engine: the perf-guard baselines need re-measuring (see the notes below).
+
+### Security (since 8540b78)
+
+- The root helper no longer lets a started helper be killed or cut off by the client: after its start line, `helperclient` never kills pkexec or closes its output, keeps the real result and reports "stopped, but the root helper had already started and finished" (47db488).
+- The helper and its client refuse unit names starting with `-` or `.`, and a test ties the two name checks together (5cb4af1, 3b97572).
+- `remove-orphans` checks that pacman is idle right before the orphan recompute and again before `pacman -Rns`, and skips the removal (exit 5) otherwise (fbe2da5).
+- Askpass requests are verified inside the real Driver (peer uid, start time, running sudo step) and are tested through the real socket; the password appears in no Event, report or log (f422a39).
+- The TUI stops its askpass server on an error exit, so the socket and wrapper are not left behind (a51e782).
+
+### Fixed (since 8540b78)
+
+- A Session panic no longer leaves the TUI stuck on the running screen, and a password check that never resolves can be left with Ctrl-C (5de7e0c, 73b22cd).
+- `proc.Stop`'s escalation goroutine exits once the child is reaped (8145c66).
+- The e2e shim appends one whole line per write (1134f45).
+- Tests now pin: a flood past `MaxLines` drops from the events, never from the log; the last-run outcome precedence (failed over incomplete) (c52e72e, c9539fb).
 
 ### Internal
 
@@ -147,3 +186,7 @@ the commit that made the change; the range is `5585358..refactor/p0` (tip 8540b7
 - The first audit after upgrading rewrites `aur-maintainers.json` in the new format.
 - Still to check by you: `auth_admin_keep` scope in a real login session (above), the bench CI job (it has not run on GitHub yet) and the widget in the live bar (it has only been loaded in a scratch quickshell).
 - Enable the widget after installing the package: `systemctl --user enable --now archmaid-updates-check.timer`, then enable "archmaid" in DMS Settings, Plugins and add it in Dank Bar (`docs/dms-widget.md`).
+- First live run of the new TUI: follow `docs/first-live-run.md` before relying on it. The GUI has not been live-tested either; leave `archmaid-gui-git` uninstalled until it has.
+- The GUI's frame p95 on a quiet machine has not been re-measured, and the perf-guard baselines need re-measuring after E7b (`make perf`, `make bench`), because the benchmarks changed shape.
+- The `auth_admin_keep` check in a real session now has a guide: `docs/polkit-keep-session-check.md`.
+- CI was green on afc0991 and 4a1ca95 (all 4 jobs); to confirm on the final tip.
