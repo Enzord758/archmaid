@@ -36,6 +36,7 @@ func shim(t *testing.T, body string) string {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	fakeHelperInstalled(t, dir)
 	return argv
 }
 
@@ -539,6 +540,36 @@ func TestRunBatches(t *testing.T) {
 			t.Errorf("a StepOutput of %d lines", len(o.Lines))
 		}
 	}
+}
+
+// TestRunHelperMissing: with no helper installed, pkexec would exit 127
+// ("Cannot run program …"), which reads as a refused password. Run checks
+// first and starts nothing: a clear error naming the path, not NotGranted.
+// The second case: the path is there but is not a file.
+func TestRunHelperMissing(t *testing.T) {
+	t.Run("missing", func(t *testing.T) {
+		argvFile := shim(t, "echo 'Cannot run program /usr/lib/archmaid/archmaid-helper: No such file or directory' >&2\nexit 127")
+		path := helperNotInstalled(t)
+		r := runStep(t, repairCheck)
+		ex := r.exited(t)
+		if ex.NotGranted || !errors.Is(ex.Err, ErrHelperMissing) || !strings.Contains(ex.Err.Error(), "archmaid-helper is not installed at "+path) {
+			t.Fatalf("StepExited %+v, want ErrHelperMissing naming %s", ex, path)
+		}
+		if len(r.inputs) != 1 || r.out.NotGranted || r.out.Exit != -1 {
+			t.Errorf("inputs %#v, outcome %+v", r.inputs, r.out)
+		}
+		if _, err := os.Stat(argvFile); !os.IsNotExist(err) {
+			t.Error("pkexec ran")
+		}
+	})
+	t.Run("a directory", func(t *testing.T) {
+		shim(t, "exit 127")
+		dir := t.TempDir()
+		setHelperFile(t, dir)
+		if ex := runStep(t, repairCheck).exited(t); ex.NotGranted || !errors.Is(ex.Err, ErrHelperMissing) {
+			t.Fatalf("StepExited %+v, want ErrHelperMissing", ex)
+		}
+	})
 }
 
 // TestRunArgvRefused: a step Argv refuses starts nothing.

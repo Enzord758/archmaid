@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"slices"
@@ -80,10 +81,14 @@ type Outcome struct {
 // helper did): a stopped step that went on to change the system must be
 // logged as neither a success nor a protocol error.
 //
-// A step Argv refuses runs nothing and gets a StepExited with that error.
+// A step Argv refuses runs nothing and gets a StepExited with that error,
+// as does one whose helper isn't installed (ErrHelperMissing).
 func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)) Outcome {
 	argv, err := Argv(st)
 	if err != nil {
+		return exited(seq, emit, Outcome{Exit: -1, Err: err})
+	}
+	if err := helperInstalled(); err != nil {
 		return exited(seq, emit, Outcome{Exit: -1, Err: err})
 	}
 	// stdout is a pipe of our own, not StdoutPipe: Wait never closes it,
@@ -142,6 +147,31 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 		emit(engine.HelperCheck{Seq: seq, Broken: slices.Clone(o.Check.Broken)})
 	}
 	return exited(seq, emit, o)
+}
+
+// ErrHelperMissing: the root helper isn't installed at HelperPath. pkexec
+// would exit 127 for it, which reads as a refused password, so Run checks
+// before it starts pkexec.
+var ErrHelperMissing = errors.New("archmaid-helper is not installed")
+
+// helperFile is the file helperInstalled checks: HelperPath, except in
+// tests, where export_test.go points it at a stand-in.
+var helperFile = HelperPath
+
+// helperInstalled is nil when helperFile is a regular file. It only saves
+// a password prompt that can't succeed; polkit and the helper's own install
+// check still decide what runs.
+func helperInstalled() error {
+	fi, err := os.Stat(helperFile)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fmt.Errorf("%w at %s", ErrHelperMissing, helperFile)
+	case err != nil:
+		return fmt.Errorf("can't check the root helper at %s: %w", helperFile, err)
+	case !fi.Mode().IsRegular():
+		return fmt.Errorf("%w at %s (not a regular file)", ErrHelperMissing, helperFile)
+	}
+	return nil
 }
 
 // ErrStoppedLate wraps a step's Err when Stop came after the helper's start
