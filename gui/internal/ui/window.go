@@ -64,6 +64,8 @@ type Window struct {
 	menu      map[string]*menuRow
 	current   string
 	logs      *logsPage
+	// shownOverview is what the Overview's widgets show (nil: not drawn).
+	shownOverview *overviewState
 
 	// onApply, when set, sees every applied batch's Change (the harness).
 	onApply func(runview.Change)

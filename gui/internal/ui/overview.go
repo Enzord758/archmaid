@@ -93,9 +93,24 @@ func (w *Window) refreshLastRun() {
 	w.lastIcon.SetFromIconName(icon)
 }
 
-// updateOverview redraws the header and the running action's row.
+// overviewState is what the Overview's widgets show, so a flush that
+// changes none of it (an output flood) costs a compare, not ~30 widget
+// calls.
+type overviewState struct {
+	stat, current, busyText string
+	busy                    bool
+	phase                   engine.Phase
+}
+
+// updateOverview redraws the header and the menu rows, when what they show
+// changed.
 func (w *Window) updateOverview() {
-	line := overview.StatusLine(w.model.Stat.Status)
+	st := overviewState{overview.StatusLine(w.model.Stat.Status), w.current, w.model.Busy, w.busy, w.model.Phase}
+	if w.shownOverview != nil && *w.shownOverview == st {
+		return
+	}
+	w.shownOverview = &st
+	line := st.stat
 	w.statLabel.SetText(line)
 	w.statLabel.SetVisible(line != "")
 	for id, r := range w.menu {
