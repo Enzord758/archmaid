@@ -65,6 +65,50 @@ jobs:
           path: ${{ env.E2E_DIR }}/*.txt
           if-no-files-found: ignore
 
+  # Benchmarks the base commit and HEAD back to back on this one runner (see
+  # scripts/bench-compare.sh) and fails on a significant slowdown, so runner
+  # speed cancels out. Not part of `core`: timing must not run beside -race.
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # the base commit and the merge-base need history
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: ${{ env.GO_MOD_FILE }}
+          cache-dependency-path: ${{ env.GO_SUM_FILE }}
+      - uses: actions/cache@v6
+        with:
+          path: ~/go/pkg/mod/golang.org/x/perf*
+          key: benchstat-${{ hashFiles('scripts/bench-compare.sh') }}
+      - name: Pick the base commit
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            base="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
+          else
+            base="${{ github.event.before }}"
+            # a new branch or a force push has no usable previous SHA
+            if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+              base="$(git merge-base HEAD origin/main 2>/dev/null || true)"
+            fi
+          fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+      - name: Compare benchmarks
+        if: steps.base.outputs.sha != ''
+        env:
+          BENCH_OUT: ${{ runner.temp }}/bench
+        run: scripts/bench-compare.sh "${{ steps.base.outputs.sha }}"
+      - name: Upload benchstat output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchstat
+          path: ${{ runner.temp }}/bench/
+          if-no-files-found: ignore
+
   # Planned: gui, a headless-weston job for the GUI module (it does not exist
   # yet). Run only when the GUI paths change: install weston and the GUI build
   # deps in an archlinux container, start `weston --backend=headless`, point
