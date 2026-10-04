@@ -48,9 +48,11 @@ func TestTranscriptRealDriver(t *testing.T) {
 	}
 }
 
-// eventWait bounds the wait for the Driver's next Event: no step in the
-// scenarios takes more than a fraction of it.
-const eventWait = 10 * time.Second
+// eventWait bounds every wait on a condition in this file: the Driver's next
+// Event, the prefetch and a step's child reaching its shim. No step takes more
+// than a fraction of it; it is generous because a -race run on a busy machine
+// can stall for seconds, and a longer deadline only slows a real failure.
+const eventWait = 30 * time.Second
 
 type realDriverTarget struct {
 	d        *driver.Driver
@@ -108,7 +110,7 @@ func newRealDriverTarget(t *testing.T, shimLog string) *realDriverTarget {
 		if p != nil {
 			select {
 			case <-p.Done():
-			case <-time.After(5 * time.Second):
+			case <-time.After(eventWait):
 				tg.report(fmt.Errorf("the prefetched AUR audit never finished"))
 			}
 		}
@@ -347,7 +349,7 @@ func (tg *realDriverTarget) awaitChild() error {
 		return nil
 	}
 	cmdline := strings.Join(s.Argv, " ")
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(eventWait)
 	for {
 		n := 0
 		for _, l := range tg.execs {
