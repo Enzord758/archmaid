@@ -89,15 +89,16 @@ func TestRunReportsTrapAndStateChange(t *testing.T) {
 		t.Fatalf("child: %v, want exit 1\nstderr:\n%s", err, stderr.String())
 	}
 	out := stderr.String()
-	for _, want := range []string{"a test reached a real privileged binary", "   su --version\n", "the tests changed the real state dir"} {
+	for _, want := range []string{"a test reached a real privileged or system-changing binary", "   su --version\n", "the tests changed the real state dir"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("report misses %q:\n%s", want, out)
 		}
 	}
 }
 
-// TestTrapCatchesRealSu proves the guard: a test that execs su (and the other
-// trapped names) through PATH fails its package, with the calls on stderr.
+// TestTrapCatchesRealSu proves the guard: a test that execs su (and every
+// other trapped name, topgrade, yay and pacman included) through PATH fails
+// its package, with the calls on stderr.
 func TestTrapCatchesRealSu(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestTrapChild$", "-test.count=1")
 	cmd.Env = append(os.Environ(), trapChildEnv+"=1")
@@ -112,7 +113,7 @@ func TestTrapCatchesRealSu(t *testing.T) {
 		t.Errorf("the child's test itself should pass (only Run fails):\n%s", stdout.String())
 	}
 	out := stderr.String()
-	if !strings.Contains(out, "a test reached a real privileged binary") {
+	if !strings.Contains(out, "a test reached a real privileged or system-changing binary") {
 		t.Errorf("no trap report on stderr:\n%s", out)
 	}
 	for _, name := range Trapped {
@@ -165,6 +166,30 @@ func TestInstallTrapsLogsArgv(t *testing.T) {
 	}
 }
 
+// TestE2EShimsAreTrapped: every tool the e2e harness shims is one archmaid
+// runs, so the package tests must trap it too.
+func TestE2EShimsAreTrapped(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("..", "..", "cmd", "archmaid", "e2e", "run.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var list string
+	for _, line := range strings.Split(string(b), "\n") {
+		if rest, ok := strings.CutPrefix(line, "SHIMMED=("); ok {
+			list, _, _ = strings.Cut(rest, ")")
+		}
+	}
+	names := strings.Fields(list)
+	if len(names) < 5 {
+		t.Fatalf("SHIMMED=(...) not found in run.sh (got %q)", names)
+	}
+	for _, name := range names {
+		if !slices.Contains(Trapped, name) {
+			t.Errorf("the e2e harness shims %s, but testenv doesn't trap it", name)
+		}
+	}
+}
+
 // absoluteAllowed are the absolute paths of a trapped binary that may appear
 // as string literals, and why: none of them is ever executed.
 var absoluteAllowed = map[string]string{
@@ -176,8 +201,10 @@ var absoluteAllowed = map[string]string{
 }
 
 // TestNoAbsolutePrivilegedExec: the traps work through PATH, so no Go file in
-// the module may name a trapped binary by absolute path (which would bypass
-// them), except the allow-listed literals that are never executed.
+// the module may name a privileged binary by absolute path (which would bypass
+// them), except the allow-listed literals that are never executed. The
+// Mutators are left out: archmaid-helper runs them by absolute path as root,
+// by design, and its tests only ever through a fake Runner.
 func TestNoAbsolutePrivilegedExec(t *testing.T) {
 	root, files := moduleGoFiles(t)
 	for _, rel := range files {
@@ -287,7 +314,7 @@ func TestAbsoluteTrappedFindsLiterals(t *testing.T) {
 }
 
 // absoluteTrapped parses a Go file (src as for parser.ParseFile) and returns
-// its string literals that name a trapped binary in a system directory.
+// its string literals that name a privileged binary in a system directory.
 func absoluteTrapped(path string, src any) ([]string, error) {
 	f, err := parser.ParseFile(token.NewFileSet(), path, src, parser.SkipObjectResolution)
 	if err != nil {
@@ -300,7 +327,7 @@ func absoluteTrapped(path string, src any) ([]string, error) {
 			return true
 		}
 		s, err := strconv.Unquote(lit.Value)
-		if err == nil && systemPath(s) && slices.Contains(Trapped, filepath.Base(s)) {
+		if err == nil && systemPath(s) && slices.Contains(Privileged, filepath.Base(s)) {
 			out = append(out, s)
 		}
 		return true

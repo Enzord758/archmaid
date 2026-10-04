@@ -15,47 +15,94 @@
 // changed or added entry anywhere under the dir fails the package. Run finds
 // the script by walking up from the package dir and fails closed without it.
 //
-// Run also puts traps first on PATH for the privileged binaries no test may
-// reach for real (Trapped: su, sudo, pkexec, runuser, faillock, pkttyagent).
-// A wrong password through the real su or sudo can cost the developer a
-// pam_faillock failure, and deny=3 is one typo from a lockout. A trap logs its
-// argv and exits TrapExit; if any trap was hit, Run fails the package. A test
-// that means to run one of these puts its own shim first on PATH (or makes its
-// shim dir the whole PATH), which still works. The traps catch subprocesses
-// too: a re-exec'd test binary or a shell script inherits the PATH.
+// Run also puts traps first on PATH for every binary no test may reach for
+// real (Trapped): the privileged ones (su, sudo, pkexec, runuser, faillock,
+// pkttyagent) and every system-changing tool archmaid can invoke (topgrade,
+// yay, paru, pacman, paccache, systemctl, journalctl, systemd-tmpfiles,
+// hyprpm, flatpak, fwupdmgr). A wrong password through the real su or sudo
+// can cost the developer a pam_faillock failure, and deny=3 is one typo from
+// a lockout; a real topgrade once ran from a test for twelve minutes, until
+// its yay reached the real sudo. A trap logs its argv and exits TrapExit; if
+// any trap was hit, Run fails the package. Read-only calls are trapped too
+// (`pacman -Qq`, `systemctl is-enabled`): the trap can't tell them apart, and
+// a test must not depend on the machine's packages or units anyway. A test
+// that means to run one of these puts its own shim first on PATH (or makes
+// its shim dir the whole PATH), which still works. The traps catch
+// subprocesses too: a re-exec'd test binary or a shell script inherits the
+// PATH.
 //
 // What PATH can't catch: a hard-coded absolute path. No production code
-// executes su, sudo or pkexec by absolute path (TestNoAbsolutePrivilegedExec
+// executes a privileged binary by absolute path (TestNoAbsolutePrivilegedExec
 // keeps it that way), and archmaid-helper's absolute paths (/usr/bin/pacman
 // and friends, run as root under pkexec) only ever run in its tests through
 // a fake Runner.
+//
+// Nothing a test starts may outlive the package run. Run sets MarkerEnv to a
+// fresh id for the whole run, which every process a test starts inherits, and
+// makes the test binary a child subreaper, so an orphaned descendant (even
+// one started with a hand-built environment) is reparented to it instead of
+// escaping to the user manager. When the tests are done, and before the traps
+// are removed, Run finds every process of this uid that carries the marker or
+// descends from the test binary, SIGKILLs them (and the process groups they
+// lead) and fails the package, naming each one.
 package testenv
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const unset = "\x00unset"
 
-// Trapped are the binaries Run traps: the ones that authenticate or that run
-// something as another user. pkttyagent is polkit's terminal agent, which
-// pkexec starts to ask for a password.
-var Trapped = []string{"su", "sudo", "pkexec", "runuser", "faillock", "pkttyagent"}
+// Privileged are the binaries that authenticate or that run something as
+// another user. pkttyagent is polkit's terminal agent, which pkexec starts to
+// ask for a password. No Go file may name one by absolute path.
+var Privileged = []string{"su", "sudo", "pkexec", "runuser", "faillock", "pkttyagent"}
+
+// Mutators are the system-changing tools archmaid can invoke: directly
+// (internal/actions, internal/steps), through archmaid-helper, or through
+// topgrade (paru, flatpak, fwupdmgr). They are trapped whatever the call,
+// read-only ones included.
+var Mutators = []string{
+	"topgrade", "yay", "paru", "pacman", "paccache", "systemctl", "journalctl",
+	"systemd-tmpfiles", "hyprpm", "flatpak", "fwupdmgr",
+}
+
+// Trapped are the binaries Run traps: Privileged and Mutators.
+var Trapped = append(append([]string{}, Privileged...), Mutators...)
+
+// MarkerEnv is the variable Run sets to a fresh id for the package run: a
+// process that carries it was started by one of the package's tests.
+const MarkerEnv = "ARCHMAID_TESTENV"
 
 // TrapExit is the status a trap exits with.
 const TrapExit = 97
 
 // Run isolates the environment, runs the package's tests and returns the exit
-// code for os.Exit: m.Run's, or 1 if a test touched the real state directory
-// or reached a trapped binary.
+// code for os.Exit: m.Run's, or 1 if a test touched the real state directory,
+// reached a trapped binary or left a process running.
 func Run(m interface{ Run() int }) int {
+	marker, err := newMarker()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testenv:", err)
+		return 1
+	}
+	// Orphaned descendants are reparented to this process, not to the user
+	// manager, so the scan below sees them whatever environment they got.
+	if err := setChildSubreaper(); err != nil {
+		fmt.Fprintln(os.Stderr, "testenv: PR_SET_CHILD_SUBREAPER:", err)
+		return 1
+	}
 	// The traps and the snapshot live outside the scratch home: tests list
-	// and wipe that.
+	// and wipe that. The trap dir goes last, after the orphan scan: a
+	// process that outlived it would reach the real binaries.
 	trapRoot, err := os.MkdirTemp("", "archmaid-test-trap")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
@@ -99,6 +146,7 @@ func Run(m interface{ Run() int }) int {
 		"XDG_CACHE_HOME":  filepath.Join(home, ".cache"),
 		"XDG_RUNTIME_DIR": run,
 		"PATH":            trapBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		MarkerEnv:         marker,
 	} {
 		if old, ok := os.LookupEnv(k); ok {
 			saved[k] = old
@@ -110,6 +158,10 @@ func Run(m interface{ Run() int }) int {
 
 	code := m.Run()
 
+	// Kill what the tests left running first, while the traps are still on
+	// its PATH.
+	left, scanErr := reapLeftovers(marker)
+
 	for k, v := range saved {
 		if v == unset {
 			os.Unsetenv(k)
@@ -119,8 +171,19 @@ func Run(m interface{ Run() int }) int {
 	}
 	// Report every failure, not just the first: a test can do both.
 	failed := false
+	if scanErr != nil {
+		fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: can't check for processes the tests left running:", scanErr)
+		failed = true
+	}
+	if len(left) > 0 {
+		fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: a test left processes running (killed now; a test must wait for or kill what it starts):")
+		for _, p := range left {
+			fmt.Fprintln(os.Stderr, "  ", p)
+		}
+		failed = true
+	}
 	if calls := TrapCalls(trapLog); len(calls) > 0 {
-		fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: a test reached a real privileged binary (shim it first on PATH):")
+		fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: a test reached a real privileged or system-changing binary (shim it first on PATH):")
 		for _, c := range calls {
 			fmt.Fprintln(os.Stderr, "  ", c)
 		}
@@ -215,6 +278,25 @@ func TrapCalls(log string) []string {
 		return nil
 	}
 	return strings.Split(s, "\n")
+}
+
+// newMarker returns a fresh id for MarkerEnv.
+func newMarker() (string, error) {
+	b := make([]byte, 12)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// setChildSubreaper makes this process the reaper of its orphaned
+// descendants (prctl PR_SET_CHILD_SUBREAPER).
+func setChildSubreaper() error {
+	const prSetChildSubreaper = 36
+	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, prSetChildSubreaper, 1, 0); errno != 0 {
+		return errno
+	}
+	return nil
 }
 
 // shQuote single-quotes s for sh.

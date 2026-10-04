@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -90,13 +89,12 @@ func TestDryRunFullCleanupExecutesNothing(t *testing.T) {
 
 // ── behaviour 6: services multi-select ────────────────────────────────────────
 
-// TestDiscoverServicesRuns exercises the real services pipeline end to end: it
-// must not panic and must return a well-formed discovery (either a services
-// list or a "nothing to do" notice).
+// TestDiscoverServicesRuns exercises the real services pipeline end to end,
+// against the fixture systemctl (testenv traps the real one: a test must not
+// depend on the machine's units): it must not panic and must return a
+// well-formed discovery (either a services list or a "nothing to do" notice).
 func TestDiscoverServicesRuns(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/systemctl"); err != nil {
-		t.Skip("systemctl not available")
-	}
+	shimFixtureSystemctl(t)
 	d := discoverNow(t, actions.IDServices)
 	sel, _ := d.(actions.NeedsSelection)
 	if len(sel.Items) == 0 && noticeOf(d) == "" {

@@ -333,18 +333,24 @@ test can delete your files or need root.
    it (`TestStateGuardFailsPackage` proves it on a scratch
    `XDG_STATE_HOME`).
 3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
-   replaced by shell shims placed first on `PATH` (see Recipes). For the
-   privileged ones this is enforced: `testenv.Run` puts traps for `su`,
-   `sudo`, `pkexec`, `runuser`, `faillock` and `pkttyagent` first on `PATH`
-   for the whole package run. A trap logs its argv and exits 97, and if any
-   trap was hit the package FAILs with "a test reached a real privileged
-   binary" and the calls, even when every test passed (a wrong password
-   through the real `su`/`sudo` can cost a pam_faillock failure, and deny=3
-   is one typo from a lockout). A test's own shim dir, prepended to `PATH`
+   replaced by shell shims placed first on `PATH` (see Recipes). This is
+   enforced: `testenv.Run` puts traps first on `PATH` for the whole package
+   run, for the privileged binaries (`su`, `sudo`, `pkexec`, `runuser`,
+   `faillock`, `pkttyagent`) and every system-changing tool archmaid can
+   invoke (`topgrade`, `yay`, `paru`, `pacman`, `paccache`, `systemctl`,
+   `journalctl`, `systemd-tmpfiles`, `hyprpm`, `flatpak`, `fwupdmgr`;
+   `testenv.Trapped`), read-only calls like `pacman -Qqm` included. A trap
+   logs its argv and exits 97, and if any trap was hit the package FAILs
+   with "a test reached a real privileged or system-changing binary" and the
+   calls, even when every test passed (a wrong password through the real
+   `su`/`sudo` can cost a pam_faillock failure, and deny=3 is one typo from
+   a lockout; an unshimmed GUI test once ran the real `topgrade -y`, whose
+   yay reached the real sudo twelve minutes later). `TestE2EShimsAreTrapped`
+   keeps every tool the e2e harness shims trapped. A test's own shim dir, prepended to `PATH`
    or made the whole `PATH`, still wins; a re-exec'd test binary or shell
    script inherits the traps. `PATH` can't catch an absolute path, so
    `TestNoAbsolutePrivilegedExec` rejects any Go string literal naming one of
-   these binaries under a system dir (`/usr/bin/sudo`…) outside a short
+   the privileged binaries under a system dir (`/usr/bin/sudo`…) outside a short
    allow-list of literals that are only compared, never run. archmaid-helper
    runs `/usr/bin/pacman` and friends by absolute path (as root, under
    pkexec); its verb tests use a fake `Runner` and never execute them, and
@@ -364,7 +370,15 @@ test can delete your files or need root.
    The spinner is pinned to one frame where a running row must render.
 6. **Don't weaken a test to make it pass.** A failure is a bug in the code (or
    a deliberate behaviour change — then change the test and say why).
-7. **Nothing a test starts outlives it.** `PATH` and `ARCHMAID_SHIM_LOG` are
+7. **Nothing a test starts outlives it.** `testenv.Run` enforces it for the
+   package: it sets `ARCHMAID_TESTENV` to a fresh id that every process a
+   test starts inherits, and makes the test binary a child subreaper, so an
+   orphan stays below it even with a hand-built environment. After the tests,
+   before the traps go, it SIGKILLs every process of the uid that carries the
+   id or descends from the test binary (and the process groups they lead),
+   and FAILs the package with "a test left processes running" and each one's
+   pid, comm and command line (`TestRunReapsOrphans`). Within the package,
+   `PATH` and `ARCHMAID_SHIM_LOG` are
    process-wide and read when a command execs, so a goroutine left running
    runs the *next* test's shims and writes to its exec log (a stray
    `pacman -Qqm` from an earlier test's audit prefetch failed
