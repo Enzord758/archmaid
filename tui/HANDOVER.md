@@ -115,5 +115,5 @@ to:
 
 - **The audit gate only covers Full Cleanup.** The standalone "Run topgrade"
   action updates without an audit.
-- Test gaps (askpass round trip, missing goldens, e2e breadth) are tracked in
+- Test gaps (missing goldens, e2e breadth) are tracked in
   `TESTING.md` → Known gaps.

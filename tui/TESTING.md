@@ -74,6 +74,10 @@ rather than adding more indirection:
 | `sigkillGrace` | shrink the SIGINT→SIGKILL grace period |
 | `aurRPCURL` | point the AUR audit at `httptest` |
 
+`TestMain` also dispatches `--askpass <sock> [prompt]` to `runAskpass` exactly
+as `main()` does: under `go test` the `SUDO_ASKPASS` wrapper execs the test
+binary, so the askpass round trip runs for real.
+
 ## Recipes
 
 **Drive the model.** `update(m, msg)` runs one `Update` and returns the model;
@@ -128,19 +132,12 @@ the names.
 | `coverage_test.go` | Thin spots: `editConfig` (creates defaults, never clobbers, via the `execProcess` seam); `discoverDownloads` against aged files; password masking in the rendered frame; every checklist glyph; the status line; all summary outcomes. |
 | `audit_test.go` | AUR audit, fully offline: severity classification (adoption/maintainer change = high; orphaned, recent push, out of date, 0 votes, not-on-AUR = glance); local `-debug` companions skipped; chunked POST lookups and RPC error handling; the maintainer snapshot (round-trip, kept for missing packages, corrupt file = no baseline); an end-to-end first-audit-then-takeover run; dry run never advances the snapshot; the screen/notice flow. |
 | `fullcleanup_audit_test.go` | Full Cleanup's audit step: it's first, in-process, `alwaysLog`, category `audit`; both topgrade steps are `alwaysLog`. A maintainer change gates topgrade with a confirm naming the package(s), defaulting to No, before topgrade starts; declining skips only the update and logs `SKIP: … (declined)`; the report is in the output pane and `audit.log`. No foreign packages is a clean pass; an unreachable AUR fails the step without gating. A stale or post-abort result is dropped. In a dry run it still audits, logs exactly once, and leaves the snapshot alone. |
+| `askpass_test.go` | The `SUDO_ASKPASS` round trip over a real unix socket: the helper prints the answer and exits 0, exits 1 on an unanswered close or no socket; the server writes a 0700 wrapper on its socket, sets `SUDO_ASKPASS`, delivers prompts and `close()` removes both, and stays unwired (but safely closable) when the socket or wrapper can't be made; the real wrapper end to end; submit writes the password straight to the connection, cancel closes it unanswered. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
 | `e2e/run.tape` + `run.sh` | The real binary under `--dryrun` in a throwaway `HOME`: menu → Clear user cache → confirm → asserts `dryrun/cleanup.log` contains the `DRYRUN:` entry. |
 
 ## Known gaps
 
-- **The askpass round trip is untested.** `runAskpass` dials the socket, sends
-  the prompt, prints the reply line and exits 0 (exit 1 if it can't connect or
-  the connection closes unanswered); `startAskpassServer` writes a wrapper +
-  socket, sets `SUDO_ASKPASS`, and `close()` removes both. A fake unix-socket
-  server can cover all of it. On the model side, an `askpassMsg` opening the popup
-  over the current screen is tested (`resize_test.go`); the password being
-  written straight to the connection on submit, and the connection being closed
-  unanswered on cancel, are not.
 - **The audit gate was live-tested by hand, not automatically:** a dry-run Full
   Cleanup of the real binary via VHS, real AUR, with a scratch `HOME` whose
   seeded snapshot gave one real package a fake previous maintainer. A VHS tape

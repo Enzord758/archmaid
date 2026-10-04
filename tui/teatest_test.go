@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"testing"
 	"time"
 
@@ -27,6 +28,17 @@ func fixedModel() model {
 // are plain text — deterministic and diff-friendly as golden files, regardless
 // of the terminal the tests run in.
 func TestMain(m *testing.M) {
+	// Under `go test` os.Executable() is this test binary, so the SUDO_ASKPASS
+	// wrapper startAskpassServer writes execs it with --askpass. Dispatch that
+	// exactly as main() does, so askpass_test.go can drive the real round trip.
+	if len(os.Args) >= 3 && os.Args[1] == "--askpass" {
+		prompt := ""
+		if len(os.Args) >= 4 {
+			prompt = os.Args[3]
+		}
+		os.Exit(runAskpass(os.Args[2], prompt))
+	}
+
 	lipgloss.SetColorProfile(termenv.Ascii)
 	// No test may reach the real AUR: Full Cleanup's first step now calls it.
 	// Anything that wants the RPC points aurRPCURL at an httptest server
