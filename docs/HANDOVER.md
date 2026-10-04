@@ -29,7 +29,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun`, thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering |
 | `askpass.go` | `SUDO_ASKPASS` helper + socket server |
 | `overlay.go` | ANSI-aware popup compositor |
-| `status.go`, `theme.go` | the status line (native: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
+| `status.go`, `theme.go` | the status line's tea glue (`refreshStatus`, `refreshStatusNow`, the `tickFn` seam; the reading itself is `internal/sysstat`: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
 
 ### `internal/` (UI-free: nothing here may import charmbracelet; `check.sh` enforces it)
 
@@ -37,6 +37,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 |---|---|
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
 | `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories` |
+| `internal/sysstat` | `Paths`/`DefaultPaths`, `Read(Paths) Status`, `Status.Line()`, the df/du/free-style size formatters; no UI imports |
 
 ## Decisions and landmines
 
