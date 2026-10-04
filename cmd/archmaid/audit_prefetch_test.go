@@ -24,15 +24,46 @@ import (
 // The returned Cmd is whatever the probe's Update returned.
 func chooseAction(t *testing.T, sub string) (model, tea.Cmd) {
 	t.Helper()
-	m := initialModel()
-	m.cursor = menuIndex(t, sub)
-	next, probe := m.Update(key("enter"))
-	m = next.(model)
+	m, probe := activateMenu(t, initialModel(), sub)
 	if m.auditFetch == nil {
 		t.Fatalf("%s should start the audit fetch when chosen", sub)
 	}
 	next, cmd := m.Update(probe().(sudoCachedMsg))
 	return next.(model), cmd
+}
+
+// activateMenu presses enter on m's menu item labelled sub. An action that
+// audits (Full Cleanup, Run topgrade) starts its auditFetch right here; it is
+// reaped when the test ends (reapAuditFetch), whatever the test does with it.
+// Activate menu actions through this, never with a bare Update(enter).
+func activateMenu(t *testing.T, m model, sub string) (model, tea.Cmd) {
+	t.Helper()
+	m.cursor = menuIndex(t, sub)
+	next, cmd := m.Update(key("enter"))
+	m = next.(model)
+	reapAuditFetch(t, m.auditFetch)
+	return m, cmd
+}
+
+// reapAuditFetch cancels f when the test ends and waits for its goroutine to
+// return. PATH and ARCHMAID_SHIM_LOG are process-wide and only read when the
+// fetch execs pacman, so a fetch that outlives its test can run the *next*
+// test's pacman shim and land a stray "pacman -Qqm" in that test's exec log.
+// Registered after the test's shims, it runs before their PATH is restored.
+// A nil f (an action that doesn't audit) is a no-op.
+func reapAuditFetch(t *testing.T, f *auditFetch) {
+	t.Helper()
+	if f == nil {
+		return
+	}
+	t.Cleanup(func() {
+		f.Cancel()
+		select {
+		case <-f.Done():
+		case <-time.After(5 * time.Second):
+			t.Error("the audit fetch outlived its test: it ignored the cancel")
+		}
+	})
 }
 
 // awaitFetch waits for f to finish, failing if it takes longer than within.

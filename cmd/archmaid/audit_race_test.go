@@ -66,6 +66,7 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	store := logs()            // the store they all capture
 	menu := discoverAURAudit() // captured here, on "the model's goroutine"
 	fetch := startAuditFetch()
+	reapAuditFetch(t, fetch)
 	step := auditStep()
 	fetchDone := fetch.Done()
 	menuDone := make(chan discoveryMsg, 1)

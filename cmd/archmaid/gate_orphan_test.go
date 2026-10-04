@@ -35,15 +35,12 @@ func menuIndex(t *testing.T, sub string) int {
 func gateArmedModel(t *testing.T) model {
 	t.Helper()
 	shimPacman(t, "") // the audit prefetch runs pacman -Qqm: keep it off the real one
-	m := initialModel()
-	m.cursor = menuIndex(t, "Full Cleanup")
-
-	next, cmd := m.Update(key("enter"))
+	m, cmd := activateMenu(t, initialModel(), "Full Cleanup")
 	if cmd == nil {
 		t.Fatal("activating Full Cleanup should return the sudo probe cmd")
 	}
 	// dryRun makes the probe report cached without shelling out.
-	return update(next.(model), cmd().(sudoCachedMsg))
+	return update(m, cmd().(sudoCachedMsg))
 }
 
 // TestGateShownWhenSudoCached: cached sudo + a gated action → the proceed-gate
@@ -134,10 +131,7 @@ func TestStaleGateClearedByActivate(t *testing.T) {
 	shimPacman(t, "") // choosing Run topgrade starts the audit's pacman -Qqm
 	m := initialModel()
 	m.gate = "stale gate from an earlier action"
-	m.cursor = menuIndex(t, "topgrade (system update)")
-
-	next, _ := m.Update(key("enter"))
-	got := next.(model)
+	got, _ := activateMenu(t, m, "topgrade (system update)")
 	if got.gate != "" {
 		t.Fatalf("activate should clear a stale gate, got %q", got.gate)
 	}
@@ -258,17 +252,11 @@ func TestActivateFullCleanupRunsNoPacman(t *testing.T) {
 	shimLog := installShims(t, fullCleanupShims(false, "liba\nlibb", "liba\nlibb\nlibc"))
 	aurClean(t)
 
-	m := initialModel()
-	m.cursor = menuIndex(t, "Full Cleanup")
-	next, cmd := m.Update(key("enter"))
-	got := next.(model)
-	if cmd == nil || len(got.pending) == 0 {
-		t.Fatal("activating Full Cleanup should queue its steps and probe sudo")
+	got, cmd := activateMenu(t, initialModel(), "Full Cleanup")
+	if cmd == nil || len(got.pending) == 0 || got.auditFetch == nil {
+		t.Fatal("activating Full Cleanup should queue its steps, start the audit prefetch and probe sudo")
 	}
-	if got.auditFetch != nil {
-		awaitFetch(t, got.auditFetch, 5*time.Second)
-		got.dropAuditFetch()
-	}
+	awaitFetch(t, got.auditFetch, 5*time.Second)
 	b, _ := os.ReadFile(shimLog)
 	if log := strings.TrimSpace(string(b)); log != "pacman -Qqm" {
 		t.Fatalf("activate ran:\n%s\nwant only the audit prefetch's pacman -Qqm", log)
