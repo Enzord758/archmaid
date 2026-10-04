@@ -503,13 +503,6 @@ to:
 
 ## Open items
 
-- **Remove the engine.New guard when E5 lands.** Until the engine Session
-  stops panicking (errNotImplemented) on SubmitPassword, Abort and some
-  discoveries, `internal/engine/guard_test.go`
-  (`TestNoProductionCallerBeforeE5`) fails any production package other than
-  engine, engine/stub and engine/enginetest that calls `engine.New`. Delete
-  that file when E5 lands and a real caller is wired in.
-
 - **`auth_admin_keep` inside a real session.** The live test (see
   `docs/polkit-live-test.md`) showed keep scoped to the requesting process when
   there is no login session; re-check on tty3 or from the GUI, where polkit may
