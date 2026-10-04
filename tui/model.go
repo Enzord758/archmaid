@@ -121,6 +121,10 @@ type model struct {
 	// confirm is the gate rather than a per-step confirm.
 	gate       string
 	gateActive bool
+
+	// scanAfterAuth is a discovery that needs root (Repair's pacman -Qk): it
+	// runs once the sudo ticket is primed, in place of starting a queue.
+	scanAfterAuth tea.Cmd
 }
 
 func initialModel() model {

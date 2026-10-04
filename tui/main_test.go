@@ -552,22 +552,6 @@ func TestNonEmptyLinesTrimsAndDropsBlanks(t *testing.T) {
 	}
 }
 
-// TestBrokenPackagesNoMatchNoPanic: on a healthy system the grep inside
-// brokenPackages exits 1 (no matches); the function must swallow that and return
-// an empty list rather than panicking.
-func TestBrokenPackagesNoMatchNoPanic(t *testing.T) {
-	if _, err := os.Stat("/usr/bin/pacman"); err != nil {
-		t.Skip("pacman not available")
-	}
-	// Must not panic; on a healthy machine the result is empty, but we only
-	// assert the call is safe and returns a (possibly nil) clean slice.
-	for _, p := range brokenPackages() {
-		if p != strings.TrimSpace(p) || p == "" {
-			t.Fatalf("unclean package line %q", p)
-		}
-	}
-}
-
 // ── behaviour 8: log categories + view-log picker ──────────────────────────────
 
 // TestStepCategoryDefaultsToCleanup: a step with no category set (the common

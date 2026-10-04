@@ -33,6 +33,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case sudoCachedMsg:
+		if msg.cached && m.scanAfterAuth != nil {
+			return m.startScan()
+		}
 		if msg.cached {
 			// No password prompt to act as the gate. If this action wants a
 			// proceed-gate, show it; otherwise run straight away.
@@ -60,6 +63,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pwAttempts++
 			m.password.Reset()
 			if m.pwAttempts >= maxSudoAttempts {
+				if m.scanAfterAuth != nil {
+					// no queue to skip through — the scan itself needs root
+					m.scanAfterAuth = nil
+					m.notice = "Sudo authentication failed — can't scan for broken packages."
+					m.bg = screenMenu
+					m.screen = screenNotice
+					return m, nil
+				}
 				// give up: run the queue anyway; sudo steps get skipped+logged
 				m.sudoUnavailable = true
 				cmd := m.startQueue()
@@ -74,6 +85,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pwAttempts = 0
 		m.password.Reset()
+		if m.scanAfterAuth != nil {
+			return m.startScan()
+		}
 		cmd := m.startQueue()
 		return m, cmd
 
@@ -218,6 +232,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.password.Reset()
 			m.pwErr = ""
+			m.scanAfterAuth = nil
 			m.screen = screenMenu
 			return m, nil
 		case "enter":
@@ -398,9 +413,11 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	case "editconfig":
 		return m, editConfig()
 	case "repair":
-		m.screen = screenDiscovering
-		m.discovering = "Scanning for broken packages…"
-		return m, discoverRepair()
+		// pacman -Qk must run as root (see brokenPackages), so authenticate
+		// first, the same way Full Cleanup does; the scan follows.
+		m.scanAfterAuth = discoverRepair()
+		m.pwAttempts = 0
+		return m, checkSudoCached()
 	case "downloads":
 		m.screen = screenDiscovering
 		m.discovering = "Checking Downloads…"
@@ -421,6 +438,15 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	m.gate = item.gate
 	m.pending = item.steps()
 	cmd := m.beginPending()
+	return m, cmd
+}
+
+// startScan runs the discovery that was waiting on sudo (scanAfterAuth).
+func (m model) startScan() (tea.Model, tea.Cmd) {
+	cmd := m.scanAfterAuth
+	m.scanAfterAuth = nil
+	m.screen = screenDiscovering
+	m.discovering = "Scanning for broken packages…"
 	return m, cmd
 }
 

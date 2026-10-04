@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -395,9 +396,14 @@ type discoveryMsg struct {
 
 type editorDoneMsg struct{ err error }
 
+// discoverRepair runs after the sudo ticket is primed (see model.scanAfterAuth):
+// the scan itself needs root.
 func discoverRepair() tea.Cmd {
 	return func() tea.Msg {
-		pkgs := brokenPackages()
+		pkgs, err := brokenPackages()
+		if err != nil {
+			return discoveryMsg{kind: "repair", notice: "Couldn't scan for broken packages: " + shortErr(err)}
+		}
 		if len(pkgs) == 0 {
 			return discoveryMsg{kind: "repair", notice: "No broken packages found."}
 		}
@@ -410,12 +416,40 @@ func discoverRepair() tea.Cmd {
 	}
 }
 
-// brokenPackages lists packages with missing or altered files (pacman -Qk).
-func brokenPackages() []string {
-	out, _ := exec.Command("bash", "-c",
-		`pacman -Qk 2>/dev/null | grep -vE '0 (missing|altered) files' | awk -F: '{print $1}' | sort -u`,
-	).Output()
-	return nonEmptyLines(string(out))
+// brokenPackages lists packages with missing files (pacman -Qk). It runs as
+// root: as the user, files in root-only dirs (/boot is 700, /var/lib/nfs/statd
+// is rpcuser's) can't be stat'ed and count as "missing", so amd-ucode and
+// nfs-utils got "repaired" on every run. -n: the ticket is already primed, and
+// nothing may prompt on the raw tty.
+func brokenPackages() ([]string, error) {
+	cmd := exec.Command("sudo", "-n", "pacman", "-Qk")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	// pacman -Qk exits 1 when it finds missing files, so an error with a
+	// report on stdout is a result, not a failure.
+	if err != nil && len(bytes.TrimSpace(out)) == 0 {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, errors.New(msg)
+		}
+		return nil, err
+	}
+	return parseBrokenPackages(string(out)), nil
+}
+
+// parseBrokenPackages picks the packages out of `pacman -Qk` summary lines
+// ("name: 17 total files, 1 missing file") whose missing count isn't zero.
+// Matches the whole ", 0 missing files" suffix so "10 missing files" counts.
+func parseBrokenPackages(out string) []string {
+	var pkgs []string
+	for _, line := range nonEmptyLines(out) {
+		name, rest, ok := strings.Cut(line, ": ")
+		if !ok || !strings.Contains(rest, "total files") || strings.HasSuffix(rest, ", 0 missing files") {
+			continue
+		}
+		pkgs = append(pkgs, name)
+	}
+	return pkgs
 }
 
 // orphanPackages lists packages installed as dependencies that nothing needs
