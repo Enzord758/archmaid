@@ -169,7 +169,7 @@ rather than adding more indirection:
 | `sigkillGrace` | shrink the SIGINT→SIGKILL grace period (read into `proc.Options.KillGrace` at launch) |
 | `stepWaitDelay` | shrink how long a finished step's output pipe is still read (`proc.Options.WaitDelay`) |
 | `askpassWrapper` | wire askpass up (or not) for `runStep` without starting a server (`privileged()` builds `privilege.Sudo{Wrapper: askpassWrapper}`) |
-| `readProc`, `ourUID` | stand in a fake process table and uid for the askpass peer check (`proc.Read`/`os.Getuid` by default; `fakeProcs`), passed to `privilege.Verify` as `VerifyOptions`; the server takes `readProc` when it starts |
+| `readProc`, `ourUID` | stand in a fake process table and uid for the askpass peer check (`proc.Read`/`os.Getuid` by default; `fakeProcs`), passed to `Request.Verify` as `VerifyOptions`; the server takes `readProc` when it starts |
 | `aurRPCURL` | point the AUR audit at `httptest` |
 | `tickFn` | `tea.Tick` for the status refresh and sudo keep-alive; the transcripts' `tuiTarget` drops the ticks |
 | `logNow` | the clock that names the process's run directory (fixed by the first store) |

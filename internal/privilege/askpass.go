@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
+	"testing"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/proc"
@@ -27,8 +29,10 @@ import (
 // The wrapper's path reaches only the steps that use sudo (Sudo.Env). Those
 // still include topgrade, and with it every AUR build script, so a request is
 // answered only from archmaid's own helper, run by sudo, inside the running
-// step's process tree (Verify), and only once su has accepted the password
-// (Request.Answer).
+// step's process tree (Request.Verify), and only once su has accepted the
+// password (Request.Answer). Answer enforces the first itself: it refuses a
+// Request that Verify hasn't passed (ErrUnverified), so a frontend that
+// forgets the check gets a refusal, not a leaked password.
 
 // DefaultReadTimeout bounds how long a client may take to send its prompt
 // line, when ServerOptions leaves it unset.
@@ -47,6 +51,10 @@ var ErrNoRuntimeDir = errors.New("askpass: no XDG_RUNTIME_DIR")
 // ErrLineBreak is Answer's error for a password with a line break: sudo reads
 // one line, so it would get a different password than su checked.
 var ErrLineBreak = errors.New("a password can't contain a line break")
+
+// ErrUnverified is Answer's error for a Request that Request.Verify hasn't
+// passed: nothing is written and su doesn't run.
+var ErrUnverified = errors.New("askpass: the request was not verified")
 
 // ServerOptions are the knobs a Server is started with.
 type ServerOptions struct {
@@ -181,7 +189,7 @@ func (s *Server) serve(conn net.Conn) {
 	}
 	conn.SetReadDeadline(time.Time{}) // the user takes as long as they need
 	select {
-	case s.reqs <- NewRequest(conn, strings.TrimRight(prompt, "\r\n"), peer):
+	case s.reqs <- newRequest(conn, strings.TrimRight(prompt, "\r\n"), peer):
 	case <-s.done:
 		conn.Close()
 	}
@@ -227,21 +235,49 @@ type Peer struct {
 }
 
 // Request is one client's request for the password. Exactly one of Answer
-// (once it succeeds) or Cancel ends it. It never holds the password.
+// (once it succeeds) or Cancel ends it. It never holds the password. Only a
+// Server makes one (outside tests): its Peer is what the kernel said about
+// the connection, never a caller's claim.
 type Request struct {
 	// Prompt is sudo's prompt as the client sent it, line ending trimmed.
 	// Untrusted: whoever runs sudo sets it with -p.
 	Prompt string
-	// Peer is who connected; Verify it before answering.
+	// Peer is who connected, for display; Verify checks it.
 	Peer Peer
 	conn net.Conn
+	// verified is set by a Verify that passed; Answer requires it.
+	verified atomic.Bool
 }
 
-// NewRequest wraps a connection that carries one request: what a Server
-// delivers, and how a test (or a frontend relaying requests from elsewhere)
-// builds one. The peer is taken as given, so Verify it like any other.
-func NewRequest(conn net.Conn, prompt string, peer Peer) *Request {
+// newRequest wraps a connection that carries one request, as a Server
+// delivers it. Unexported: pairing a connection with a peer is the Server's
+// job (SO_PEERCRED), not a caller's.
+func newRequest(conn net.Conn, prompt string, peer Peer) *Request {
 	return &Request{Prompt: prompt, Peer: peer, conn: conn}
+}
+
+// NewTestRequest is newRequest for another package's tests, which need a
+// Request over a connection of their own (net.Pipe) with a fake peer. The
+// Request is unverified like any other: Verify it before Answer. Outside a
+// test binary it panics.
+func NewTestRequest(conn net.Conn, prompt string, peer Peer) *Request {
+	if !testing.Testing() {
+		panic("privilege.NewTestRequest is for tests only")
+	}
+	return newRequest(conn, prompt, peer)
+}
+
+// Verify decides whether this request may have the password (see verifyPeer
+// for the checks) and, if so, marks it verified: the one way to make Answer
+// accept it. On success it returns sudo's caller, for the UI to name. A
+// request that fails stays unverified.
+func (r *Request) Verify(stepPid int, stepStart uint64, o VerifyOptions) (Requester, error) {
+	from, err := verifyPeer(r.Peer, stepPid, stepStart, o)
+	if err != nil {
+		return Requester{}, err
+	}
+	r.verified.Store(true)
+	return from, nil
 }
 
 // Answer validates pw with su before sudo sees it (CheckPassword, like
@@ -252,7 +288,13 @@ func NewRequest(conn net.Conn, prompt string, peer Peer) *Request {
 // for another try, and detail is a lockout notice to show verbatim, if su
 // printed one. A password with a line break is refused (ErrLineBreak) before
 // su runs. The password is written straight through — never stored.
+//
+// A request that Verify hasn't passed is refused first (ErrUnverified):
+// nothing is written, su doesn't run, and the request stays open (Cancel it).
 func (r *Request) Answer(pw string) (detail string, err error) {
+	if !r.verified.Load() {
+		return "", ErrUnverified
+	}
 	if strings.ContainsAny(pw, "\r\n") {
 		return "", ErrLineBreak
 	}
@@ -315,9 +357,9 @@ type Requester struct {
 	CallerPid int
 }
 
-// Verify decides whether a request may have the password. Anything that
-// inherited SUDO_ASKPASS can connect — under topgrade that includes every AUR
-// build script — so the peer must be:
+// verifyPeer decides whether a request from peer may have the password
+// (Request.Verify). Anything that inherited SUDO_ASKPASS can connect — under
+// topgrade that includes every AUR build script — so the peer must be:
 //
 //   - running as our uid;
 //   - still the process that connected (same start time as at accept: its pid
@@ -331,7 +373,7 @@ type Requester struct {
 // A fork's parent always started before it, so a parent with a later start
 // time than its child is a reused pid, and the walk refuses it. On success it
 // returns sudo's caller, for the UI to name.
-func Verify(peer Peer, stepPid int, stepStart uint64, o VerifyOptions) (Requester, error) {
+func verifyPeer(peer Peer, stepPid int, stepStart uint64, o VerifyOptions) (Requester, error) {
 	uid, readProc := o.UID, o.ReadProc
 	if uid == nil {
 		uid = os.Getuid

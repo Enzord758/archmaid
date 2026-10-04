@@ -421,6 +421,10 @@ func TestAskpassEndToEnd(t *testing.T) {
 	go func() {
 		select {
 		case req := <-s.Requests():
+			// The transport is what's under test: the helper here is this
+			// test binary, not run by sudo, so it is marked verified by hand
+			// (Verify has tests of its own).
+			req.verified.Store(true)
 			_, err := req.Answer("pw")
 			done <- answered{req.Prompt, err}
 		case <-time.After(askpassTimeout):
@@ -447,14 +451,26 @@ func TestAskpassEndToEnd(t *testing.T) {
 	}
 }
 
-// pipeRequest is a Request over an in-memory connection, and the helper's
-// end of it, both closed on cleanup.
-func pipeRequest(t *testing.T) (*Request, net.Conn) {
+// unverifiedPipeRequest is a Request from the fake helper (helperPeer) over
+// an in-memory connection, and the helper's end of it, both closed on
+// cleanup. Nothing has verified it yet.
+func unverifiedPipeRequest(t *testing.T) (*Request, net.Conn) {
 	t.Helper()
 	ours, helper := net.Pipe()
 	t.Cleanup(func() { ours.Close(); helper.Close() })
 	helper.SetDeadline(time.Now().Add(askpassTimeout))
-	return NewRequest(ours, "[sudo] password for u: ", Peer{Pid: 1, UID: 2, Start: 3}), helper
+	return newRequest(ours, "[sudo] password for u: ", helperPeer()), helper
+}
+
+// pipeRequest is unverifiedPipeRequest once Verify has passed it against the
+// fake process table, so Answer will take it.
+func pipeRequest(t *testing.T) (*Request, net.Conn) {
+	t.Helper()
+	req, helper := unverifiedPipeRequest(t)
+	if _, err := req.Verify(fakeStepPid, 100, fakeOptions(fakeTree())); err != nil {
+		t.Fatalf("Verify = %v, want the fake helper verified", err)
+	}
+	return req, helper
 }
 
 // requireNothingWritten fails unless the helper's end is still open with
@@ -472,8 +488,8 @@ func requireNothingWritten(t *testing.T, helper net.Conn) {
 func TestAskpassAnswerRightPassword(t *testing.T) {
 	dir := shimAuth(t, 0, 0, "")
 	req, helper := pipeRequest(t)
-	if req.Prompt != "[sudo] password for u: " || req.Peer != (Peer{Pid: 1, UID: 2, Start: 3}) {
-		t.Fatalf("NewRequest = %+v", req)
+	if req.Prompt != "[sudo] password for u: " || req.Peer != helperPeer() {
+		t.Fatalf("newRequest = %+v", req)
 	}
 
 	// net.Pipe is synchronous: the write blocks until it's read, so the
@@ -529,6 +545,74 @@ func TestAskpassAnswerLineBreakRefused(t *testing.T) {
 		t.Fatal("su ran for a password with a line break")
 	}
 	requireNothingWritten(t, helper)
+}
+
+// TestAskpassAnswerRequiresVerify: Answer itself enforces the peer check. A
+// request nobody verified, and one whose Verify failed, are refused with
+// ErrUnverified before su runs, nothing reaches the helper, and the request
+// stays open. Only once Verify passes does the same password go through.
+func TestAskpassAnswerRequiresVerify(t *testing.T) {
+	dir := shimAuth(t, 0, 0, "")
+	req, helper := unverifiedPipeRequest(t)
+	// The helper reads from the start, so a wrongly answered request shows
+	// up as bytes received (net.Pipe is synchronous: without a reader, a
+	// write would block instead).
+	got := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(helper) // up to the hang-up after an answer
+		got <- string(b)
+	}()
+	if _, err := req.Answer("secret"); !errors.Is(err, ErrUnverified) {
+		t.Fatalf("Answer on an unverified request = %v, want ErrUnverified (helper got %q)", err, recv(t, got, "the helper's read"))
+	}
+
+	// A helper sudo didn't start: Verify refuses it, and it stays refused.
+	tree := fakeTree()
+	h := tree[fakeHelperPid]
+	h.PPid = fakeCallerPid
+	tree[fakeHelperPid] = h
+	if _, err := req.Verify(fakeStepPid, 100, fakeOptions(tree)); err == nil {
+		t.Fatal("Verify passed a helper that sudo didn't start")
+	}
+	if _, err := req.Answer("secret"); !errors.Is(err, ErrUnverified) {
+		t.Fatalf("Answer after a failed Verify = %v, want ErrUnverified", err)
+	}
+	if _, ok := called(t, dir, "su"); ok {
+		t.Fatal("su ran for an unverified request")
+	}
+	select {
+	case b := <-got:
+		t.Fatalf("the helper got %q from an unverified request", b)
+	case <-time.After(50 * time.Millisecond): // still open, nothing written
+	}
+
+	if _, err := req.Verify(fakeStepPid, 100, fakeOptions(fakeTree())); err != nil {
+		t.Fatalf("Verify = %v, want the fake helper verified", err)
+	}
+	if _, err := req.Answer("secret"); err != nil {
+		t.Fatalf("Answer once verified = %v", err)
+	}
+	if pw := recv(t, got, "the password"); pw != "secret\n" {
+		t.Fatalf("helper received %q, want %q", pw, "secret\n")
+	}
+}
+
+// TestNewTestRequestIsUnverified: the test-only constructor hands out a
+// request that Answer still refuses until Verify passes it.
+func TestNewTestRequestIsUnverified(t *testing.T) {
+	dir := shimAuth(t, 0, 0, "") // never the real su, should Answer get that far
+	ours, helper := net.Pipe()
+	defer ours.Close()
+	defer helper.Close()
+	helper.SetDeadline(time.Now().Add(askpassTimeout))
+	go io.Copy(io.Discard, helper) // a wrong answer must not block on the pipe
+	req := NewTestRequest(ours, "p", helperPeer())
+	if _, err := req.Answer("secret"); !errors.Is(err, ErrUnverified) {
+		t.Fatalf("Answer = %v, want ErrUnverified", err)
+	}
+	if _, ok := called(t, dir, "su"); ok {
+		t.Fatal("su ran for an unverified request")
+	}
 }
 
 // TestAskpassCancelHangsUpUnanswered: Cancel closes the connection without writing

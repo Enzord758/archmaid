@@ -66,7 +66,7 @@ func helperPeer() Peer { return Peer{Pid: fakeHelperPid, UID: fakeUID, Start: 40
 // fail to be ours is refused.
 func TestPeerVerify(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
-		from, err := Verify(helperPeer(), fakeStepPid, 100, fakeOptions(fakeTree()))
+		from, err := verifyPeer(helperPeer(), fakeStepPid, 100, fakeOptions(fakeTree()))
 		if err != nil {
 			t.Fatalf("refused the step's own sudo: %v", err)
 		}
@@ -77,7 +77,7 @@ func TestPeerVerify(t *testing.T) {
 
 	t.Run("sudo is the step itself", func(t *testing.T) {
 		// A plain `sudo -A …` step: the step's child is sudo.
-		if _, err := Verify(helperPeer(), fakeSudoPid, 300, fakeOptions(fakeTree())); err != nil {
+		if _, err := verifyPeer(helperPeer(), fakeSudoPid, 300, fakeOptions(fakeTree())); err != nil {
 			t.Fatalf("refused a direct sudo step: %v", err)
 		}
 	})
@@ -88,7 +88,7 @@ func TestPeerVerify(t *testing.T) {
 		sudo := tree[fakeSudoPid]
 		sudo.Exe = sudoPath
 		tree[fakeSudoPid] = sudo
-		if _, err := Verify(helperPeer(), fakeStepPid, 100, fakeOptions(tree)); err != nil {
+		if _, err := verifyPeer(helperPeer(), fakeStepPid, 100, fakeOptions(tree)); err != nil {
 			t.Fatalf("refused a sudo whose exe reads %s: %v", sudoPath, err)
 		}
 	})
@@ -106,7 +106,7 @@ func TestPeerVerify(t *testing.T) {
 			}
 			return read(pid)
 		}
-		from, err := Verify(helperPeer(), fakeStepPid, 100, o)
+		from, err := verifyPeer(helperPeer(), fakeStepPid, 100, o)
 		if err != nil || from.CallerExe != "" || from.CallerPid != fakeCallerPid {
 			t.Fatalf("Verify = %+v, %v; want the caller's pid with no exe", from, err)
 		}
@@ -160,7 +160,7 @@ func TestPeerVerify(t *testing.T) {
 			if c.stepStart != 0 {
 				stepStart = c.stepStart
 			}
-			_, err := Verify(peer, stepPid, stepStart, fakeOptions(tree))
+			_, err := verifyPeer(peer, stepPid, stepStart, fakeOptions(tree))
 			if err == nil {
 				t.Fatal("request accepted, want it refused")
 			}
@@ -185,7 +185,7 @@ func TestPeerVerifyChainBounded(t *testing.T) {
 	caller := tree[fakeCallerPid]
 	caller.PPid = prev
 	tree[fakeCallerPid] = caller
-	if _, err := Verify(helperPeer(), fakeStepPid, 100, fakeOptions(tree)); err == nil ||
+	if _, err := verifyPeer(helperPeer(), fakeStepPid, 100, fakeOptions(tree)); err == nil ||
 		!strings.Contains(err.Error(), "not started by the running step") {
 		t.Fatalf("Verify = %v, want the over-long chain refused", err)
 	}
@@ -200,7 +200,7 @@ func TestPeerVerifyDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	peer := Peer{Pid: os.Getpid(), UID: os.Getuid(), Start: self.Start}
-	_, err = Verify(peer, fakeStepPid, 100, VerifyOptions{})
+	_, err = verifyPeer(peer, fakeStepPid, 100, VerifyOptions{})
 	if err == nil || !strings.Contains(err.Error(), "not started by sudo") {
 		t.Fatalf("Verify(self) = %v, want it refused as not started by sudo", err)
 	}

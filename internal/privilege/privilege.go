@@ -2,7 +2,7 @@
 // prompting on the raw tty: the sudo ticket (probe, two-stage authentication,
 // keep-alive refresh), the argv and environment a step's child runs with, and
 // the SUDO_ASKPASS bridge that routes a mid-run sudo prompt back to the UI
-// (Listen, RunClient, Verify). It knows nothing about the UI.
+// (Listen, RunClient, Request.Verify). It knows nothing about the UI.
 //
 // Passwords pass straight through: they are never logged, never stored, and
 // never kept in a struct that outlives the call that was handed them.

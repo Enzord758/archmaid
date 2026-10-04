@@ -92,9 +92,10 @@ type askpassRequester struct {
 	prompt    string // sudo's prompt, sanitized; untrusted (sudo -p sets it)
 }
 
-// verifyAskpassPeer runs privilege.Verify against the package's seams.
-func verifyAskpassPeer(peer privilege.Peer, stepPid int, stepStart uint64) (askpassRequester, error) {
-	from, err := privilege.Verify(peer, stepPid, stepStart, privilege.VerifyOptions{UID: ourUID, ReadProc: readProc})
+// verifyAskpassPeer runs req.Verify against the package's seams. Only a
+// request it passed can be answered (Request.Answer refuses any other).
+func verifyAskpassPeer(req *privilege.Request, stepPid int, stepStart uint64) (askpassRequester, error) {
+	from, err := req.Verify(stepPid, stepStart, privilege.VerifyOptions{UID: ourUID, ReadProc: readProc})
 	if err != nil {
 		return askpassRequester{}, err
 	}

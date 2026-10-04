@@ -206,7 +206,7 @@ func (m model) handleAskpass(msg askpassMsg) (tea.Model, tea.Cmd) {
 		m.noteOutput("archmaid: refused a second sudo password request while one is open")
 		return m, nil
 	}
-	from, err := verifyAskpassPeer(req.Peer, m.proc.Pid, m.proc.Start)
+	from, err := verifyAskpassPeer(req, m.proc.Pid, m.proc.Start)
 	if err != nil {
 		req.Cancel()
 		m.noteOutput("archmaid: refused a sudo password request: " + err.Error())

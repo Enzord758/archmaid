@@ -94,7 +94,7 @@ func sudoStepRunning(t *testing.T, m model) model {
 
 // helperAsks is the helper's request, as the server delivers it.
 func helperAsks(conn net.Conn) askpassMsg {
-	return askpassMsg{req: privilege.NewRequest(conn, "[sudo] password for u: ", helperPeer())}
+	return askpassMsg{req: privilege.NewTestRequest(conn, "[sudo] password for u: ", helperPeer())}
 }
 
 // pipeConn returns the model's end of an in-memory connection and the
