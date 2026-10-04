@@ -12,8 +12,9 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 - Installed at `/usr/lib/archmaid/archmaid-helper`, `0755 root:root`, **never
   setuid**. The path is a constant: polkit's `exec.path` names it, and the
   helper refuses to run as root from anywhere else.
-- Go, stdlib only. The nested `go.mod` is temporary; a later phase moves the
-  module to the repo root.
+- Go, stdlib only. It is part of the repo's one Go module (`go.mod` at the
+  root), but imports nothing outside the standard library — not even the
+  TUI's `internal/` packages.
 
 ## Verbs
 
@@ -273,10 +274,12 @@ In order, before anything else:
 
 ## Development
 
+From the repo root (the module root):
+
 ```sh
-cd cmd/archmaid-helper
-go test -race ./... && go vet ./... && test -z "$(gofmt -l .)"   # the gate
-go build -tags devhelper -o /tmp/ah . && /tmp/ah plan-orphans       # dev build, as yourself
+go test -race ./cmd/archmaid-helper/...                             # the helper's tests
+make gate                                                           # the whole gate (scripts/check.sh), helper included
+go build -tags devhelper -o /tmp/ah ./cmd/archmaid-helper && /tmp/ah plan-orphans   # dev build, as yourself
 ```
 
 All seams are on `helper.Options`: `Runner`, `Euid`, `CallerUID`, `Exe`,
