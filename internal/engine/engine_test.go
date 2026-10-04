@@ -56,7 +56,7 @@ var (
 	allInputs = []Input{
 		Tick{}, ProbeDone{}, AuthDone{}, FaillockRead{}, Discovered{}, StepOutput{},
 		PrivilegeGranted{}, StepExited{}, StepResult{}, HookDone{}, AskpassRequest{},
-		AskpassAnswered{},
+		AskpassAnswered{}, HelperCheck{},
 	}
 	allCommands = []Command{
 		Start{}, Confirm{}, SubmitPassword{}, CancelPrompt{}, Select{}, Abort{},

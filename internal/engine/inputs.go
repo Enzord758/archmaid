@@ -70,6 +70,16 @@ type StepResult struct {
 	Result steps.Result
 }
 
+// HelperCheck is the root helper's check event for step Seq (its
+// check-files verb, Repair's recheck under polkit): Broken lists the
+// packages it found broken, empty for none. A Driver sends it, parsed from
+// the helper's output (internal/helperclient), before that step's
+// StepExited; the Session decides from it what follows the recheck.
+type HelperCheck struct {
+	Seq    uint64
+	Broken []string
+}
+
 // HookDone answers RunHook with Seq.
 type HookDone struct {
 	Seq uint64
@@ -105,5 +115,6 @@ func (PrivilegeGranted) isInput() {}
 func (StepExited) isInput()       {}
 func (StepResult) isInput()       {}
 func (HookDone) isInput()         {}
+func (HelperCheck) isInput()      {}
 func (AskpassRequest) isInput()   {}
 func (AskpassAnswered) isInput()  {}

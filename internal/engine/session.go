@@ -267,6 +267,8 @@ func (s *Session) Handle(in Input) Output {
 		s.stepResult(&o, in)
 	case HookDone:
 		s.hookDone(&o, in)
+	case HelperCheck:
+		s.helperCheck(&o, in)
 	}
 	return o
 }

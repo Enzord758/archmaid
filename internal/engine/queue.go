@@ -51,7 +51,8 @@ type run struct {
 	// A pick list (NeedsSelection) and what it showed, or nil.
 	sel      *actions.NeedsSelection
 	selShown []string
-	report   *report // the open report (report.go), or nil
+	report   *report      // the open report (report.go), or nil
+	check    *HelperCheck // the running repair-check's check event, or nil (repaircheck.go)
 
 	errs, skipped, refused int
 }
@@ -322,7 +323,7 @@ func (s *Session) launch(o *Output, accepted bool) {
 func (s *Session) startStep(o *Output, accepted bool) {
 	r := s.run
 	st := &r.plan[r.cur]
-	r.stepSeq, r.stepAt, r.out = s.seq(), s.now(), nil
+	r.stepSeq, r.stepAt, r.out, r.check = s.seq(), s.now(), nil, nil
 	if accepted && st.step.OnAccept != nil {
 		o.effect(RunHook{Seq: s.seq(), Step: st.step.ID, Fn: st.step.OnAccept})
 	}
@@ -398,6 +399,9 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 	}
 	s.settle(o, outcome(in.Err), errText(in.Err))
 	s.logDone(o, in.Err)
+	if s.repairChecked(o, in.Err) {
+		return
+	}
 	s.advance(o)
 }
 
