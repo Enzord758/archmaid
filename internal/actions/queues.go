@@ -94,6 +94,10 @@ func fullCleanupSteps(env Env) []steps.Step {
 		},
 	}
 
+	if env.Polkit {
+		queue = polkitFullCleanup(queue)
+	}
+
 	// Hyprland plugins go last: hyprpm drops the sudo ticket on exit, so after
 	// this step nothing must need sudo anymore (see the topgrade note above).
 	if _, err := env.lookPath("hyprpm"); err == nil {
@@ -105,6 +109,34 @@ func fullCleanupSteps(env Env) []steps.Step {
 	}
 
 	return queue
+}
+
+// fullCleanupRoot are Full Cleanup's root steps, in the order the root
+// helper's full-cleanup runs them (after the orphan removal, which the
+// probe inserts in front of them).
+var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPaccacheWipe, steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity}
+
+// polkitFullCleanup is Full Cleanup's queue under polkit, where the owner's
+// rule is ONE polkit dialog per run (as the TUI asks one sudo password):
+// its root steps run as one root-helper full-cleanup call (Step.Combine;
+// the engine asks their confirms first, then shows one dialog). For that
+// they must be consecutive, so the orphan probe moves up to right after
+// topgrade (the removal it inserts is the call's first part), the root
+// steps follow in the helper's order, and yay -Sc moves behind them — it
+// still runs after the orphan removal, so it still clears the removed
+// packages' cache. The sudo queue (the TUI) is untouched.
+func polkitFullCleanup(queue []steps.Step) []steps.Step {
+	byID := map[string]steps.Step{}
+	for _, s := range queue {
+		byID[s.ID] = s
+	}
+	out := []steps.Step{byID[steps.IDAURAudit], byID[steps.IDTopgrade], byID[steps.IDOrphansProbe]}
+	for _, id := range fullCleanupRoot {
+		s := byID[id]
+		s.Combine = steps.VerbFullCleanup
+		out = append(out, s)
+	}
+	return append(out, byID[steps.IDYayCache])
 }
 
 func topgradeSteps(env Env) []steps.Step {
@@ -204,6 +236,9 @@ func findOrphansPolkit(plan func(context.Context) (steps.OrphanPlan, error)) fun
 		// started: the helper gets only the hash (helperclient.Argv).
 		st.Argv = append([]string{"pacman", "-Rns", "--noconfirm", "--"}, direct...)
 		st.Plan = &steps.OrphanPlan{Hash: p.Hash, Direct: slices.Clone(direct), Cascade: slices.Clone(cascade)}
+		// The first part of Full Cleanup's one root-helper call
+		// (polkitFullCleanup): its hash goes to full-cleanup --orphans.
+		st.Combine = steps.VerbFullCleanup
 		return steps.Result{Output: orphanSummary(direct, cascade), InsertNext: &st}
 	}
 }

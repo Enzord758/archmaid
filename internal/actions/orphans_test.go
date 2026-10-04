@@ -185,3 +185,57 @@ func TestYayCacheAskpassUnderPolkit(t *testing.T) {
 		}
 	}
 }
+
+// TestFullCleanupPolkitOneCall: under polkit, Full Cleanup's root steps are
+// consecutive and marked for the one full-cleanup call, right behind the
+// orphan probe (whose removal joins them first), with yay -Sc after them
+// and hyprpm last. Under sudo nothing is combined and the order is the
+// TUI's.
+func TestFullCleanupPolkitOneCall(t *testing.T) {
+	a, _ := ByID(IDFullCleanup)
+	idsOf := func(q []steps.Step) []string {
+		var out []string
+		for _, s := range q {
+			out = append(out, s.ID)
+		}
+		return out
+	}
+	env := testEnv(true)
+	sudoQ := a.Steps(env)
+	for _, s := range sudoQ {
+		if s.Combine != "" {
+			t.Errorf("sudo: %s is combined", s.ID)
+		}
+	}
+	if want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDPaccache, steps.IDPaccacheWipe, steps.IDOrphansProbe,
+		steps.IDYayCache, steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity, steps.IDHyprpm}; !slices.Equal(idsOf(sudoQ), want) {
+		t.Errorf("sudo order %q, want %q", idsOf(sudoQ), want)
+	}
+
+	env.Polkit = true
+	env.PlanOrphans = func(context.Context) (steps.OrphanPlan, error) { return testPlan, nil }
+	q := a.Steps(env)
+	want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDOrphansProbe, steps.IDPaccache, steps.IDPaccacheWipe,
+		steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity, steps.IDYayCache, steps.IDHyprpm}
+	if !slices.Equal(idsOf(q), want) {
+		t.Fatalf("polkit order %q, want %q", idsOf(q), want)
+	}
+	for i, s := range q {
+		root := s.Verb != "" && s.Run == nil
+		if root != (s.Combine == steps.VerbFullCleanup) {
+			t.Errorf("%s: Combine %q", s.ID, s.Combine)
+		}
+		// The same step as under sudo, but for Combine, and for the AUR
+		// cache step's NeedsPriv (its askpass, TestYayCacheAskpassUnderPolkit).
+		was := sudoQ[slices.IndexFunc(sudoQ, func(x steps.Step) bool { return x.ID == s.ID })]
+		privSame := s.NeedsPriv == was.NeedsPriv || s.ID == steps.IDYayCache
+		if s.Title != was.Title || !slices.Equal(s.Argv, was.Argv) || s.Confirm != was.Confirm || !privSame {
+			t.Errorf("%d %s changed: %+v vs %+v", i, s.ID, s, was)
+		}
+	}
+	noPacman(t)
+	res := q[2].Run(context.Background(), steps.Env{})
+	if res.InsertNext == nil || res.InsertNext.Combine != steps.VerbFullCleanup {
+		t.Fatalf("the inserted removal isn't combined: %+v", res.InsertNext)
+	}
+}
