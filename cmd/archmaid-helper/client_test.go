@@ -29,6 +29,39 @@ func TestClientConstantsAreTheHelpers(t *testing.T) {
 	}
 }
 
+// TestClientNamePatternsAreTheHelpers: the client's name checks and the
+// helper's accept and refuse the same names, run in-process as a dev build
+// with a fake runner. Both patterns are unexported, so they are tied by
+// behaviour, edge cases included: a leading '-' (a flag) or '.', the
+// length caps, and characters neither allows.
+func TestClientNamePatternsAreTheHelpers(t *testing.T) {
+	cases := map[string][]string{
+		steps.VerbDisableUnit: {
+			"a.service", "x@y.service", "getty@tty1.service", ":x.service", "_x.service", "@x.service",
+			"-x.service", "--now.service", ".x.service", "a.timer", "x", ".service", "a b.service",
+			"a/b.service", "ä.service", strings.Repeat("a", 250) + ".service", strings.Repeat("a", 251) + ".service",
+		},
+		steps.VerbRepair: {
+			"a", "A", "+x", "_x", "@x", "a.b-c+d", "-x", "--root=/", ".x", "", "a/b", "a b",
+			strings.Repeat("a", 128), strings.Repeat("a", 129),
+		},
+	}
+	for verb, names := range cases {
+		for _, n := range names {
+			_, err := helperclient.Argv(steps.Step{Verb: verb, Items: []string{n}})
+			var out, errOut bytes.Buffer
+			dir := t.TempDir()
+			code := helper.Run([]string{verb, n}, helper.Options{
+				Runner: anyRunner{installed: []string{n}}, Stdout: &out, Stderr: &errOut, Euid: 1000, Dev: true,
+				LockPath: filepath.Join(dir, "lock"), PacmanDBLock: filepath.Join(dir, "db.lck"),
+			})
+			if client, helperOK := err == nil, code != helper.ExitUsage; client != helperOK {
+				t.Errorf("%s %q: the client accepts it: %v, the helper: %v (exit %d)", verb, n, client, helperOK, code)
+			}
+		}
+	}
+}
+
 // anyRunner answers every query with success: `pacman -Qq` lists the given
 // names, everything else prints nothing. Only input validation can then
 // make the helper exit 2.

@@ -87,7 +87,10 @@ func TestArgvRefused(t *testing.T) {
 		{"repair bidi", steps.Step{Verb: steps.VerbRepair, Items: []string{"a‮b"}}, ErrBadItems},
 		{"check-files path", steps.Step{Verb: steps.VerbCheckFiles, Items: []string{"../../etc/shadow"}}, ErrBadItems},
 		{"unit not a service", steps.Step{Verb: steps.VerbDisableUnit, Items: []string{"a.timer"}}, ErrBadItems},
-		{"unit flag", steps.Step{Verb: steps.VerbDisableUnit, Items: []string{"--now.service"}}, nil},
+		{"unit flag", steps.Step{Verb: steps.VerbDisableUnit, Items: []string{"--now.service"}}, ErrBadItems},
+		{"unit dash", steps.Step{Verb: steps.VerbDisableUnit, Items: []string{"-x.service"}}, ErrBadItems},
+		{"unit flag after a good one", steps.Step{Verb: steps.VerbDisableUnit, Items: []string{"a.service", "--now.service"}}, ErrBadItems},
+		{"unit dot", steps.Step{Verb: steps.VerbDisableUnit, Items: []string{".x.service"}}, ErrBadItems},
 		{"unit none", steps.Step{Verb: steps.VerbDisableUnit}, ErrBadItems},
 		{"paccache with items", steps.Step{Verb: steps.VerbPaccache, Items: []string{"0"}}, ErrBadItems},
 		{"clean-tmp with items", steps.Step{Verb: steps.VerbCleanTmp, Items: []string{"x"}}, ErrBadItems},
@@ -95,15 +98,6 @@ func TestArgvRefused(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := Argv(c.st)
-			if c.want == nil {
-				// "--now.service" matches the helper's unit pattern; it
-				// still lands after the verb, where the helper puts "--"
-				// before it. Pinned so a change to the pattern is seen.
-				if err != nil {
-					t.Fatalf("Argv = %v, want accepted like the helper does", err)
-				}
-				return
-			}
 			if !errors.Is(err, c.want) || got != nil {
 				t.Fatalf("Argv = %q, %v; want %v", got, err, c.want)
 			}

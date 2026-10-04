@@ -82,10 +82,12 @@ var (
 )
 
 // The helper's own name patterns (helper.go), checked here too so a bad
-// list is refused before a password prompt, not after.
+// list is refused before a password prompt, not after. Neither lets a name
+// start with '-'. cmd/archmaid-helper's TestClientNamePatternsAreTheHelpers
+// ties them to the helper's by behaviour.
 var (
 	namePattern = regexp.MustCompile(`^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$`)
-	unitPattern = regexp.MustCompile(`^[A-Za-z0-9:_.@-]{1,250}\.service$`)
+	unitPattern = regexp.MustCompile(`^[A-Za-z0-9:_@][A-Za-z0-9:_.@-]{0,249}\.service$`)
 )
 
 // Argv is the command line Run starts for st: Pkexec, HelperPath, st.Verb,
