@@ -5,8 +5,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -22,10 +24,9 @@ func main() {
 		os.Exit(runAskpass(os.Args[2], prompt))
 	}
 
-	for _, a := range os.Args[1:] {
-		if a == "--dryrun" {
-			dryRun = true
-		}
+	if err := parseArgs(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, "archmaid:", err)
+		os.Exit(2)
 	}
 
 	pruneLogs() // keep only the most recent logKeepRuns run directories
@@ -44,4 +45,28 @@ func main() {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
+}
+
+// parseArgs applies the command-line flags: --dryrun, and --downloads <dir>
+// (or --downloads=<dir>), the folder "Delete old downloads" cleans. Anything
+// else is ignored.
+func parseArgs(args []string) error {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--dryrun":
+			dryRun = true
+		case a == "--downloads":
+			if i+1 >= len(args) || args[i+1] == "" {
+				return errors.New("--downloads needs a folder")
+			}
+			i++
+			downloadsFlag = args[i]
+		case strings.HasPrefix(a, "--downloads="):
+			if downloadsFlag = strings.TrimPrefix(a, "--downloads="); downloadsFlag == "" {
+				return errors.New("--downloads needs a folder")
+			}
+		}
+	}
+	return nil
 }

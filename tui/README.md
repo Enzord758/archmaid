@@ -108,6 +108,17 @@ it would do* instead of running it, logs **every** step (not just failures) to
 discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
 the header. This is the safe way to exercise the whole UI.
 
+## Downloads folder
+
+"Delete old downloads" cleans the first of these that is an existing folder:
+`--downloads <dir>`, `$ARCHMAID_DOWNLOADS`, `XDG_DOWNLOAD_DIR` from
+`$XDG_CONFIG_HOME/user-dirs.dirs`, `~/Downloads`, `~/Download`. Symlinks are
+resolved first, and every candidate but the flag must lie strictly inside
+`$HOME` — `$HOME` itself (e.g. `XDG_DOWNLOAD_DIR="$HOME/"`), `/` and anything
+above `$HOME` are skipped. The flag may point outside `$HOME` but is still
+refused for `$HOME`, `/` or an ancestor, and a bad flag is reported rather than
+skipped. The confirm names the folder it picked.
+
 ## Design lineage (from the original gum script)
 
 | the old gum script | here |

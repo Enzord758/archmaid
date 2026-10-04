@@ -18,7 +18,8 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 
 | File | Owns |
 |---|---|
-| `main.go` | package doc + `main()`: askpass dispatch, flag parsing, `pruneLogs`, `tea.NewProgram` |
+| `main.go` | package doc + `main()`: askpass dispatch, flag parsing (`parseArgs`: `--dryrun`, `--downloads`), `pruneLogs`, `tea.NewProgram` |
+| `downloads.go` | "Delete old downloads": which folder (`resolveDownloadsDir`) |
 | `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
 | `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
@@ -108,6 +109,13 @@ comments and `git log`; this is the "read before you touch it" list.
   `~/dotfiles/yay/.config/yay/init.lua` (stowed to `~/.config/yay/`), and needs
   stowing on any new machine. The audit's "pushed within 72 h" flag deliberately
   matches it.
+- **The downloads folder is resolved, never assumed.** On the dev machine it is
+  `~/Download`, `~/Downloads` doesn't exist, and `XDG_DOWNLOAD_DIR="$HOME/"` —
+  so "just read the XDG dir" would clean the whole home folder.
+  `resolveDownloadsDir` walks flag → `ARCHMAID_DOWNLOADS` → XDG → `~/Downloads`
+  → `~/Download`, resolves symlinks, and refuses `$HOME`, `/` and ancestors of
+  `$HOME` for every source; all but the flag must be strictly inside `$HOME`.
+  Don't add a candidate that skips `checkDownloadsDir`.
 - **`m.bg` is one field, not a stack.** A popup that overwrites it with its own
   screen value makes `renderScreen` recurse forever; see the `askpassMsg` case in
   `update.go`.

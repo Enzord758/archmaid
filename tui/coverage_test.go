@@ -77,8 +77,7 @@ func TestEditConfigKeepsExistingFile(t *testing.T) {
 // TestDiscoverDownloadsCountsAgedFiles: only files older than 30 days are
 // counted, and the count lands in the confirm string.
 func TestDiscoverDownloadsCountsAgedFiles(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := isolateDownloads(t)
 	dl := filepath.Join(home, "Downloads")
 	if err := os.MkdirAll(dl, 0o755); err != nil {
 		t.Fatal(err)
@@ -106,8 +105,7 @@ func TestDiscoverDownloadsCountsAgedFiles(t *testing.T) {
 
 // TestDiscoverDownloadsEmptyShowsNotice: no aged files → a notice, no step.
 func TestDiscoverDownloadsEmptyShowsNotice(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	home := isolateDownloads(t)
 	os.MkdirAll(filepath.Join(home, "Downloads"), 0o755)
 
 	msg := discoverDownloads()().(discoveryMsg)

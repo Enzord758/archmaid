@@ -60,8 +60,10 @@ test can delete your files or need root.
    set `dryRun = true` (steps then only *report* `[dry-run] would run: …`) or
    shim the binary. Never exercise the real `paccache -rk0`, `rm -rf`,
    `systemctl disable`, `pacman -Rns` or a real `sudo`.
-2. **No real state.** Tests that write a log, touch `~/.config` / `~/Downloads`
-   or read `$HOME` set `t.Setenv("HOME", t.TempDir())`. Tests that read or write
+2. **No real state.** Tests that write a log, touch `~/.config` or read `$HOME`
+   set `t.Setenv("HOME", t.TempDir())`; tests that resolve the downloads folder
+   use `isolateDownloads`, which also points `XDG_CONFIG_HOME` at the scratch
+   home and clears `--downloads` / `ARCHMAID_DOWNLOADS`. Tests that read or write
    run logs or the AUR snapshot also set `logDir = t.TempDir()` (restored on
    cleanup), so nothing lands in the real `~/.local/state/archmaid`.
 3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
@@ -222,6 +224,7 @@ the names.
 | `fullcleanup_audit_test.go` | Full Cleanup's audit step: it's first, in-process, `alwaysLog`, category `audit`; both topgrade steps are `alwaysLog`. A maintainer change gates topgrade with a confirm naming the package(s), defaulting to No, before topgrade starts; declining skips only the update and logs `SKIP: … (declined)`; the report is in the output pane and `audit.log`. No foreign packages is a clean pass; an unreachable AUR fails the step without gating. A stale or post-abort result is dropped. In a dry run it still audits, logs exactly once, and leaves the snapshot alone, even when the gate is accepted. The step itself never saves the snapshot: with nothing high the model commits it at once; behind a gate only "yes" saves it (logged `ACCEPT`), while "no" or a gate with no step after it leaves it, so the next run gates again. |
 | `topgrade_audit_test.go` | Run topgrade's queue is [audit, topgrade], built from the same `auditStep`, and gated identically: a maintainer change puts a named confirm defaulting to No in front of topgrade; "no" skips the update (logged) and leaves the snapshot, so the next run gates again; "yes" launches it and saves the snapshot (logged `ACCEPT`); an unreachable AUR fails the audit without gating; a dry run gates but never saves. |
 | `askpass_test.go` | The `SUDO_ASKPASS` round trip over a real unix socket: the helper prints the answer and exits 0, exits 1 on an unanswered close or no socket; the server writes a 0700 wrapper on its socket, sets `SUDO_ASKPASS`, delivers prompts and `close()` removes both, and stays unwired (but safely closable) when the socket or wrapper can't be made; the real wrapper end to end; submit writes the password straight to the connection, cancel closes it unanswered. |
+| `downloads_test.go` | Which folder "Delete old downloads" cleans: the order flag → `ARCHMAID_DOWNLOADS` → `XDG_DOWNLOAD_DIR` → `~/Downloads` → `~/Download`; `$HOME` refused however it's spelled (`"$HOME/"`, a symlink to it, `$HOME` behind a symlink), as are `/` and ancestors of `$HOME`; only the flag may leave `$HOME`, and a bad flag is an error, not a fall-through; the notice names the folder; `--downloads` parsing. |
 | `transcript_*_test.go` + `testdata/transcripts/` | Whole actions end to end against shims — see Transcripts above and the scenario names. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
 | `golden_test.go` + `testdata/` | Direct `View()` goldens at 80×24: the summary for each outcome (ok, issues, skipped, aborted); the password popup over the menu (masked input, and with the attempts-left error); a confirm over the running checklist; the log picker; the audit report; a notice; the discovering spinner. |
