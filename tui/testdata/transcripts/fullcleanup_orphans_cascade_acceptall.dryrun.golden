@@ -1,0 +1,63 @@
+action "Full Cleanup (Recommended)"
+exec  pacman -Qdtq
+exec  pacman -Rs --print libfoo libbar
+ask   "Proceed with full cleanup?" -> yes
+plan  10 steps
+plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
+plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
+plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
+plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
+plan  5 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm libfoo libbar sudo confirm optional alwayslog cat=orphans
+plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
+plan  7 "Cleaning old temp files…" argv=sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + sudo alwayslog cat=cleanup
+plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
+plan  9 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
+plan  10 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
+step  1 running
+exec  pacman -Qqm
+out   1 1 foreign package(s) checked against the AUR: 0 high, 0 glance, 1 clean
+out   1
+out   1 Nothing flagged.
+out   1
+out   1 Dry run: compared against the saved snapshot; the snapshot was not updated.
+step  1 ok
+log   audit DRYRUN: AUR audit
+step  2 running
+out   2 [dry-run] would run: topgrade -y --disable hyprpm
+step  2 ok
+log   topgrade DRYRUN: Topgrade completed
+step  3 running
+out   3 [dry-run] would run: sudo paccache -r
+step  3 ok
+log   cleanup DRYRUN: Old package cache cleaned
+ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> yes
+step  4 running
+out   4 [dry-run] would run: sudo paccache -rk0
+step  4 ok
+log   cleanup DRYRUN: Entire package cache removed
+ask   "Remove 2 orphaned package(s) — 3 total once dependencies cascade?" -> yes
+step  5 running
+out   5 [dry-run] would run: sudo pacman -Rns --noconfirm libfoo libbar
+step  5 ok
+log   orphans DRYRUN: Orphaned packages removed
+step  6 running
+out   6 [dry-run] would run: yay -Sc --noconfirm
+step  6 ok
+log   cleanup DRYRUN: AUR cache cleaned
+step  7 running
+out   7 [dry-run] would run: sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+step  7 ok
+log   cleanup DRYRUN: Old temporary files removed
+step  8 running
+out   8 [dry-run] would run: sudo journalctl --vacuum-time=2weeks
+step  8 ok
+log   cleanup DRYRUN: Old logs removed
+step  9 running
+out   9 [dry-run] would run: sudo pacman -Qk
+step  9 ok
+log   cleanup DRYRUN: Package integrity check completed
+step  10 running
+out   10 [dry-run] would run: hyprpm update
+step  10 ok
+log   cleanup DRYRUN: Hyprland plugins updated
+end   outcome=completed errs=0 skipped=0

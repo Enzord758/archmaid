@@ -412,7 +412,7 @@ type sudoKeepAliveMsg struct{ gen int }
 const sudoKeepAliveInterval = 60 * time.Second
 
 func sudoTick(gen int) tea.Cmd {
-	return tea.Tick(sudoKeepAliveInterval, func(time.Time) tea.Msg { return sudoKeepAliveMsg{gen: gen} })
+	return tickFn(sudoKeepAliveInterval, func(time.Time) tea.Msg { return sudoKeepAliveMsg{gen: gen} })
 }
 
 // refreshSudo extends the cached timestamp non-interactively (a no-op if it has

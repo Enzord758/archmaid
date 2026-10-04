@@ -21,7 +21,7 @@ type statusNowMsg string
 // header stays live (the bit gum couldn't do without redrawing the world).
 // Only Init may start this loop; anything else wants refreshStatusNow.
 func refreshStatus() tea.Cmd {
-	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
+	return tickFn(4*time.Second, func(time.Time) tea.Msg {
 		return statusMsg(systemStatus())
 	})
 }
@@ -31,6 +31,10 @@ func refreshStatus() tea.Cmd {
 func refreshStatusNow() tea.Cmd {
 	return func() tea.Msg { return statusNowMsg(systemStatus()) }
 }
+
+// tickFn is tea.Tick, behind a seam so the transcript harness can drop the
+// timers (status refresh, sudo keep-alive) instead of sleeping on them.
+var tickFn = tea.Tick
 
 func systemStatus() string {
 	disk := shellField("df -h / | awk 'NR==2{print $4}'")
