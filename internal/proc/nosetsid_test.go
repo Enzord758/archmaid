@@ -24,15 +24,17 @@ import (
 // session and group) and the source (nothing in the TUI's code sets
 // SysProcAttr's Setsid, Setpgid or Setctty). The root helper,
 // cmd/archmaid-helper, is exempt: it runs as root outside the TUI's session
-// and detaches its own children on purpose.
+// and detaches its own children on purpose. So is internal/proc/detach.go,
+// the GUI's Options.Detach, which only the GUI sets: TestTUIDoesNotDetach
+// (internal/tui) holds the TUI's Driver to that.
 
 // sessionFields are the SysProcAttr fields that move a child out of our
 // session or process group, or give it a controlling terminal of its own.
 var sessionFields = map[string]bool{"Setsid": true, "Setpgid": true, "Setctty": true}
 
-// guardExempt are the directories (relative to the repo root) the source
-// guard skips.
-var guardExempt = map[string]bool{"cmd/archmaid-helper": true}
+// guardExempt are the directories and files (relative to the repo root) the
+// source guard skips.
+var guardExempt = map[string]bool{"cmd/archmaid-helper": true, "internal/proc/detach.go": true}
 
 func TestNoSetsid(t *testing.T) {
 	t.Run("child shares our session", func(t *testing.T) {
@@ -73,7 +75,7 @@ func TestNoSetsid(t *testing.T) {
 					}
 					return nil
 				}
-				if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") || guardExempt[rel] {
 					return nil
 				}
 				src, err := os.ReadFile(path)
@@ -92,6 +94,21 @@ func TestNoSetsid(t *testing.T) {
 		}
 		if files == 0 {
 			t.Fatalf("no Go files found under %s/{cmd,internal}", root)
+		}
+	})
+
+	t.Run("the GUI's exemption sets Setsid only", func(t *testing.T) {
+		const rel = "internal/proc/detach.go"
+		src, err := os.ReadFile(filepath.Join(repoRoot(t), rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields []string
+		for _, f := range sessionFieldUses(t, rel, src) {
+			fields = append(fields, f.field)
+		}
+		if strings.Join(fields, ",") != "Setsid" {
+			t.Fatalf("%s sets %v; want Setsid once (a new session, no terminal: never Setctty)", rel, fields)
 		}
 	})
 

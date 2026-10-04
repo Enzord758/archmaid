@@ -9,6 +9,10 @@
 // session, so one primed ticket covers every step and everything they spawn
 // only while they share archmaid's session. See docs/HANDOVER.md ("Steps run
 // as plain children") and TestNoSetsid, which enforces it.
+//
+// The GUI is the exception (Options.Detach): it has no terminal the user
+// sees, so its children run in a session of their own, without one, and
+// their sudo can only prompt through SUDO_ASKPASS.
 package proc
 
 import (
@@ -19,6 +23,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 	"unicode"
 )
@@ -228,6 +234,14 @@ type Options struct {
 	// KillGrace is how long a stopped child gets to honour SIGINT before
 	// it is SIGKILLed (see Child.Stop).
 	KillGrace time.Duration
+	// Detach starts the child in a session of its own, with no controlling
+	// terminal (detachAttr), and makes Stop signal its whole process group.
+	// Its stdin is /dev/null, as every child's. Only the GUI sets it: a GUI
+	// started from a shell still has that shell's terminal, and sudo
+	// prefers a terminal to SUDO_ASKPASS, so a child sharing it prompted
+	// there, out of sight. The TUI's children must share its session (the
+	// package doc), so the TUI never sets it.
+	Detach bool
 }
 
 // DryRunPrefix starts the one line a dry run reports.
@@ -251,6 +265,12 @@ type Child struct {
 
 	p     *os.Process
 	grace time.Duration
+	// group: the child leads a process group of its own (Options.Detach),
+	// which Stop signals as a whole. escalate starts the group's SIGKILL
+	// timer once; groupGone is closed when it is done (GroupStopped).
+	group     bool
+	escalate  sync.Once
+	groupGone chan struct{}
 	// reaped is closed once cmd.Wait has returned, so Stop's escalation can
 	// stop waiting instead of sleeping out the whole grace.
 	reaped chan struct{}
@@ -303,9 +323,13 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 	cmd := exec.Command(spec.Name, spec.Args...)
 	cmd.Env = spec.env()
 	// Bound the wait on the pipe once the child itself is gone (see
-	// Options.WaitDelay). No SysProcAttr: the child must share archmaid's
-	// session for the sudo ticket (see the package doc).
+	// Options.WaitDelay). No SysProcAttr unless detached: the TUI's child
+	// must share archmaid's session for the sudo ticket (see the package
+	// doc). Stdin stays nil, which is /dev/null.
 	cmd.WaitDelay = r.opts.WaitDelay
+	if r.opts.Detach {
+		cmd.SysProcAttr = detachAttr()
+	}
 
 	// Fold stderr into stdout through a single pipe (the shell's `2>&1`).
 	pr, pw := io.Pipe()
@@ -316,6 +340,9 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 		return nil
 	}
 	c := &Child{Pid: cmd.Process.Pid, p: cmd.Process, grace: r.opts.KillGrace, reaped: make(chan struct{})}
+	if r.opts.Detach {
+		c.group, c.groupGone = true, make(chan struct{})
+	}
 	if info, err := Read(c.Pid); err == nil { // not reaped yet: Wait runs below
 		c.Start = info.Start
 	}
@@ -359,12 +386,59 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 // SIGKILLs it if it is still there after the Runner's KillGrace. It returns at
 // once. A nil Child, or one with no process behind it, is a no-op. Stopping
 // does not release Start's goroutines; closing its quit does.
+//
+// A detached child (Options.Detach) is stopped with its whole process
+// group, as a terminal's ctrl+c stops its foreground job: SIGINT to the
+// group, and after the grace SIGKILL to whatever of it is left, the child
+// or something it started that outlived it.
 func (c *Child) Stop() {
 	if c == nil || c.p == nil {
 		return
 	}
+	if c.group {
+		c.signalGroup(syscall.SIGINT)
+		c.escalate.Do(func() {
+			go func() {
+				defer close(c.groupGone)
+				c.escalateGroup()
+			}()
+		})
+		return
+	}
 	_ = c.p.Signal(os.Interrupt)
 	go escalateKill(c.p, c.grace, c.reaped)
+}
+
+// GroupStopped is closed once a Stop of a detached child has run its
+// course: nothing is left in its group, or what was got SIGKILL. A Driver
+// waits for it in Close, so nothing a step left behind outlives the GUI.
+// It is closed at once for a Child that isn't detached (or nil); for a
+// detached one it is never closed before Stop.
+func (c *Child) GroupStopped() <-chan struct{} {
+	if c == nil || !c.group || c.groupGone == nil {
+		return closedCh
+	}
+	return c.groupGone
+}
+
+var closedCh = func() chan struct{} { ch := make(chan struct{}); close(ch); return ch }()
+
+// escalateGroup is escalateKill for a detached child's group: SIGKILL to
+// the group after the grace. It returns early only when the child is
+// reaped and nothing is left in its group.
+func (c *Child) escalateGroup() {
+	t := time.NewTimer(c.grace)
+	defer t.Stop()
+	select {
+	case <-c.reaped:
+		if !groupAlive(c.Pid) {
+			return
+		}
+		<-t.C
+	case <-t.C:
+		_ = c.p.Kill() // the child itself, even if it left its group
+	}
+	c.signalGroup(syscall.SIGKILL)
 }
 
 // escalateKill force-terminates p if it hasn't exited within grace. p.Kill()
