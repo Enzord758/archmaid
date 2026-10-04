@@ -26,14 +26,6 @@ import (
 // sessionSkips are the scenarios the Session can't run yet, each with the
 // reason; TestTranscriptSession skips them by name, never silently.
 var sessionSkips = map[string]string{
-	"fullcleanup_orphans_cascade_acceptall.dryrun": needsInsert,
-	"fullcleanup_orphans_cascade_acceptall.shim":   needsInsert,
-	"fullcleanup_decline_optionals.shim":           needsInsert,
-	"fullcleanup_orphans_from_update.shim":         needsInsert,
-	"fullcleanup_yay_fails.shim":                   needsInsert,
-	"fullcleanup_audit_takeover_decline.shim":      needsGate,
-	"fullcleanup_audit_takeover_accept.shim":       needsGate,
-
 	"fullcleanup_uncached_password_ok.shim":  needsPassword,
 	"fullcleanup_three_wrong_passwords.shim": needsPassword,
 	"repair_auth_giveup.shim":                needsPassword,
@@ -48,8 +40,6 @@ var sessionSkips = map[string]string{
 }
 
 const (
-	needsInsert    = "needs E2: a result that inserts a step (InsertNext)"
-	needsGate      = "needs E2: a result that gates the next step (ConfirmNext)"
 	needsPassword  = "needs E3 auth: the password prompt (SubmitPassword)"
 	needsRoot      = "needs E3 auth: Repair's NeedsRoot recheck"
 	needsAbort     = "needs E5: Abort"
@@ -92,6 +82,7 @@ type sessionTarget struct {
 	pending []tt.Event
 	err     error
 	evs     []engine.Event // every engine event, for the contract check
+	flags   []tt.Step      // the plan as last recorded
 
 	prompt   tt.Event // the open prompt as the recorder sees it, or nil
 	promptID engine.PromptID
@@ -260,6 +251,7 @@ func (tg *sessionTarget) apply(o engine.Output) {
 				ps[i] = transcriptStep(s)
 			}
 			plan = append(plan, tt.QueueStarted{Steps: ps})
+			tg.flags = slices.Clone(ps)
 		case engine.OutputChunk:
 			for _, l := range ev.Lines {
 				out = append(out, tt.OutputLine{Index: ev.Index, Text: l})
@@ -268,8 +260,14 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			done = append(done, tt.StepDone{Index: ev.Index, Status: transcriptStatus(ev.Status)})
 		case engine.StepInserted:
 			done = append(done, tt.StepInserted{Index: ev.Index, Step: transcriptStep(ev.Step)})
+			tg.flags = slices.Insert(tg.flags, ev.Index, transcriptStep(ev.Step))
 		case engine.PlanChanged:
-			changed = append(changed, tt.PlanChanged{Index: ev.Index, Step: transcriptStep(ev.Step)})
+			// A plan line is written again only when its flags changed, as
+			// tuiTarget does (a new confirm text alone isn't recorded).
+			if s := transcriptStep(ev.Step); !s.SameFlags(tg.flags[ev.Index]) {
+				tg.flags[ev.Index] = s
+				changed = append(changed, tt.PlanChanged{Index: ev.Index, Step: s})
+			}
 		case engine.StepStarted:
 			started = append(started, tt.StepStarted{Index: ev.Index})
 		case engine.LogWritten:

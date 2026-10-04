@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -284,6 +285,10 @@ func TestFindOrphansInsertsRemoval(t *testing.T) {
 	want := "Remove 2 orphaned package(s) — 4 total once dependencies cascade?"
 	if s.Confirm != want {
 		t.Fatalf("confirm = %q, want %q", s.Confirm, want)
+	}
+	// The same lists as data, for a front end's dialog.
+	if !slices.Equal(s.Items, []string{"liba", "libb"}) || !slices.Equal(s.Cascade, []string{"liba-1", "libb-1", "libc-1", "libd-1"}) {
+		t.Fatalf("items %q, cascade %q", s.Items, s.Cascade)
 	}
 	for _, line := range []string{"2 orphaned package(s): liba libb", "pacman -Rns would remove 4 package(s):", "  libd-1"} {
 		if !strings.Contains(r.Output, line) {

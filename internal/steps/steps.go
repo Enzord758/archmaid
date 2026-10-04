@@ -33,6 +33,11 @@ type Step struct {
 	// OnAccept, if set, runs when Confirm is answered yes, before the step
 	// launches (the audit's snapshot commit; see Result.Commit).
 	OnAccept func() error
+	// Items is what the step acts on, for a front end to list under its
+	// Confirm (the orphans it removes, the downloads it deletes), raw: the
+	// front end makes them safe to show. Cascade is, for the orphan removal,
+	// everything `pacman -Rns` takes along with Items.
+	Items, Cascade []string
 
 	// NeedsPriv steps need root. The front end authenticates once before a
 	// queue holding any of them runs, instead of prompting mid-run, and only

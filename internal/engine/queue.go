@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -42,6 +43,7 @@ type run struct {
 type slot struct {
 	step   steps.Step
 	status steps.Status
+	gated  bool // its confirm came from the step before's ConfirmNext
 }
 
 type promptKind int
@@ -193,11 +195,38 @@ func (s *Session) askStep(o *Output) {
 	r.prompt, r.promptFor = s.promptID(), promptStep
 	msg := sanitize.String(st.Confirm, sanitize.Plain)
 	title, body := splitQuestion(msg)
-	o.event(NeedsConfirm{
+	nc := NeedsConfirm{
 		ID: r.prompt, Kind: ConfirmStep, Step: st.ID,
 		Title: title, Body: body, Msg: msg,
 		Destructive: destructive[st.ID],
-	})
+	}
+	switch {
+	case r.plan[r.cur].gated:
+		nc.Kind = ConfirmAuditGate
+	case st.ID == steps.IDOrphansRemove:
+		nc.Kind = ConfirmOrphans
+	case st.ID == steps.IDDownloads:
+		nc.Kind = ConfirmDownloads
+	}
+	if nc.Kind == ConfirmOrphans {
+		nc.Direct, nc.Cascade = shown(st.Items), shown(st.Cascade)
+	} else {
+		nc.Items = shown(st.Items)
+	}
+	o.event(nc)
+}
+
+// shown makes a step's Items safe to list: one line each, quoted when they
+// hold anything a terminal would act on.
+func shown(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = sanitize.QuoteName(it, 200)
+	}
+	return out
 }
 
 // destructive marks the steps whose confirm guards something archmaid
@@ -294,10 +323,33 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 		s.advance(o)
 		return
 	}
-	s.done(o, in.Err)
+	s.settle(o, outcome(in.Err), errText(in.Err))
+	s.logDone(o, in.Err)
 	s.advance(o)
 }
 
+// errAfterHyprpm refuses a result that would put a step needing root behind
+// hyprpm, which drops the sudo ticket on exit.
+var errAfterHyprpm = errors.New("a step that needs root may not run after hyprpm")
+
+// stepResult takes an in-process step's result, the way the TUI does, and
+// fails closed where the result is malformed:
+//
+//   - A result that sets both ConfirmNext and InsertNext (steps.Result.Check)
+//     is refused: the step fails with the refusal in its output, nothing is
+//     inserted and Commit never runs — but the gate stands, on the step it
+//     was meant for (with nothing inserted, the next one), so that step runs
+//     only on "yes". So is an InsertNext of a step needing root once hyprpm
+//     has run.
+//   - InsertNext (only from a result without Err) goes right behind the
+//     step: StepInserted.
+//   - ConfirmNext puts that confirm on the next step and makes it optional
+//     (PlanChanged), with Commit as its OnAccept: it runs only on "yes". With
+//     no next step both are dropped.
+//   - Otherwise Commit runs now (a RunHook), before the step's log entry,
+//     whether the step failed or not, as in the TUI: for the downloads
+//     delete it is what says the result was taken, so a partial failure
+//     isn't logged as an abort too. (A failed audit has no Commit.)
 func (s *Session) stepResult(o *Output, in StepResult) {
 	st := s.current(in.Seq)
 	if st == nil {
@@ -306,8 +358,15 @@ func (s *Session) stepResult(o *Output, in StepResult) {
 	r := s.run
 	r.stepSeq = 0
 	res := in.Result
-	if res.ConfirmNext != "" || res.InsertNext != nil {
-		panic(errNotImplemented) // E2: a result that changes the plan
+	refuse := func(err error) {
+		res = steps.Result{Output: res.Output + "\narchmaid: " + err.Error(), Err: err, ConfirmNext: res.ConfirmNext}
+	}
+	if err := res.Check(); err != nil {
+		refuse(err)
+	}
+	if res.Err == nil && res.InsertNext != nil && res.InsertNext.NeedsPriv &&
+		slices.ContainsFunc(r.plan[:r.cur+1], func(sl slot) bool { return sl.step.ID == steps.IDHyprpm }) {
+		refuse(errAfterHyprpm)
 	}
 	if p := st.step.Prefetch; p != "" && slices.Contains(r.prefetch, p) {
 		// consumed: the step awaited it
@@ -317,19 +376,44 @@ func (s *Session) stepResult(o *Output, in StepResult) {
 	if res.Output != "" {
 		s.output(o, strings.Split(strings.TrimRight(res.Output, "\n"), "\n"))
 	}
-	if res.Commit != nil {
-		// Taken: the deferred work runs now (with no ConfirmNext to wait
-		// for), before the step's own log entry, as in the TUI.
+	s.settle(o, outcome(res.Err), errText(res.Err))
+	if res.Err == nil && res.InsertNext != nil {
+		next := *res.InsertNext
+		r.plan = slices.Insert(r.plan, r.cur+1, slot{step: next})
+		o.event(StepInserted{Index: r.cur + 1, Step: planStep(next)})
+	}
+	switch {
+	case res.ConfirmNext != "" && r.cur+1 < len(r.plan):
+		next := &r.plan[r.cur+1]
+		next.step.Confirm, next.step.Optional, next.step.OnAccept = res.ConfirmNext, true, res.Commit
+		next.gated = true
+		o.event(PlanChanged{Index: r.cur + 1, Step: planStep(next.step)})
+	case res.ConfirmNext == "" && res.Commit != nil:
 		o.effect(RunHook{Seq: s.seq(), Step: st.step.ID, Fn: res.Commit})
 	}
-	s.done(o, res.Err)
+	s.logDone(o, res.Err)
 	s.advance(o)
 }
 
-// done ends the running step that finished with err: StepDone, then its
-// log entry — failures always, successes only for AlwaysLog steps, and
-// every outcome in a dry run.
-func (s *Session) done(o *Output, err error) {
+func outcome(err error) steps.Status {
+	if err != nil {
+		return steps.Failed
+	}
+	return steps.OK
+}
+
+// errText is a step's failure as StepDone carries it: sanitized, one line.
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return sanitize.OneLine(err.Error())
+}
+
+// logDone writes the log entry of the step that just finished with err:
+// failures always, successes only for AlwaysLog steps, every outcome in a
+// dry run; the body is its whole output.
+func (s *Session) logDone(o *Output, err error) {
 	r := s.run
 	st := r.plan[r.cur].step
 	var body strings.Builder
@@ -337,20 +421,15 @@ func (s *Session) done(o *Output, err error) {
 		body.WriteString(l)
 		body.WriteByte('\n')
 	}
+	r.out = nil
 	switch {
 	case err != nil:
-		s.settle(o, steps.Failed, sanitize.OneLine(err.Error()))
 		s.log(o, st.LogCategory(), "FAIL", st.LogLabel, body.String())
 	case s.opts.DryRun:
-		s.settle(o, steps.OK, "")
 		s.log(o, st.LogCategory(), "DRYRUN", st.LogLabel, body.String())
-	default:
-		s.settle(o, steps.OK, "")
-		if st.AlwaysLog {
-			s.log(o, st.LogCategory(), "OK", st.LogLabel, body.String())
-		}
+	case st.AlwaysLog:
+		s.log(o, st.LogCategory(), "OK", st.LogLabel, body.String())
 	}
-	r.out = nil
 }
 
 // settle gives the current step its final status, counted in the run's

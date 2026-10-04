@@ -35,5 +35,6 @@ func discoverDownloads(_ context.Context, env Env) Discovery {
 		Run:      env.DeleteDownloads(plan),
 		Optional: true, AlwaysLog: true,
 		Confirm: plan.Confirm(),
+		Items:   plan.Names,
 	}}}
 }

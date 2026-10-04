@@ -173,6 +173,8 @@ func findOrphans(ctx context.Context, _ steps.Env) steps.Result {
 		Argv:      append([]string{"sudo", "pacman", "-Rns", "--noconfirm", "--"}, orphans...),
 		NeedsPriv: true, Optional: true,
 		Confirm:   msg,
+		Items:     orphans,
+		Cascade:   cascade,
 		Category:  logstore.Orphans,
 		AlwaysLog: true,
 	}}
