@@ -166,6 +166,22 @@ verb=$2
 case " ` + strings.Join(o.refuse, " ") + ` " in *" $verb "*) exit 127;; esac
 sleep 0.3
 printf '{"v":1,"t":"start","verb":"%s","version":"0.1.0"}\n' "$verb"
+if [ "$verb" = full-cleanup ]; then
+	parts=
+	case " $* " in *" --orphans "*) parts=remove-orphans;; esac
+	parts="$parts paccache"
+	case " $* " in *" --wipe "*) parts="$parts paccache-wipe";; esac
+	parts="$parts clean-tmp vacuum-journal check-files"
+	of=$(echo $parts | wc -w) n=0
+	for p in $parts; do
+		n=$((n+1))
+		printf '{"v":1,"t":"progress","step":%d,"of":%d,"label":"shim %s","part":"%s"}\n' $n $of "$p" "$p"
+		printf '{"v":1,"t":"line","stream":"out","text":"shim %s"}\n' "$p"
+		printf '{"v":1,"t":"done","step":%d,"of":%d,"part":"%s","ok":true,"code":0}\n' $n $of "$p"
+	done
+	printf '{"v":1,"t":"result","ok":true,"code":0,"child_exit":0,"skipped":[]}\n'
+	exit 0
+fi
 printf '{"v":1,"t":"line","stream":"out","text":"shim %s"}\n' "$verb"
 [ "$verb" = check-files ] && printf '{"v":1,"t":"check","checked":["linux"],"broken":[]}\n'
 printf '{"v":1,"t":"result","ok":true,"code":0,"child_exit":0,"skipped":[]}\n'
@@ -233,10 +249,11 @@ func hasRow(subs []string, want string) bool {
 //
 //   - real-dry: Full Cleanup as a dry run (the Settings page's, from
 //     gui.json): completed, nothing started, no pkexec;
-//   - real-refused: the paccache helper step's dialog is refused (pkexec
-//     127): its row reads "Not authorised" and the run goes on, the other
-//     helper steps show "Waiting for authorisation…" (with the warning:
-//     one more failure locks the account) and are granted;
+//   - real-refused: Full Cleanup's ONE polkit dialog (the root steps'
+//     full-cleanup call) is refused (pkexec 127) after "Waiting for
+//     authorisation…" (with the warning: one more failure locks the
+//     account): every root row reads "Not authorised" and the run goes on
+//     with yay -Sc; real-runs has the granted call;
 //   - real-locked: a locked account: no helper step starts (no pkexec at
 //     all), each reads "Not authorised · account locked until …";
 //   - real-askpass, real-askpass-cancel: topgrade's sudo asks through the
@@ -278,14 +295,16 @@ func TestGUIRealDriver(t *testing.T) {
 	})
 
 	t.Run("refused", func(t *testing.T) {
-		dir, env := installShims(t, shimOpts{refuse: []string{steps.VerbPaccache}})
+		dir, env := installShims(t, shimOpts{refuse: []string{steps.VerbFullCleanup}})
 		rep, _ := child(t, "real-refused", append(env, envFaillock+"=last")...)
 		if rep.Outcome != "completed" {
 			t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
 		}
 		want := map[string]string{
-			steps.IDAURAudit: "ok", steps.IDTopgrade: "ok", steps.IDPaccache: "auth refused",
-			steps.IDPaccacheWipe: "ok", steps.IDOrphansRemove: "ok", steps.IDJournal: "ok", steps.IDIntegrity: "ok",
+			steps.IDAURAudit: "ok", steps.IDTopgrade: "ok", steps.IDOrphansProbe: "ok",
+			steps.IDOrphansRemove: "auth refused", steps.IDPaccache: "auth refused", steps.IDPaccacheWipe: "auth refused",
+			steps.IDTmpfiles: "auth refused", steps.IDJournal: "auth refused", steps.IDIntegrity: "auth refused",
+			steps.IDYayCache: "ok",
 		}
 		for id, st := range want {
 			if !slices.Contains(rep.Rows, id+"="+st) {
@@ -308,9 +327,8 @@ func TestGUIRealDriver(t *testing.T) {
 				verbs = append(verbs, f[1])
 			}
 		}
-		wantVerbs := []string{"paccache", "paccache-wipe", "remove-orphans", "clean-tmp", "vacuum-journal", "check-files"}
-		if !slices.Equal(verbs, wantVerbs) {
-			t.Errorf("pkexec ran %q, want %q", calls, wantVerbs)
+		if wantVerbs := []string{steps.VerbFullCleanup}; !slices.Equal(verbs, wantVerbs) {
+			t.Errorf("pkexec ran %q, want one dialog: %q", calls, wantVerbs)
 		}
 	})
 
@@ -320,7 +338,10 @@ func TestGUIRealDriver(t *testing.T) {
 		if rep.Outcome != "completed" || !slices.Contains(rep.Rows, steps.IDPaccache+"=auth refused") || !slices.Contains(rep.Rows, steps.IDIntegrity+"=auth refused") {
 			t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
 		}
-		if !hasRow(rep.Subtitles, "Cleaning package cache…: Not authorised · account locked until ") {
+		// One faillock read for the one call: the first root row carries
+		// the lock's detail, the rest read Not authorised.
+		if !hasRow(rep.Subtitles, "Removing orphaned packages…: Not authorised · account locked until ") ||
+			!hasRow(rep.Subtitles, "Cleaning package cache…: Not authorised") {
 			t.Errorf("subtitles %q", rep.Subtitles)
 		}
 		if hasRow(rep.Subtitles, "Waiting for authorisation") {
