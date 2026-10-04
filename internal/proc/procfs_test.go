@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // TestRead reads the real /proc: our own entry matches what the runtime says,
@@ -30,9 +31,17 @@ func TestRead(t *testing.T) {
 	}
 	defer child.Wait()
 	defer child.Process.Kill()
-	kid, err := Read(child.Process.Pid)
-	if err != nil {
-		t.Fatal(err)
+	// Start returns once the exec has been committed, but the kernel can still
+	// show the forked image (comm and exe of this test binary) for an instant
+	// on a loaded machine: wait for the exec to show, not for a fixed time.
+	var kid Info
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(time.Millisecond) {
+		if kid, err = Read(child.Process.Pid); err != nil {
+			t.Fatal(err)
+		}
+		if kid.Comm == "sleep" || time.Now().After(deadline) {
+			break
+		}
 	}
 	if kid.PPid != os.Getpid() || kid.Start < self.Start || kid.Comm != "sleep" {
 		t.Fatalf("child = %+v; want sleep, ppid %d and a start time ≥ %d", kid, os.Getpid(), self.Start)
