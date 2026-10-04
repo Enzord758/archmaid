@@ -20,6 +20,8 @@ type Options struct {
 	// fake.
 	Now func() time.Time
 	// Env is what the actions need from outside the engine (internal/actions).
+	// Its DryRun and Polkit are the Session's own: New sets them from DryRun
+	// and Auth, whatever Env says.
 	Env actions.Env
 	// Auth is how the run gets root (see AuthFlow).
 	Auth AuthFlow
@@ -112,6 +114,7 @@ type Session struct {
 func New(opts Options) *Session {
 	env := opts.Env
 	env.DryRun = opts.DryRun
+	env.Polkit = opts.Auth == AuthPolkit
 	return &Session{opts: opts, env: env, lookup: actions.ByID}
 }
 

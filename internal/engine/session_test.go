@@ -579,8 +579,15 @@ func TestSessionDiscovery(t *testing.T) {
 			t.Errorf("phase = %+v", got)
 		}
 		d := effect[Discover](t, o)
-		if d.Seq == 0 || d.Action != "d" || d.Run == nil || !d.Env.DryRun || d.Env.RepairWorkers != 3 {
-			t.Errorf("Discover = %+v (Env must be Options.Env with DryRun copied in)", d)
+		if d.Seq == 0 || d.Action != "d" || d.Run == nil || !d.Env.DryRun || d.Env.Polkit || d.Env.RepairWorkers != 3 {
+			t.Errorf("Discover = %+v (Env must be Options.Env with DryRun and Polkit copied in)", d)
+		}
+		// Polkit follows Auth, whatever the Env said.
+		for auth, want := range map[AuthFlow]bool{AuthPolkit: true, AuthSudo: false} {
+			h := newHarness(t, Options{Auth: auth, Env: actions.Env{Polkit: !want}}, a)
+			if d := effect[Discover](t, h.start("d")); d.Env.Polkit != want {
+				t.Errorf("Auth %d: Env.Polkit = %v", auth, d.Env.Polkit)
+			}
 		}
 		noOutput(t, "a stale discovery", h.s.Handle(Discovered{Seq: d.Seq + 1, Discovery: actions.Notice{Text: "x"}}))
 		o = h.handle(Discovered{Seq: d.Seq, Discovery: actions.Notice{Text: "Nothing \x1b[31mhere\x1b[0m."}})
