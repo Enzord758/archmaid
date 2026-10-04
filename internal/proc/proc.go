@@ -251,6 +251,9 @@ type Child struct {
 
 	p     *os.Process
 	grace time.Duration
+	// reaped is closed once cmd.Wait has returned, so Stop's escalation can
+	// stop waiting instead of sleeping out the whole grace.
+	reaped chan struct{}
 }
 
 // Start runs spec and streams its combined stdout and stderr onto ch: every
@@ -312,7 +315,7 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 		go func() { send(Msg{Done: true, Err: err}) }()
 		return nil
 	}
-	c := &Child{Pid: cmd.Process.Pid, p: cmd.Process, grace: r.opts.KillGrace}
+	c := &Child{Pid: cmd.Process.Pid, p: cmd.Process, grace: r.opts.KillGrace, reaped: make(chan struct{})}
 	if info, err := Read(c.Pid); err == nil { // not reaped yet: Wait runs below
 		c.Start = info.Start
 	}
@@ -337,6 +340,7 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 		}()
 
 		err := cmd.Wait()
+		close(c.reaped)
 		if errors.Is(err, exec.ErrWaitDelay) {
 			// The child exited 0; only something it left running still
 			// held the pipe. The command itself succeeded.
@@ -360,13 +364,19 @@ func (c *Child) Stop() {
 		return
 	}
 	_ = c.p.Signal(os.Interrupt)
-	go escalateKill(c.p, c.grace)
+	go escalateKill(c.p, c.grace, c.reaped)
 }
 
 // escalateKill force-terminates p if it hasn't exited within grace. p.Kill()
 // is a no-op (returns an ignored error) once Start's cmd.Wait has reaped the
-// process, and never touches a reused pid.
-func escalateKill(p *os.Process, grace time.Duration) {
-	time.Sleep(grace)
-	_ = p.Kill() // SIGKILL — cannot be caught or ignored
+// process, and never touches a reused pid. It returns as soon as reaped is
+// closed, so the goroutine does not outlive the child by up to grace.
+func escalateKill(p *os.Process, grace time.Duration, reaped <-chan struct{}) {
+	t := time.NewTimer(grace)
+	defer t.Stop()
+	select {
+	case <-reaped:
+	case <-t.C:
+		_ = p.Kill() // SIGKILL — cannot be caught or ignored
+	}
 }

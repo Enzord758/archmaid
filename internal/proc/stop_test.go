@@ -122,3 +122,19 @@ func TestStopWithBackgroundChild(t *testing.T) {
 	c.Stop()
 	waitGoroutines(t, base, 3*time.Second)
 }
+
+// TestStopEscalationExitsOnReap: Stop on a child that dies of SIGINT must not
+// leave its escalation goroutine sleeping out the (here minute-long) KillGrace.
+func TestStopEscalationExitsOnReap(t *testing.T) {
+	base := runtime.NumGoroutine()
+	for i := 0; i < 5; i++ {
+		ch := make(chan Msg, 1)
+		c := New(Options{KillGrace: time.Minute}).Start(Spec{Name: "sleep", Args: []string{"30"}}, ch, nil)
+		if c == nil {
+			t.Fatal("did not start")
+		}
+		c.Stop()
+		drain(t, ch)
+	}
+	waitGoroutines(t, base, 3*time.Second)
+}
