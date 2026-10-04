@@ -32,14 +32,16 @@ is a choice:
 - **For the split:** a terminal-only or minimal machine doesn't pull in the
   GTK4/libadwaita stack (and its GStreamer, Vulkan and X11 libraries); you
   pick the front end the widget opens by installing `archmaid-gui-git` or
-  not; and the GUI can be held back (it is still a walking skeleton on the
-  stub Driver, see below) without holding back the TUI and helper.
+  not; and the GUI can be held back (it has not been run live yet, see
+  below) without holding back the TUI and helper.
 - **Against:** one more package name, and building either still needs the
   GUI's makedepends (makepkg runs one `build()` for both).
 
-**Until the GUI drives the real engine (E6), don't install
-`archmaid-gui-git` on a machine where you use the DMS widget:** the widget
-would open the GUI, which only replays the stub's scripts.
+**Install `archmaid-gui-git` only for the first live run.** The GUI runs on
+the real engine and Driver (root steps through polkit, topgrade's sudo
+through its password dialog), but so far only against test shims. The DMS
+widget opens it when it is installed, so keep it off machines where you rely
+on the widget until the live run has passed.
 
 ## Build locally (no install)
 
