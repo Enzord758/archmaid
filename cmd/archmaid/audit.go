@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -454,7 +455,7 @@ func nextBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEn
 // saveBaseline records the audited packages' maintainers (see nextBaseline
 // and writeBaseline).
 func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEntry) error {
-	return writeBaseline(nextBaseline(pkgs, info, prev))
+	return writeBaseline(baselinePath(), nextBaseline(pkgs, info, prev))
 }
 
 // errSnapshotLocked: another archmaid holds the snapshot lock, so this save
@@ -467,12 +468,13 @@ var errSnapshotLocked = errors.New("another archmaid is saving the AUR snapshot"
 // snapshot or the new one, never a torn file. A corrupt snapshot on disk is
 // first renamed to aur-maintainers.json.corrupt-<time>, kept for inspection
 // rather than overwritten. A held lock returns errSnapshotLocked unwritten.
-func writeBaseline(next map[string]snapEntry) error {
+// path is the snapshot file: the one the audit read (auditTarget.snapshot).
+func writeBaseline(path string, next map[string]snapEntry) error {
 	b, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(baselinePath())
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
@@ -482,9 +484,9 @@ func writeBaseline(next map[string]snapEntry) error {
 	}
 	defer unlock()
 
-	if _, state := loadBaseline(); state == baselineCorrupt {
-		aside := baselinePath() + ".corrupt-" + time.Now().Format("20060102-150405")
-		if err := os.Rename(baselinePath(), aside); err != nil {
+	if _, state := loadBaselineFrom(path); state == baselineCorrupt {
+		aside := path + ".corrupt-" + time.Now().Format("20060102-150405")
+		if err := os.Rename(path, aside); err != nil {
 			return err
 		}
 	}
@@ -505,7 +507,7 @@ func writeBaseline(next map[string]snapEntry) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp.Name(), baselinePath()); err != nil {
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return err
 	}
 	d, err := os.Open(dir)
@@ -546,6 +548,11 @@ type auditResult struct {
 	pkgs []string
 	info map[string]aurInfo
 	prev map[string]snapEntry
+
+	// target is what the audit ran against, set even when it failed: the
+	// snapshot it read is the one saveSnapshot writes, and its log and
+	// dry-run settings are the ones the report and the commit use.
+	target auditTarget
 }
 
 // saveSnapshot advances the maintainer snapshot to what this audit saw.
@@ -574,7 +581,7 @@ func (r auditResult) saveSnapshot(holdHigh bool) error {
 			}
 		}
 	}
-	return writeBaseline(next)
+	return writeBaseline(r.target.snapshot, next)
 }
 
 // snapshotCommit is the deferred save for an audit's caller to run (nil in a
@@ -582,16 +589,16 @@ func (r auditResult) saveSnapshot(holdHigh bool) error {
 // changes then stay flagged next time — and, with accepting, records that the
 // user accepted flagged maintainer changes.
 func snapshotCommit(res auditResult, holdHigh, accepting bool) func() error {
-	if dryRun {
+	if res.target.dryRun {
 		return nil
 	}
 	return func() error {
 		if err := res.saveSnapshot(holdHigh); err != nil {
-			appendLog(logCategoryAudit, "WARN", "AUR snapshot not saved: "+err.Error(), "")
+			res.target.log("WARN", "AUR snapshot not saved: "+err.Error(), "")
 			return err
 		}
 		if accepting {
-			appendLog(logCategoryAudit, "ACCEPT", "AUR maintainer changes accepted; snapshot updated", "")
+			res.target.log("ACCEPT", "AUR maintainer changes accepted; snapshot updated", "")
 		}
 		return nil
 	}
@@ -626,59 +633,86 @@ var errNoForeign = errors.New("no foreign packages installed")
 // failing. A corrupt snapshot becomes a high-severity finding of its own (see
 // snapshotFinding).
 //
-// The whole audit runs under one deadline, auditDeadline, on top of ctx; once
-// ctx is cancelled (an abort) it returns promptly with ctx's error.
+// The whole audit runs under one deadline, the target's (auditDeadline), on
+// top of ctx; once ctx is cancelled (an abort) it returns promptly with ctx's
+// error.
 func performAudit(ctx context.Context, now time.Time) (auditResult, error) {
 	return performAuditFor(ctx, now, currentAuditTarget())
 }
 
-// auditTarget is where an audit looks: the AUR endpoint and the snapshot
-// file. It is read from the package vars on the model's goroutine, before a
-// prefetch goes off on its own, so the fetch never reads those vars while
-// something else (a test, mostly) changes them.
-type auditTarget struct{ rpcURL, snapshot string }
+// auditTarget is every setting an audit reads: the AUR endpoint, the
+// snapshot file (read, and later written: see saveSnapshot), the deadline,
+// whether this is a dry run and where its log entries go. It is read from
+// the package vars on the model's goroutine, before the audit goes off on
+// its own (the menu action's Cmd, the step's run, a prefetch), so the audit
+// never reads those vars while something else (a test, mostly) changes them.
+type auditTarget struct {
+	rpcURL   string
+	snapshot string
+	deadline time.Duration
+	dryRun   bool
+	logs     *logstore.Store // where its log entries go
+}
 
 func currentAuditTarget() auditTarget {
-	return auditTarget{rpcURL: aurRPCURL, snapshot: baselinePath()}
+	return auditTarget{
+		rpcURL: aurRPCURL, snapshot: baselinePath(), deadline: auditDeadline,
+		dryRun: dryRun, logs: logs(),
+	}
+}
+
+// log appends an entry to the audit log the target captured (a Store never
+// changes once made, so this is safe off the model's goroutine). Like
+// appendLog, a failed write is dropped.
+func (t auditTarget) log(kind, label, body string) {
+	_ = t.logs.Append(logCategoryAudit, kind, label, body)
 }
 
 // performAuditFor is performAudit against an explicit target.
 func performAuditFor(ctx context.Context, now time.Time, t auditTarget) (auditResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, auditDeadline)
+	failed := auditResult{target: t}
+	ctx, cancel := context.WithTimeout(ctx, t.deadline)
 	defer cancel()
 	pkgs := foreignPackages(ctx)
 	if err := ctx.Err(); err != nil {
-		return auditResult{}, err // cut short: an empty list proves nothing
+		return failed, err // cut short: an empty list proves nothing
 	}
 	if len(pkgs) == 0 {
-		return auditResult{}, errNoForeign
+		return failed, errNoForeign
 	}
 	info, err := fetchAURInfoAt(ctx, t.rpcURL, pkgs)
 	if err != nil {
-		return auditResult{}, err
+		return failed, err
 	}
 	prev, state := loadBaselineFrom(t.snapshot)
 	findings := classifyAll(pkgs, info, prev, state == baselineOK, now)
 	if state == baselineCorrupt {
 		findings = append([]auditFinding{snapshotFinding()}, findings...)
 	}
-	return auditResult{total: len(pkgs), findings: findings, baseline: state, pkgs: pkgs, info: info, prev: prev}, nil
+	return auditResult{total: len(pkgs), findings: findings, baseline: state, pkgs: pkgs, info: info, prev: prev, target: t}, nil
 }
 
 // discoverAURAudit runs the audit off the UI thread and returns it as a
 // discoveryMsg: a notice for "nothing to audit" / "couldn't reach the AUR", or
-// the rendered report for the audit screen.
+// the rendered report for the audit screen. The target is captured here, on
+// the model's goroutine, not in the Cmd.
 func discoverAURAudit() tea.Cmd {
-	return func() tea.Msg { return runAudit(time.Now()) }
+	t := currentAuditTarget()
+	return func() tea.Msg { return runAuditFor(time.Now(), t) }
 }
 
+// runAudit is the menu action's audit against the current settings.
 func runAudit(now time.Time) discoveryMsg {
-	res, err := performAudit(context.Background(), now)
+	return runAuditFor(now, currentAuditTarget())
+}
+
+func runAuditFor(now time.Time, t auditTarget) discoveryMsg {
+	res, err := performAuditFor(context.Background(), now, t)
 	switch {
 	case errors.Is(err, errNoForeign):
 		return discoveryMsg{kind: "audit", notice: "No foreign (AUR or locally built) packages installed."}
 	case err != nil:
-		return discoveryMsg{kind: "audit", notice: "Couldn't reach the AUR: " + shortErr(err)}
+		return discoveryMsg{kind: "audit", notice: "Couldn't reach the AUR: " + shortErrWithin(err, t.deadline)}
 	}
 	logAudit(res)
 	msg := discoveryMsg{kind: "audit", report: renderAudit(res)}
@@ -709,18 +743,26 @@ func runAudit(now time.Time) discoveryMsg {
 //
 // aurAudit marks it for activate, which starts the lookup as an auditFetch
 // the moment the action is chosen, so it runs while the password prompt is
-// open; launch then awaits that instead of calling runAuditStep.
+// open; launch then awaits that instead of calling run.
+//
+// Without a prefetch, run audits the target captured here, when the queue is
+// built on the model's goroutine (the moment a prefetch would capture it),
+// not when run executes in its Cmd.
 func auditStep() step {
+	t := currentAuditTarget()
 	return step{
 		title: "Auditing AUR packages…", logLabel: "AUR audit",
 		category: logCategoryAudit, alwaysLog: true,
-		run: runAuditStep, aurAudit: true,
+		run: func(ctx context.Context) stepResult {
+			return auditStepResult(performAuditFor(ctx, time.Now(), t))
+		},
+		aurAudit: true,
 	}
 }
 
+// runAuditStep is the audit step's run against the current settings.
 func runAuditStep(ctx context.Context) stepResult {
-	res, err := performAudit(ctx, time.Now())
-	return auditStepResult(res, err)
+	return auditStepResult(performAudit(ctx, time.Now()))
 }
 
 // auditFetch is an audit started ahead of its step: performAudit on its own
@@ -731,6 +773,7 @@ func runAuditStep(ctx context.Context) stepResult {
 // (see auditStepResult), so nothing is saved before the gate is answered.
 type auditFetch struct {
 	cancel context.CancelFunc
+	target auditTarget   // read by startAuditFetch, not on the fetch's goroutine
 	done   chan struct{} // closed once res and err are set
 	res    auditResult
 	err    error
@@ -738,11 +781,10 @@ type auditFetch struct {
 
 func startAuditFetch() *auditFetch {
 	ctx, cancel := context.WithCancel(context.Background())
-	f := &auditFetch{cancel: cancel, done: make(chan struct{})}
-	target := currentAuditTarget() // read here, not on the fetch's goroutine
+	f := &auditFetch{cancel: cancel, target: currentAuditTarget(), done: make(chan struct{})}
 	go func() {
 		defer close(f.done)
-		f.res, f.err = performAuditFor(ctx, time.Now(), target)
+		f.res, f.err = performAuditFor(ctx, time.Now(), f.target)
 	}()
 	return f
 }
@@ -756,7 +798,7 @@ func (f *auditFetch) run(ctx context.Context) stepResult {
 		return auditStepResult(f.res, f.err)
 	case <-ctx.Done():
 		f.cancel()
-		return auditStepResult(auditResult{}, ctx.Err())
+		return auditStepResult(auditResult{target: f.target}, ctx.Err())
 	}
 }
 
@@ -767,7 +809,7 @@ func auditStepResult(res auditResult, err error) stepResult {
 	case errors.Is(err, errNoForeign):
 		return stepResult{output: "No foreign (AUR or locally built) packages installed — nothing to audit."}
 	case err != nil:
-		return stepResult{output: "Couldn't reach the AUR: " + shortErr(err), err: err}
+		return stepResult{output: "Couldn't reach the AUR: " + shortErrWithin(err, res.target.deadline), err: err}
 	}
 	r := stepResult{output: auditText(res)}
 	if res.baseline == baselineCorrupt {
@@ -842,8 +884,14 @@ func packageNames(raw []string) string {
 
 // shortErr trims a transport error to something that fits a notice popup.
 func shortErr(err error) string {
+	return shortErrWithin(err, auditDeadline)
+}
+
+// shortErrWithin is shortErr for an audit that ran under deadline (its
+// target's), rather than whatever auditDeadline holds by now.
+func shortErrWithin(err error, deadline time.Duration) string {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Sprintf("no answer within %s", auditDeadline)
+		return fmt.Sprintf("no answer within %s", deadline)
 	}
 	var ue *url.Error
 	if errors.As(err, &ue) {
@@ -860,7 +908,7 @@ func shortErr(err error) string {
 // report stays reviewable from "View log". Plain text — no styling in logs.
 func logAudit(res auditResult) {
 	label := fmt.Sprintf("AUR audit: %d checked, %d flagged", res.total, res.total-res.clean())
-	appendLog(logCategoryAudit, "AUDIT", label, findingLines(res.findings))
+	res.target.log("AUDIT", label, findingLines(res.findings))
 }
 
 // findingLines is the plain-text findings list, one "[HIGH]"/"[warn]" line per
@@ -889,17 +937,17 @@ func auditText(res auditResult) string {
 		b.WriteString("Nothing flagged.\n")
 	}
 	b.WriteString(findingLines(res.findings))
-	if note := baselineNote(res.baseline); note != "" {
+	if note := baselineNote(res.baseline, res.target.dryRun); note != "" {
 		b.WriteString("\n" + note + "\n")
 	}
-	if high > 0 && !dryRun {
+	if high > 0 && !res.target.dryRun {
 		b.WriteString("\nThe flagged maintainers are only recorded if you accept the update; declining keeps them flagged for the next audit.\n")
 	}
 	return b.String()
 }
 
 // baselineNote explains the snapshot state, or "" when there's nothing to say.
-func baselineNote(state baselineState) string {
+func baselineNote(state baselineState, dryRun bool) string {
 	switch {
 	case state == baselineCorrupt && dryRun:
 		return "The maintainer snapshot is unreadable (dry run: left as is) — maintainer changes can't be detected until it's replaced."
@@ -948,10 +996,10 @@ func renderAudit(res auditResult) string {
 	}
 
 	b.WriteString("\n")
-	if note := baselineNote(res.baseline); note != "" {
+	if note := baselineNote(res.baseline, res.target.dryRun); note != "" {
 		b.WriteString(statusStyle.Render(note) + "\n")
 	}
-	if high > 0 && !dryRun {
+	if high > 0 && !res.target.dryRun {
 		b.WriteString(statusStyle.Render("Flagged maintainers stay flagged on every audit until you've checked them and press a to accept.") + "\n")
 	}
 	b.WriteString(statusStyle.Render("Recent = pushed within 72h, the same window as the yay cooldown hook."))
