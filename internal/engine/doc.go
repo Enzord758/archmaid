@@ -77,6 +77,14 @@
 // The log is written from the engine's own copy of the output, so what the
 // view dropped is still in the log.
 //
+// # Drivers
+//
+// Driver.Send returns false when a Command could not be queued; a front end
+// retries it (the GUI does). Intent for the real Driver (E6): Commands go
+// through their own small queue, apart from the Inputs and Events, so a
+// Send effectively never fails while the Driver is open — false is kept
+// for a closed Driver. The stub does not promise that yet.
+//
 // # Passwords
 //
 // No Event ever carries a password, in any field, however nested. A
