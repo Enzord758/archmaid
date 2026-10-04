@@ -21,8 +21,9 @@ import (
 // hasn't run; the plan changes (StepInserted, PlanChanged) only between
 // steps — never while a step runs or a step's confirm is open, so what a
 // result changes comes after that step's StepDone and before the next
-// step's events — and only at steps that haven't run; prompt IDs are never
-// reused; Finished ends every action (only PhaseChanged and StatusUpdated
+// step's events — and only at steps that haven't run; an AuthWaiting is
+// resolved (AuthResolved) before anything starts, asks or finishes, and
+// nothing resolves what isn't waiting; prompt IDs are never reused; Finished ends every action (only PhaseChanged and StatusUpdated
 // may follow before the next one starts), and a completed one has every
 // step settled.
 func CheckContract(t testing.TB, evs []engine.Event) {
@@ -42,6 +43,7 @@ type Checker struct {
 	queued   bool
 	running  string // the step between its StepStarted and its end
 	asking   string // the step whose confirm is open
+	waiting  bool   // an AuthWaiting has no AuthResolved yet
 	settled  map[string]bool
 	started  map[string]bool
 	prompts  map[engine.PromptID]bool
@@ -103,6 +105,19 @@ func (c *Checker) Check(evs []engine.Event) {
 	for _, ev := range evs {
 		i := c.n
 		c.n++
+		switch ev.(type) {
+		case engine.AuthResolved:
+			if !c.waiting {
+				t.Errorf("event %d: AuthResolved with no AuthWaiting open", i)
+			}
+			c.waiting = false
+		case engine.AuthWaiting, engine.QueueStarted, engine.StepStarted, engine.NeedsConfirm,
+			engine.NeedsPassword, engine.NeedsSelection, engine.OutputReport, engine.Finished:
+			if c.waiting {
+				t.Errorf("event %d (%T) before the open AuthWaiting's AuthResolved", i, ev)
+			}
+			_, c.waiting = ev.(engine.AuthWaiting)
+		}
 		if c.finished {
 			switch ev.(type) {
 			case engine.PhaseChanged, engine.StatusUpdated:
@@ -110,7 +125,7 @@ func (c *Checker) Check(evs []engine.Event) {
 			case engine.QueueStarted, engine.Notice, engine.NeedsConfirm, engine.NeedsPassword,
 				engine.NeedsSelection, engine.OutputReport:
 				// the next action
-				c.plan, c.queued, c.running, c.asking, c.finished = nil, false, "", "", false
+				c.plan, c.queued, c.running, c.asking, c.waiting, c.finished = nil, false, "", "", false, false
 				c.settled, c.started = map[string]bool{}, map[string]bool{}
 			default:
 				t.Errorf("event %d (%T) after Finished", i, ev)

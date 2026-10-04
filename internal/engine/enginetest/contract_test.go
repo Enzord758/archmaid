@@ -115,3 +115,23 @@ func TestCheckerPieces(t *testing.T) {
 		t.Errorf("reports %q", s.errs)
 	}
 }
+
+// An AuthWaiting is resolved before the queue or a step goes on.
+func TestContractAuthWaiting(t *testing.T) {
+	wait, res := engine.AuthWaiting{}, engine.AuthResolved{Granted: true}
+	ok := seq(wait, res, plan2, engine.StepStarted{ID: "a"}, engine.AuthWaiting{Kind: engine.WaitPolkit, Step: "a"}, res,
+		engine.StepDone{ID: "a", Status: steps.OK}, run("b", 1), done)
+	if errs := (&spy{TB: t}).check(ok).errs; len(errs) > 0 {
+		t.Errorf("resolved waits: %v", errs)
+	}
+	for name, evs := range map[string][]engine.Event{
+		"queue before resolved":  seq(wait, plan2, res, run("a", 0), run("b", 1), done),
+		"step before resolved":   seq(plan2, wait, run("a", 0), res, run("b", 1), done),
+		"finished while waiting": seq(plan2, run("a", 0), run("b", 1), wait, done),
+		"resolved, not waiting":  seq(plan2, run("a", 0), res, run("b", 1), done),
+	} {
+		if errs := (&spy{TB: t}).check(evs).errs; len(errs) == 0 {
+			t.Errorf("%s passed", name)
+		}
+	}
+}
