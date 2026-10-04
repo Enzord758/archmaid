@@ -699,7 +699,7 @@ func TestLogPickerEnterOpensChosenCategory(t *testing.T) {
 	m := initialModel()
 	m.screen = screenLogPicker
 	m.logCursor = 1 // orphans, per logCategoryLabels' order
-	if logCategoryLabels[1].id != logCategoryOrphans {
+	if logCategoryLabels[1].ID != logCategoryOrphans {
 		t.Fatalf("test index drifted: logCategoryLabels[1] = %+v", logCategoryLabels[1])
 	}
 

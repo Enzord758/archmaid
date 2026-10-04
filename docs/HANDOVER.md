@@ -26,7 +26,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `tasks.go` | `step`, `runStep` (streams a child's output), `waitForStream` (pumps it to the UI in batches), the step queues, sudo probe/auth/keep-alive, discovery commands, `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
 | `audit.go` | the AUR audit: RPC lookup, classification, maintainer snapshot, report |
-| `log.go` | log categories, per-run directories, `pruneLogs` |
+| `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun`, thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering |
 | `askpass.go` | `SUDO_ASKPASS` helper + socket server |
 | `overlay.go` | ANSI-aware popup compositor |
 | `status.go`, `theme.go` | the status line (native: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
@@ -36,6 +36,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | Package | Owns |
 |---|---|
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
+| `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories` |
 
 ## Decisions and landmines
 

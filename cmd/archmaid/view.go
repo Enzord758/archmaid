@@ -236,7 +236,7 @@ func (m model) viewLogPicker() string {
 			cursor = cursorStyle.Render("➤ ")
 			style = selectedStyle
 		}
-		b.WriteString(cursor + style.Render(c.label) + "\n")
+		b.WriteString(cursor + style.Render(c.Label) + "\n")
 	}
 	b.WriteString("\n" + hintStyle.Render("↑/↓ move · enter open · esc back"))
 	return b.String()

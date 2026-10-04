@@ -862,7 +862,7 @@ func TestAuditNoticeRoutesToNoticePopup(t *testing.T) {
 
 func TestAuditLogIsInTheViewLogPicker(t *testing.T) {
 	last := logCategoryLabels[len(logCategoryLabels)-1]
-	if last.id != logCategoryAudit {
+	if last.ID != logCategoryAudit {
 		t.Fatalf("last picker entry = %+v, want the audit category", last)
 	}
 	if categoryLabel(logCategoryAudit) != "AUR audit" {

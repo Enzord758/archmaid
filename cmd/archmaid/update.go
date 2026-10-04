@@ -450,7 +450,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.logCursor++
 			}
 		case "enter":
-			return m.openLogCategory(logCategoryLabels[m.logCursor].id)
+			return m.openLogCategory(logCategoryLabels[m.logCursor].ID)
 		}
 
 	case screenLog:
