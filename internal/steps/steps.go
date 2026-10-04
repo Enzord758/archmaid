@@ -169,6 +169,7 @@ const (
 	IDIntegrity     = "integrity"
 	IDHyprpm        = "hyprpm"
 	IDRepair        = "repair"
+	IDRepairCheck   = "repair-check"
 	IDDisableUnits  = "disable-units"
 	IDDownloads     = "downloads"
 	IDUserCache     = "user-cache"

@@ -37,8 +37,19 @@ func discoverRepair(ctx context.Context, env Env) Discovery {
 // rescanRepair runs once the sudo ticket is primed: it rechecks the user
 // scan's candidates as root, and only the packages it confirms are offered
 // for reinstalling.
+//
+// Under polkit there is no ticket for its `sudo -n`, so it runs nothing
+// and returns the recheck as a helper step instead (RepairCheckStep); the
+// front end reads the helper's broken list and goes on with RepairStep.
 func rescanRepair(candidates []string) func(context.Context, Env) Discovery {
-	return func(ctx context.Context, _ Env) Discovery {
+	return func(ctx context.Context, env Env) Discovery {
+		if env.Polkit {
+			if len(candidates) > HelperMaxNames {
+				return Notice{fmt.Sprintf("Too many flagged packages (%d) to recheck through the root helper "+
+					"(at most %d); run Repair from the terminal.", len(candidates), HelperMaxNames)}
+			}
+			return Pending{[]steps.Step{RepairCheckStep(candidates)}}
+		}
 		pkgs, err := brokenPackages(ctx, candidates)
 		if err != nil {
 			return Notice{"Couldn't scan for broken packages: " + clipErr(err)}
@@ -46,13 +57,39 @@ func rescanRepair(candidates []string) func(context.Context, Env) Discovery {
 		if len(pkgs) == 0 {
 			return Notice{"No broken packages found."}
 		}
-		return Pending{[]steps.Step{{
-			ID: steps.IDRepair, Verb: steps.VerbRepair,
-			Title: "Reinstalling packages…", LogLabel: "Package repair completed",
-			Argv:      append([]string{"sudo", "pacman", "-S", "--noconfirm", "--"}, pkgs...),
-			NeedsPriv: true, Optional: true, AlwaysLog: true,
-			Confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
-		}}}
+		return Pending{[]steps.Step{RepairStep(pkgs)}}
+	}
+}
+
+// HelperMaxNames is the most package names the root helper takes in one
+// call (its maxNames; cmd/archmaid-helper ties the two in a test).
+const HelperMaxNames = 256
+
+// RepairCheckStep is Repair's root recheck as a root-helper step (polkit):
+// `check-files` over exactly the user scan's candidates, which are its
+// Items and its Argv after "--". The helper runs `pacman -Qk -- …` and
+// reports the broken ones in its check event. It changes nothing, so it has
+// no confirm. Argv names what the helper runs, without sudo.
+func RepairCheckStep(candidates []string) steps.Step {
+	return steps.Step{
+		ID: steps.IDRepairCheck, Verb: steps.VerbCheckFiles,
+		Title: "Rechecking flagged packages as root…", LogLabel: "Flagged packages rechecked",
+		Argv:      append([]string{"pacman", "-Qk", "--"}, candidates...),
+		Items:     slices.Clone(candidates),
+		NeedsPriv: true,
+	}
+}
+
+// RepairStep reinstalls pkgs, the packages the root recheck confirmed
+// broken: the step rescanRepair queues under sudo, and the one a polkit
+// front end queues after RepairCheckStep reports a non-empty broken list.
+func RepairStep(pkgs []string) steps.Step {
+	return steps.Step{
+		ID: steps.IDRepair, Verb: steps.VerbRepair,
+		Title: "Reinstalling packages…", LogLabel: "Package repair completed",
+		Argv:      append([]string{"sudo", "pacman", "-S", "--noconfirm", "--"}, pkgs...),
+		NeedsPriv: true, Optional: true, AlwaysLog: true,
+		Confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
 	}
 }
 

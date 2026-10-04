@@ -98,8 +98,8 @@ func TestBuiltStepVerbsAreHelperVerbs(t *testing.T) {
 		}
 	}
 	// The walk must reach the run-time steps, or it proved nothing about them.
-	for _, id := range []string{steps.IDRepair, steps.IDOrphansRemove, steps.IDDisableUnits, steps.IDDownloads,
-		steps.IDPaccache, steps.IDHyprpm} {
+	for _, id := range []string{steps.IDRepair, steps.IDRepairCheck, steps.IDOrphansRemove, steps.IDDisableUnits,
+		steps.IDDownloads, steps.IDPaccache, steps.IDHyprpm} {
 		if !slices.ContainsFunc(built, func(s steps.Step) bool { return s.ID == id }) {
 			t.Errorf("no %s step was built: the walk missed it", id)
 		}
@@ -165,15 +165,15 @@ esac`,
 			}
 		}
 	}
-	var walk func(id string, d actions.Discovery)
-	walk = func(id string, d actions.Discovery) {
+	var walk func(id string, d actions.Discovery, env actions.Env)
+	walk = func(id string, d actions.Discovery, env actions.Env) {
 		switch d := d.(type) {
 		case actions.Pending:
 			add(d.Steps)
 		case actions.NeedsSelection:
 			add(d.Steps(d.Items))
 		case actions.NeedsRoot:
-			walk(id, d.Rescan(ctx, env))
+			walk(id, d.Rescan(ctx, env), env)
 		case actions.Notice:
 			t.Errorf("%s: discovery ended in a notice: %q", id, d.Text)
 		case actions.Report:
@@ -181,13 +181,32 @@ esac`,
 			t.Fatalf("%s: unknown discovery %T", id, d)
 		}
 	}
-	for _, a := range actions.Menu {
-		switch {
-		case a.Steps != nil:
-			add(a.Steps(env))
-		case a.Discover != nil:
-			walk(a.ID, a.Discover(ctx, env))
+	// Once as under sudo, once under polkit, where Repair's recheck is a
+	// helper step.
+	polkitEnv := env
+	polkitEnv.Polkit = true
+	for _, env := range []actions.Env{env, polkitEnv} {
+		for _, a := range actions.Menu {
+			switch {
+			case a.Steps != nil:
+				add(a.Steps(env))
+			case a.Discover != nil:
+				walk(a.ID, a.Discover(ctx, env), env)
+			}
 		}
 	}
 	return out
+}
+
+// TestRepairCheckFitsTheHelper: the polkit recheck's cap is the helper's,
+// and the step it builds is one the helper accepts the shape of: check-files
+// with the names after "--".
+func TestRepairCheckFitsTheHelper(t *testing.T) {
+	if actions.HelperMaxNames != helper.MaxNames {
+		t.Fatalf("actions.HelperMaxNames = %d, helper.MaxNames = %d", actions.HelperMaxNames, helper.MaxNames)
+	}
+	s := actions.RepairCheckStep([]string{"a", "b"})
+	if s.Verb != steps.VerbCheckFiles || !slices.Contains(helper.Verbs(), s.Verb) {
+		t.Fatalf("verb %q", s.Verb)
+	}
 }

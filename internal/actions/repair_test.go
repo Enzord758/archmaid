@@ -2,11 +2,15 @@ package actions
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // TestParseBrokenPackages: `pacman -Qkq` prints "pkg /path" per missing file;
@@ -63,6 +67,79 @@ func TestChunkStrings(t *testing.T) {
 	}
 	if got := chunkStrings(nil, 4); len(got) != 0 {
 		t.Fatalf("nothing installed should be no chunks, got %v", got)
+	}
+}
+
+// TestRescanRepairPolkit: under polkit the root recheck runs no sudo (PATH
+// is empty, so any command would fail into a notice) and is one helper step:
+// verb check-files, NeedsPriv, over exactly the candidates, as Items and as
+// the names after "--", in order.
+func TestRescanRepairPolkit(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	cands := []string{"amd-ucode", "nfs-utils", "big"}
+	d := rescanRepair(cands)(context.Background(), Env{Polkit: true})
+	p, ok := d.(Pending)
+	if !ok || len(p.Steps) != 1 {
+		t.Fatalf("got %#v, want one pending step", d)
+	}
+	s := p.Steps[0]
+	if s.ID != steps.IDRepairCheck || s.Verb != steps.VerbCheckFiles || !s.NeedsPriv || s.Run != nil || s.Confirm != "" {
+		t.Fatalf("step %+v: want a NeedsPriv check-files child with no confirm", s)
+	}
+	if !slices.Equal(s.Items, cands) {
+		t.Errorf("Items %q, want exactly %q", s.Items, cands)
+	}
+	i := slices.Index(s.Argv, "--")
+	if i < 0 || !slices.Equal(s.Argv[i+1:], cands) || slices.Contains(s.Argv, "sudo") {
+		t.Errorf("Argv %q: want no sudo and exactly %q after --", s.Argv, cands)
+	}
+	cands[0] = "changed"
+	if s.Items[0] != "amd-ucode" || s.Argv[i+1] != "amd-ucode" {
+		t.Errorf("the step must not share the caller's slice: %q / %q", s.Items, s.Argv)
+	}
+}
+
+// TestRescanRepairPolkitTooMany: more candidates than the helper takes is a
+// notice up front, not a step the helper is sure to refuse.
+func TestRescanRepairPolkitTooMany(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	cands := make([]string, HelperMaxNames+1)
+	for i := range cands {
+		cands[i] = fmt.Sprintf("p%d", i)
+	}
+	d := rescanRepair(cands)(context.Background(), Env{Polkit: true})
+	if n, ok := d.(Notice); !ok || !strings.Contains(n.Text, "Too many flagged packages (257)") {
+		t.Fatalf("got %#v, want the too-many notice", d)
+	}
+	if d := rescanRepair(cands[:HelperMaxNames])(context.Background(), Env{Polkit: true}); d.(Pending).Steps[0].Verb != steps.VerbCheckFiles {
+		t.Fatalf("exactly %d candidates must still be one check step, got %#v", HelperMaxNames, d)
+	}
+}
+
+// TestRescanRepairSudoUnchanged: without Polkit the recheck still runs
+// `sudo -n pacman -Qkq -- candidates` (a shim here) and queues the reinstall
+// of exactly what it reports.
+func TestRescanRepairSudoUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > " + argsFile + "\necho 'big /usr/share/big/one'\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	d := rescanRepair([]string{"amd-ucode", "big"})(context.Background(), Env{})
+	p, ok := d.(Pending)
+	if !ok || len(p.Steps) != 1 {
+		t.Fatalf("got %#v, want one pending step", d)
+	}
+	want := []string{"sudo", "pacman", "-S", "--noconfirm", "--", "big"}
+	if s := p.Steps[0]; s.ID != steps.IDRepair || s.Verb != steps.VerbRepair || !slices.Equal(s.Argv, want) ||
+		s.Confirm != "Reinstall 1 broken package(s)?" {
+		t.Fatalf("step %+v, want the reinstall of big", s)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil || string(got) != "-n pacman -Qkq -- amd-ucode big\n" {
+		t.Fatalf("sudo ran with %q (%v), want the -n recheck of both candidates", got, err)
 	}
 }
 

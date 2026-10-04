@@ -43,6 +43,11 @@ type Action struct {
 // exec.LookPath and DefaultRepairWorkers.
 type Env struct {
 	DryRun bool
+	// Polkit is set when root comes from the root helper through pkexec
+	// (the engine's AuthPolkit), not a sudo ticket: a discovery that needs
+	// root then hands the work to a helper step instead of running sudo
+	// (Repair's recheck). It changes nothing under sudo.
+	Polkit bool
 	// LookPath finds a program on PATH; nil means exec.LookPath. Full
 	// Cleanup asks it for hyprpm.
 	LookPath func(file string) (string, error)
