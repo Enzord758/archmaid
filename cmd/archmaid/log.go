@@ -29,7 +29,10 @@ const (
 	logCategoryAudit    = logstore.Audit   // AUR audit results (see audit.go)
 )
 
-// logKeepRuns is how many run directories pruneLogs keeps.
+// logKeepRuns is how many run directories a real run keeps. The rotation runs
+// when a real run creates its run directory (logstore.Options.KeepRuns), never
+// at startup: a dry run, --help or a start that only looks at the menu must
+// not delete anyone's history.
 const logKeepRuns = logstore.KeepRuns
 
 // logStoreKey is what the package-level store was built from.
@@ -69,7 +72,7 @@ func logs() *logstore.Store {
 		if logStarted.IsZero() {
 			logStarted = logNow()
 		}
-		theLogStore = logstore.New(logstore.Options{Dir: logDir, DryRun: dryRun, Now: runClock(logStarted)})
+		theLogStore = logstore.New(logstore.Options{Dir: logDir, DryRun: dryRun, Now: runClock(logStarted), KeepRuns: logKeepRuns})
 		theLogKey = key
 	}
 	return theLogStore
@@ -97,10 +100,6 @@ func runDirName() string { return filepath.Base(logs().RunDir()) }
 
 // logPath is the file a category logs to for this run; it creates nothing.
 func logPath(cat logCategory) string { return logs().Path(cat) }
-
-// pruneLogs keeps only the logKeepRuns most recent run directories. Called
-// once at startup.
-func pruneLogs() { logs().Prune(logKeepRuns) }
 
 // appendLog writes a timestamped entry to cat's log (see logstore.Append). A
 // failed write is dropped: logging must never break a step. Model goroutine

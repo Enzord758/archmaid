@@ -7,6 +7,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -16,22 +17,9 @@ import (
 )
 
 func main() {
-	// SUDO_ASKPASS helper mode: sudo runs the wrapper, which execs us with
-	// --askpass <sock> [prompt]. Relay to the running TUI and exit.
-	if len(os.Args) >= 3 && os.Args[1] == "--askpass" {
-		prompt := ""
-		if len(os.Args) >= 4 {
-			prompt = os.Args[3]
-		}
-		os.Exit(privilege.RunClient(os.Args[2], prompt))
+	if code, start := startup(os.Args[1:], os.Stdout, os.Stderr); !start {
+		os.Exit(code)
 	}
-
-	if err := parseArgs(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "archmaid:", err)
-		os.Exit(2)
-	}
-
-	pruneLogs() // keep only the most recent logKeepRuns run directories
 
 	// A missing piece of the actions' wiring would otherwise panic mid-action.
 	if err := actionEnv().Validate(); err != nil {
@@ -61,9 +49,54 @@ func main() {
 	}
 }
 
+// usage is what --help prints.
+const usage = `Usage: archmaid [--dryrun] [--downloads <folder>]
+
+A terminal UI for Arch Linux maintenance.
+
+Options:
+  --dryrun              log what each step would run instead of running it
+  --downloads <folder>  the folder "Delete old downloads" cleans
+                        (also --downloads=<folder>)
+  -h, --help            show this help and exit
+`
+
+// errHelp is parseArgs' answer to --help or -h: print usage, exit 0.
+var errHelp = errors.New("help requested")
+
+// startup is everything main does before the TUI: the askpass relay and the
+// command line. It returns start=false with the exit code when the process
+// must stop there. It writes nothing under the state dir and deletes nothing:
+// history is only rotated when a real run writes its first log entry (see
+// logKeepRuns), so --help, a bad flag, the askpass relay or a dry run leave
+// ~/.local/state/archmaid as they found it.
+func startup(args []string, stdout, stderr io.Writer) (code int, start bool) {
+	// SUDO_ASKPASS helper mode: sudo runs the wrapper, which execs us with
+	// --askpass <sock> [prompt]. Relay to the running TUI and exit.
+	if len(args) >= 2 && args[0] == "--askpass" {
+		prompt := ""
+		if len(args) >= 3 {
+			prompt = args[2]
+		}
+		return privilege.RunClient(args[1], prompt), false
+	}
+
+	switch err := parseArgs(args); {
+	case errors.Is(err, errHelp):
+		fmt.Fprint(stdout, usage)
+		return 0, false
+	case err != nil:
+		fmt.Fprintln(stderr, "archmaid:", err)
+		fmt.Fprintln(stderr, "Try 'archmaid --help'.")
+		return 2, false
+	}
+	return 0, true
+}
+
 // parseArgs applies the command-line flags: --dryrun, and --downloads <dir>
-// (or --downloads=<dir>), the folder "Delete old downloads" cleans. Anything
-// else is ignored.
+// (or --downloads=<dir>), the folder "Delete old downloads" cleans. --help
+// and -h return errHelp. Anything else is an error: an ignored typo used to
+// start the TUI, and a mistyped --dryrun would make that a real run.
 //
 // A --downloads value starting with "-" is refused rather than taken as the
 // folder: in `archmaid --downloads --dryrun` the user meant two flags, and
@@ -86,6 +119,12 @@ func parseArgs(args []string) error {
 			if err := setDownloadsFlag(strings.TrimPrefix(a, "--downloads=")); err != nil {
 				return err
 			}
+		case a == "--help" || a == "-h":
+			return errHelp
+		case strings.HasPrefix(a, "-"):
+			return fmt.Errorf("unknown option %q", a)
+		default:
+			return fmt.Errorf("unexpected argument %q", a)
 		}
 	}
 	return nil
