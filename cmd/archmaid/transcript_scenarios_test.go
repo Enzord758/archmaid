@@ -34,12 +34,16 @@ import (
 //   - The AUR snapshot advances during the audit, before the user answers, so
 //     "no" still uses the alarm up (fullcleanup_audit_takeover_decline).
 
-// transcriptScenarios run as subtests of TestTranscript; each sets up its own
-// environment, then records its action on the target mk makes.
-var transcriptScenarios = []struct {
+// transcriptScenario sets up its own environment, then records its action
+// on the target mk makes.
+type transcriptScenario struct {
 	name string
 	run  func(t *testing.T, mk newTarget) *tt.Recorder
-}{
+}
+
+// transcriptScenarios run as subtests of TestTranscript and
+// TestTranscriptSession.
+var transcriptScenarios = []transcriptScenario{
 	// ── Full Cleanup ─────────────────────────────────────────────────────────
 
 	{"fullcleanup_clean.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -361,17 +365,25 @@ echo python-oldthing`}}, sh["pacman"]...)
 	}},
 }
 
-// TestTranscript replays every scenario through the TUI. A sessionTarget
-// gets its own TestTranscriptSession calling replay with its constructor:
-// same scenarios, same goldens.
+// TestTranscript replays every scenario through the TUI.
+// TestTranscriptSession replays them through the engine's Session: same
+// scenarios, same goldens.
 func TestTranscript(t *testing.T) {
-	replay(t, func(t *testing.T, shimLog string) tt.Target { return newTUITarget(t, shimLog) })
+	replay(t, func(t *testing.T, shimLog string) tt.Target { return newTUITarget(t, shimLog) }, nil)
 }
 
-// replay runs every scenario on mk's target against its golden.
-func replay(t *testing.T, mk newTarget) {
+// replay runs every scenario on mk's target against its golden, skipping
+// the ones skip names, with the reason it gives. Goldens are written only
+// by a replay without skips (TestTranscript, the TUI).
+func replay(t *testing.T, mk newTarget, skip map[string]string) {
 	for _, sc := range transcriptScenarios {
 		t.Run(sc.name, func(t *testing.T) {
+			if why, ok := skip[sc.name]; ok {
+				t.Skip(why)
+			}
+			if *updateTranscripts && skip != nil {
+				t.Skip("-update-transcripts records through the TUI (TestTranscript) only")
+			}
 			checkGolden(t, sc.name, sc.run(t, mk).Transcript())
 		})
 	}
