@@ -5,7 +5,7 @@
 # dir is never read or touched here.
 #
 # Cases: unchanged -> ok; file grown, nested entry deleted, entry added,
-# mtime-only change -> fail; absent -> still absent -> ok; absent -> created
+# mtime-only change -> fail; no diff on PATH -> exit 2 and the message; absent -> still absent -> ok; absent -> created
 # -> fail. Exit 0 if the guard got every case right, 1 with the case names
 # otherwise.
 set -euo pipefail
@@ -45,9 +45,22 @@ check touched fail 'touch "$S/archmaid/last-run.json"'
 check absent-unchanged ok ':'
 check absent-created fail 'mkdir "$S/archmaid"'
 
+# A PATH without diff: exit 2 and the message, not a confusing diff later.
+# The PATH is a dir of symlinks to the other tools the guard needs.
+nodiff="$scratch/nodiff-bin"
+mkdir -p "$nodiff" "$scratch/nodiff"
+for t in bash find sort mkdir cat dirname; do
+	ln -s "$(command -v "$t")" "$nodiff/$t"
+done
+: >"$scratch/nodiff.before"
+rc=0
+msg="$(PATH="$nodiff" XDG_STATE_HOME="$scratch/nodiff" "$nodiff/bash" "$guard" compare "$scratch/nodiff.before" 2>&1)" || rc=$?
+[[ "$rc" == 2 && "$msg" == *"state-guard: diff not found; install diffutils"* ]] ||
+	failed+=("no-diff: got exit $rc and '$msg', want exit 2 and the diffutils message")
+
 if ((${#failed[@]})); then
 	echo "FAIL: scripts/state-guard.sh got these self-test cases wrong:"
 	printf '  %s\n' "${failed[@]}"
 	exit 1
 fi
-echo "ok: state-guard self-test (7 cases)"
+echo "ok: state-guard self-test (8 cases)"

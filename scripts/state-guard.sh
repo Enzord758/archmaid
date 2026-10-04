@@ -19,6 +19,15 @@
 # archmaid for real while the gate runs, or the guard will (rightly) see it.
 set -euo pipefail
 
+# Fail up front, not later with an empty or confusing diff.
+declare -A pkg=([find]=findutils [sort]=coreutils [diff]=diffutils)
+for tool in find sort diff; do
+	command -v "$tool" >/dev/null 2>&1 || {
+		echo "state-guard: $tool not found; install ${pkg[$tool]}" >&2
+		exit 2
+	}
+done
+
 dir="${XDG_STATE_HOME:-$HOME/.local/state}/archmaid"
 
 snapshot() {
