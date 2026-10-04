@@ -262,7 +262,7 @@ func (tg *tuiEngineTarget) Reply(a tt.Answer) error {
 			return fmt.Errorf("abort on screen %d", tg.m.screen)
 		}
 		if len(tg.d.child) > 0 {
-			if !tg.fx.awaitExec(5 * time.Second) {
+			if !tg.fx.awaitExec(shimWait) {
 				return fmt.Errorf("the running step's child never reached its shim")
 			}
 			tg.push(tg.fx.execs()...)

@@ -233,6 +233,11 @@ func (fx *effects) execs() []tt.Event {
 	return evs
 }
 
+// shimWait bounds awaitExec. It is a deadline, not a sleep: generous, since
+// the gate runs every package under -race three times in parallel, where a
+// child once took over 5 s to reach its shim.
+const shimWait = 30 * time.Second
+
 // awaitExec waits until a child has logged itself to its shim, so the shim's
 // SIGINT trap (if any) is installed and its exec line is deterministic.
 func (fx *effects) awaitExec(timeout time.Duration) bool {

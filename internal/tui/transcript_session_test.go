@@ -280,7 +280,7 @@ func (tg *sessionTarget) Reply(a tt.Answer) error {
 // any) is installed and its exec line lands before the abort.
 func (tg *sessionTarget) abort() error {
 	if len(tg.children) > 0 {
-		if !tg.fx.awaitExec(5 * time.Second) {
+		if !tg.fx.awaitExec(shimWait) {
 			return fmt.Errorf("the running step's child never reached its shim")
 		}
 		tg.push(tg.fx.execs()...)
