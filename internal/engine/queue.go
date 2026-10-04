@@ -36,6 +36,16 @@ type run struct {
 	prompt    PromptID
 	promptFor promptKind
 
+	// Auth (auth.go).
+	attempts       int                // wrong passwords so far this run
+	checking       bool               // an Authenticate is in flight
+	sudoGone       bool               // the password was given up on: NeedsPriv steps are refused
+	root           *actions.NeedsRoot // a discovery held until root is primed
+	authed         bool               // the rescan ran primed: its queue needs no probe
+	faillockFor    faillockWait       // what a ReadFaillock in flight goes on to
+	acceptedLaunch bool               // the helper step waiting on it was confirmed
+	polkitWait     bool               // AuthWaiting{WaitPolkit} is open for the running step
+
 	errs, skipped, refused int
 }
 
@@ -83,8 +93,10 @@ func (s *Session) plan(o *Output, queue []steps.Step, gate string) {
 		s.startQueue(o)
 		return
 	}
-	if s.opts.DryRun || s.opts.Auth == AuthPolkit {
-		s.authorized(o) // a dry run never asks; polkit asks per step
+	if s.opts.DryRun || s.opts.Auth == AuthPolkit || r.authed {
+		// A dry run never asks; polkit asks per step; a rescan's queue
+		// runs on the ticket its NeedsRoot primed.
+		s.authorized(o)
 		return
 	}
 	r.probing = true
@@ -96,20 +108,23 @@ func needsPriv(queue []steps.Step) bool {
 	return slices.ContainsFunc(queue, func(s steps.Step) bool { return s.NeedsPriv })
 }
 
-// probed takes the probe's answer: a cached ticket goes on as authorized,
-// otherwise the password is asked for.
+// probed takes the probe's answer: a cached ticket goes on (to the gate,
+// or to a held NeedsRoot's rescan), otherwise the faillock count is read and
+// the password asked for.
 func (s *Session) probed(o *Output, in ProbeDone) {
 	r := s.run
 	if r == nil || !r.probing {
 		return
 	}
 	r.probing = false
-	if in.Cached {
+	switch {
+	case in.Cached && r.root != nil:
+		s.rescan(o)
+	case in.Cached:
 		s.authorized(o)
-		return
+	default:
+		s.readFaillock(o, faillockUpFront)
 	}
-	r.prompt, r.promptFor = s.promptID(), promptPassword
-	o.event(NeedsPassword{ID: r.prompt, Kind: PasswordUpFront, AttemptsLeft: maxAttempts})
 }
 
 // authorized goes on once privilege is settled: the gate if the action has
@@ -140,7 +155,7 @@ func (s *Session) startQueue(o *Output) {
 	r.queued = true
 	s.setPhase(o, PhaseRunning, "")
 	o.event(QueueStarted{Action: r.action, Steps: ps, DryRun: s.opts.DryRun, Started: s.now()})
-	if !s.opts.DryRun && s.opts.Auth == AuthSudo && needsPriv(queue) {
+	if !s.opts.DryRun && s.opts.Auth == AuthSudo && !r.sudoGone && needsPriv(queue) {
 		r.keepAlive = true
 		o.effect(KeepAlive{On: true})
 	}
@@ -173,12 +188,19 @@ func planStep(s steps.Step) PlanStep {
 }
 
 // advance moves to the next step: its confirm if it has one, else it runs.
-// Past the last step the action is over.
+// Once the password was given up on, a NeedsPriv step is refused without
+// its confirm. Past the last step the action is over.
 func (s *Session) advance(o *Output) {
 	r := s.run
 	r.cur++
 	if r.cur >= len(r.plan) {
 		s.finish(o, OutcomeCompleted)
+		return
+	}
+	if st := r.plan[r.cur].step; st.NeedsPriv && r.sudoGone {
+		s.settle(o, steps.AuthRefused, "")
+		s.log(o, st.LogCategory(), "SKIP", st.LogLabel+" (sudo authentication failed)", "")
+		s.advance(o)
 		return
 	}
 	if r.plan[r.cur].step.Confirm != "" {
@@ -245,10 +267,21 @@ func splitQuestion(msg string) (title, body string) {
 	return title, strings.TrimLeft(body, "\n")
 }
 
-// launch runs the current step: accepted says it was confirmed, so its
-// OnAccept runs first (a failure there is the hook's to report and doesn't
-// stop the step).
+// launch runs the current step: accepted says it was confirmed. A polkit
+// helper step reads the faillock count first (faillockRead goes on).
 func (s *Session) launch(o *Output, accepted bool) {
+	r := s.run
+	if s.polkitStep(r.plan[r.cur].step) {
+		r.acceptedLaunch = accepted
+		s.readFaillock(o, faillockPolkit)
+		return
+	}
+	s.startStep(o, accepted)
+}
+
+// startStep starts the current step; a confirmed one's OnAccept runs first
+// (a failure there is the hook's to report and doesn't stop the step).
+func (s *Session) startStep(o *Output, accepted bool) {
 	r := s.run
 	st := &r.plan[r.cur]
 	r.stepSeq, r.stepAt, r.out = s.seq(), s.now(), nil
@@ -316,6 +349,7 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 		return
 	}
 	s.run.stepSeq = 0
+	s.endPolkitWait(o, in.NotGranted)
 	if in.NotGranted {
 		st := s.run.plan[s.run.cur].step
 		s.settle(o, steps.AuthRefused, "")
@@ -472,13 +506,16 @@ func (s *Session) discovered(o *Output, in Discovered) {
 		s.finish(o, OutcomeNotice)
 	case actions.Pending:
 		s.plan(o, d.Steps, "")
+	case actions.NeedsRoot:
+		s.needsRoot(o, d)
 	default:
-		panic(errNotImplemented) // NeedsSelection, Report (E5), NeedsRoot (E3)
+		panic(errNotImplemented) // NeedsSelection, Report (E5)
 	}
 }
 
 // finish ends the action: the keep-alive off, prefetches dropped, the
-// last-run record for an action that reached its queue, then Finished.
+// last-run record for an action that reached its queue or its auth (never
+// for a notice, as in the TUI), then Finished.
 func (s *Session) finish(o *Output, outcome Outcome) {
 	r := s.run
 	if r.keepAlive {
@@ -488,7 +525,7 @@ func (s *Session) finish(o *Output, outcome Outcome) {
 		o.effect(CancelPrefetch{Name: p})
 	}
 	now := s.now()
-	if r.planned {
+	if r.planned && outcome != OutcomeNotice {
 		o.effect(WriteLastRun{Record: s.record(outcome, now)})
 	}
 	o.event(Finished{Action: r.action, Outcome: outcome, Errs: r.errs, Skipped: r.skipped, Refused: r.refused, Elapsed: now.Sub(r.started)})

@@ -485,7 +485,8 @@ func TestSessionProbeGateAndKeepAlive(t *testing.T) {
 	t.Run("uncached", func(t *testing.T) {
 		h := newHarness(t, Options{}, gated())
 		h.start("q")
-		o := h.handle(ProbeDone{Cached: false})
+		h.handle(ProbeDone{Cached: false})
+		o := h.handle(FaillockRead{Deny: 3})
 		np := event[NeedsPassword](t, o)
 		if np.ID == 0 || np.Kind != PasswordUpFront || np.AttemptsLeft != 3 || np.Error != "" {
 			t.Errorf("NeedsPassword = %+v", np)
@@ -494,14 +495,6 @@ func TestSessionProbeGateAndKeepAlive(t *testing.T) {
 			t.Error("the gate was asked on top of the password prompt")
 		}
 		noOutput(t, "Confirm on a password prompt", h.s.Confirm(np.ID, true))
-		func() {
-			defer func() {
-				if r := recover(); r != ErrNotImplemented {
-					t.Errorf("SubmitPassword: recovered %v, want ErrNotImplemented until E3", r)
-				}
-			}()
-			h.s.SubmitPassword(np.ID, "pw")
-		}()
 		o = h.cancel(np.ID)
 		if fin := event[Finished](t, o); fin.Outcome != OutcomeCancelled {
 			t.Errorf("Finished = %+v", fin)
@@ -654,7 +647,7 @@ func TestSessionPanicsOnWhatIsNotBuilt(t *testing.T) {
 	h.start("q")
 	expectPanic("Abort", func() { h.s.Abort() })
 
-	for _, d := range []actions.Discovery{actions.Report{Text: "r"}, actions.NeedsSelection{}, actions.NeedsRoot{}} {
+	for _, d := range []actions.Discovery{actions.Report{Text: "r"}, actions.NeedsSelection{}} {
 		h := newHarness(t, Options{}, actions.Action{ID: "d", Discover: func(context.Context, actions.Env) actions.Discovery { return nil }})
 		seq := effect[Discover](t, h.start("d")).Seq
 		expectPanic(reflectName(d), func() { h.s.Handle(Discovered{Seq: seq, Discovery: d}) })

@@ -90,14 +90,15 @@ func (o *Output) effect(fx ...Effect) { o.Effects = append(o.Effects, fx...) }
 // Session is one front end's run state: which action runs, its plan, the
 // open prompt, auth, timings. See the package doc for the contract.
 //
-// Built so far (P4 E1/E2): an action's discovery (a Notice or a queue), the
+// Built so far (P4 E1–E3): an action's discovery (a Notice or a queue), the
 // queue itself — the sudo probe, the proceed-gate, each step's confirm,
 // running, output, results and their logging, steps a result inserts or
-// gates — and the last-run record. Not yet: the password itself
-// (SubmitPassword, E3), askpass (E4: every request is hung up on), Abort,
-// Select and the discoveries that need them (NeedsSelection, Report,
-// NeedsRoot; E3 and E5). Those calls panic with errNotImplemented rather
-// than pretend to run something.
+// gates — the last-run record, and auth (auth.go): the up-front password
+// with its attempts and give-up, the faillock count, Repair's NeedsRoot
+// recheck, and the polkit helper steps. Not yet: askpass (E4: every request
+// is hung up on), Abort, Select and the discoveries that need them
+// (NeedsSelection, Report; E5). Those calls panic with errNotImplemented
+// rather than pretend to run something.
 type Session struct {
 	opts   Options
 	env    actions.Env
@@ -174,10 +175,13 @@ func (s *Session) Confirm(id PromptID, yes bool) Output {
 // pw on in one Effect (Authenticate for the up-front prompt, AnswerAskpass
 // for a mid-run one) and keeps no copy.
 func (s *Session) SubmitPassword(id PromptID, pw Secret) Output {
-	if r := s.run; r == nil || id == 0 || id != r.prompt || r.promptFor != promptPassword {
+	r := s.run
+	if r == nil || id == 0 || id != r.prompt || r.promptFor != promptPassword {
 		return Output{}
 	}
-	panic(errNotImplemented) // E3
+	var o Output
+	s.submitUpFront(&o, pw)
+	return o
 }
 
 // CancelPrompt closes the open prompt with id unanswered: a password prompt
@@ -230,6 +234,12 @@ func (s *Session) Handle(in Input) Output {
 		o.effect(HangUpAskpass{Req: in.Req})
 	case ProbeDone:
 		s.probed(&o, in)
+	case FaillockRead:
+		s.faillockRead(&o, in)
+	case AuthDone:
+		s.authDone(&o, in)
+	case PrivilegeGranted:
+		s.privilegeGranted(&o, in)
 	case Discovered:
 		s.discovered(&o, in)
 	case StepOutput:
@@ -240,8 +250,8 @@ func (s *Session) Handle(in Input) Output {
 		s.stepResult(&o, in)
 	}
 	// HookDone needs nothing (a hook that fails is logged by the hook, and
-	// never blocks its step), and the rest answer Effects this Session
-	// doesn't emit yet, so they are never current.
+	// never blocks its step), and AskpassAnswered answers an Effect this
+	// Session doesn't emit yet, so it is never current.
 	return o
 }
 
