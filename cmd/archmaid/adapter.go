@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,6 +12,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/privilege"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -108,17 +110,43 @@ func (r *reportLog) flush(w io.Writer) {
 	}
 }
 
+// summary is one line on what went wrong, for the notice the model shows
+// when the Driver stops on its own: the first line of the newest report
+// (the Driver reports a Session panic just before it closes), or a plain
+// "no error was reported". Unlike flush it forgets nothing: main still
+// prints every report once the program has ended.
+func (r *reportLog) summary() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.errs) == 0 {
+		return "no error was reported"
+	}
+	first, _, _ := strings.Cut(r.errs[len(r.errs)-1].Error(), "\n") // a panic's stack follows
+	return sanitize.Clip(sanitize.OneLine(first), 60)
+}
+
 // forwardEvents hands the program every Event the Driver delivers, one per
-// msg, in order, until Events is closed.
+// msg, in order, until Events is closed, and then an engineStoppedMsg. The
+// Driver closes Events after its last Event, so a Report it made before
+// closing (a Session panic) is in driverReports by then.
 func forwardEvents(evs <-chan engine.Event, send func(tea.Msg)) {
 	for ev := range evs {
 		send(engineEventsMsg{evs: []engine.Event{ev}})
 	}
+	send(engineStoppedMsg{why: driverReports.summary()})
 }
 
 // engineEventsMsg carries Events from the Driver, in the order it
 // delivered them.
 type engineEventsMsg struct{ evs []engine.Event }
+
+// engineStoppedMsg says the Driver's Events are closed: no Event, and so
+// no Finished, will come again. why is driverReports' summary.
+//
+// After a quit the program has ended and the msg goes nowhere. While the
+// program runs it means the Driver closed on its own (a Session panic),
+// and the model stops: see engineStopped.
+type engineStoppedMsg struct{ why string }
 
 // engineState is what the model keeps of the engine: the Driver and the
 // prompts it has open.
@@ -130,6 +158,7 @@ type engineState struct {
 	report  engine.PromptID // the open OutputReport
 	accept  bool            // the report's findings can be accepted (a)
 	aborted bool            // the user aborted: Finished{OutcomeAborted} goes to the menu
+	stopped bool            // the Driver closed on its own: any key quits
 }
 
 func newEngineState(d engine.Driver) *engineState { return &engineState{drv: d} }
@@ -257,6 +286,31 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		return m.finished(ev)
 	}
 	return nil
+}
+
+// engineStopped handles a Driver that closed on its own mid-session. Its
+// Events stopped without a Finished, so the screen it was on would wait
+// forever (the running screen only leaves on a Finished or an abort, and
+// an abort is a Command the closed Driver refuses).
+//
+// The model shows why over whatever was showing, and any key quits; main
+// then prints the full reports to stderr. It doesn't go back to the menu:
+// the Driver refuses every Command once closed, so every engine action
+// there would silently do nothing. Only the log viewer and the editor
+// would still work, and a menu that looks alive but isn't is worse than
+// an honest exit (restarting archmaid starts a fresh Driver).
+func (m model) engineStopped(why string) (tea.Model, tea.Cmd) {
+	e := m.eng
+	e.stopped = true
+	e.prompt, e.askpass, e.report, e.accept = 0, 0, 0, false
+	m.askpassFrom = askpassRequester{}
+	m.password.Reset()
+	m.pwErr = ""
+	m.gateActive, m.authInFlight = false, false
+	m.bg = m.baseScreen(m.screen)
+	m.notice = "archmaid's engine stopped unexpectedly: " + why
+	m.screen = screenNotice
+	return m, nil
 }
 
 // finished ends the action: the summary for a queue that ran (or that a

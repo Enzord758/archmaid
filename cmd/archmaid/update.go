@@ -27,6 +27,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.eng == nil {
 			return m, nil // no Driver (a view test's model): nothing to drive
 		}
+		if m.eng.stopped {
+			return m, tea.Quit // the Driver is gone; the notice says so
+		}
 		if next, cmd, ok := m.engineKey(msg); ok {
 			return next, cmd
 		}
@@ -37,6 +40,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.applyEvents(msg.evs)
+
+	case engineStoppedMsg:
+		if m.eng == nil {
+			return m, nil
+		}
+		return m.engineStopped(msg.why)
 
 	case statusMsg:
 		m.status = string(msg)

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"reflect"
 	"strings"
 	"testing"
@@ -234,8 +235,9 @@ func TestEnginePromptsSend(t *testing.T) {
 }
 
 // forwardEvents sends each Event as its own msg, in order, until the
-// channel closes.
+// channel closes, and then engineStoppedMsg.
 func TestForwardEvents(t *testing.T) {
+	driverReports.flush(io.Discard)
 	ch := make(chan engine.Event, 2)
 	ch <- engine.Notice{Text: "a"}
 	ch <- engine.Notice{Text: "b"}
@@ -245,6 +247,7 @@ func TestForwardEvents(t *testing.T) {
 	want := []tea.Msg{
 		engineEventsMsg{evs: []engine.Event{engine.Notice{Text: "a"}}},
 		engineEventsMsg{evs: []engine.Event{engine.Notice{Text: "b"}}},
+		engineStoppedMsg{why: "no error was reported"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %#v", got)

@@ -265,7 +265,11 @@ func (m model) viewAudit() string {
 }
 
 func (m model) viewNotice() string {
-	body := itemStyle.Render(m.notice) + "\n\n" + hintStyle.Render("any key to return")
+	hint := "any key to return"
+	if m.eng != nil && m.eng.stopped {
+		hint = "any key to quit; the details follow on the terminal"
+	}
+	body := itemStyle.Render(m.notice) + "\n\n" + hintStyle.Render(hint)
 	return popupBox.Render(body)
 }
 
