@@ -4,10 +4,6 @@ import "github.com/Enzord758/archmaid/internal/actions"
 
 // What the external tests (session_test.go) need from inside the package.
 
-// ErrNotImplemented is what a part of the Session that isn't built yet
-// panics with.
-var ErrNotImplemented = errNotImplemented
-
 // SplitQuestion is splitQuestion.
 var SplitQuestion = splitQuestion
 

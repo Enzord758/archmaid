@@ -638,25 +638,16 @@ func TestSessionKeepsHyprpmLast(t *testing.T) {
 	}
 }
 
-func TestSessionPanicsOnWhatIsNotBuilt(t *testing.T) {
-	expectPanic := func(name string, f func()) {
-		t.Helper()
-		defer func() {
-			if r := recover(); r != ErrNotImplemented {
-				t.Errorf("%s: recovered %v, want ErrNotImplemented", name, r)
-			}
-		}()
-		f()
+// A discovery that returns nil has nothing to show or run: the action ends
+// cancelled, with no last-run record.
+func TestSessionNilDiscovery(t *testing.T) {
+	h := newHarness(t, Options{}, actions.Action{ID: "d", Discover: func(context.Context, actions.Env) actions.Discovery { return nil }})
+	seq := effect[Discover](t, h.start("d")).Seq
+	o := h.handle(Discovered{Seq: seq})
+	if fin := event[Finished](t, o); fin.Outcome != OutcomeCancelled || len(o.Effects) != 0 {
+		t.Errorf("nil discovery: %#v", o)
 	}
-	for _, d := range []actions.Discovery{actions.Report{Text: "r"}} {
-		h := newHarness(t, Options{}, actions.Action{ID: "d", Discover: func(context.Context, actions.Env) actions.Discovery { return nil }})
-		seq := effect[Discover](t, h.start("d")).Seq
-		expectPanic(reflectName(d), func() { h.s.Handle(Discovered{Seq: seq, Discovery: d}) })
-		// Nothing changed: the discovery is still the one awaited.
-		if o := h.s.Handle(Discovered{Seq: seq, Discovery: actions.Notice{Text: "n"}}); len(o.Events) == 0 {
-			t.Errorf("%s: the panic left the Session changed", reflectName(d))
-		}
-	}
+	enginetest.CheckContract(t, h.evs)
 }
 
 func TestSessionCommitRunsWhenTheResultIsTaken(t *testing.T) {

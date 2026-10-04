@@ -63,10 +63,12 @@ func currentAuditConfig() audit.Config {
 
 // auditOutcome is the menu audit's result: a notice for "nothing to audit" /
 // "couldn't reach the AUR", or the rendered report for the audit screen with
-// commit accepting its high findings (`a`; nil when there are none).
+// commit accepting its high findings (`a`; nil when there are none), and
+// the result itself for a front end that draws its own report.
 type auditOutcome struct {
 	notice, report string
 	commit         func() error
+	res            *audit.Result
 }
 
 // discovery is o as the AUR-audit action's actions.Discovery.
@@ -74,7 +76,7 @@ func (o auditOutcome) discovery() actions.Discovery {
 	if o.notice != "" {
 		return actions.Notice{Text: o.notice}
 	}
-	return actions.Report{Text: o.report, Accept: o.commit}
+	return actions.Report{Text: o.report, Accept: o.commit, Audit: o.res}
 }
 
 // menuAudit is the menu action's audit (actions.Env.AuditReport, with the
@@ -88,7 +90,7 @@ func menuAudit(now time.Time, cfg audit.Config) auditOutcome {
 		return auditOutcome{notice: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline)}
 	}
 	res.LogSummary()
-	msg := auditOutcome{report: renderAudit(res)}
+	msg := auditOutcome{report: renderAudit(res), res: &res}
 	// Advance the snapshot for everything but the high findings (with none,
 	// that's all of it); those stay flagged until `a` on the audit screen
 	// runs msg.commit to acknowledge them.

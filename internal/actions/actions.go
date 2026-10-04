@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -138,6 +139,9 @@ type NeedsSelection struct {
 type Report struct {
 	Text   string
 	Accept func() error
+	// Audit is the audit's result as data, for a front end that draws its
+	// own report; nil for a report that isn't an audit.
+	Audit *audit.Result
 }
 
 // NeedsRoot is a discovery that can only finish as root: the front end

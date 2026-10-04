@@ -90,15 +90,13 @@ func (o *Output) effect(fx ...Effect) { o.Effects = append(o.Effects, fx...) }
 // Session is one front end's run state: which action runs, its plan, the
 // open prompt, auth, timings. See the package doc for the contract.
 //
-// Built so far (P4 E1–E4): an action's discovery (a Notice or a queue), the
-// queue itself — the sudo probe, the proceed-gate, each step's confirm,
-// running, output, results and their logging, steps a result inserts or
-// gates — the last-run record, and auth (auth.go): the up-front password
-// with its attempts and give-up, the faillock count, Repair's NeedsRoot
-// recheck, and the polkit helper steps; askpass (E4, askpass.go). Not yet:
-// Abort, Select and the discoveries that need them (NeedsSelection,
-// Report; E5). Those calls panic with errNotImplemented
-// rather than pretend to run something.
+// Every part is built (P4 E1–E5): an action's discovery (a Notice, a
+// queue, a pick list (select.go) or a report (report.go)), the queue
+// itself — the sudo probe, the proceed-gate, each step's confirm, running,
+// output, results and their logging, steps a result inserts or gates — the
+// last-run record, auth (auth.go): the up-front password with its attempts
+// and give-up, the faillock count, Repair's NeedsRoot recheck, and the
+// polkit helper steps; askpass (askpass.go); and Abort (abort.go).
 type Session struct {
 	opts   Options
 	env    actions.Env
@@ -109,10 +107,6 @@ type Session struct {
 	phase      Phase
 	run        *run // the action in progress; nil when idle
 }
-
-// errNotImplemented is what a Session method panics with for a part of the
-// engine that isn't built yet (see Session).
-var errNotImplemented = errors.New("engine: not implemented yet (P4 E3–E5); use internal/engine/stub")
 
 // New returns an idle Session.
 func New(opts Options) *Session {
@@ -149,12 +143,14 @@ func (s *Session) Start(action string) Output {
 // audit findings, no dismisses it) with id.
 func (s *Session) Confirm(id PromptID, yes bool) Output {
 	r := s.run
-	if r == nil || id == 0 || id != r.prompt || (r.promptFor != promptGate && r.promptFor != promptStep) {
+	if r == nil || id == 0 || id != r.prompt || (r.promptFor != promptGate && r.promptFor != promptStep && r.promptFor != promptReport) {
 		return Output{}
 	}
 	var o Output
 	r.prompt = 0
 	switch r.promptFor {
+	case promptReport:
+		s.answerReport(&o, yes)
 	case promptGate:
 		if yes {
 			s.startQueue(&o)
@@ -200,7 +196,7 @@ func (s *Session) CancelPrompt(id PromptID) Output {
 	}
 	var o Output
 	switch r.promptFor {
-	case promptGate, promptStep:
+	case promptGate, promptStep, promptReport:
 		return s.Confirm(id, false)
 	case promptAskpass:
 		s.cancelAskpass(&o)
@@ -266,9 +262,9 @@ func (s *Session) Handle(in Input) Output {
 		s.stepExited(&o, in)
 	case StepResult:
 		s.stepResult(&o, in)
+	case HookDone:
+		s.hookDone(&o, in)
 	}
-	// HookDone needs nothing: a hook that fails is logged by the hook, and
-	// never blocks its step.
 	return o
 }
 

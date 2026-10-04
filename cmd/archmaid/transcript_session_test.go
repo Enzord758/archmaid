@@ -31,14 +31,8 @@ import (
 
 // sessionSkips are the scenarios the Session can't run yet, each with the
 // reason; TestTranscriptSession skips them by name, never silently.
-var sessionSkips = map[string]string{
-	"auraudit_first_baseline.shim": needsReport,
-	"auraudit_takeover.shim":       needsReport,
-}
-
-const (
-	needsReport = "needs E5: the audit report (OutputReport)"
-)
+// Empty since E5: the Session runs every scenario.
+var sessionSkips = map[string]string{}
 
 // TestTranscriptSession replays every scenario through the engine's
 // Session, against the goldens TestTranscript records through the TUI.
@@ -209,6 +203,7 @@ type sessionTarget struct {
 
 	prompt   tt.Event // the open prompt as the recorder sees it, or nil
 	promptID engine.PromptID
+	report   engine.PromptID // an open OutputReport (not a prompt to the recorder)
 	fin      *engine.Finished
 
 	fetches  map[string]*auditFetch
@@ -301,6 +296,13 @@ func (tg *sessionTarget) Next() (tt.Event, error) {
 				return tg.prompt, nil
 			case tg.fin != nil:
 				return nil, nil
+			case tg.report != 0:
+				// The recorder ends on the report, as the TUI's audit
+				// screen: dismiss it to get the action's Finished.
+				id := tg.report
+				tg.report = 0
+				tg.apply(tg.s.Confirm(id, false))
+				continue
 			}
 			return nil, fmt.Errorf("stalled: no work, no prompt and no Finished")
 		}
@@ -467,6 +469,9 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			engineLogs = append(engineLogs, tt.LogWritten{Category: string(ev.Category), Header: ev.Header})
 		case engine.Notice:
 			tail = append(tail, tt.Notice{Text: ev.Text})
+		case engine.OutputReport:
+			tail = append(tail, tt.OutputReport{Text: ev.Text})
+			tg.report = ev.ID
 		case engine.NeedsConfirm:
 			tg.open(ev.ID, tt.NeedsConfirm{Text: ev.Msg})
 			tg.ask = ev

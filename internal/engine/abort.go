@@ -46,7 +46,10 @@ func (s *Session) abort(o *Output) {
 		o.event(Aborted{ID: st.step.ID, Index: r.cur, Elapsed: s.now().Sub(r.stepAt)})
 	}
 	outcome := OutcomeCancelled
-	if r.anyStarted() {
+	switch {
+	case r.report != nil:
+		outcome = OutcomeReport // the report was the action's end
+	case r.anyStarted():
 		outcome = OutcomeAborted
 	}
 	s.finish(o, outcome)

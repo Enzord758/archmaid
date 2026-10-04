@@ -51,6 +51,7 @@ type run struct {
 	// A pick list (NeedsSelection) and what it showed, or nil.
 	sel      *actions.NeedsSelection
 	selShown []string
+	report   *report // the open report (report.go), or nil
 
 	errs, skipped, refused int
 }
@@ -70,6 +71,7 @@ const (
 	promptPassword // the up-front one
 	promptAskpass
 	promptSelect
+	promptReport
 )
 
 // running is the step running now, or nil.
@@ -548,13 +550,6 @@ func (s *Session) discovered(o *Output, in Discovered) {
 	if r == nil || in.Seq == 0 || in.Seq != r.discoverSeq {
 		return
 	}
-	switch in.Discovery.(type) {
-	case actions.Notice, actions.Pending, actions.NeedsRoot, actions.NeedsSelection:
-	default:
-		// Report (E5); checked before anything changes, so
-		// a recovered panic leaves the Session as it was.
-		panic(errNotImplemented)
-	}
 	r.discoverSeq = 0
 	switch d := in.Discovery.(type) {
 	case actions.Notice:
@@ -566,6 +561,11 @@ func (s *Session) discovered(o *Output, in Discovered) {
 		s.needsRoot(o, d)
 	case actions.NeedsSelection:
 		s.askSelection(o, d)
+	case actions.Report:
+		s.openReport(o, d)
+	default:
+		// A discovery that found nothing to say (nil): nothing runs.
+		s.finish(o, OutcomeCancelled)
 	}
 }
 
