@@ -30,8 +30,8 @@ const (
 
 // Input validation.
 var (
-	namePattern  = regexp.MustCompile(`^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$`) // makepkg allows uppercase (local builds)
-	unitPattern  = regexp.MustCompile(`^[A-Za-z0-9:_.@-]{1,250}\.service$`)
+	namePattern  = regexp.MustCompile(`^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$`)          // makepkg allows uppercase (local builds)
+	unitPattern  = regexp.MustCompile(`^[A-Za-z0-9:_@][A-Za-z0-9:_.@-]{0,249}\.service$`) // never a leading - or .
 	hashPattern  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 	keepPattern  = regexp.MustCompile(`^[1-9]$`)
 	journalSpans = []string{"1week", "2weeks", "1month"}

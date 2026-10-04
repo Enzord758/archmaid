@@ -48,6 +48,12 @@ func TestVerbs(t *testing.T) {
 		{"remove-orphans upper hex", []string{"remove-orphans", "sha256:" + strings.Repeat("A", 64)}, ExitUsage, ""},
 		{"remove-orphans no hash", []string{"remove-orphans"}, ExitUsage, ""},
 		{"plan-orphans extra", []string{"plan-orphans", "x"}, ExitUsage, ""},
+		// A unit name never starts with '-' (nor '.'), although every
+		// systemctl argv puts "--" before the names anyway.
+		{"disable-unit dash", []string{"disable-unit", "-x.service"}, ExitUsage, ""},
+		{"disable-unit flag", []string{"disable-unit", "--now.service"}, ExitUsage, ""},
+		{"disable-unit flag after a good one", []string{"disable-unit", "a.service", "--now.service"}, ExitUsage, ""},
+		{"disable-unit dot", []string{"disable-unit", ".x.service"}, ExitUsage, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
