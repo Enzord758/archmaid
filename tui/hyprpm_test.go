@@ -13,7 +13,7 @@ import (
 
 // shimExclusivePath points PATH at exactly one temp dir containing stub
 // executables for the given names — so LookPath sees only what the test
-// provides (a stub pacman is always included to keep orphanPackages hermetic).
+// provides (a stub pacman is always included, so nothing reaches the real one).
 func shimExclusivePath(t *testing.T, names ...string) {
 	t.Helper()
 	dir := t.TempDir()

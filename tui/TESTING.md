@@ -139,7 +139,7 @@ it and assert on the `tea.Msg`.
 
 **Shim a program.** Write a tiny `sh` script into `t.TempDir()`, `chmod 0755`,
 and prepend that dir to `PATH` with `t.Setenv`. Existing helpers:
-`shimPacman` (`-Qdtq` orphans), `shimPacmanCascade` (adds `-Rs --print`),
+`shimPacman` (`-Qdtq` orphans),
 `shimPacmanForeign` (`-Qqm`), `shimEchoArgs` (prints its argv),
 `shimAuthPair` (a `su`/`sudo` pair), `shimExclusivePath` (a PATH containing only
 named tools, for "not installed" branches). Two gotchas: emit newlines through
@@ -194,7 +194,7 @@ go test -race -count=5 -run Transcript ./...            # must stay deterministi
 | `ask` | `"<confirm text>" -> yes\|no` |
 | `auth` | `password -> <correct>\|<wrong>` |
 | `pick` | `[<services offered>] -> [<ticked>]` |
-| `plan` | `N steps`, then `<i> "<title>" inproc\|argv=… [sudo] [confirm] [optional] [alwayslog] cat=<c>` per step; re-emitted when a step's flags change mid-run (the audit gating topgrade) |
+| `plan` | `N steps`, then `<i> "<title>" inproc\|argv=… [sudo] [confirm] [optional] [alwayslog] cat=<c>` per step; re-emitted when a step's flags change mid-run (the audit gating topgrade); a step inserted mid-run (the orphan probe's removal) is the new `N steps` plus `+<i> "<title>" …`, and the steps behind it are renumbered |
 | `step` | `<i> running\|ok\|failed\|skipped` |
 | `out` | `<i> <line>` of a step's output, as the model accepted it — one per line, however the pump batched them |
 | `log` | `<cat> <KIND>: <label>` — the entry header, no timestamp or run dir |
@@ -204,9 +204,10 @@ go test -race -count=5 -run Transcript ./...            # must stay deterministi
 | `audit` | a line of the AUR-audit report screen |
 | `end` | `outcome=completed\|aborted\|cancelled\|notice\|report errs=N skipped=N` |
 
-Within one `Update` the order is fixed: exec, out, finished steps, changed plan
-flags, log entries (grouped by category file), snapshot, then steps that
-started, then a notice or report. `$HOME` and the log dir are normalised.
+Within one `Update` the order is fixed: exec, out, finished steps (an
+inserted step in its place among them), changed plan flags, log entries
+(grouped by category file), snapshot, then steps that started, then a notice
+or report. `$HOME` and the log dir are normalised.
 
 **The driver.** Runs each `tea.Cmd` synchronously, FIFO, feeding its msg back
 through `Update`; `tea.BatchMsg` is expanded in order; ticks come back through
@@ -252,7 +253,7 @@ the names.
 | File | Pins |
 |---|---|
 | `main_test.go` | The core `Update` behaviours. Dry-run safety (a marker file proves nothing ran). Sudo flow: cached probe skips the prompt; wrong passwords show attempts left; three strikes skips sudo steps, logs `SKIP:`, and counts them as skipped, not failed. Confirm flow: optional "no" skips one step; non-optional "no" aborts and marks the rest skipped. Streaming: ordered lines then exactly one done; failure → `statusFailed`, `errs++`, `FAIL:` log. Discovery routing, services multi-select, parsers. Log categories: a step logs to its own category file; `alwaysLog` steps log on success, ordinary steps stay silent; the View-log picker opens/returns correctly. |
-| `gate_orphan_test.go` | The proceed-gate (only when sudo is already cached; the password prompt is the gate otherwise). The orphan step is spliced in only when orphans exist; its confirm previews the real `pacman -Rns` cascade total (both counts when they differ, plain count when equal, falls back to the direct count if the probe fails). Temp files are cleaned with `sudo systemd-tmpfiles --clean`, not a find/rm. |
+| `gate_orphan_test.go` | The proceed-gate (only when sudo is already cached; the password prompt is the gate otherwise). Orphans: building the Full Cleanup queue and choosing it run no pacman (only the audit prefetch's `-Qqm`, off the UI thread); the in-process probe sits after topgrade and the cache steps, before the AUR cache step; it inserts the removal right behind itself only when orphans exist, with exactly the names it found and a confirm that previews the real `pacman -Rns` cascade total (both counts when they differ, plain count when equal), defaulting to No, a decline logged as SKIP; none → a clear line and no confirm; a failing `-Qdtq` or `-Rs --print` fails the probe and inserts nothing; an abort kills the probe's pacman and drops its late result. Temp files are cleaned with `sudo systemd-tmpfiles --clean`, not a find/rm. |
 | `sudo_hardening_test.go` | Sudo steps run as `sudo -A` (password via `SUDO_ASKPASS`, never the tty), or `sudo -n` when askpass isn't wired, and other commands are untouched; the keep-alive loop arms only for real sudo queues and disarms on summary/abort; `pruneLogs` keeps the newest 5 run directories and exempts `dryrun/` and non-run entries. |
 | `auth_test.go` | Two-stage prime: a wrong password never reaches `sudo` (no faillock burn), and su runs as `su -s /usr/bin/true <user>`; a correct one mints the ticket; a lockout notice is surfaced verbatim; submit locks the input and ignores all keys until the result arrives. |
 | `abort_test.go` | ctrl+c opens a confirm instead of quitting; "no" resumes with the child alive; "yes" really terminates a real child; a SIGINT-ignoring child is SIGKILLed after the grace period; late output after an abort is dropped, by its step sequence, so even once a new queue has started an aborted step's late line never reaches the new step's pane or log and its late done never finishes it. |

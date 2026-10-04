@@ -1,18 +1,18 @@
 action "Full Cleanup (Recommended)"
-exec  pacman -Qdtq
 exec  pacman -Qqm
 exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> yes
-plan  9 steps
+plan  10 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
 plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
-plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
-plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
-plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
-plan  8 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
-plan  9 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
+plan  5 "Finding orphaned packages…" inproc cat=orphans
+plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
+plan  7 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
+plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
+plan  9 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
+plan  10 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
 step  1 running
 out   1 1 foreign package(s) checked against the AUR: 1 high, 0 glance, 0 clean
 out   1
@@ -39,20 +39,24 @@ ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> no
 step  4 skipped
 log   cleanup SKIP: Entire package cache removed (declined)
 step  5 running
-exec  yay -Sc --noconfirm
+exec  pacman -Qdtq
+out   5 No orphaned packages.
 step  5 ok
 step  6 running
-exec  sudo -A systemd-tmpfiles --clean
+exec  yay -Sc --noconfirm
 step  6 ok
-log   cleanup OK: Temp files cleaned per tmpfiles.d rules
 step  7 running
-exec  sudo -A journalctl --vacuum-time=2weeks
+exec  sudo -A systemd-tmpfiles --clean
 step  7 ok
-log   cleanup OK: Old logs removed
+log   cleanup OK: Temp files cleaned per tmpfiles.d rules
 step  8 running
-exec  sudo -A pacman -Qkq
+exec  sudo -A journalctl --vacuum-time=2weeks
 step  8 ok
+log   cleanup OK: Old logs removed
 step  9 running
-exec  hyprpm update
+exec  sudo -A pacman -Qkq
 step  9 ok
+step  10 running
+exec  hyprpm update
+step  10 ok
 end   outcome=completed errs=0 skipped=1

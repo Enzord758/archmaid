@@ -22,10 +22,13 @@ import (
 //     `pacman -Qkq -- <chunk>`) and only probes sudo when that flags
 //     something, rechecking just those as root (repair_none has no sudo at
 //     all; repair_false_positive drops a package root finds intact).
+//   - Orphans are looked for after topgrade, by an in-process step that
+//     inserts the removal behind itself (pacman -Qdtq runs mid-queue, and the
+//     orphan confirm comes mid-run): orphans the update creates are caught
+//     (fullcleanup_orphans_from_update), and choosing the action runs no
+//     pacman query on the UI thread.
 //
 // Known bugs these goldens deliberately pin (see the P0 plan):
-//   - The orphan list is computed before topgrade runs and removed after it
-//     with --noconfirm (every Full Cleanup .shim: pacman -Qdtq comes first).
 //   - The AUR snapshot advances during the audit, before the user answers, so
 //     "no" still uses the alarm up (fullcleanup_audit_takeover_decline).
 
@@ -69,6 +72,23 @@ var transcriptScenarios = []struct {
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 			Answer{"confirm", "orphaned package", "no"},
+		)
+	}},
+	{"fullcleanup_orphans_from_update.shim", func(t *testing.T) *Driver {
+		// topgrade orphans two packages; before it, there are none. The
+		// probe after it must find them, and the removal take exactly those.
+		transcriptEnv(t, false)
+		sh := fullCleanupShims(true, "", "libold\npython-oldthing\npython-olddep")
+		sh["topgrade"] = []Rule{{Prefix: "-y", Script: `: > "$HOME/upgraded"`, Out: topgradeOK}}
+		sh["pacman"] = append([]Rule{{Prefix: "-Qdtq", Script: `[ -e "$HOME/upgraded" ] || exit 1
+echo libold
+echo python-oldthing`}}, sh["pacman"]...)
+		shimLog := installShims(t, sh)
+		aurClean(t)
+		return run(t, shimLog, "Full Cleanup",
+			Answer{"confirm", "Proceed with full cleanup", "yes"},
+			Answer{"confirm", "ENTIRE package cache", "no"},
+			Answer{"confirm", "Remove 2 orphaned package(s) — 3 total", "yes"},
 		)
 	}},
 	{"fullcleanup_gate_declined.shim", func(t *testing.T) *Driver {

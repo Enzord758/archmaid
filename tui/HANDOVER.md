@@ -113,11 +113,27 @@ comments and `git log`; this is the "read before you touch it" list.
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
   own final step.
+- **Full Cleanup's order:** AUR audit → topgrade → `paccache -r` → optional
+  `paccache -rk0` → orphan probe → (orphan removal, inserted by the probe) →
+  `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Building the
+  queue runs nothing; the only work `activate` starts is the audit prefetch,
+  off the UI thread.
+- **Orphans are found after the update, by an in-process step.** The probe
+  (`findOrphans`) runs `pacman -Qdtq` once topgrade is done — an upgrade
+  orphans packages of its own, and the list `-Rns --noconfirm` acts on must be
+  the one the confirm showed — and, if there are any, inserts the removal right
+  behind itself (`stepResult.insertNext`), with exactly those names. No
+  orphans: a line saying so, no confirm. A failed query fails the probe and
+  inserts nothing. Don't move the query back into `fullCleanupSteps`: it ran
+  synchronously in `Update` (a 130–200 ms freeze) and went stale over
+  topgrade.
 - **The orphan confirm previews the `-Rns` cascade.** `-s` recursively removes a
   target's now-unneeded dependencies, so the real removal count can far exceed
-  the `pacman -Qdtq` list (a real run confirmed 23 and removed 46).
-  `orphanRemovalTotal` previews it with `pacman -Rs --print` (`-n` conflicts with
-  `--print`; no root needed).
+  the `pacman -Qdtq` list (a real run confirmed 23 and removed 46). The probe
+  previews it with `pacman -Rs --print` (`orphanRemovalPreview`; `-n` conflicts
+  with `--print`; no root needed) and lists it in its output, under the
+  confirm. Without the preview there's no removal: a failed `--print` fails the
+  probe.
 - **Logging policy.** Ordinary steps log only failures. `alwaysLog` steps log
   success too, and a `SKIP … (declined)` entry when their confirm is declined:
   anything that removes or overwrites something, topgrade (the step that changes

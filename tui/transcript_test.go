@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -276,6 +277,7 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 		d.t.Fatalf("unexpected msg %T (%v) — teach the driver about it\n%s", msg, msg, d.dump())
 	}
 	cur, seq, wasScreen := d.m.current, d.m.stepSeq, d.m.screen
+	inserted := -1 // a step this Update put into the queue
 	var curStatus stepStatus
 	if cur >= 0 && cur < len(d.m.queue) {
 		curStatus = d.m.queue[cur].status
@@ -310,13 +312,17 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 			}
 		}
 	case stepResultMsg:
-		if cur >= 0 && cur < len(d.m.queue) && d.m.queue[cur].status != curStatus && msg.output != "" {
+		accepted := cur >= 0 && cur < len(d.m.queue) && d.m.queue[cur].status != curStatus
+		if accepted && msg.output != "" {
 			for _, l := range strings.Split(strings.TrimRight(msg.output, "\n"), "\n") {
 				d.emit("out", "%d %s", cur+1, l)
 			}
 		}
+		if accepted && msg.err == nil && msg.insertNext != nil {
+			inserted = cur + 1
+		}
 	}
-	started := d.observe()
+	started := d.observe(inserted)
 	if d.m.screen != wasScreen {
 		switch d.m.screen {
 		case screenNotice:
@@ -337,9 +343,17 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 }
 
 // observe emits the plan once a queue exists, then — in a fixed order — the
-// steps that finished, changed plan flags, log and snapshot writes, and
+// steps that finished (with a step inserted at index inserted, -1 for none,
+// in its place among them), changed plan flags, log and snapshot writes, and
 // returns the steps that started.
-func (d *Driver) observe() (started []int) {
+func (d *Driver) observe(inserted int) (started []int) {
+	if inserted >= 0 {
+		// The same queue, one step longer (it may have moved in memory):
+		// shift the bookkeeping behind the insertion point, not a new plan.
+		d.queue0 = &d.m.queue[0]
+		d.seen = slices.Insert(d.seen, inserted, statusPending)
+		d.flags = slices.Insert(d.flags, inserted, planFlags(d.m.queue[inserted].step))
+	}
 	if len(d.m.queue) > 0 && &d.m.queue[0] != d.queue0 {
 		d.queue0 = &d.m.queue[0]
 		d.emit("plan", "%d steps", len(d.m.queue))
@@ -351,6 +365,10 @@ func (d *Driver) observe() (started []int) {
 		}
 	}
 	for i := range d.seen {
+		if i == inserted { // in place: after the step that inserted it finished
+			d.emit("plan", "%d steps", len(d.m.queue))
+			d.emit("plan", "+%d %q %s", i+1, d.m.queue[i].step.title, d.flags[i])
+		}
 		if st := d.m.queue[i].status; st != d.seen[i] && st >= statusOK {
 			d.seen[i] = st
 			d.emit("step", "%d %s", i+1, statusName(st))
@@ -418,7 +436,7 @@ func (d *Driver) abort(i int) {
 			d.t.Fatalf("abort key %q returned a cmd", k)
 		}
 	}
-	d.observe()
+	d.observe(-1)
 }
 
 // answer replies to the open prompt from the script; nil when there's none.

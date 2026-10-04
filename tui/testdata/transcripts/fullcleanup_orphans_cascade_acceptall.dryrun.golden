@@ -1,6 +1,4 @@
 action "Full Cleanup (Recommended)"
-exec  pacman -Qdtq
-exec  pacman -Rs --print -- libfoo libbar
 exec  pacman -Qqm
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps
@@ -8,7 +6,7 @@ plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
 plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
-plan  5 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm -- libfoo libbar sudo confirm optional alwayslog cat=orphans
+plan  5 "Finding orphaned packages…" inproc cat=orphans
 plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
 plan  7 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
@@ -35,29 +33,41 @@ step  4 running
 out   4 [dry-run] would run: sudo paccache -rk0
 step  4 ok
 log   cleanup DRYRUN: Entire package cache removed
-ask   "Remove 2 orphaned package(s) — 3 total once dependencies cascade?" -> yes
 step  5 running
-out   5 [dry-run] would run: sudo pacman -Rns --noconfirm -- libfoo libbar
+exec  pacman -Qdtq
+exec  pacman -Rs --print -- libfoo libbar
+out   5 2 orphaned package(s): libfoo libbar
+out   5 pacman -Rns would remove 3 package(s):
+out   5   libfoo
+out   5   libbar
+out   5   libbaz
 step  5 ok
-log   orphans DRYRUN: Orphaned packages removed
+plan  11 steps
+plan  +6 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm -- libfoo libbar sudo confirm optional alwayslog cat=orphans
+log   orphans DRYRUN: Orphaned packages checked
+ask   "Remove 2 orphaned package(s) — 3 total once dependencies cascade?" -> yes
 step  6 running
-out   6 [dry-run] would run: yay -Sc --noconfirm
+out   6 [dry-run] would run: sudo pacman -Rns --noconfirm -- libfoo libbar
 step  6 ok
-log   cleanup DRYRUN: AUR cache cleaned
+log   orphans DRYRUN: Orphaned packages removed
 step  7 running
-out   7 [dry-run] would run: sudo systemd-tmpfiles --clean
+out   7 [dry-run] would run: yay -Sc --noconfirm
 step  7 ok
-log   cleanup DRYRUN: Temp files cleaned per tmpfiles.d rules
+log   cleanup DRYRUN: AUR cache cleaned
 step  8 running
-out   8 [dry-run] would run: sudo journalctl --vacuum-time=2weeks
+out   8 [dry-run] would run: sudo systemd-tmpfiles --clean
 step  8 ok
-log   cleanup DRYRUN: Old logs removed
+log   cleanup DRYRUN: Temp files cleaned per tmpfiles.d rules
 step  9 running
-out   9 [dry-run] would run: sudo pacman -Qkq
+out   9 [dry-run] would run: sudo journalctl --vacuum-time=2weeks
 step  9 ok
-log   cleanup DRYRUN: Package integrity check completed
+log   cleanup DRYRUN: Old logs removed
 step  10 running
-out   10 [dry-run] would run: hyprpm update
+out   10 [dry-run] would run: sudo pacman -Qkq
 step  10 ok
+log   cleanup DRYRUN: Package integrity check completed
+step  11 running
+out   11 [dry-run] would run: hyprpm update
+step  11 ok
 log   cleanup DRYRUN: Hyprland plugins updated
 end   outcome=completed errs=0 skipped=0

@@ -73,12 +73,16 @@ type step struct {
 // that must wait for that answer: it becomes the next step's onAccept, so it
 // runs only if the confirm is accepted and is dropped on "no" or an abort.
 // Without a confirmNext it runs as soon as the result arrives. (The audit's
-// snapshot save: see saveSnapshot.)
+// snapshot save: see saveSnapshot.) insertNext, if set, is a step to run
+// right after this one, inserted into the queue when the result arrives (the
+// orphan probe's removal: see findOrphans); it carries its own confirm. Both
+// are ignored on a result with err.
 type stepResult struct {
 	output      string
 	err         error
 	confirmNext string
 	commit      func() error
+	insertNext  *step
 }
 
 // stepCategory is s.category, defaulting to logCategoryCleanup when unset.
@@ -332,30 +336,12 @@ func fullCleanupSteps() []step {
 			optional:  true,
 			alwaysLog: true,
 		},
-	}
-
-	// Orphan removal — queried now so the confirm shows the real count and the
-	// package list is spliced into the step. Omitted entirely when there are
-	// no orphans. -Rns is recursive (-s): removing these can free up their own
-	// now-unneeded dependencies too, so the confirm previews that true total
-	// instead of just the direct orphan count (see orphanRemovalTotal).
-	if orphans := orphanPackages(); len(orphans) > 0 {
-		msg := fmt.Sprintf("Remove %d orphaned package(s)?", len(orphans))
-		if total := orphanRemovalTotal(orphans); total > len(orphans) {
-			msg = fmt.Sprintf("Remove %d orphaned package(s) — %d total once dependencies cascade?",
-				len(orphans), total)
-		}
-		steps = append(steps, step{
-			title: "Removing orphaned packages…", logLabel: "Orphaned packages removed",
-			command: "sudo", args: append([]string{"pacman", "-Rns", "--noconfirm", "--"}, orphans...),
-			needsSudo: true, optional: true,
-			confirm:   msg,
-			category:  logCategoryOrphans,
-			alwaysLog: true,
-		})
-	}
-
-	steps = append(steps, []step{
+		// Orphans are looked for here, after the update, not when the queue
+		// is built: an upgrade can orphan packages of its own, and the list
+		// the removal acts on must be the one its confirm showed. The probe
+		// puts the removal step right after itself when it finds any (see
+		// findOrphans), so building this queue runs nothing.
+		orphanProbeStep(),
 		{
 			title: "Cleaning AUR cache…", logLabel: "AUR cache cleaned",
 			command: "yay", args: []string{"-Sc", "--noconfirm"},
@@ -380,7 +366,7 @@ func fullCleanupSteps() []step {
 			title: "Checking package integrity…", logLabel: "Package integrity check completed",
 			command: "sudo", args: []string{"pacman", "-Qkq"}, needsSudo: true,
 		},
-	}...)
+	}
 
 	// Hyprland plugins go last: hyprpm drops the sudo ticket on exit, so after
 	// this step nothing must need sudo anymore (see the topgrade note above).
@@ -697,29 +683,97 @@ func parseBrokenPackages(out string) []string {
 	return pkgs
 }
 
-// orphanPackages lists packages installed as dependencies that nothing needs
-// anymore (pacman -Qdtq). Fast enough to query synchronously while building the
-// Full Cleanup queue. Returns empty when there are none (pacman exits 1).
-func orphanPackages() []string {
-	out, _ := exec.Command("pacman", "-Qdtq").Output()
-	return nonEmptyLines(string(out))
+// orphanProbeStep is Full Cleanup's orphan check: an in-process step that runs
+// after the update and, if it finds orphans, puts their removal right after
+// itself (see findOrphans). It only reads, so it runs in a dry run too.
+func orphanProbeStep() step {
+	return step{
+		title: "Finding orphaned packages…", logLabel: "Orphaned packages checked",
+		category: logCategoryOrphans,
+		run:      findOrphans,
+	}
 }
 
-// orphanRemovalTotal previews how many packages `pacman -Rns <orphans>` will
-// actually remove: -s recursively drops each target's own dependencies too,
-// once nothing else needs them, so the true total can run well past
-// len(orphans) (e.g. deleting one orphaned Electron app cascades into dozens
-// of now-unused libs beneath it). --print performs no changes and needs no
-// root; it conflicts with -n/--nosave, so this probe uses -Rs, not -Rns — the
-// dropped -n only affects whether removed configs are kept as .pacsave, not
-// what gets selected. Falls back to len(orphans) if the probe itself fails.
-func orphanRemovalTotal(orphans []string) int {
-	args := append([]string{"-Rs", "--print", "--"}, orphans...)
-	out, err := exec.Command("pacman", args...).Output()
+// findOrphans lists the orphans as they are now — after topgrade, which can
+// orphan packages itself — and previews what `pacman -Rns` would take with
+// them. With any found, the result inserts the removal step after the probe,
+// with exactly these names and a confirm that shows both counts; with none,
+// nothing follows. A failing query fails the step and inserts nothing: no
+// removal is offered without its preview.
+func findOrphans(ctx context.Context) stepResult {
+	orphans, err := orphanPackages(ctx)
 	if err != nil {
-		return len(orphans)
+		return stepResult{output: "Couldn't list orphaned packages: " + err.Error(), err: err}
 	}
-	return len(nonEmptyLines(string(out)))
+	if len(orphans) == 0 {
+		return stepResult{output: "No orphaned packages."}
+	}
+	cascade, err := orphanRemovalPreview(ctx, orphans)
+	if err != nil {
+		return stepResult{output: "Couldn't preview the orphan removal: " + err.Error(), err: err}
+	}
+	msg := fmt.Sprintf("Remove %d orphaned package(s)?", len(orphans))
+	if total := len(cascade); total > len(orphans) {
+		msg = fmt.Sprintf("Remove %d orphaned package(s) — %d total once dependencies cascade?",
+			len(orphans), total)
+	}
+	out := fmt.Sprintf("%d orphaned package(s): %s\npacman -Rns would remove %d package(s)",
+		len(orphans), strings.Join(orphans, " "), len(cascade))
+	if len(cascade) > 0 {
+		out += ":\n  " + strings.Join(cascade, "\n  ")
+	}
+	return stepResult{output: out, insertNext: &step{
+		title: "Removing orphaned packages…", logLabel: "Orphaned packages removed",
+		command: "sudo", args: append([]string{"pacman", "-Rns", "--noconfirm", "--"}, orphans...),
+		needsSudo: true, optional: true,
+		confirm:   msg,
+		category:  logCategoryOrphans,
+		alwaysLog: true,
+	}}
+}
+
+// orphanPackages lists packages installed as dependencies that nothing needs
+// anymore (pacman -Qdtq). pacman reports "none" by exiting 1 without a word,
+// so that is an empty list; any other failure is an error.
+func orphanPackages(ctx context.Context) ([]string, error) {
+	out, err := pacmanQuery(ctx, "-Qdtq")
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 && len(out) == 0 && len(exit.Stderr) == 0 {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return nonEmptyLines(string(out)), nil
+}
+
+// orphanRemovalPreview lists what `pacman -Rns <orphans>` will actually
+// remove: -s recursively drops each target's own dependencies too, once
+// nothing else needs them, so the true total can run well past len(orphans)
+// (a real run confirmed 23 and removed 46). --print performs no changes and
+// needs no root; it conflicts with -n/--nosave, so this probe uses -Rs, not
+// -Rns — the dropped -n only affects whether removed configs are kept as
+// .pacsave, not what gets selected.
+func orphanRemovalPreview(ctx context.Context, orphans []string) ([]string, error) {
+	out, err := pacmanQuery(ctx, append([]string{"-Rs", "--print", "--"}, orphans...)...)
+	if err != nil {
+		return nil, err
+	}
+	return nonEmptyLines(string(out)), nil
+}
+
+// pacmanQuery runs a read-only pacman query under ctx (an abort kills it) and
+// returns its stdout; a failure carries pacman's stderr as the error text
+// when there is any (and as ExitError.Stderr).
+func pacmanQuery(ctx context.Context, args ...string) ([]byte, error) {
+	out, err := exec.CommandContext(ctx, "pacman", args...).Output()
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		if msg := strings.TrimSpace(string(exit.Stderr)); msg != "" {
+			return out, fmt.Errorf("%s: %w", msg, err)
+		}
+	}
+	return out, err
 }
 
 // servicesExclude is systemd-internal/oneshot noise that is never offered for

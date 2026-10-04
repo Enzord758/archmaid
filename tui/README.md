@@ -33,10 +33,12 @@ straight over via `lipgloss`).
   skipped), mirroring `start_msg`/`end_msg`/`fail_msg`.
 - **A cascade-aware orphan-removal confirm** — `pacman -Rns` recursively drops
   a removed package's own now-unneeded dependencies (`-s`), so the real removal
-  count can run well past the direct orphan list. The confirm previews that
-  with a read-only `pacman -Rs --print` pass (`orphanRemovalTotal` in
-  `tasks.go`) and shows both counts when they differ, instead of only the
-  direct count.
+  count can run well past the direct orphan list. Full Cleanup looks for
+  orphans in a read-only in-process step after topgrade (`findOrphans` in
+  `tasks.go`: `pacman -Qdtq`, then a `pacman -Rs --print` preview), which
+  inserts the removal step right behind itself only when it finds any; the
+  confirm shows both counts when they differ, instead of only the direct
+  count.
 - **In-TUI sudo authentication** — a masked (`•`) `textinput` collects the
   password inside the alt-screen and pipes it to `sudo -S -v`, which caches the
   credential so the queue's later `sudo` calls run without prompting (a 60s

@@ -1,6 +1,4 @@
 action "Full Cleanup (Recommended)"
-exec  pacman -Qdtq
-exec  pacman -Rs --print -- libfoo libbar
 exec  pacman -Qqm
 exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> no

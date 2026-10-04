@@ -1,11 +1,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ── proceed-gate (cached-sudo path) ───────────────────────────────────────────
@@ -30,7 +34,7 @@ func menuIndex(t *testing.T, sub string) int {
 // resolves the dry-run sudo probe, landing on the gate confirm.
 func gateArmedModel(t *testing.T) model {
 	t.Helper()
-	shimPacman(t, "") // keep the orphan query hermetic (and off the real pacman)
+	shimPacman(t, "") // the audit prefetch runs pacman -Qqm: keep it off the real one
 	m := initialModel()
 	m.cursor = menuIndex(t, "Full Cleanup")
 
@@ -163,8 +167,10 @@ func TestGateUncachedShowsPasswordNotGate(t *testing.T) {
 
 // ── orphan removal in Full Cleanup ────────────────────────────────────────────
 //
-// fullCleanupSteps queries pacman -Qdtq at build time; the tests shim pacman on
-// PATH so no real package state is involved.
+// Full Cleanup looks for orphans in an in-process step after the update
+// (findOrphans), which inserts the removal step behind itself when it finds
+// any. Building the queue runs nothing; the tests shim pacman on PATH so no
+// real package state is involved.
 
 // shimPacman installs a fake pacman on PATH whose -Qdtq prints the given lines.
 func shimPacman(t *testing.T, qdtqOutput string) {
@@ -203,112 +209,262 @@ func TestFullCleanupAuditThenTopgrade(t *testing.T) {
 	}
 }
 
-// TestOrphanStepSplicedIn: with orphans reported, an optional sudo step is
-// inserted carrying the real package list and count.
-func TestOrphanStepSplicedIn(t *testing.T) {
-	shimPacman(t, "liba\nlibb\n")
-
+// TestOrphanProbeAfterUpdate: the orphan probe is an in-process step after
+// topgrade and both cache steps, directly in front of the AUR cache step —
+// where the removal used to sit — and the built queue holds no removal step.
+func TestOrphanProbeAfterUpdate(t *testing.T) {
+	installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba\nlibb", ""), "hyprpm": nil})
 	steps := fullCleanupSteps()
-	i := findStep(steps, "orphaned")
-	if i == -1 {
-		t.Fatalf("no orphan step in %d-step queue", len(steps))
+	probe := findStep(steps, "Finding orphaned")
+	if probe == -1 {
+		t.Fatalf("no orphan probe in %d-step queue", len(steps))
 	}
-	s := steps[i]
-	if s.command != "sudo" || !s.needsSudo || !s.optional {
-		t.Fatalf("orphan step should be optional sudo, got %+v", s)
+	s := steps[probe]
+	if s.run == nil || s.needsSudo || s.confirm != "" || s.category != logCategoryOrphans {
+		t.Fatalf("probe = %+v, want an in-process, sudo-less, unconfirmed orphans step", s)
 	}
-	joined := strings.Join(s.args, " ")
-	if !strings.HasPrefix(joined, "pacman -Rns --noconfirm ") {
-		t.Fatalf("args = %v, want pacman -Rns --noconfirm …", s.args)
+	for _, before := range []string{"topgrade", "Cleaning package cache", "Deleting entire package cache"} {
+		if i := findStep(steps, before); i == -1 || i > probe {
+			t.Fatalf("step %q at %d, want it before the probe at %d", before, i, probe)
+		}
 	}
-	if !strings.HasSuffix(joined, "liba libb") {
-		t.Fatalf("package list not spliced in, args = %v", s.args)
+	if i := findStep(steps, "AUR cache"); i != probe+1 {
+		t.Fatalf("AUR cache step at %d, want directly after the probe (%d)", i, probe+1)
 	}
-	if s.confirm != "Remove 2 orphaned package(s)?" {
-		t.Fatalf("confirm = %q, want the real count", s.confirm)
+	if i := findStep(steps, "Removing orphaned"); i != -1 {
+		t.Fatalf("removal step at %d in the built queue: it must come from the probe", i)
 	}
-}
-
-// TestOrphanStepOmittedWhenNone: with no orphans the step is left out entirely
-// and the queue is one shorter.
-func TestOrphanStepOmittedWhenNone(t *testing.T) {
-	shimPacman(t, "")
-	without := fullCleanupSteps()
-	if i := findStep(without, "orphaned"); i != -1 {
-		t.Fatalf("orphan step present at %d despite no orphans", i)
-	}
-
-	shimPacman(t, "liba\n")
-	with := fullCleanupSteps()
-	if len(with) != len(without)+1 {
-		t.Fatalf("queue sizes: with=%d without=%d, want exactly one more with orphans",
-			len(with), len(without))
+	if last := steps[len(steps)-1]; last.command != "hyprpm" {
+		t.Fatalf("last step = %+v, want hyprpm", last)
 	}
 }
 
-// shimPacmanCascade extends shimPacman with an -Rs --print response, so
-// orphanRemovalTotal's cascade preview can be driven independently of -Qdtq.
-func shimPacmanCascade(t *testing.T, qdtqOutput, rsPrintOutput string) {
-	t.Helper()
-	dir := t.TempDir()
-	qPayload := strings.ReplaceAll(qdtqOutput, "\n", "\\n")
-	rPayload := strings.ReplaceAll(rsPrintOutput, "\n", "\\n")
-	script := fmt.Sprintf("#!/bin/sh\n"+
-		"if [ \"$1\" = \"-Qdtq\" ]; then printf '%s'; fi\n"+
-		"if [ \"$1\" = \"-Rs\" ]; then printf '%s'; fi\n", qPayload, rPayload)
-	if err := os.WriteFile(filepath.Join(dir, "pacman"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+// TestFullCleanupStepsRunNothing: building the queue — what activate does on
+// the UI thread — execs nothing; the orphan queries used to run here, freezing
+// the UI for 130–200 ms.
+func TestFullCleanupStepsRunNothing(t *testing.T) {
+	shimLog := installShims(t, Shims{"pacman": pacmanRules("liba", "liba\nlibz", "foo"), "hyprpm": nil})
+	fullCleanupSteps()
+	if b, _ := os.ReadFile(shimLog); len(b) != 0 {
+		t.Fatalf("building the Full Cleanup queue ran:\n%s", b)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// TestOrphanStepShowsCascadeTotal: when -Rns's recursive dependency cleanup
-// (-s) would remove more than the direct orphans, the confirm discloses the
-// real total instead of just the count the user is used to skimming past.
-func TestOrphanStepShowsCascadeTotal(t *testing.T) {
-	shimPacmanCascade(t, "liba\nlibb\n", "liba-1\nlibb-1\nlibc-1\nlibd-1\n")
+// TestActivateFullCleanupRunsNoPacman: choosing Full Cleanup runs no orphan
+// query. The only pacman it starts is the audit's prefetch (-Qqm), on its own
+// goroutine.
+func TestActivateFullCleanupRunsNoPacman(t *testing.T) {
+	transcriptEnv(t, false)
+	shimLog := installShims(t, fullCleanupShims(false, "liba\nlibb", "liba\nlibb\nlibc"))
+	aurClean(t)
 
-	steps := fullCleanupSteps()
-	i := findStep(steps, "orphaned")
-	if i == -1 {
-		t.Fatalf("no orphan step in %d-step queue", len(steps))
+	m := initialModel()
+	m.cursor = menuIndex(t, "Full Cleanup")
+	next, cmd := m.Update(key("enter"))
+	got := next.(model)
+	if cmd == nil || len(got.pending) == 0 {
+		t.Fatal("activating Full Cleanup should queue its steps and probe sudo")
+	}
+	if got.auditFetch != nil {
+		awaitFetch(t, got.auditFetch, 5*time.Second)
+		got.dropAuditFetch()
+	}
+	b, _ := os.ReadFile(shimLog)
+	if log := strings.TrimSpace(string(b)); log != "pacman -Qqm" {
+		t.Fatalf("activate ran:\n%s\nwant only the audit prefetch's pacman -Qqm", log)
+	}
+}
+
+// TestFindOrphansInsertsRemoval: with orphans found, the probe's result
+// inserts the removal with exactly those names, behind a confirm that shows
+// the cascade total; the output names what goes.
+func TestFindOrphansInsertsRemoval(t *testing.T) {
+	shimLog := installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba-1\nlibb-1\nlibc-1\nlibd-1", "")})
+	r := findOrphans(context.Background())
+	if r.err != nil || r.insertNext == nil {
+		t.Fatalf("result = %+v, want a removal step to insert", r)
+	}
+	s := *r.insertNext
+	if s.command != "sudo" || !s.needsSudo || !s.optional || !s.alwaysLog || s.category != logCategoryOrphans {
+		t.Fatalf("removal step = %+v, want an optional, always-logged sudo orphans step", s)
+	}
+	if got := strings.Join(s.args, " "); got != "pacman -Rns --noconfirm -- liba libb" {
+		t.Fatalf("args = %q, want exactly the names the probe found", got)
 	}
 	want := "Remove 2 orphaned package(s) — 4 total once dependencies cascade?"
-	if got := steps[i].confirm; got != want {
-		t.Fatalf("confirm = %q, want %q", got, want)
+	if s.confirm != want {
+		t.Fatalf("confirm = %q, want %q", s.confirm, want)
+	}
+	for _, line := range []string{"2 orphaned package(s): liba libb", "pacman -Rns would remove 4 package(s):", "  libd-1"} {
+		if !strings.Contains(r.output, line) {
+			t.Fatalf("output lacks %q:\n%s", line, r.output)
+		}
+	}
+	b, _ := os.ReadFile(shimLog)
+	if got := string(b); got != "pacman -Qdtq\npacman -Rs --print -- liba libb\n" {
+		t.Fatalf("probe ran:\n%s", got)
 	}
 }
 
-// TestOrphanStepNoCascadeKeepsPlainCount: when the cascade preview reports no
-// extra packages, the confirm stays the plain count (no confusing "N total"
-// clause when N equals the direct count).
-func TestOrphanStepNoCascadeKeepsPlainCount(t *testing.T) {
-	shimPacmanCascade(t, "liba\nlibb\n", "liba-1\nlibb-1\n")
-
-	steps := fullCleanupSteps()
-	i := findStep(steps, "orphaned")
-	if i == -1 {
-		t.Fatalf("no orphan step in %d-step queue", len(steps))
-	}
-	want := "Remove 2 orphaned package(s)?"
-	if got := steps[i].confirm; got != want {
-		t.Fatalf("confirm = %q, want %q", got, want)
+// TestFindOrphansNoCascadeKeepsPlainCount: when the preview adds nothing, the
+// confirm stays the plain count (no "N total" clause equal to the count).
+func TestFindOrphansNoCascadeKeepsPlainCount(t *testing.T) {
+	installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba-1\nlibb-1", "")})
+	r := findOrphans(context.Background())
+	if r.insertNext == nil || r.insertNext.confirm != "Remove 2 orphaned package(s)?" {
+		t.Fatalf("result = %+v, want the plain-count confirm", r)
 	}
 }
 
-// TestOrphanRemovalTotalFallsBackOnProbeFailure: if the --print preview
-// itself can't run, the count silently falls back to the direct orphan list
-// rather than corrupting the confirm text.
-func TestOrphanRemovalTotalFallsBackOnProbeFailure(t *testing.T) {
-	dir := t.TempDir()
-	script := "#!/bin/sh\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(dir, "pacman"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+// TestFindOrphansNone: pacman's silent exit 1 means none — a clear line, no
+// error, nothing inserted, and no preview run.
+func TestFindOrphansNone(t *testing.T) {
+	shimLog := installShims(t, Shims{"pacman": pacmanRules("", "", "")})
+	r := findOrphans(context.Background())
+	if r.err != nil || r.insertNext != nil || r.output != "No orphaned packages." {
+		t.Fatalf("result = %+v, want a clean 'none'", r)
 	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if b, _ := os.ReadFile(shimLog); string(b) != "pacman -Qdtq\n" {
+		t.Fatalf("probe ran:\n%s", b)
+	}
+}
 
-	if got := orphanRemovalTotal([]string{"liba", "libb"}); got != 2 {
-		t.Fatalf("orphanRemovalTotal = %d, want 2 (fallback to len(orphans))", got)
+// TestFindOrphansProbeFails: a failing query — the orphan list or the cascade
+// preview — fails the step and inserts nothing: no removal without a preview.
+func TestFindOrphansProbeFails(t *testing.T) {
+	for name, rules := range map[string][]Rule{
+		"query": {{Prefix: "-Qdtq", Script: "echo 'error: could not open database' >&2", Exit: 1}},
+		"preview": {{Prefix: "-Qdtq", Out: "liba"},
+			{Prefix: "-Rs --print", Script: "echo 'error: failed to prepare transaction' >&2", Exit: 1}},
+		"query, silent exit 2": {{Prefix: "-Qdtq", Exit: 2}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			installShims(t, Shims{"pacman": rules})
+			r := findOrphans(context.Background())
+			if r.err == nil || r.insertNext != nil {
+				t.Fatalf("result = %+v, want a failure with nothing to insert", r)
+			}
+			if !strings.HasPrefix(r.output, "Couldn't ") {
+				t.Fatalf("output = %q, want the reason", r.output)
+			}
+		})
+	}
+}
+
+// orphanProbeModel is a running queue of [probe, a following step] in a real
+// run with the probe launched; it returns the model and the probe's Cmd.
+func orphanProbeModel(t *testing.T) (model, tea.Cmd) {
+	t.Helper()
+	m := initialModel()
+	m.pending = []step{orphanProbeStep(), {title: "after", logLabel: "after", command: "true"}}
+	cmd := m.startQueue()
+	if m.current != 0 || m.queue[0].status != statusRunning || cmd == nil {
+		t.Fatalf("the probe should be running, got current=%d", m.current)
+	}
+	return m, cmd
+}
+
+// TestOrphanProbeInsertsConfirmedRemoval: the probe's result puts the removal
+// next in the queue and asks its confirm right away, defaulting to No;
+// declining skips just the removal (logged as SKIP) and carries on.
+func TestOrphanProbeInsertsConfirmedRemoval(t *testing.T) {
+	transcriptEnv(t, false)
+	installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba\nlibb\nlibc", "")})
+	m, cmd := orphanProbeModel(t)
+
+	m = update(m, cmd())
+	if len(m.queue) != 3 || m.queue[0].status != statusOK {
+		t.Fatalf("queue = %d steps, probe status %d; want the removal inserted after an ok probe", len(m.queue), m.queue[0].status)
+	}
+	if m.queue[1].step.title != "Removing orphaned packages…" || m.queue[2].step.title != "after" {
+		t.Fatalf("queue order = %q, %q, want the removal before the rest", m.queue[1].step.title, m.queue[2].step.title)
+	}
+	want := "Remove 2 orphaned package(s) — 3 total once dependencies cascade?"
+	if m.screen != screenConfirm || m.confirmMsg != want || m.confirmYes {
+		t.Fatalf("screen=%d confirm=%q yes=%v, want %q defaulting to No", m.screen, m.confirmMsg, m.confirmYes, want)
+	}
+
+	m = update(m, key("n"))
+	if m.queue[1].status != statusSkipped || m.skipped != 1 || m.current != 2 {
+		t.Fatalf("declined removal: status=%d skipped=%d current=%d, want skipped and moved on", m.queue[1].status, m.skipped, m.current)
+	}
+	data, _ := os.ReadFile(logPath(logCategoryOrphans))
+	if !strings.Contains(string(data), "SKIP: Orphaned packages removed (declined)") {
+		t.Fatalf("orphans log lacks the declined SKIP:\n%s", data)
+	}
+	m.abortRunning() // stop the following step's child
+}
+
+// TestOrphanProbeNoneInsertsNothing: no orphans → no confirm, no removal; the
+// queue just moves on.
+func TestOrphanProbeNoneInsertsNothing(t *testing.T) {
+	transcriptEnv(t, false)
+	installShims(t, Shims{"pacman": pacmanRules("", "", "")})
+	m, cmd := orphanProbeModel(t)
+
+	m = update(m, cmd())
+	if len(m.queue) != 2 || m.queue[0].status != statusOK || m.current != 1 ||
+		m.queue[1].status != statusRunning || m.screen != screenRunning {
+		t.Fatalf("queue=%d probe=%d current=%d screen=%d, want the next step running",
+			len(m.queue), m.queue[0].status, m.current, m.screen)
+	}
+	m.abortRunning()
+}
+
+// TestOrphanProbeFailureInsertsNothing: a failed probe fails its step (logged
+// with pacman's reason) and the queue carries on without a removal.
+func TestOrphanProbeFailureInsertsNothing(t *testing.T) {
+	transcriptEnv(t, false)
+	installShims(t, Shims{"pacman": {{Prefix: "-Qdtq", Script: "echo 'error: boom' >&2", Exit: 1}}})
+	m, cmd := orphanProbeModel(t)
+
+	m = update(m, cmd())
+	if len(m.queue) != 2 || m.queue[0].status != statusFailed || m.errs != 1 || m.current != 1 {
+		t.Fatalf("queue=%d probe=%d errs=%d current=%d, want a failed probe and no insert",
+			len(m.queue), m.queue[0].status, m.errs, m.current)
+	}
+	data, _ := os.ReadFile(logPath(logCategoryOrphans))
+	if !strings.Contains(string(data), "FAIL: Orphaned packages checked") || !strings.Contains(string(data), "error: boom") {
+		t.Fatalf("orphans log lacks the failure:\n%s", data)
+	}
+	m.abortRunning()
+}
+
+// TestAbortDuringOrphanProbe: an abort while the probe's pacman runs kills it
+// (ctx), and the late result is dropped by stepSeq: nothing is inserted and
+// no confirm pops up over the menu.
+func TestAbortDuringOrphanProbe(t *testing.T) {
+	transcriptEnv(t, false)
+	shimLog := installShims(t, Shims{"pacman": {{Prefix: "-Qdtq", Block: true}}})
+	m, cmd := orphanProbeModel(t)
+
+	res := make(chan tea.Msg, 1)
+	go func() { res <- cmd() }()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
+		if b, _ := os.ReadFile(shimLog); len(b) > 0 {
+			break // pacman is running
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the probe's pacman never started")
+		}
+	}
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = update(m, key("y"))
+	if m.screen != screenMenu {
+		t.Fatalf("screen = %d after the abort, want the menu", m.screen)
+	}
+	var late tea.Msg
+	select {
+	case late = <-res:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the probe kept running after the abort: ctx didn't kill pacman")
+	}
+	if r := late.(stepResultMsg); r.err == nil {
+		t.Fatalf("aborted probe returned %+v, want an error", r.stepResult)
+	}
+	m = update(m, late)
+	if len(m.queue) != 2 || m.screen != screenMenu {
+		t.Fatalf("late result changed the model: queue=%d screen=%d", len(m.queue), m.screen)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -849,6 +850,12 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		out := Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR)
 		m.appendOutput(strings.Split(out, "\n"))
 		m.output.GotoTop() // a report reads top-down; its worst findings come first
+	}
+	if msg.err == nil && msg.insertNext != nil {
+		// A step found more work (the orphan probe's removal): it runs next,
+		// behind its own confirm, which advance asks as for any other step.
+		m.queue = slices.Insert(m.queue, m.current+1, stepState{step: *msg.insertNext, status: statusPending})
+		m.resizeOutput() // one more checklist row
 	}
 	if msg.confirmNext != "" && m.current+1 < len(m.queue) {
 		next := &m.queue[m.current+1].step
