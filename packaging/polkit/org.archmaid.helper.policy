@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!--
+  archmaid-helper: one action per verb, matched by pkexec on the exact
+  helper path (exec.path) plus the verb (exec.argv1).
+
+  "keep" verbs (auth_admin_keep) are read-only or bounded and idempotent;
+  admin verbs (auth_admin) remove or change something wider and ask every
+  time. full-cleanup covers its whole fixed sequence with one dialog.
+  plan-orphans has no action: it is read-only and runs without root.
+
+  Never inactive or remote sessions (allow_any / allow_inactive = no).
+  Installed to /usr/share/polkit-1/actions/ (0644 root:root).
+-->
+<policyconfig>
+  <vendor>archmaid</vendor>
+  <vendor_url>https://github.com/Enzord758/archmaid</vendor_url>
+  <icon_name>archmaid</icon_name>
+
+  <action id="org.archmaid.helper.check-files">
+    <description>Check installed packages for missing files</description>
+    <message>Authentication is required to check every installed package's files</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">check-files</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.paccache">
+    <description>Clean old packages from the package cache</description>
+    <message>Authentication is required to remove old cached package versions</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">paccache</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.paccache-wipe">
+    <description>Remove every package from the package cache</description>
+    <message>Authentication is required to remove all cached packages</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">paccache-wipe</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.remove-orphans">
+    <description>Remove orphaned packages</description>
+    <message>Authentication is required to remove orphaned packages and their unneeded dependencies</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">remove-orphans</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.repair">
+    <description>Reinstall packages with missing files</description>
+    <message>Authentication is required to reinstall damaged packages</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">repair</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.vacuum-journal">
+    <description>Remove old system journal entries</description>
+    <message>Authentication is required to remove old system journal entries</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">vacuum-journal</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.clean-tmp">
+    <description>Clean old temporary files</description>
+    <message>Authentication is required to clean old temporary files</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">clean-tmp</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.disable-unit">
+    <description>Disable system services</description>
+    <message>Authentication is required to disable and stop system services</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">disable-unit</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.upgrade-repos">
+    <description>Upgrade packages from the repositories</description>
+    <message>Authentication is required to upgrade the system's packages</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">upgrade-repos</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.full-cleanup">
+    <description>Run archmaid's full system cleanup</description>
+    <message>Authentication is required to clean the package cache, remove orphaned packages, vacuum the journal, clean temporary files and check package files</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">full-cleanup</annotate>
+  </action>
+</policyconfig>
