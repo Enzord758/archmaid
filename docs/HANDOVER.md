@@ -250,10 +250,40 @@ comments and `git log`; this is the "read before you touch it" list.
   one, as the orphan probe does), after hyprpm.
 - **Full Cleanup's order:** AUR audit → topgrade → `paccache -r` → optional
   `paccache -rk0` → orphan probe → (orphan removal, inserted by the probe) →
-  `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Building the
+  `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Under
+  polkit (the GUI) it is AUR audit → topgrade → orphan probe → (orphan
+  removal) → paccache → wipe → tmpfiles → journal → integrity → `yay -Sc`
+  → hyprpm, the root steps as one call (next entry). Building the
   queue runs nothing; the only work `activate` starts is the audit prefetch,
   off the UI thread. `BenchmarkActivateFullCleanup` (~5 µs) holds that in the
   opt-in perf guard, with a fixed 1 ms limit.
+- **One polkit dialog per Full Cleanup run (owner's decision E).** The
+  TUI asks one sudo password per run; the GUI must ask polkit once, not
+  once per root step (the first live GUI run showed five dialogs). So
+  under polkit Full Cleanup's root steps (orphan removal, paccache, wipe,
+  tmpfiles, journal, integrity) are consecutive and carry
+  `Step.Combine = full-cleanup` (`actions.polkitFullCleanup`), and the
+  engine (`combine.go`) runs such a run as ONE helper call: it asks every
+  confirm among them first (the orphan list, bound by its plan hash, and
+  the cache wipe), reads faillock once, then one `StartStep` whose Step has
+  `Parts`; `helperclient` builds `pkexec archmaid-helper full-cleanup
+  --keep 3 --journal 2weeks [--orphans H] [--wipe]` from the parts and
+  maps the helper's per-part `progress`/`done` events back to
+  `PartStarted`/`PartDone`, so every row still starts and ends on its own.
+  A refused dialog marks exactly the steps it covered AuthRefused; the run
+  goes on with `yay -Sc` and hyprpm. Nothing is weakened: `full-cleanup`
+  is its own `auth_admin` action with its own argv1 (remove-orphans'
+  strictness carries over), the helper still parses its flags strictly
+  and recomputes the orphan plan as root, and the client accepts only the
+  helper's part order. Keep: the probe right after topgrade (the removal
+  it inserts must be the call's first part), yay -Sc after the call (it
+  clears the removed orphans' cache), and the part order in three places
+  in step (helper `runFullCleanup`, `helperclient.fullCleanupOrder`,
+  `actions.fullCleanupRoot`; `TestFullCleanupTiesToClient` ties them).
+  Trade-off: once the dialog is granted, an Abort can't stop the parts
+  still to come (the helper runs as root; the per-step design stopped
+  before the next step's dialog). The polkit message is fixed text, so the
+  in-app confirms are what say whether orphans and the wipe are included.
 - **Orphans are found after the update, by an in-process step.** The probe
   (`findOrphans`, `internal/actions`) runs `pacman -Qdtq` once topgrade is
   done — an upgrade orphans packages of its own, and the list `-Rns --noconfirm` acts on must be
