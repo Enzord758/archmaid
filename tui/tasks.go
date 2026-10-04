@@ -108,12 +108,32 @@ type streamMsg struct {
 // command never starts). Start() happens synchronously so the handle is
 // available immediately; scanning and Wait run on a goroutine.
 func runStep(s step, ch chan<- streamMsg) *os.Process {
+	return runStepUntil(s, ch, nil)
+}
+
+// runStepUntil is runStep with an abort signal: once quit is closed nobody
+// reads ch anymore, so every pending send gives up instead of blocking, and
+// the rest of the child's output is drained and discarded. Without that, a
+// full ch blocked the scanner, the scanner blocked the pipe copier, and the
+// copier blocked cmd.Wait — leaking all three goroutines per aborted step. A
+// nil quit never fires (plain runStep).
+func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process {
+	send := func(msg streamMsg) bool {
+		select {
+		case ch <- msg:
+			return true
+		case <-quit:
+			return false
+		}
+	}
+
 	// Dry run: don't execute anything mutating — just report what would run.
 	// The step is logged (as a success) in handleStream's dry-run branch.
 	if dryRun {
 		go func() {
-			ch <- streamMsg{line: "[dry-run] would run: " + s.command + " " + strings.Join(s.args, " ")}
-			ch <- streamMsg{done: true}
+			if send(streamMsg{line: "[dry-run] would run: " + s.command + " " + strings.Join(s.args, " ")}) {
+				send(streamMsg{done: true})
+			}
 		}()
 		return nil
 	}
@@ -130,7 +150,7 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 	cmd.Stdout, cmd.Stderr = pw, pw
 
 	if err := cmd.Start(); err != nil {
-		go func() { ch <- streamMsg{done: true, err: err} }()
+		go func() { send(streamMsg{done: true, err: err}) }()
 		return nil
 	}
 
@@ -142,15 +162,21 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 			sc := bufio.NewScanner(pr)
 			sc.Buffer(make([]byte, 0, 64*1024), 1<<20) // tolerate long lines (pacman)
 			for sc.Scan() {
-				ch <- streamMsg{line: sc.Text()}
+				if !send(streamMsg{line: sc.Text()}) {
+					break // aborted: nobody is reading anymore
+				}
 			}
+			// Keep the pipe drained until the child is gone (aborted, or a
+			// line over the scanner's limit), so it never blocks on a write
+			// and cmd.Wait can return.
+			io.Copy(io.Discard, pr)
 			close(scanned)
 		}()
 
 		err := cmd.Wait()
 		pw.Close() // unblocks the scanner with EOF
 		<-scanned  // all lines are on the channel before we report done
-		ch <- streamMsg{done: true, err: err}
+		send(streamMsg{done: true, err: err})
 	}()
 
 	return cmd.Process
@@ -158,8 +184,16 @@ func runStep(s step, ch chan<- streamMsg) *os.Process {
 
 // waitForStream turns the next channel message into a tea.Msg. Re-issue it
 // after every non-done streamMsg to keep pumping the channel through Update.
-func waitForStream(ch <-chan streamMsg) tea.Cmd {
-	return func() tea.Msg { return <-ch }
+// A closed quit (abort) releases a pump that is still waiting, with no msg.
+func waitForStream(ch <-chan streamMsg, quit <-chan struct{}) tea.Cmd {
+	return func() tea.Msg {
+		select {
+		case msg := <-ch:
+			return msg
+		case <-quit:
+			return nil
+		}
+	}
 }
 
 // ── task queues ──────────────────────────────────────────────────────────────

@@ -539,9 +539,10 @@ func (m *model) launch() tea.Cmd {
 		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run()} }
 	}
 	m.stream = make(chan streamMsg, 128)
-	m.proc = runStep(s, m.stream)
+	m.quit = make(chan struct{})
+	m.proc = runStepUntil(s, m.stream, m.quit)
 	// The spinner is already ticking (started in Init); just pump the stream.
-	return waitForStream(m.stream)
+	return waitForStream(m.stream, m.quit)
 }
 
 // stepResultMsg is an in-process step's result (see step.run).
@@ -566,6 +567,10 @@ func (m *model) abortRunning() {
 		// spawned goroutine doesn't race a test that swaps sigkillGrace.
 		go escalateKill(p, sigkillGrace)
 		m.proc = nil
+	}
+	if m.quit != nil {
+		close(m.quit) // nobody reads m.stream anymore: let runStep's goroutines finish
+		m.quit = nil
 	}
 	m.sudoAlive = false // stop the keep-alive loop
 	m.screen = screenMenu
@@ -629,7 +634,7 @@ func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
 		m.buf.WriteString(msg.line + "\n")
 		m.output.SetContent(m.buf.String())
 		m.output.GotoBottom()
-		return m, waitForStream(m.stream) // keep pumping
+		return m, waitForStream(m.stream, m.quit) // keep pumping
 	}
 
 	return m.finishStep(msg.err)
