@@ -396,9 +396,11 @@ func verifyAskpassPeer(peer askpassPeer, stepPid int, stepStart uint64) (askpass
 // isSudo reports whether p is sudo. sudo is setuid root, and reading another
 // process's /proc/<pid>/exe needs ptrace access, which a user doesn't have over
 // a root process — so for a real sudo exe is normally empty. Then fall back to
-// what a user process can't fake: running with euid 0 under the name "sudo"
-// (a user can rename only their own processes, and those never run as root).
-// If exe is readable it must be sudoPath.
+// running with euid 0 under the name "sudo": a user can rename only their own
+// processes, and those never run as root. comm comes from the executed file's
+// name, though, so a symlink named sudo to another setuid-root binary passes
+// too; none of Arch's starts a user program as its child without
+// authenticating first. If exe is readable it must be sudoPath.
 func isSudo(p procInfo) bool {
 	if p.exe != "" {
 		return p.exe == sudoPath

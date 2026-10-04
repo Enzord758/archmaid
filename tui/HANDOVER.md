@@ -79,7 +79,10 @@ comments and `git log`; this is the "read before you touch it" list.
   matched on pid *and* the start time `runStepUntil` captured before anything
   could reap it. A user can't read sudo's `/proc/<pid>/exe` (setuid root; it
   needs ptrace access), so "is sudo" is: exe = `/usr/bin/sudo` when readable,
-  else euid 0 and comm `sudo` — neither of which a user process can fake.
+  else euid 0 and comm `sudo`. A user process can't get euid 0, but comm comes
+  from the executed file's name, so a symlink named `sudo` to another
+  setuid-root binary would pass; none of Arch's starts a user program as its
+  child without authenticating first.
   Refusals leave a line in the step's output. The popup names the step, the
   real binary and pid of sudo's caller, and sudo's prompt only quoted and
   sanitized (`sudo -p` sets it). Residual risk, for P6: code already running
