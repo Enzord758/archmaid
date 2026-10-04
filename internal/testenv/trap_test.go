@@ -168,8 +168,9 @@ func TestInstallTrapsLogsArgv(t *testing.T) {
 // absoluteAllowed are the absolute paths of a trapped binary that may appear
 // as string literals, and why: none of them is ever executed.
 var absoluteAllowed = map[string]string{
-	"internal/privilege/askpass.go:/usr/bin/sudo": "sudoPath: compared against the askpass peer's parent, never run",
-	"internal/proc/sudo_test.go:/usr/bin/sudo":    "CheckSudo's table: classified, never run",
+	"internal/privilege/askpass.go:/usr/bin/sudo":   "sudoPath: compared against the askpass peer's parent, never run",
+	"internal/proc/sudo_test.go:/usr/bin/sudo":      "CheckSudo's table: classified, never run",
+	"internal/driver/askpass_test.go:/usr/bin/sudo": "a fake /proc entry's Exe for Request.Verify, never run",
 }
 
 // TestNoAbsolutePrivilegedExec: the traps work through PATH, so no Go file in
