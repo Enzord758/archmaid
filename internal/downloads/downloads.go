@@ -35,9 +35,13 @@ const EnvVar = "ARCHMAID_DOWNLOADS"
 // ErrNoFolder is the notice when no candidate qualifies.
 var ErrNoFolder = errors.New("No downloads folder found (set --downloads or ARCHMAID_DOWNLOADS).")
 
+// errNoHomeToGuard refuses --downloads when no home folder is known at all:
+// without one, "never the home folder or above it" can't be checked.
+var errNoHomeToGuard = errors.New("refusing it: no home folder known to guard")
+
 // PasswdHome is the user's home folder from the passwd database ("" if it
-// can't be read). Callers pass it in Options.PasswdHome; tests can't change
-// the real one, so they pass their own.
+// can't be read). The resolver guards it whatever Options says (see
+// processHomes); Options.PasswdHome can only add another home to guard.
 func PasswdHome() string {
 	u, err := user.Current()
 	if err != nil {
@@ -46,6 +50,13 @@ func PasswdHome() string {
 	return u.HomeDir
 }
 
+// processHomes is what the process itself knows about the home folder: $HOME
+// and the passwd home. homeDirs guards both on top of whatever the caller
+// passed, so a caller that leaves Options.Home and Options.PasswdHome empty
+// still can't get the home folder, or a folder above it, past Resolve. A
+// seam: tests swap in scratch homes (or none) here, never through Options.
+var processHomes = func() []string { return []string{os.Getenv("HOME"), PasswdHome()} }
+
 // Options is everything the package takes from its caller instead of reading
 // from the process: the resolver's inputs, and the seams for deletion. The
 // zero value of each seam is the real thing.
@@ -53,8 +64,8 @@ type Options struct {
 	// Resolver inputs.
 	Flag          string // --downloads <dir>: overrides discovery and may point outside $HOME, but never at a home folder, an ancestor of one, or /
 	Env           string // $ARCHMAID_DOWNLOADS
-	Home          string // $HOME
-	PasswdHome    string // the passwd database's home ("" if unknown)
+	Home          string // $HOME: where discovery looks; guarded on top of the process's own homes, never instead of them
+	PasswdHome    string // the passwd database's home ("" if unknown): discovery's fallback, guarded likewise
 	XDGConfigHome string // $XDG_CONFIG_HOME
 
 	// Delete and display.
@@ -81,6 +92,10 @@ type homes struct {
 // one that's unset, relative or / is no basis for "inside your home folder",
 // so the passwd home stands in; and both are guarded, so a $HOME pointed
 // elsewhere can't make the real home folder a candidate.
+//
+// Discovery looks in o.Home (or o.PasswdHome), but the guard is never only
+// what o says: the process's own $HOME and passwd home (processHomes) are
+// always on it too. Options can add a home to guard, never remove one.
 func homeDirs(o Options) homes {
 	resolve := func(p string) (string, bool) {
 		if p == "" || !filepath.IsAbs(p) {
@@ -101,6 +116,11 @@ func homeDirs(o Options) homes {
 			h.guard = append(h.guard, r)
 		}
 	}
+	for _, p := range processHomes() {
+		if r, ok := resolve(p); ok {
+			h.guard = append(h.guard, r)
+		}
+	}
 	return h
 }
 
@@ -109,11 +129,16 @@ func homeDirs(o Options) homes {
 // ~/Downloads, ~/Download. Each must be an existing directory; every one
 // except the flag must also sit strictly inside the home folder. A candidate
 // that fails is skipped — except the flag: the user named that folder, so a
-// bad one is reported instead of silently cleaning a different folder.
+// bad one is reported instead of silently cleaning a different folder. With
+// no home folder known at all there is nothing to guard, so the flag is
+// refused rather than trusted.
 func Resolve(o Options) (string, error) {
 	h := homeDirs(o)
 
 	if o.Flag != "" {
+		if len(h.guard) == 0 {
+			return "", fmt.Errorf("--downloads %s: %w", o.Flag, errNoHomeToGuard)
+		}
 		p, err := filepath.Abs(o.Flag)
 		if err == nil {
 			p, err = checkDownloadsDir(p, h, false)

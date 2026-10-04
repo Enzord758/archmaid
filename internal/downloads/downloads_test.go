@@ -836,6 +836,91 @@ func TestResolveDownloadsHomeGuard(t *testing.T) {
 	})
 }
 
+// setProcessHomes stands in what the process knows about its homes ($HOME,
+// the passwd home) for the test.
+func setProcessHomes(t *testing.T, homes ...string) {
+	t.Helper()
+	old := processHomes
+	processHomes = func() []string { return homes }
+	t.Cleanup(func() { processHomes = old })
+}
+
+// TestResolveGuardsHomeWithoutOptions: the home guard doesn't depend on the
+// caller filling Options in. A caller (a future GUI) that passes only
+// Options{Flag: …} still can't aim the cleaner at $HOME, the passwd home, or a
+// folder above either; and with no home known at all, the flag is refused
+// outright. Should Resolve ever accept one, the test goes on as a caller
+// would — scan, then delete with every ctime counted old — and then finds the
+// home's files gone (all of it under t.TempDir).
+func TestResolveGuardsHomeWithoutOptions(t *testing.T) {
+	farFuture := func() time.Time { return time.Now().Add(100 * 365 * 24 * time.Hour) }
+	tryClean := func(t *testing.T, o Options, want string) {
+		t.Helper()
+		dir, err := Resolve(o)
+		if err == nil {
+			if p, err := Scan(dir, o.now(), o); err == nil {
+				Delete(context.Background(), p, o)
+			}
+			t.Errorf("Resolve(Options{Flag: %q}) = %q, want it refused", o.Flag, dir)
+			return
+		}
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Resolve(Options{Flag: %q}) err = %v, want %q", o.Flag, err, want)
+		}
+	}
+	// scratchHome is a home with something in it, under a parent of its own.
+	scratchHome := func(t *testing.T) (home, parent string) {
+		parent = t.TempDir()
+		home = filepath.Join(parent, "home")
+		mkdirs(t, filepath.Join(home, "Documents"))
+		writeFile(t, filepath.Join(home, "notes.txt"), "keep me")
+		return home, parent
+	}
+	requireIntact := func(t *testing.T, home string) {
+		t.Helper()
+		if !exists(filepath.Join(home, "notes.txt")) || !exists(filepath.Join(home, "Documents")) {
+			t.Fatalf("%s was emptied", home)
+		}
+	}
+
+	t.Run("$HOME", func(t *testing.T) {
+		home, parent := scratchHome(t)
+		t.Setenv("HOME", home)
+		for _, flag := range []string{home, parent} {
+			tryClean(t, Options{Flag: flag, Now: farFuture}, "contains your home folder")
+		}
+		requireIntact(t, home)
+	})
+
+	t.Run("passwd home", func(t *testing.T) {
+		home, parent := scratchHome(t)
+		setProcessHomes(t, "", home)
+		for _, flag := range []string{home, parent} {
+			tryClean(t, Options{Flag: flag, Now: farFuture}, "contains your home folder")
+		}
+		requireIntact(t, home)
+	})
+
+	t.Run("options can't drop a guarded home", func(t *testing.T) {
+		home, parent := scratchHome(t)
+		other := t.TempDir()
+		setProcessHomes(t, home, "")
+		o := Options{Home: other, PasswdHome: other, Now: farFuture}
+		for _, flag := range []string{home, parent} {
+			o.Flag = flag
+			tryClean(t, o, "contains your home folder")
+		}
+		requireIntact(t, home)
+	})
+
+	t.Run("no home known", func(t *testing.T) {
+		home, _ := scratchHome(t)
+		setProcessHomes(t, "", "relative", "/")
+		tryClean(t, Options{Flag: home, Now: farFuture}, "no home folder known")
+		requireIntact(t, home)
+	})
+}
+
 // TestUnescapeMountPath: the mount table's octal escapes come back as the
 // bytes they stand for; anything else is left as it is.
 func TestUnescapeMountPath(t *testing.T) {
