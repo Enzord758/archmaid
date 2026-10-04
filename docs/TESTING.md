@@ -126,7 +126,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~95 s warm, so with no command it runs three parts of at most ~40 s, each with its own weston; CI sets 600), so nothing outlives the run. Scenarios:
+~135 s warm, so with no command it runs four parts of at most ~40 s, each with its own weston; CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
