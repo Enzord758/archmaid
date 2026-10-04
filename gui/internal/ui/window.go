@@ -7,6 +7,7 @@ import (
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
@@ -41,6 +42,9 @@ type Window struct {
 	// follow: keep the newest line in view. Scrolling up stops it;
 	// reaching the bottom again restarts it.
 	follow bool
+	// scrollQueued: a tick callback scrolls to the newest line before the
+	// next frame (see output).
+	scrollQueued bool
 
 	dialogs map[engine.PromptID]*adw.AlertDialog
 	// quitDialog is the open "Stop the run and quit?" dialog, or nil.
@@ -307,6 +311,13 @@ func (w *Window) updateRow(i int) {
 
 // output applies the model's output diff to the list and keeps the newest
 // line in view while following.
+//
+// The scroll is once per frame, not once per flush: ListView.ScrollTo
+// measures the rows it brings into view right away (for the colour flood,
+// multi-run Pango layouts: ~2.8 ms of a ~3.4 ms flush), and a flood flushes
+// about three times a frame. A tick callback scrolls to whatever is newest
+// just before the frame's layout, so the rows are measured once, for the
+// frame that draws them.
 func (w *Window) output(remove int, add []string) {
 	if remove == 0 && len(add) == 0 {
 		return
@@ -319,8 +330,15 @@ func (w *Window) output(remove int, add []string) {
 		w.out.Splice(w.outLen, 0, add)
 		w.outLen += uint(len(add))
 	}
-	if w.follow && w.outLen > 0 {
-		w.outView.ScrollTo(w.outLen-1, gtk.ListScrollNone, nil)
+	if w.follow && w.outLen > 0 && !w.scrollQueued {
+		w.scrollQueued = true
+		w.outView.AddTickCallback(func(gtk.Widgetter, gdk.FrameClocker) bool {
+			w.scrollQueued = false
+			if w.follow && w.outLen > 0 && !w.closed {
+				w.outView.ScrollTo(w.outLen-1, gtk.ListScrollNone, nil)
+			}
+			return false // once
+		})
 	}
 }
 

@@ -163,7 +163,7 @@ With `ARCHMAID_GUI_PERF=1` the tests fail over budget: warm first frame
 < 400 ms (the best of the runs after the first, measured from exec to the
 frame clock's first `after-paint`), idle RSS < 120 MB, ≥ 5k lines/s for the
 unpaced flood, main-thread work per flush p95 ≤ 4 ms (the time in the pump's
-`apply`: model, list splice, scroll), RSS after 50k lines < 200 MB. They are
+`apply`: model, list splice, queueing the scroll), RSS after 50k lines < 200 MB. They are
 always measured and logged with `-v`. CI runs them without the variable.
 
 ### GUI measurements
@@ -196,8 +196,28 @@ stripped (`runview.StripSGR`, ~0.15 µs) as it arrives, and its spans are
 parsed (`ParseSGR`, ~0.7 µs for seven spans) and turned into a Pango
 attribute list only when a row binds it, so only the ~30 visible lines pay.
 `BenchmarkApplyFlushColour` (a 512-line colourful flush through the model) is
-~80 µs; the rest of the colour flood's p95 is GTK measuring the bound rows'
-multi-run Pango layouts while the list scrolls.
+~80 µs.
+
+**The follow scroll runs once per frame, not per flush.** `ListView.ScrollTo`
+measures the rows it brings into view on the spot; with the colour flood's
+multi-run Pango layouts that was ~2.8 ms of a ~3.4 ms flush (instrumented:
+model ~0.07 ms, splice ~0.6 ms, the Overview and status bar ~3 µs), and an
+unpaced flood flushes about three times per frame, so it measured rows that
+were never drawn. `output` now queues one tick callback that scrolls to the
+newest line just before the frame's layout. Measured on the same machine
+(three full `TestGUIThroughput` runs each, cairo, load average 1.7–6.6 from
+other agents' builds), flush p95 before → after:
+
+| Scenario | Before | After |
+|---|---|---|
+| `flood` | — | 0.48–0.52 ms |
+| `flood-paced` | — | 0.29–0.49 ms |
+| `flood-colour` | 3.5–4.5 ms | 0.53–0.85 ms |
+
+The unpaced floods now finish in ~100–150 ms (~320k–520k lines/s) in 6–9
+frames; the measuring moved into the frames that draw (paced frame work p95
+6–10 ms under that load, against 5.0 ms before), but happens once per frame
+instead of once per flush.
 
 **archmaid-gui renders with cairo by default.** `ui.DefaultRenderer`, called
 first thing in `main` (and in the harness's child, so the tests measure what
