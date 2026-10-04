@@ -23,7 +23,7 @@ func (f *fakeDriver) Events() <-chan engine.Event { return nil }
 func (f *fakeDriver) Send(c engine.Command) bool  { f.sent = append(f.sent, c); return true }
 func (f *fakeDriver) Close()                      {}
 
-// engineModel is a sized model in engine mode on a fakeDriver.
+// engineModel is a sized model on a fakeDriver.
 func engineModel() (model, *fakeDriver) {
 	f := &fakeDriver{}
 	m := sizedModel()
@@ -251,18 +251,76 @@ func TestForwardEvents(t *testing.T) {
 	}
 }
 
-// StatusUpdated is the status line; an engineEventsMsg outside engine
-// mode is ignored.
-func TestEngineStatusAndOldPath(t *testing.T) {
+// StatusUpdated is the status line; a model without a Driver (a view
+// test's) ignores Events and keys.
+func TestEngineStatusAndNoDriver(t *testing.T) {
 	m, _ := engineModel()
 	st := sysstat.Status{}
 	m = feed(m, engine.StatusUpdated{Now: time.Now(), Status: st})
 	if m.status != st.Line() {
 		t.Errorf("status %q, want %q", m.status, st.Line())
 	}
-	old := sizedModel()
-	if got := update(old, engineEventsMsg{evs: []engine.Event{engine.Notice{Text: "x"}}}); got.screen != old.screen {
-		t.Errorf("the old path took an engine event: screen %d", got.screen)
+	bare := sizedModel()
+	bare.eng = nil
+	if got := update(bare, engineEventsMsg{evs: []engine.Event{engine.Notice{Text: "x"}}}); got.screen != bare.screen {
+		t.Errorf("a model without a Driver took an engine event: screen %d", got.screen)
+	}
+	if got := update(bare, key("down")); got.cursor != bare.cursor {
+		t.Errorf("a model without a Driver took a key: cursor %d", got.cursor)
+	}
+}
+
+// ctrl+c on the running step asks first; n, esc, ctrl+c and enter on No
+// resume without sending anything, and the arrows move the choice.
+func TestEngineAbortDeclined(t *testing.T) {
+	for _, k := range []tea.KeyMsg{key("n"), key("esc"), {Type: tea.KeyCtrlC}, key("enter")} {
+		m, f := engineModel()
+		m = runningQueue(m)
+		m = update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
+		if m.screen != screenAbortConfirm || m.bg != screenRunning || m.confirmYes {
+			t.Fatalf("ctrl+c: screen %d over %d, yes %v", m.screen, m.bg, m.confirmYes)
+		}
+		m = update(m, k)
+		if m.screen != screenRunning || len(f.sent) != 0 {
+			t.Errorf("%q: screen %d, sent %v", k, m.screen, f.sent)
+		}
+	}
+	m, f := engineModel()
+	m = runningQueue(m)
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	m = update(m, key("left"))
+	if !m.confirmYes {
+		t.Fatal("left didn't move the choice to Yes")
+	}
+	m = update(m, key("enter"))
+	if got := lastSent(t, f); got != (engine.Abort{}) || m.screen != screenRunning {
+		t.Errorf("enter on Yes: sent %#v, screen %d", got, m.screen)
+	}
+}
+
+// The askpass popup shows sudo's prompt only quoted and stripped of
+// escapes and line breaks: whoever runs sudo picks it with -p.
+func TestEngineAskpassPromptSanitized(t *testing.T) {
+	m, _ := engineModel()
+	m = runningQueue(m)
+	m = feed(m, engine.NeedsPassword{ID: 7, Kind: engine.PasswordAskpass, Step: "a",
+		Requester: "/usr/bin/yay (pid 5000150)", Prompt: "\x1b]0;pwned\x07[sudo] password\nfor u: "})
+	view := m.viewPassword()
+	for _, want := range []string{"Doing a…", "/usr/bin/yay (pid 5000150)", `"[sudo] password for u:"`} {
+		if !strings.Contains(view, want) {
+			t.Errorf("popup missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "pwned") || strings.ContainsRune(view, '\x07') {
+		t.Fatalf("popup shows the prompt's escape sequence:\n%q", view)
+	}
+}
+
+// A long askpass prompt is cut to one short line.
+func TestAskpassPromptTextClipped(t *testing.T) {
+	got := askpassPromptText(strings.Repeat("ab ", 40))
+	if n := len([]rune(got)); n != 48 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("prompt = %q (%d runes), want 48 ending in …", got, n)
 	}
 }
 

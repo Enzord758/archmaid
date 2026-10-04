@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/logstore"
-	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // The log itself lives in internal/logstore; this file is the TUI's seam to it.
@@ -101,13 +100,6 @@ func runDirName() string { return filepath.Base(logs().RunDir()) }
 // logPath is the file a category logs to for this run; it creates nothing.
 func logPath(cat logCategory) string { return logs().Path(cat) }
 
-// appendLog writes a timestamped entry to cat's log (see logstore.Append). A
-// failed write is dropped: logging must never break a step. Model goroutine
-// only (see logs); elsewhere, Append to a captured store.
-func appendLog(cat logCategory, kind, label, body string) {
-	_ = logs().Append(cat, kind, label, body)
-}
-
 // readLog is cat's log for the View log screen, or "Log is empty." styled
 // like the status line.
 func readLog(cat logCategory) string {
@@ -123,57 +115,3 @@ func categoryLabel(cat logCategory) string { return cat.Label() }
 
 // logCategoryLabels drives the "View log" category picker, in display order.
 var logCategoryLabels = logstore.Categories
-
-// queueOutcome classifies a queue that has just ended, first match wins:
-// cancelled when no step ran at all (every one skipped, e.g. sudo gave up),
-// aborted when a declined required step stopped it, failed on any failed
-// step, incomplete when a step was refused privilege (sudo gave up part-way:
-// the run is not a clean one, whatever ran fine), otherwise ok.
-func (m *model) queueOutcome(declined bool) string {
-	ran, refused := false, false
-	for _, q := range m.queue {
-		switch q.status {
-		case steps.OK, steps.Failed:
-			ran = true
-		case steps.AuthRefused:
-			refused = true
-		}
-	}
-	switch {
-	case !ran:
-		return logstore.OutcomeCancelled
-	case declined:
-		return logstore.OutcomeAborted
-	case m.errs > 0:
-		return logstore.OutcomeFailed
-	case refused:
-		return logstore.OutcomeIncomplete
-	}
-	return logstore.OutcomeOK
-}
-
-// recordRun writes last-run.json for the run in progress, at most once per run
-// (activate and resetRun re-arm it). It sits where appendLog does: a tiny
-// synchronous write; a failed one is dropped like a failed log write. A dry run
-// goes to the dry-run slot, never over the real record (see logstore).
-func (m *model) recordRun(outcome string) {
-	if m.runDone || m.runAction == "" {
-		return
-	}
-	m.runDone = true
-	skipped, refused := 0, 0
-	for _, q := range m.queue {
-		switch q.status {
-		case steps.AuthRefused:
-			refused++
-			skipped++
-		case steps.Skipped, steps.Aborted:
-			skipped++
-		}
-	}
-	_ = logs().WriteLastRun(logstore.RunRecord{
-		Action: m.runAction, Started: m.runStarted, Finished: time.Now(),
-		Outcome: outcome, StepsFailed: m.errs, StepsSkipped: skipped,
-		StepsRefused: refused, DryRun: dryRun,
-	})
-}

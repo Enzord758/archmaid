@@ -11,8 +11,6 @@ import (
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/actions"
-	"github.com/Enzord758/archmaid/internal/steps"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // repairShim describes the machine the Repair shims fake: the installed
@@ -91,43 +89,10 @@ func pinScanWorkers(t *testing.T, n int) {
 	t.Cleanup(func() { repairScanWorkers = old })
 }
 
-// repairModel returns a model with the cursor on the Repair menu entry.
-func repairModel(t *testing.T) model {
-	t.Helper()
-	m := initialModel()
-	m.cursor = menuItemIndex(t, actions.IDRepair)
-	return m
-}
-
-// updateRun feeds msg through Update, then runs the cmd it returns and gives
-// back the msg that produces (nil when there's no cmd).
-func updateRun(t *testing.T, m model, msg tea.Msg) (model, tea.Msg) {
-	t.Helper()
-	next, cmd := m.Update(msg)
-	if cmd == nil {
-		return next.(model), nil
-	}
-	return next.(model), cmd()
-}
-
-// repairFlagged is a model whose user scan has flagged candidates and that
-// now probes sudo for the root recheck.
-func repairFlagged(t *testing.T, candidates ...string) model {
-	t.Helper()
-	repairShim{installed: candidates, asUser: candidates}.install(t)
-	m, msg := updateRun(t, repairModel(t), key("enter")) // the user scan
-	next, cmd := m.Update(msg)
-	m = next.(model)
-	if cmd == nil || m.needsRoot == nil {
-		t.Fatal("candidates should probe sudo with the root recheck held back")
-	}
-	return m
-}
-
 // repairScan runs Repair's user scan with workers, as the menu would.
 func repairScan(t *testing.T, workers int) actions.Discovery {
 	t.Helper()
-	return discoverNow(t, actions.IDRepair, func(env *actions.Env) { env.RepairWorkers = workers }).d
+	return discoverNow(t, actions.IDRepair, func(env *actions.Env) { env.RepairWorkers = workers })
 }
 
 // repairCandidates is what repairScan flagged for the root recheck.
@@ -245,148 +210,5 @@ func TestBrokenPackagesSudoUnavailable(t *testing.T) {
 	repairShim{installed: []string{"bad"}, asUser: []string{"bad"}}.install(t)
 	if n := noticeOf(repairRecheck(t)); !strings.Contains(n, "Couldn't scan") || !strings.Contains(n, "password is required") {
 		t.Fatalf("want a couldn't-scan notice with sudo's error, got %q", n)
-	}
-}
-
-// TestRepairNothingFlaggedNeverAsksForSudo: Repair scans as the user first;
-// with nothing flagged it says so without a probe, a prompt or any sudo.
-func TestRepairNothingFlaggedNeverAsksForSudo(t *testing.T) {
-	pinScanWorkers(t, 4)
-	log := repairShim{installed: []string{"a", "b", "c"}, sudoOK: true}.install(t)
-	m, msg := updateRun(t, repairModel(t), key("enter"))
-	if m.screen != screenDiscovering || m.needsRoot != nil {
-		t.Fatalf("repair should scan straight away, got screen=%d", m.screen)
-	}
-	m, _ = updateRun(t, m, msg)
-	if m.screen != screenNotice || !strings.Contains(m.notice, "No broken packages") {
-		t.Fatalf("want the nothing-broken notice, got screen=%d notice=%q", m.screen, m.notice)
-	}
-	if s := execLog(t, log, "sudo"); len(s) != 0 {
-		t.Fatalf("nothing flagged must not touch sudo, got %v", s)
-	}
-}
-
-// TestRepairRechecksOnlyCandidatesAsRoot: the whole flow with a ticket
-// cached. The user scan flags a broken package and two false positives; one
-// probe, one root recheck of just those three, and only the confirmed one is
-// offered for reinstalling.
-func TestRepairRechecksOnlyCandidatesAsRoot(t *testing.T) {
-	pinScanWorkers(t, 3)
-	log := repairShim{
-		installed: []string{"amd-ucode", "bad", "glibc", "nfs-utils", "zlib"},
-		asUser:    []string{"amd-ucode", "bad", "nfs-utils"},
-		asRoot:    []string{"bad"},
-		sudoOK:    true,
-	}.install(t)
-	m, msg := updateRun(t, repairModel(t), key("enter")) // user scan
-	if nr, _ := msg.(discoveryMsg).d.(actions.NeedsRoot); !reflect.DeepEqual(nr.Items, []string{"amd-ucode", "bad", "nfs-utils"}) {
-		t.Fatalf("candidates %v", nr.Items)
-	}
-	if s := execLog(t, log, "sudo"); len(s) != 0 {
-		t.Fatalf("the user scan ran sudo: %v", s)
-	}
-	m, msg = updateRun(t, m, msg) // → probe
-	m, msg = updateRun(t, m, msg) // cached → root recheck
-	if m.discovering == "" || m.screen != screenDiscovering {
-		t.Fatalf("a cached ticket should go straight to the recheck, got screen=%d", m.screen)
-	}
-	p, _ := msg.(discoveryMsg).d.(actions.Pending)
-	if len(p.Steps) != 1 || !slices.Contains(p.Steps[0].Args(), "bad") ||
-		slices.Contains(p.Steps[0].Args(), "amd-ucode") || slices.Contains(p.Steps[0].Args(), "nfs-utils") {
-		t.Fatalf("want a reinstall of just bad, got %+v", p.Steps)
-	}
-	m = update(m, msg)
-	if m.screen != screenConfirm || !strings.Contains(m.confirmMsg, "Reinstall 1 broken") {
-		t.Fatalf("want the reinstall confirm, got screen=%d %q", m.screen, m.confirmMsg)
-	}
-	want := []string{"sudo -n -v", "sudo -n pacman -Qkq -- amd-ucode bad nfs-utils"}
-	if s := execLog(t, log, "sudo"); !reflect.DeepEqual(s, want) {
-		t.Fatalf("sudo calls %v, want %v", s, want)
-	}
-}
-
-// TestRepairFalsePositiveDropped: a package flagged as the user but clean as
-// root is a root-only directory, not a broken package: nothing to reinstall.
-func TestRepairFalsePositiveDropped(t *testing.T) {
-	repairShim{installed: []string{"amd-ucode", "glibc"}, asUser: []string{"amd-ucode"}, sudoOK: true}.install(t)
-	m, msg := updateRun(t, repairModel(t), key("enter"))
-	m, msg = updateRun(t, m, msg)
-	m, msg = updateRun(t, m, msg)
-	m = update(m, msg)
-	if m.screen != screenNotice || !strings.Contains(m.notice, "No broken packages") || len(m.queue) != 0 {
-		t.Fatalf("want the nothing-broken notice, got screen=%d notice=%q", m.screen, m.notice)
-	}
-}
-
-// TestRepairAsksForSudoOnlyForCandidates: once the user scan has flagged
-// something, Repair probes sudo; uncached, it shows the password prompt (as
-// Full Cleanup does), and a successful auth runs the root recheck rather than
-// an empty queue.
-func TestRepairAsksForSudoOnlyForCandidates(t *testing.T) {
-	m := update(repairModel(t), key("enter"))
-	if m.needsRoot != nil {
-		t.Fatal("the user scan must not wait on sudo")
-	}
-	m = repairFlagged(t, "bad")
-	m = update(m, sudoCachedMsg{cached: false})
-	if m.screen != screenPassword {
-		t.Fatalf("uncached sudo should prompt, got screen=%d", m.screen)
-	}
-	next, cmd := m.Update(sudoResultMsg{})
-	m = next.(model)
-	if m.screen != screenDiscovering || cmd == nil || m.needsRoot != nil {
-		t.Fatalf("auth should start the recheck, got screen=%d", m.screen)
-	}
-}
-
-// TestRepairCachedSudoScansDirectly: with a ticket already cached there's no
-// prompt; the recheck starts straight away.
-func TestRepairCachedSudoScansDirectly(t *testing.T) {
-	m := repairFlagged(t, "bad")
-	next, cmd := m.Update(sudoCachedMsg{cached: true})
-	m = next.(model)
-	if m.screen != screenDiscovering || cmd == nil {
-		t.Fatalf("cached sudo should recheck at once, got screen=%d", m.screen)
-	}
-}
-
-// TestRepairPromptEscCancels: esc on the password prompt drops the held
-// recheck, so a later unrelated auth can't trigger it.
-func TestRepairPromptEscCancels(t *testing.T) {
-	m := repairFlagged(t, "bad")
-	m = update(m, sudoCachedMsg{cached: false})
-	m = update(m, key("esc"))
-	if m.screen != screenMenu || m.needsRoot != nil {
-		t.Fatalf("esc should cancel the recheck, got screen=%d", m.screen)
-	}
-}
-
-// TestRepairAuthGiveUpShowsNotice: after the last wrong password there's no
-// queue to skip through, so Repair says why it stopped.
-func TestRepairAuthGiveUpShowsNotice(t *testing.T) {
-	m := repairFlagged(t, "bad")
-	m = update(m, sudoCachedMsg{cached: false})
-	for i := 0; i < maxSudoAttempts; i++ {
-		m = update(m, sudoResultMsg{err: fmt.Errorf("wrong")})
-	}
-	if m.screen != screenNotice || !strings.Contains(m.notice, "can't scan") || m.needsRoot != nil {
-		t.Fatalf("want a give-up notice, got screen=%d notice=%q", m.screen, m.notice)
-	}
-}
-
-// TestRepairDiscoveryDoesNotReprobeSudo: the recheck only runs once the
-// ticket is primed, so its result starts the queue directly instead of
-// probing again. Under dry-run: the queue it starts would otherwise run the
-// real `sudo -n` (testenv's sudo trap caught it).
-func TestRepairDiscoveryDoesNotReprobeSudo(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-	m := repairModel(t)
-	next, _ := m.Update(discoveryMsg{d: actions.Pending{Steps: []steps.Step{
-		{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true},
-	}}, authed: true})
-	m = next.(model)
-	if m.screen != screenRunning {
-		t.Fatalf("repair result should start the queue, got screen=%d", m.screen)
 	}
 }

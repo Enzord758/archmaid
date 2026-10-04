@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -31,11 +32,11 @@ func runCmdQuick(t *testing.T, cmd tea.Cmd) tea.Msg {
 // statusMsg reschedules itself, so each one started another permanent 4 s loop
 // (N+1 loops, each forking df/free/du, after N actions).
 func TestStatusLoopDoesNotMultiply(t *testing.T) {
-	m := fixedModel()
-	m.screen = screenRunning
-	m.queue = []stepState{{step: steps.Step{Title: "x", LogLabel: "x"}, status: steps.Running}}
-	m.current = 0
-	next, cmd := m.handleStream(streamBatchMsg{done: true}) // last step → summary
+	m := feed(fixedModel(),
+		engine.QueueStarted{Action: "x", Steps: []engine.PlanStep{{ID: "x", Title: "x", LogLabel: "x", Argv: []string{"x"}}}},
+		engine.StepStarted{ID: "x", Index: 0},
+		engine.StepDone{ID: "x", Index: 0, Status: steps.OK})
+	next, cmd := m.Update(engineEventsMsg{evs: []engine.Event{engine.Finished{Outcome: engine.OutcomeCompleted}}})
 	if next.(model).screen != screenSummary {
 		t.Fatalf("expected the summary, got screen=%d", next.(model).screen)
 	}
@@ -55,31 +56,5 @@ func TestStatusLoopDoesNotMultiply(t *testing.T) {
 		if got.(model).status != string(msg.(statusNowMsg)) {
 			t.Fatalf("%s: header not updated", name)
 		}
-	}
-}
-
-// TestKeepAliveSingleChain: a queue that ends (here: aborted) leaves its
-// keep-alive tick pending for up to a minute. If another sudo queue starts
-// meanwhile, that stale tick must die instead of running a second loop next
-// to the new queue's own.
-func TestKeepAliveSingleChain(t *testing.T) {
-	m := update(sudoQueueModel(), sudoCachedMsg{cached: true}) // queue 1 arms gen 1
-	if !m.sudoAlive {
-		t.Fatal("first sudo queue should arm the keep-alive")
-	}
-	first := m.sudoGen
-
-	m.abortRunning()
-	m.pending = sudoQueueModel().pending
-	m = update(m, sudoCachedMsg{cached: true}) // queue 2, within the minute
-	if !m.sudoAlive || m.sudoGen == first {
-		t.Fatalf("second queue should arm a new generation (alive=%v gen=%d, first=%d)", m.sudoAlive, m.sudoGen, first)
-	}
-
-	if _, cmd := m.Update(sudoKeepAliveMsg{gen: first}); cmd != nil {
-		t.Fatal("the first queue's stale tick must not reschedule")
-	}
-	if _, cmd := m.Update(sudoKeepAliveMsg{gen: m.sudoGen}); cmd == nil {
-		t.Fatal("the live queue's tick must reschedule")
 	}
 }

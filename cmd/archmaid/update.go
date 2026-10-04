@@ -1,25 +1,19 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"slices"
-	"strings"
-	"time"
-
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
-	"github.com/Enzord758/archmaid/internal/logstore"
-	"github.com/Enzord758/archmaid/internal/sanitize"
-	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // ── update ───────────────────────────────────────────────────────────────────
+//
+// The model is a front end to an engine.Driver (adapter.go): a key that
+// answers a prompt or starts an action becomes a Command (engineKey), and
+// what the action does comes back as Events (applyEvents). What is left
+// here is the TUI's own: moving about, scrolling, the log viewer, the
+// editor, the status line.
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -30,10 +24,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.eng != nil {
-			if next, cmd, ok := m.engineKey(msg); ok {
-				return next, cmd
-			}
+		if m.eng == nil {
+			return m, nil // no Driver (a view test's model): nothing to drive
+		}
+		if next, cmd, ok := m.engineKey(msg); ok {
+			return next, cmd
 		}
 		return m.handleKey(msg)
 
@@ -56,89 +51,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
-	case sudoCachedMsg:
-		if msg.cached && m.needsRoot != nil {
-			return m.startScan()
-		}
-		if msg.cached {
-			// No password prompt to act as the gate. If this action wants a
-			// proceed-gate, show it; otherwise run straight away.
-			if m.gate != "" {
-				m.showGate()
-				return m, nil
-			}
-			cmd := m.startQueue()
-			return m, cmd
-		}
-		// Uncached: the password prompt itself is the confirmation.
-		m.bg = screenMenu
-		m.screen = screenPassword
-		m.pwErr = ""
-		m.password.Reset()
-		return m, m.password.Focus()
-
-	case sudoResultMsg:
-		m.authInFlight = false // auth finished — unlock the input
-		if msg.err != nil {
-			m.pwAttempts++
-			m.password.Reset()
-			if m.pwAttempts >= maxSudoAttempts {
-				if m.needsRoot != nil {
-					// no queue to skip through — the scan itself needs root
-					m.notice = m.needsRoot.AuthFailed
-					m.needsRoot = nil
-					m.bg = screenMenu
-					m.screen = screenNotice
-					return m, nil
-				}
-				// give up: run the queue anyway; sudo steps get skipped+logged.
-				// The audit fetch is kept: the audit step needs no sudo and
-				// still runs (and reports) from it.
-				m.sudoUnavailable = true
-				cmd := m.startQueue()
-				return m, cmd
-			}
-			left := maxSudoAttempts - m.pwAttempts
-			m.pwErr = fmt.Sprintf("Incorrect password — %d attempt%s left", left, plural(left))
-			if msg.detail != "" {
-				m.pwErr = msg.detail // e.g. pam_faillock "account locked" notice
-			}
-			return m, nil // stay on the prompt for a retry
-		}
-		m.pwAttempts = 0
-		m.password.Reset()
-		if m.needsRoot != nil {
-			return m.startScan()
-		}
-		cmd := m.startQueue()
-		return m, cmd
-
-	case discoveryMsg:
-		return m.handleDiscovery(msg)
-
-	case sudoKeepAliveMsg:
-		if !m.sudoAlive || msg.gen != m.sudoGen {
-			// queue ended — stop refreshing; or a tick from an earlier
-			// queue's loop, which must die so only the current one runs
-			return m, nil
-		}
-		return m, tea.Batch(refreshSudo(), sudoTick(m.sudoGen))
-
-	case askpassMsg:
-		return m.handleAskpass(msg)
-
-	case askpassResultMsg:
-		return m.handleAskpassResult(msg)
-
 	case editorDoneMsg:
 		m.screen = screenMenu
 		return m, refreshStatusNow()
-
-	case streamBatchMsg:
-		return m.handleStream(msg)
-
-	case stepResultMsg:
-		return m.handleStepResult(msg)
 	}
 
 	// keep the password field's cursor blinking (blink msgs aren't KeyMsgs)
@@ -148,183 +63,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
-}
-
-// handleDiscovery routes a discovery's result: a notice, a queue (straight
-// to the run when it follows a root rescan, whose ticket is primed), a pick
-// list, a report, or a wait on sudo for a rescan.
-func (m model) handleDiscovery(msg discoveryMsg) (tea.Model, tea.Cmd) {
-	switch d := msg.d.(type) {
-	case actions.Notice:
-		m.notice = d.Text
-		m.bg = screenMenu
-		m.screen = screenNotice
-		return m, nil
-	case actions.NeedsRoot:
-		// Repair's user scan flagged these. Some may be false positives
-		// (files in root-only dirs), so recheck them as root: authenticate
-		// the same way Full Cleanup does, then the recheck follows.
-		m.needsRoot = &d
-		m.pwAttempts = 0
-		return m, checkSudoCached()
-	case actions.NeedsSelection:
-		m.services = d.Items
-		m.serviceOn = make([]bool, len(d.Items))
-		m.serviceCursor = 0
-		m.selectSteps = d.Steps
-		m.screen = screenServices
-		return m, nil
-	case actions.Report:
-		m.auditCommit = d.Accept
-		m.screen = screenAudit
-		m.resizeOutput()
-		m.output.SetContent(d.Text)
-		m.output.GotoTop()
-		return m, nil
-	case actions.Pending:
-		m.pending = d.Steps
-		if msg.authed {
-			// The rescan only ran once the sudo ticket was primed, so don't
-			// probe it a second time — go straight to the queue.
-			m.resetRun()
-			cmd := m.startQueue()
-			return m, cmd
-		}
-		cmd := m.beginPending()
-		return m, cmd
-	}
-	return m, nil
-}
-
-// handleAskpass vets a child's request for the sudo password, then pops the
-// prompt over the current screen; the password flows straight back over the
-// connection. The socket is reachable by anything that inherited SUDO_ASKPASS
-// — under topgrade that is every AUR build script — so a request is answered
-// only while a sudo step runs, and only from archmaid's own helper, run by
-// sudo, inside that step's process tree (verifyAskpassPeer). Anything else is
-// hung up on without a popup; sudo counts that as a failed attempt.
-func (m model) handleAskpass(msg askpassMsg) (tea.Model, tea.Cmd) {
-	req := msg.req
-	title, ok := m.runningSudoStep()
-	if !ok {
-		req.Cancel() // no sudo step running: nothing of ours is asking
-		return m, nil
-	}
-	if m.askpassReq != nil {
-		req.Cancel()
-		m.noteOutput("archmaid: refused a second sudo password request while one is open")
-		return m, nil
-	}
-	from, err := verifyAskpassPeer(req, m.proc.Pid, m.proc.Start)
-	if err != nil {
-		req.Cancel()
-		m.noteOutput("archmaid: refused a sudo password request: " + err.Error())
-		return m, nil
-	}
-	from.step = title
-	from.prompt = askpassPromptText(req.Prompt)
-	m.askpassReq = req
-	m.askpassFrom = from
-
-	switch m.screen {
-	case screenPassword, screenConfirm, screenNotice:
-		// These three read the shared m.bg field for their own
-		// background (popupLayer in view.go). Overwriting it with their
-		// own screen value here would make it self-referential and
-		// recurse forever in renderScreen — so leave it as whatever it
-		// already correctly resolved to when that popup opened; once
-		// this askpass prompt is dismissed, m.screen = m.bg still lands
-		// back on that same popup.
-	default:
-		// screenAbortConfirm (safe: its background is hardcoded in
-		// popupLayer, not read from m.bg) or an ordinary screen — record
-		// it so whatever was showing reappears once the password prompt
-		// closes.
-		m.bg = m.screen
-	}
-	m.pwErr = ""
-	if strings.Contains(strings.ToLower(req.Prompt), "try again") {
-		m.pwErr = "Incorrect password — try again"
-	}
-	m.screen = screenPassword
-	m.password.Reset()
-	return m, m.password.Focus()
-}
-
-// submitAskpass checks the password typed into the askpass popup with su
-// before anything reaches sudo (answerAskpass), with the input locked while
-// PAM works, like the prime's first stage. A password with a line break is
-// refused outright: sudo reads one line, so it would get a different password
-// than su checked.
-func (m model) submitAskpass(pw string) (tea.Model, tea.Cmd) {
-	m.password.Reset() // don't hold the password in the input
-	if strings.ContainsAny(pw, "\r\n") {
-		m.pwErr = "A password can't contain a line break"
-		return m, nil
-	}
-	m.authInFlight = true
-	return m, answerAskpass(m.askpassReq, pw)
-}
-
-// handleAskpassResult closes the askpass popup once su accepted the password
-// (answerAskpass has already passed it to sudo). A rejected one leaves the
-// popup open with nothing sent, counting toward maxSudoAttempts like the
-// prime; at the limit the request is cancelled and, as after a failed prime,
-// the queue's remaining sudo steps are skipped.
-func (m model) handleAskpassResult(msg askpassResultMsg) (tea.Model, tea.Cmd) {
-	if msg.req != m.askpassReq {
-		return m, nil // not the open request's answer
-	}
-	m.authInFlight = false
-	if msg.err == nil {
-		m.pwAttempts = 0
-		m.closeAskpass()
-		return m, nil
-	}
-	m.pwAttempts++
-	if m.pwAttempts >= maxSudoAttempts {
-		m.askpassReq.Cancel() // unanswered: this sudo fails, its step with it
-		m.sudoUnavailable = true
-		m.closeAskpass()
-		return m, nil
-	}
-	left := maxSudoAttempts - m.pwAttempts
-	m.pwErr = fmt.Sprintf("Incorrect password — %d attempt%s left", left, plural(left))
-	if msg.detail != "" {
-		m.pwErr = msg.detail // e.g. pam_faillock "account locked" notice
-	}
-	return m, nil
-}
-
-// closeAskpass drops the askpass popup's state and shows what was under it.
-func (m *model) closeAskpass() {
-	m.askpassReq = nil
-	m.askpassFrom = askpassRequester{}
-	m.password.Reset()
-	m.pwErr = ""
-	if m.screen == screenPassword {
-		m.screen = m.bg
-	}
-}
-
-// runningSudoStep returns the title of the step running right now, if it is a
-// sudo step with a live child: the only time a password request can be ours.
-func (m model) runningSudoStep() (string, bool) {
-	if m.proc == nil || m.current < 0 || m.current >= len(m.queue) {
-		return "", false
-	}
-	st := m.queue[m.current]
-	if st.status != steps.Running || !st.step.NeedsPriv {
-		return "", false
-	}
-	return st.step.Title, true
-}
-
-// noteOutput adds one of archmaid's own lines to the running step's output
-// pane (and so to its log). It may quote names read from /proc, so it is
-// sanitized like any foreign text.
-func (m *model) noteOutput(line string) {
-	m.appendOutput([]string{sanitize.OneLine(line)})
 }
 
 // resizeOutput sizes the output viewport for the active screen. The log
@@ -337,7 +75,8 @@ func (m *model) noteOutput(line string) {
 // abort-confirm, an askpass prompt) is showing over the running screen still
 // budgets for the checklist — otherwise dismissing the popup back to
 // screenRunning would hit the same overflow. Called on resize and whenever
-// the queue length or active screen changes (startQueue, openLogCategory).
+// the queue length or active screen changes (QueueStarted, StepInserted,
+// OutputReport, openLogCategory).
 func (m *model) resizeOutput() {
 	m.output.Width = m.termWidth - 4
 	height := m.termHeight - 8
@@ -350,6 +89,8 @@ func (m *model) resizeOutput() {
 	m.output.Height = height
 }
 
+// handleKey takes the keys engineKey leaves: moving about, toggling,
+// typing, scrolling, the menu, the summary and the log viewer.
 func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.screen {
 
@@ -370,58 +111,24 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case screenPassword:
-		if m.authInFlight {
-			// PAM is checking a submitted password (takes ~2s on failure).
-			// Ignore all input meanwhile: a second enter would fire a
-			// concurrent sudo, and typed keys would silently append to the
-			// already-submitted password.
-			return m, nil
-		}
-		switch msg.String() {
-		case "esc", "ctrl+c":
-			if m.askpassReq != nil {
-				m.askpassReq.Cancel() // cancel → sudo fails this attempt
-				m.closeAskpass()
-				return m, nil
-			}
-			m.password.Reset()
-			m.pwErr = ""
-			m.needsRoot = nil
-			m.dropAuditFetch() // the action is cancelled before it started
-			m.screen = screenMenu
-			m.recordRun(logstore.OutcomeCancelled)
-			return m, nil
-		case "enter":
-			if m.askpassReq != nil {
-				return m.submitAskpass(m.password.Value())
-			}
-			m.authInFlight = true
-			pw := m.password.Value()
-			m.password.Reset() // don't hold the password in the input
-			return m, authSudo(pw)
-		default:
-			var cmd tea.Cmd
-			m.password, cmd = m.password.Update(msg)
-			return m, cmd
-		}
+		// engineKey takes enter and esc, and every key while a password is
+		// being checked (a second enter would send a second password, and
+		// typed keys would land in the one already sent): what is left is
+		// typing.
+		var cmd tea.Cmd
+		m.password, cmd = m.password.Update(msg)
+		return m, cmd
 
 	case screenConfirm:
+		// engineKey takes y, n, esc and enter.
 		switch msg.String() {
 		case "left", "right", "h", "l", "tab":
 			m.confirmYes = !m.confirmYes
-		case "y":
-			m.confirmYes = true
-			return m.resolveConfirm()
-		case "n", "esc":
-			m.confirmYes = false
-			return m.resolveConfirm()
-		case "enter":
-			return m.resolveConfirm()
 		}
 
 	case screenRunning:
 		if msg.String() == "ctrl+c" {
-			// Don't quit — ask first (the child keeps running underneath).
+			// Don't quit — ask first (the step keeps running underneath).
 			m.bg = screenRunning
 			m.screen = screenAbortConfirm
 			m.confirmYes = false
@@ -433,19 +140,12 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case screenAbortConfirm:
+		// engineKey takes y, and enter on Yes.
 		switch msg.String() {
 		case "left", "right", "h", "l", "tab":
 			m.confirmYes = !m.confirmYes
-		case "y":
-			m.abortRunning()
-		case "n", "esc", "ctrl+c":
+		case "n", "esc", "ctrl+c", "enter":
 			m.screen = screenRunning // resume; the step never stopped
-		case "enter":
-			if m.confirmYes {
-				m.abortRunning()
-			} else {
-				m.screen = screenRunning
-			}
 		}
 		return m, nil
 
@@ -485,26 +185,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case screenAudit:
-		switch msg.String() {
-		case "esc", "q":
-			m.auditCommit = nil // leaving without accepting keeps the changes flagged
-			m.screen = screenMenu
-		case "a":
-			if m.auditCommit == nil {
-				return m, nil
-			}
-			m.notice = "Maintainer changes accepted: they won't be flagged again."
-			if err := m.auditCommit(); err != nil {
-				m.notice = "Snapshot not saved (" + shortErr(err) + "): the changes stay flagged."
-			}
-			m.auditCommit = nil
-			m.bg = screenAudit
-			m.screen = screenNotice
-		default:
-			var cmd tea.Cmd
-			m.output, cmd = m.output.Update(msg)
-			return m, cmd
-		}
+		// engineKey takes esc, q and a; the rest scrolls the report.
+		var cmd tea.Cmd
+		m.output, cmd = m.output.Update(msg)
+		return m, cmd
 
 	case screenNotice:
 		if msg.String() == "ctrl+c" {
@@ -516,12 +200,11 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
-		// otherwise wait for the discovery cmd to finish
+		// otherwise wait for the discovery to finish
 
 	case screenServices:
+		// engineKey takes enter, esc and ctrl+c.
 		switch msg.String() {
-		case "esc", "ctrl+c":
-			m.screen = screenMenu
 		case "up", "k":
 			if m.serviceCursor > 0 {
 				m.serviceCursor--
@@ -532,42 +215,15 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case " ", "x":
 			m.serviceOn[m.serviceCursor] = !m.serviceOn[m.serviceCursor]
-		case "enter":
-			cmd := m.confirmServices()
-			return m, cmd
 		}
 	}
 	return m, nil
 }
 
-// confirmServices builds a disable step from the selected services and enters
-// the sudo/queue flow; a no-op if nothing was selected.
-func (m *model) confirmServices() tea.Cmd {
-	var sel []string
-	for i, on := range m.serviceOn {
-		if on {
-			sel = append(sel, m.services[i])
-		}
-	}
-	var queue []steps.Step
-	if len(sel) > 0 && m.selectSteps != nil {
-		queue = m.selectSteps(sel)
-	}
-	if len(queue) == 0 {
-		m.screen = screenMenu
-		return nil
-	}
-	m.pending = queue
-	return m.beginPending()
-}
-
-// activate handles an Enter on the menu: the TUI's own entries by ID, then
-// a discovery, or the action's queue.
+// activate handles an Enter on the menu: the TUI's own entries by ID; any
+// other action is the engine's to run, and its Events say what to show.
 func (m model) activate() (tea.Model, tea.Cmd) {
 	a := actions.Menu[m.cursor]
-	m.gate = "" // only steps-actions with a gate re-arm it below
-	m.runAction, m.runStarted, m.runDone = a.ID, time.Now(), false
-	m.dropAuditFetch() // a previous action's, should one still be around
 	switch a.ID {
 	case actions.IDExit:
 		return m, tea.Quit
@@ -577,389 +233,8 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	case actions.IDEditConfig:
 		return m, editConfig()
 	}
-	if m.eng != nil {
-		// The engine runs the action: its Events say what to show.
-		m.send(engine.Start{Action: a.ID})
-		return m, nil
-	}
-
-	env := actionEnv()
-	if a.Discover != nil {
-		// Repair scans as the user first; sudo is only asked for when that
-		// flags something to recheck as root (actions.NeedsRoot).
-		m.screen = screenDiscovering
-		m.discovering = a.Busy
-		return m, discover(a.Discover, env, false)
-	}
-	if a.Steps == nil {
-		return m, nil
-	}
-	m.gate = a.Gate
-	m.pending = a.Steps(env)
-	for _, s := range m.pending {
-		if s.Prefetch == steps.PrefetchAURAudit {
-			// Start the audit now, so its lookup runs while the password
-			// prompt (or the gate) is up; the step awaits it.
-			m.auditFetch = startAuditFetch()
-			break
-		}
-	}
-	cmd := m.beginPending()
-	return m, cmd
-}
-
-// dropAuditFetch cancels the prefetched audit, if any: the run was abandoned
-// before the audit step consumed it, or the step has finished with it.
-func (m *model) dropAuditFetch() {
-	if m.auditFetch != nil {
-		m.auditFetch.Cancel()
-		m.auditFetch = nil
-	}
-}
-
-// startScan runs the discovery that was waiting on sudo (needsRoot):
-// Repair's root recheck of the packages its user scan flagged.
-func (m model) startScan() (tea.Model, tea.Cmd) {
-	nr := m.needsRoot
-	m.needsRoot = nil
-	m.screen = screenDiscovering
-	m.discovering = nr.Busy
-	return m, discover(nr.Rescan, actionEnv(), true)
-}
-
-// resetRun clears the per-run counters and auth state before a queue starts.
-func (m *model) resetRun() {
-	m.errs = 0
-	m.skipped = 0
-	m.aborted = false
-	m.gateActive = false
-	m.pwAttempts = 0
-	m.sudoUnavailable = false
-	m.runDone = false
-}
-
-// beginPending starts m.pending: authenticate first if any step needs sudo
-// (probe → skip prompt when cached), otherwise run the queue directly.
-func (m *model) beginPending() tea.Cmd {
-	m.resetRun()
-	for _, s := range m.pending {
-		if s.NeedsPriv {
-			return checkSudoCached()
-		}
-	}
-	// No password prompt will stand in for the gate: ask it.
-	if m.gate != "" {
-		m.showGate()
-		return nil
-	}
-	return m.startQueue()
-}
-
-// showGate asks the action's proceed-gate. It is shown whenever no password
-// prompt is: the prompt is the gate otherwise.
-func (m *model) showGate() {
-	m.bg = screenMenu
-	m.confirmMsg = m.gate
-	m.confirmYes = false
-	m.gateActive = true
-	m.screen = screenConfirm
-}
-
-// startQueue initialises the checklist and kicks off the first step. If any
-// step needs sudo (and we're not in a dry run), it also starts the keep-alive
-// loop so a long step can't let the sudo timestamp lapse mid-queue.
-func (m *model) startQueue() tea.Cmd {
-	m.queue = make([]stepState, len(m.pending))
-	for i, s := range m.pending {
-		m.queue[i] = stepState{step: s, status: steps.Pending}
-	}
-	m.pending = nil
-	m.current = -1
-	m.screen = screenRunning
-	m.resizeOutput() // checklist length is now known — shrink the output pane to fit
-
-	cmd := m.advance()
-	if !dryRun && !m.sudoAlive && queueNeedsSudo(m.queue) {
-		m.sudoAlive = true
-		m.sudoGen++ // orphans the previous queue's loop if its tick is still pending
-		return tea.Batch(cmd, sudoTick(m.sudoGen))
-	}
-	return cmd
-}
-
-func queueNeedsSudo(q []stepState) bool {
-	for _, s := range q {
-		if s.step.NeedsPriv {
-			return true
-		}
-	}
-	return false
-}
-
-// advance moves to the next step: shows a confirm if the step has one,
-// otherwise launches it. When the queue is exhausted it flips to the summary.
-func (m *model) advance() tea.Cmd {
-	m.current++
-	if m.current >= len(m.queue) {
-		m.screen = screenSummary
-		m.sudoAlive = false // stop the keep-alive loop
-		m.dropAuditFetch()
-		m.recordRun(m.queueOutcome(false))
-		return refreshStatusNow()
-	}
-	s := m.queue[m.current].step
-	// Sudo auth was abandoned after too many wrong passwords: skip any step
-	// that needs it, note it in the log, and move on.
-	if s.NeedsPriv && m.sudoUnavailable {
-		m.queue[m.current].status = steps.AuthRefused
-		appendLog(s.LogCategory(), "SKIP", s.LogLabel+" (sudo authentication failed)", "")
-		m.skipped++ // a skip is not a failure — tallied separately
-		return m.advance()
-	}
-	if s.Confirm != "" {
-		m.bg = screenRunning
-		m.screen = screenConfirm
-		m.confirmMsg = s.Confirm
-		m.confirmYes = false
-		return nil
-	}
-	return m.launch()
-}
-
-func (m *model) launch() tea.Cmd {
-	m.queue[m.current].status = steps.Running
-	m.resetOutput()
-	m.stepSeq++
-	s := m.queue[m.current].step
-	if s.Run != nil {
-		// In-process step: no child to signal, just a Cmd whose result
-		// finishes the step. seq ties the result to this launch; ctx is
-		// what an abort cancels.
-		m.proc = nil
-		ctx, cancel := context.WithCancelCause(context.Background())
-		m.stepCancel = cancel
-		seq, run := m.stepSeq, s.Run
-		if s.Prefetch == steps.PrefetchAURAudit && m.auditFetch != nil {
-			fetch := m.auditFetch // already under way: await it, don't refetch
-			run = func(ctx context.Context, _ steps.Env) steps.Result { return fetch.Run(ctx) }
-		}
-		env := steps.Env{DryRun: dryRun}
-		return func() tea.Msg { return stepResultMsg{seq: seq, Result: run(ctx, env)} }
-	}
-	m.stream = make(chan proc.Msg, proc.BatchMax)
-	m.quit = make(chan struct{})
-	m.proc = runStep(s, m.stream, m.quit)
-	// The spinner is already ticking (started in Init); just pump the stream.
-	return waitForStream(m.stream, m.quit, m.stepSeq)
-}
-
-// stepResultMsg is an in-process step's result (see steps.Step.Run).
-type stepResultMsg struct {
-	seq int
-	steps.Result
-}
-
-// errResultTaken is the cause an in-process step's ctx is cancelled with
-// once the model has taken its result (handleStepResult). Every other cancel
-// is an abort. It is steps.ErrResultTaken, the cause every front end uses.
-var errResultTaken = steps.ErrResultTaken
-
-// stepAborted reports whether an in-process step's ctx was cancelled by an
-// abort, as opposed to released after its result was taken.
-func stepAborted(ctx context.Context) bool {
-	return ctx.Err() != nil && !errors.Is(context.Cause(ctx), errResultTaken)
-}
-
-// sigkillGrace is how long a child gets to honour SIGINT before it's forcibly
-// killed on abort (proc.Options.KillGrace). A var so tests can shrink it.
-var sigkillGrace = 5 * time.Second
-
-// abortRunning stops the active step's child and returns to the menu.
-// proc.Child.Stop sends SIGINT (like a terminal ctrl+c), which lets tools such
-// as pacman exit cleanly — for sudo steps, sudo relays it to the command it
-// runs — and SIGKILLs a child that ignores it after sigkillGrace. Late output
-// from the dying process (and a late in-process result) is dropped by its seq:
-// bumping stepSeq here retires the aborted launch's number before any new run
-// can start. An in-process step (the AUR audit, the downloads delete) also has
-// its ctx cancelled, so it returns at once rather than running on unseen; the
-// downloads delete stops between entries and logs what it removed itself.
-//
-// The checklist is settled before the run is recorded: the running step is
-// Aborted and every step still Pending behind it Skipped, so last-run.json's
-// steps_skipped counts what never ran (the summary isn't shown, so m.skipped,
-// its tally, is left alone).
-func (m *model) abortRunning() {
-	if m.current >= 0 && m.current < len(m.queue) {
-		if s := &m.queue[m.current]; s.status == steps.Running {
-			s.status = steps.Aborted
-		}
-		for i := m.current + 1; i < len(m.queue); i++ {
-			if m.queue[i].status == steps.Pending {
-				m.queue[i].status = steps.Skipped
-			}
-		}
-	}
-	if m.stepCancel != nil {
-		m.stepCancel(nil) // cause context.Canceled: an abort
-		m.stepCancel = nil
-	}
-	m.dropAuditFetch()
-	m.proc.Stop() // nil-safe; the grace was fixed at launch (procOptions)
-	m.proc = nil
-	if m.quit != nil {
-		close(m.quit) // nobody reads m.stream anymore: let runStep's goroutines finish
-		m.quit = nil
-	}
-	m.stepSeq++         // the aborted launch is over: its late messages are stale
-	m.sudoAlive = false // stop the keep-alive loop
-	m.screen = screenMenu
-	m.recordRun(logstore.OutcomeAborted)
-}
-
-func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
-	// Proceed-gate (cached-sudo path): not tied to a queue step yet.
-	if m.gateActive {
-		m.gateActive = false
-		if !m.confirmYes {
-			m.dropAuditFetch()
-			m.screen = screenMenu
-			m.recordRun(logstore.OutcomeCancelled)
-			return m, nil
-		}
-		cmd := m.startQueue()
-		return m, cmd
-	}
-
-	m.screen = screenRunning
-	s := &m.queue[m.current]
-	if !m.confirmYes {
-		if s.step.Optional {
-			s.status = steps.Skipped
-			m.skipped++
-			if s.step.AlwaysLog { // a declined step's outcome stays on record too
-				appendLog(s.step.LogCategory(), "SKIP", s.step.LogLabel+" (declined)", "")
-			}
-			cmd := m.advance()
-			return m, cmd
-		}
-		// non-optional "no" aborts: mark the declined step and everything
-		// after it as skipped so the summary shows what didn't run.
-		for i := m.current; i < len(m.queue); i++ {
-			m.queue[i].status = steps.Skipped
-			m.skipped++
-		}
-		m.aborted = true
-		m.sudoAlive = false // stop the keep-alive loop
-		m.dropAuditFetch()
-		m.screen = screenSummary
-		m.recordRun(m.queueOutcome(true))
-		return m, nil
-	}
-	if s.step.OnAccept != nil {
-		s.step.OnAccept() // a failure is logged by the callee and doesn't block the step
-	}
-	cmd := m.launch()
-	return m, cmd
-}
-
-func (m model) handleStream(msg streamBatchMsg) (tea.Model, tea.Cmd) {
-	// A batch from any launch but the active one is late output from an
-	// aborted step (abortRunning retires its seq; a new run may have started
-	// since): drop it and stop pumping. Applied, a late line would land in the
-	// new step's pane and log, a late done would finish the new step, and the
-	// re-pump would put a second reader on the new step's channel. This used
-	// to be a screen check (menu/summary), which an abort followed by a new
-	// run slips past. Popups over the running step (askpass, a confirm) don't
-	// matter: its stream keeps pumping underneath. A finished run needs no
-	// guard: nothing is sent after a step's done.
-	if msg.seq != m.stepSeq {
-		return m, nil
-	}
-	// The whole batch is applied in one go: one SetContent, one render.
-	if len(msg.lines) > 0 {
-		clean := make([]string, len(msg.lines)) // msg.lines stays raw
-		for i, l := range msg.lines {
-			clean[i] = sanitize.String(l, sanitize.KeepSGR) // colours only
-		}
-		m.appendOutput(clean)
-	}
-	if !msg.done {
-		return m, waitForStream(m.stream, m.quit, m.stepSeq) // keep pumping
-	}
-	return m.finishStep(msg.err)
-}
-
-// handleStepResult finishes an in-process step. A result from an earlier
-// launch (the run was aborted, possibly followed by a new one) is dropped, as
-// is one arriving after the run has ended.
-func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
-	if msg.seq != m.stepSeq || m.screen == screenMenu || m.screen == screenSummary {
-		return m, nil
-	}
-	m.dropAuditFetch() // consumed (if this was the audit)
-	if err := msg.Check(); err != nil {
-		// A confirm meant for the step after this one would land on the
-		// inserted step instead: refuse the result rather than guess, and
-		// fail closed. The step fails, nothing is inserted and Commit never
-		// runs, but the gate stands: with nothing inserted, ConfirmNext
-		// lands on the step it was meant for, so that step can only run
-		// once the user has said yes (and is skipped on no, as ever). The
-		// one other choice that never runs a gated step unconfirmed —
-		// skipping the rest of the queue — would throw away steps the
-		// result never meant to gate.
-		msg.Result = steps.Result{Output: msg.Output + "\narchmaid: " + err.Error(), Err: err,
-			ConfirmNext: msg.ConfirmNext}
-	}
-	if msg.Output != "" {
-		out := sanitize.String(strings.TrimRight(msg.Output, "\n"), sanitize.KeepSGR)
-		m.appendOutput(strings.Split(out, "\n"))
-		m.output.GotoTop() // a report reads top-down; its worst findings come first
-	}
-	if msg.Err == nil && msg.InsertNext != nil {
-		// A step found more work (the orphan probe's removal): it runs next,
-		// behind its own confirm, which advance asks as for any other step.
-		m.queue = slices.Insert(m.queue, m.current+1, stepState{step: *msg.InsertNext, status: steps.Pending})
-		m.resizeOutput() // one more checklist row
-	}
-	if msg.ConfirmNext != "" && m.current+1 < len(m.queue) {
-		next := &m.queue[m.current+1].step
-		next.Confirm = msg.ConfirmNext
-		next.Optional = true // declining skips just that step, not the queue
-		next.OnAccept = msg.Commit
-	} else if msg.ConfirmNext == "" && msg.Commit != nil {
-		msg.Commit()
-	}
-	// Only now release the step's ctx, saying why: errResultTaken. Any other
-	// cancel is an abort to the step (deleteOldDownloads logs its own outcome
-	// then), and the cause, not whether Commit ran, is what tells them apart:
-	// a refused or gated result leaves its Commit unrun.
-	if m.stepCancel != nil {
-		m.stepCancel(errResultTaken)
-		m.stepCancel = nil
-	}
-	return m.finishStep(msg.Err)
-}
-
-// finishStep records the active step's outcome (status, tallies, log entry)
-// and moves on to the next one.
-func (m model) finishStep(err error) (tea.Model, tea.Cmd) {
-	s := &m.queue[m.current]
-	cat := s.step.LogCategory()
-	if err != nil {
-		s.status = steps.Failed
-		m.errs++
-		appendLog(cat, "FAIL", s.step.LogLabel, m.buf.String())
-	} else {
-		s.status = steps.OK
-		switch {
-		case dryRun: // a dry run logs every action, not just failures
-			appendLog(cat, "DRYRUN", s.step.LogLabel, m.buf.String())
-		case s.step.AlwaysLog: // destructive steps log their outcome even on success
-			appendLog(cat, "OK", s.step.LogLabel, m.buf.String())
-		}
-	}
-	cmd := m.advance()
-	return m, cmd
+	m.send(engine.Start{Action: a.ID})
+	return m, nil
 }
 
 // openLogPicker shows the log-category menu ("View log").

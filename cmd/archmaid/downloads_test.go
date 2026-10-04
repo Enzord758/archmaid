@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,10 +10,9 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/downloads"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // isolateDownloads gives the test a scratch $HOME and XDG config dir, and
@@ -45,13 +45,13 @@ func mkdirs(t *testing.T, dirs ...string) {
 func TestDiscoverDownloadsNamesFolder(t *testing.T) {
 	home := isolateDownloads(t)
 
-	n := noticeOf(discoverNow(t, actions.IDDownloads).d)
+	n := noticeOf(discoverNow(t, actions.IDDownloads))
 	if !strings.Contains(n, "No downloads folder found (set --downloads or ARCHMAID_DOWNLOADS)") {
 		t.Fatalf("notice = %q, want the no-folder notice", n)
 	}
 
 	mkdirs(t, filepath.Join(home, "Download"))
-	n = noticeOf(discoverNow(t, actions.IDDownloads).d)
+	n = noticeOf(discoverNow(t, actions.IDDownloads))
 	if !strings.Contains(n, "~/Download") {
 		t.Fatalf("notice = %q, want it to name ~/Download", n)
 	}
@@ -100,7 +100,8 @@ func exists(path string) bool {
 
 // TestDownloadsThroughTheUI: discovery → the named confirm → "y" runs the
 // in-process delete → summary, with what was deleted on record in
-// cleanup.log.
+// cleanup.log, once: the engine's OK entry, the step's abort record
+// disarmed by the commit.
 func TestDownloadsThroughTheUI(t *testing.T) {
 	home := isolateDownloads(t)
 	oldLog := logDir
@@ -110,22 +111,9 @@ func TestDownloadsThroughTheUI(t *testing.T) {
 	writeFile(t, filepath.Join(dl, "old.iso"), "x")
 	cutoffAt(t, ctimeMark(t))
 
-	m := update(initialModel(), discoverNow(t, actions.IDDownloads))
-	if m.screen != screenConfirm || !strings.Contains(m.confirmMsg, "old.iso") {
-		t.Fatalf("screen=%d confirm=%q, want the confirm naming old.iso", m.screen, m.confirmMsg)
-	}
-	next, cmd := m.Update(key("y"))
-	m = next.(model)
-	if cmd == nil {
-		t.Fatal("confirming should launch the delete step")
-	}
-	msg, ok := cmd().(stepResultMsg)
-	if !ok {
-		t.Fatalf("delete Cmd returned %T, want stepResultMsg", msg)
-	}
-	m = update(m, msg)
-	if m.screen != screenSummary || m.errs != 0 {
-		t.Fatalf("screen=%d errs=%d, want a clean summary", m.screen, m.errs)
+	d := run(t, "", "Delete old downloads", Answer{"confirm", "old.iso", "yes"})
+	if d.m.screen != screenSummary || d.m.errs != 0 {
+		t.Fatalf("screen=%d errs=%d, want a clean summary\n%s", d.m.screen, d.m.errs, d.Transcript())
 	}
 	if exists(filepath.Join(dl, "old.iso")) {
 		t.Fatal("old.iso survived")
@@ -140,43 +128,36 @@ func TestDownloadsThroughTheUI(t *testing.T) {
 	}
 }
 
-// startDownloadsDelete puts four old files in ~/Downloads, runs discovery and
-// says yes, returning the model and the delete step's Cmd; logs go to a
-// scratch dir.
-func startDownloadsDelete(t *testing.T) (model, tea.Cmd, string) {
+// startDownloadsDelete puts four old files in ~/Downloads and runs the
+// discovery, returning the delete step's Run on a ctx the test cancels as
+// the Driver does (abort: plain context.Canceled; result taken:
+// steps.ErrResultTaken); logs go to a scratch dir.
+func startDownloadsDelete(t *testing.T) (run func() steps.Result, cancel context.CancelCauseFunc, dl string) {
 	t.Helper()
 	home := isolateDownloads(t)
 	oldLog := logDir
 	logDir = t.TempDir()
 	t.Cleanup(func() { logDir = oldLog })
-	dl := filepath.Join(home, "Downloads")
+	dl = filepath.Join(home, "Downloads")
 	for _, n := range []string{"a.txt", "b.txt", "c.txt", "d.txt"} {
 		writeFile(t, filepath.Join(dl, n), "x")
 	}
 	cutoffAt(t, ctimeMark(t))
-	m := update(initialModel(), discoverNow(t, actions.IDDownloads))
-	next, cmd := m.Update(key("y"))
-	if cmd == nil {
-		t.Fatal("confirming should launch the delete step")
+	p, ok := discoverNow(t, actions.IDDownloads).(actions.Pending)
+	if !ok || len(p.Steps) != 1 || p.Steps[0].Run == nil {
+		t.Fatalf("discovery = %#v, want the one delete step", p)
 	}
-	return next.(model), cmd, dl
-}
-
-// abortRun answers the running screen's ctrl+c with "yes, abort".
-func abortRun(t *testing.T, m model) model {
-	t.Helper()
-	m = update(update(m, key("ctrl+c")), key("y"))
-	if m.screen != screenMenu {
-		t.Fatalf("screen=%d after abort, want the menu", m.screen)
-	}
-	return m
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+	step := p.Steps[0]
+	return func() steps.Result { return step.Run(ctx, steps.Env{}) }, cancel, dl
 }
 
 // TestDownloadsAbortMidDeletionIsLogged: aborting partway through the delete
 // drops the step's result, but cleanup.log still names exactly the entries
 // that were deleted, and where it stopped.
 func TestDownloadsAbortMidDeletionIsLogged(t *testing.T) {
-	m, cmd, dl := startDownloadsDelete(t)
+	run, abort, dl := startDownloadsDelete(t)
 	reached, resume := make(chan struct{}), make(chan struct{})
 	downloadsEntryHook = func(name string) {
 		if name == "c.txt" {
@@ -185,16 +166,13 @@ func TestDownloadsAbortMidDeletionIsLogged(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { downloadsEntryHook = nil })
-	msgs := make(chan tea.Msg, 1)
-	go func() { msgs <- cmd() }()
+	done := make(chan steps.Result, 1)
+	go func() { done <- run() }()
 
 	<-reached // a.txt and b.txt are gone
-	m = abortRun(t, m)
+	abort(nil)
 	close(resume)
-	m = update(m, <-msgs) // stale: dropped
-	if m.screen != screenMenu {
-		t.Fatalf("screen=%d, the aborted result must be dropped", m.screen)
-	}
+	<-done // dropped, as the engine drops an aborted step's result
 
 	log, _ := os.ReadFile(logPath(logCategoryCleanup))
 	for _, want := range []string{"ABORT: Old downloads deleted (aborted)",
@@ -213,17 +191,13 @@ func TestDownloadsAbortMidDeletionIsLogged(t *testing.T) {
 }
 
 // TestDownloadsAbortAfterTheRunIsLogged: an abort that lands after the delete
-// finished but before the model took its result still leaves the record —
+// finished but before the engine took its result still leaves the record —
 // the result is dropped, so the step writes it.
 func TestDownloadsAbortAfterTheRunIsLogged(t *testing.T) {
-	m, cmd, dl := startDownloadsDelete(t)
-	msg := cmd() // the whole delete runs
-	m = abortRun(t, m)
+	run, abort, dl := startDownloadsDelete(t)
+	run() // the whole delete runs; its AfterFunc is armed
+	abort(nil)
 	waitForDownloads(io.Discard)
-	m = update(m, msg) // stale: dropped
-	if m.screen != screenMenu {
-		t.Fatalf("screen=%d, the aborted result must be dropped", m.screen)
-	}
 	log, _ := os.ReadFile(logPath(logCategoryCleanup))
 	if !strings.Contains(string(log), "ABORT: Old downloads deleted (aborted)") ||
 		!strings.Contains(string(log), "deleted: d.txt") || strings.Count(string(log), ": Old downloads deleted") != 1 {
@@ -231,6 +205,19 @@ func TestDownloadsAbortAfterTheRunIsLogged(t *testing.T) {
 	}
 	if exists(filepath.Join(dl, "a.txt")) {
 		t.Fatal("a.txt survived")
+	}
+}
+
+// TestDownloadsResultTakenLogsNoAbort: a result the engine took without
+// running its commit (refused, or gated behind a confirm) is released with
+// steps.ErrResultTaken, which is no abort: no ABORT record.
+func TestDownloadsResultTakenLogsNoAbort(t *testing.T) {
+	run, release, _ := startDownloadsDelete(t)
+	run()
+	release(steps.ErrResultTaken)
+	waitForDownloads(io.Discard)
+	if log, _ := os.ReadFile(logPath(logCategoryCleanup)); strings.Contains(string(log), "ABORT") {
+		t.Fatalf("a taken result logged an abort:\n%s", log)
 	}
 }
 
@@ -242,7 +229,7 @@ func TestDownloadsAbortAfterTheRunIsLogged(t *testing.T) {
 // entry lands in the wrong place.
 func TestDownloadsAbortLogsWhereItStarted(t *testing.T) {
 	t.Run("mid-deletion", func(t *testing.T) {
-		m, cmd, _ := startDownloadsDelete(t)
+		run, abort, _ := startDownloadsDelete(t)
 		want := logPath(logCategoryCleanup)
 		reached, resume := make(chan struct{}), make(chan struct{})
 		downloadsEntryHook = func(name string) {
@@ -252,24 +239,23 @@ func TestDownloadsAbortLogsWhereItStarted(t *testing.T) {
 			}
 		}
 		t.Cleanup(func() { downloadsEntryHook = nil })
-		msgs := make(chan tea.Msg, 1)
-		go func() { msgs <- cmd() }()
+		done := make(chan steps.Result, 1)
+		go func() { done <- run() }()
 		<-reached
-		m = abortRun(t, m) // cancels the step's ctx: it logs as it returns
+		abort(nil) // cancels the step's ctx: it logs as it returns
 
 		orig, elsewhere := logDir, []string{t.TempDir(), t.TempDir()}
 		close(resume)
-		var msg tea.Msg
-		for i := 0; msg == nil; i++ {
+		for i, finished := 0, false; !finished; i++ {
 			logDir = elsewhere[i%2] // no syscalls here: they'd hide a racy read
 			select {
-			case msg = <-msgs:
+			case <-done:
+				finished = true
 			default:
 				runtime.Gosched()
 			}
 		}
 		logDir = orig
-		update(m, msg) // stale: dropped
 
 		if log, _ := os.ReadFile(want); !strings.Contains(string(log), "ABORT: Old downloads deleted (aborted)") {
 			t.Fatalf("%s lacks the abort record:\n%s", want, log)
@@ -281,13 +267,12 @@ func TestDownloadsAbortLogsWhereItStarted(t *testing.T) {
 		}
 	})
 	t.Run("after the run", func(t *testing.T) {
-		m, cmd, _ := startDownloadsDelete(t)
+		run, abort, _ := startDownloadsDelete(t)
 		want := logPath(logCategoryCleanup)
-		msg := cmd() // the whole delete runs; its AfterFunc is armed
+		run() // the whole delete runs; its AfterFunc is armed
 		logDir = t.TempDir()
-		m = abortRun(t, m) // the AfterFunc writes the record
+		abort(nil) // the AfterFunc writes the record
 		waitForDownloads(io.Discard)
-		update(m, msg)
 		if log, _ := os.ReadFile(want); !strings.Contains(string(log), "ABORT: Old downloads deleted (aborted)") {
 			t.Fatalf("%s lacks the abort record:\n%s", want, log)
 		}

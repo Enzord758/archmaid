@@ -11,9 +11,17 @@ import (
 
 // ── sudo -A on every sudo step ────────────────────────────────────────────────
 //
-// runStep must exec `sudo -A <args>` for sudo steps so any needed password is
-// read via SUDO_ASKPASS (a TUI popup), never the tty. Asserted with a PATH
-// shim standing in for the real binary, so nothing privileged runs.
+// A sudo step must exec `sudo -A <args>` so any needed password is read via
+// SUDO_ASKPASS (a TUI popup), never the tty. Asserted with a PATH shim
+// standing in for the real binary, so nothing privileged runs.
+
+// runStep starts s's child as the Driver does (internal/driver's startStep:
+// Deps.Priv's command line, through internal/proc), with the Priv main gives
+// it, privileged().
+func runStep(s steps.Step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
+	opts := proc.Options{DryRun: dryRun, WaitDelay: stepWaitDelay, KillGrace: sigkillGrace}
+	return proc.New(opts).Start(privileged().Command(s.Argv, s.NeedsPriv), ch, quit)
+}
 
 // shimEchoArgs installs a fake `name` on PATH that prints its argv and exits 0.
 func shimEchoArgs(t *testing.T, name string) {
@@ -27,7 +35,7 @@ func shimEchoArgs(t *testing.T, name string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-// withAskpassWrapper wires askpass up for runStep for the test's duration.
+// withAskpassWrapper wires askpass up for privileged() for the test's duration.
 func withAskpassWrapper(t *testing.T, path string) {
 	t.Helper()
 	old := askpassWrapper
@@ -96,120 +104,5 @@ func TestTopgradeStepsNeedSudo(t *testing.T) {
 	list := fullCleanupSteps()
 	if i := findStep(list, "topgrade"); i == -1 || !list[i].NeedsPriv {
 		t.Fatal("Full Cleanup's topgrade step must be needsSudo")
-	}
-}
-
-// ── keep-alive loop lifecycle ─────────────────────────────────────────────────
-
-// sudoQueueModel returns a model with a pending sudo step whose confirm pauses
-// the queue before anything would exec.
-func sudoQueueModel() model {
-	m := initialModel()
-	m.pending = []steps.Step{{Title: "root job", LogLabel: "root job",
-		Argv: []string{"sudo", "true"}, NeedsPriv: true, Confirm: "go?"}}
-	return m
-}
-
-// TestKeepAliveStartsWithSudoQueue: a real-run sudo queue arms the keep-alive.
-func TestKeepAliveStartsWithSudoQueue(t *testing.T) {
-	m := sudoQueueModel()
-	got := update(m, sudoCachedMsg{cached: true})
-	if !got.sudoAlive {
-		t.Fatal("sudoAlive should be armed for a sudo queue in a real run")
-	}
-	// The confirm pauses the queue: nothing has executed.
-	if got.screen != screenConfirm {
-		t.Fatalf("expected the step confirm, got screen=%d", got.screen)
-	}
-}
-
-// TestKeepAliveNotStartedInDryRun: a dry run never arms the keep-alive (and
-// never touches sudo).
-func TestKeepAliveNotStartedInDryRun(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-
-	got := update(sudoQueueModel(), sudoCachedMsg{cached: true})
-	if got.sudoAlive {
-		t.Fatal("dry run must not arm the sudo keep-alive")
-	}
-}
-
-// TestKeepAliveReschedulesWhileAlive: a keep-alive msg while armed returns a
-// follow-up cmd (refresh + next tick) and stays armed.
-func TestKeepAliveReschedulesWhileAlive(t *testing.T) {
-	m := initialModel()
-	m.sudoAlive = true
-	next, cmd := m.Update(sudoKeepAliveMsg{})
-	if cmd == nil {
-		t.Fatal("armed keep-alive should reschedule")
-	}
-	if !next.(model).sudoAlive {
-		t.Fatal("keep-alive should stay armed")
-	}
-}
-
-// TestKeepAliveNoopWhenCleared: once disarmed, a stale keep-alive msg does
-// nothing — no refresh, no new tick.
-func TestKeepAliveNoopWhenCleared(t *testing.T) {
-	m := initialModel()
-	m.sudoAlive = false
-	_, cmd := m.Update(sudoKeepAliveMsg{})
-	if cmd != nil {
-		t.Fatal("disarmed keep-alive must not reschedule")
-	}
-}
-
-// TestKeepAliveClearedOnSummary: finishing the queue disarms the keep-alive.
-func TestKeepAliveClearedOnSummary(t *testing.T) {
-	m := initialModel()
-	m.screen = screenRunning
-	m.sudoAlive = true
-	m.queue = []stepState{{step: steps.Step{Title: "x", LogLabel: "x"}, status: steps.Running}}
-	m.current = 0
-
-	next, _ := m.handleStream(streamBatchMsg{done: true})
-	got := next.(model)
-	if got.screen != screenSummary {
-		t.Fatalf("expected summary, got screen=%d", got.screen)
-	}
-	if got.sudoAlive {
-		t.Fatal("keep-alive must be disarmed on the summary")
-	}
-}
-
-// TestKeepAliveClearedOnConfirmAbort: declining a non-optional confirm aborts
-// the queue and disarms the keep-alive.
-func TestKeepAliveClearedOnConfirmAbort(t *testing.T) {
-	m := initialModel()
-	m.screen = screenConfirm
-	m.sudoAlive = true
-	m.queue = []stepState{{step: steps.Step{Title: "x", Confirm: "?"}, status: steps.Pending}}
-	m.current = 0
-	m.confirmYes = false
-
-	next, _ := m.resolveConfirm()
-	got := next.(model)
-	if got.screen != screenSummary || !got.aborted {
-		t.Fatalf("expected aborted summary, got screen=%d aborted=%v", got.screen, got.aborted)
-	}
-	if got.sudoAlive {
-		t.Fatal("keep-alive must be disarmed on a confirm abort")
-	}
-}
-
-// TestKeepAliveClearedOnAbortRunning: aborting a running step disarms the
-// keep-alive.
-func TestKeepAliveClearedOnAbortRunning(t *testing.T) {
-	m := initialModel()
-	m.screen = screenRunning
-	m.sudoAlive = true
-
-	m.abortRunning() // nil proc (dry-run-like) is safe
-	if m.sudoAlive {
-		t.Fatal("keep-alive must be disarmed on abort")
-	}
-	if m.screen != screenMenu {
-		t.Fatalf("abort should return to the menu, got screen=%d", m.screen)
 	}
 }

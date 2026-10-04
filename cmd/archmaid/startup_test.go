@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/logstore"
 )
 
 // seedHistory points logDir at a scratch state dir holding logKeepRuns+1 run
@@ -109,10 +111,9 @@ func TestStartupDeletesNothing(t *testing.T) {
 			}
 			if start && dryRun {
 				// What the dry-run TUI then writes: its own dryrun/ slot only.
-				appendLog(logCategoryCleanup, "DRYRUN", "Test step", "would run: true\n")
-				m := initialModel()
-				m.runAction, m.runStarted = "Test", time.Now()
-				m.recordRun("ok")
+				_ = logs().Append(logCategoryCleanup, "DRYRUN", "Test step", "would run: true\n")
+				_ = logs().WriteLastRun(logstore.RunRecord{Action: "Test", Started: time.Now(),
+					Finished: time.Now(), Outcome: logstore.OutcomeOK, DryRun: true})
 			}
 			after := listTree(t, dir)
 			if gone := missing(before, after); len(gone) > 0 {
@@ -150,7 +151,7 @@ func TestRealRunRotatesHistory(t *testing.T) {
 	if gone := missing(before, listTree(t, dir)); len(gone) > 0 {
 		t.Fatalf("a real start pruned before writing anything: %v", gone)
 	}
-	appendLog(logCategoryCleanup, "FAIL", "Test step", "")
+	_ = logs().Append(logCategoryCleanup, "FAIL", "Test step", "")
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)

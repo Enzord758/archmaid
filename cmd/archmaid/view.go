@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/Enzord758/archmaid/internal/actions"
-	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -39,7 +38,7 @@ func (m model) renderScreen(s screen) string {
 // screenAbortConfirm's background is always screenRunning by construction —
 // the only place that opens it sets that — so it's hardcoded here rather
 // than read from m.bg. The other three vary, so they use the shared m.bg
-// field; see handleAskpass in update.go for why a screen already
+// field; see openAskpass in adapter.go for why a screen already
 // showing as one of those three must not overwrite m.bg with itself (m.bg
 // is a single field, not a per-layer stack — self-assignment there would
 // recurse forever).
@@ -116,7 +115,7 @@ func (m model) viewMenu() string {
 
 func (m model) viewPassword() string {
 	head := stepRunStyle.Render("🔒 sudo access required")
-	if m.askpassReq != nil || m.eng.askpassOpen() {
+	if m.eng.askpassOpen() {
 		head += "\n\n" + m.viewAskpassFrom()
 	}
 	if m.authInFlight {
@@ -133,17 +132,14 @@ func (m model) viewPassword() string {
 }
 
 // viewAskpassFrom says which request a mid-run password prompt answers: the
-// running step, the program that ran sudo (its real binary, from /proc) and
-// sudo's own prompt — quoted, since whoever runs sudo chooses it (sudo -p).
+// running step, the program that ran sudo (its real binary, from /proc, as
+// the Driver names it) and sudo's own prompt — quoted, since whoever runs
+// sudo chooses it (sudo -p).
 func (m model) viewAskpassFrom() string {
 	f := m.askpassFrom
-	caller := f.caller
-	if caller == "" {
-		caller = fmt.Sprintf("%s (pid %d)", sanitize.ClipTail(sanitize.OneLine(orUnknown(f.callerExe)), 40), f.callerPid)
-	}
 	lines := []string{
 		statusStyle.Render("step    ") + f.step,
-		statusStyle.Render("caller  ") + caller,
+		statusStyle.Render("caller  ") + f.caller,
 	}
 	if f.prompt != "" {
 		lines = append(lines, statusStyle.Render("prompt  ")+fmt.Sprintf("%q", f.prompt))
@@ -259,7 +255,7 @@ func (m model) viewLog() string {
 // + hint), so resizeOutput's fixed row budget for the log viewer applies.
 func (m model) viewAudit() string {
 	hint := "↑/↓ scroll · q back"
-	if m.auditCommit != nil || m.eng.canAccept() {
+	if m.eng.canAccept() {
 		hint = "↑/↓ scroll · a accept maintainer changes · q back"
 	}
 	return m.header() + "\n" +

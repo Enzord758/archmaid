@@ -41,21 +41,17 @@ func TestViewLogCreatesNoRunDir(t *testing.T) {
 // OSC 52 clipboard write) lands in the log as plain text, and an old log that
 // still holds raw escapes is shown plain by View log.
 func TestLogsAreSanitized(t *testing.T) {
-	useLogDir(t, t.TempDir())
+	transcriptEnv(t, false)
+	installShims(t, Shims{"emit": {{Out: "\x1b[1m:: \x1b[0mupgrading\n10%\r100%\n\x1b]52;c;ZXZpbA==\x07done"}}})
 
-	m := fixedModel()
-	m.screen = screenRunning
-	m.queue = []stepState{{step: steps.Step{Title: "up", LogLabel: "Topgrade completed",
-		Category: logCategoryTopgrade, AlwaysLog: true}, status: steps.Running}}
-	m.current = 0
-	for _, line := range []string{"\x1b[1m:: \x1b[0mupgrading", "10%\r100%", "\x1b]52;c;ZXZpbA==\x07done"} {
-		next, _ := m.handleStream(streamBatchMsg{lines: []string{line}})
-		m = next.(model)
+	m := startQueue(t, steps.Step{ID: "up", Title: "up", LogLabel: "Topgrade completed",
+		Category: logCategoryTopgrade, AlwaysLog: true, Argv: []string{"emit"}}).m
+	if m.queue[0].status != steps.OK {
+		t.Fatalf("step status %d", m.queue[0].status)
 	}
-	if got := m.buf.String(); got != "\x1b[1m:: \x1b[0mupgrading\n100%\ndone\n" {
+	if got := m.tail.String(); got != "\x1b[1m:: \x1b[0mupgrading\n100%\ndone\n" {
 		t.Fatalf("output pane = %q: colours kept, everything else stripped", got)
 	}
-	m.handleStream(streamBatchMsg{done: true})
 
 	data, err := os.ReadFile(logPath(logCategoryTopgrade))
 	if err != nil {
@@ -101,7 +97,7 @@ func TestLogRunDirIsStableAcrossRebuilds(t *testing.T) {
 		t.Fatalf("run dirs %q then %q, want both 20010203-0405", first, second)
 	}
 	// Entries are still stamped with the real time, not the run's start.
-	appendLog(logCategoryCleanup, "OK", "stamp", "")
+	_ = logs().Append(logCategoryCleanup, "OK", "stamp", "")
 	if log, _ := os.ReadFile(logPath(logCategoryCleanup)); strings.Contains(string(log), "[2001-") {
 		t.Fatalf("entry stamped with the run's start:\n%s", log)
 	}

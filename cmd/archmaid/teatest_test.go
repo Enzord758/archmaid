@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
@@ -21,10 +21,12 @@ import (
 const testStatus = " Free: 100G   RAM avail: 8G   Cache: 512M"
 
 // fixedModel returns an initial model with a deterministic status line so that
-// rendered goldens are stable across machines and runs.
+// rendered goldens are stable across machines and runs. It runs on a
+// fakeDriver: a test feeds it the engine's Events.
 func fixedModel() model {
 	m := initialModel()
 	m.status = testStatus
+	m.eng = newEngineState(&fakeDriver{})
 	return m
 }
 
@@ -94,8 +96,9 @@ func TestMenuGolden(t *testing.T) {
 	teatest.RequireEqualOutput(t, []byte(fm.View()))
 }
 
-// TestServicesGolden routes into the services multi-select via a discovery
-// message, toggles a couple of entries, and golden-compares the checklist.
+// TestServicesGolden routes into the services multi-select via the engine's
+// NeedsSelection, toggles a couple of entries, and golden-compares the
+// checklist.
 func TestServicesGolden(t *testing.T) {
 	dryRun = true
 	defer func() { dryRun = false }()
@@ -103,9 +106,9 @@ func TestServicesGolden(t *testing.T) {
 	tm := teatest.NewTestModel(t, fixedModel(), teatest.WithInitialTermSize(80, 24))
 	waitForText(t, tm, "archmaid")
 
-	tm.Send(discoveryMsg{d: actions.NeedsSelection{Items: []string{
+	tm.Send(engineEventsMsg{evs: []engine.Event{engine.NeedsSelection{ID: 1, Items: []string{
 		"bluetooth.service", "cups.service", "docker.service",
-	}, Steps: actions.DisableUnits}})
+	}}}})
 	waitForText(t, tm, "select services to disable")
 
 	// cursor starts on row 0; select it, move down twice, select the third.

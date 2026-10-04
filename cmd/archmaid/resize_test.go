@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -15,13 +16,19 @@ import (
 // resizeOutput must shrink the pane by the checklist's height on that screen,
 // or the rendered frame overflows the terminal (see viewRunningNeverExceedsTerminalHeight).
 
-// queueOf builds n pending stepStates, the shape startQueue leaves behind.
+// queueOf builds n pending stepStates, the shape QueueStarted leaves behind.
 func queueOf(n int) []stepState {
 	q := make([]stepState, n)
 	for i := range q {
 		q[i] = stepState{step: steps.Step{Title: "step"}, status: steps.Pending}
 	}
 	return q
+}
+
+// askpassAsks is the engine asking for the running step's sudo password.
+func askpassAsks() engine.NeedsPassword {
+	return engine.NeedsPassword{ID: 9, Kind: engine.PasswordAskpass, Requester: "/usr/bin/yay (pid 5000150)",
+		Prompt: "[sudo] password for u: ", AttemptsLeft: 3}
 }
 
 func TestResizeOutputShrinksForRunningQueue(t *testing.T) {
@@ -119,11 +126,10 @@ func TestAskpassOverAbortConfirmPreservesTheDialog(t *testing.T) {
 	m.bg = screenRunning // set by the ctrl+c handler, per the real flow
 	m.queue = queueOf(1)
 	m.current = 0
-	m = sudoStepRunning(t, m) // the step the abort dialog is about is still running
+	m.queue[0].status = steps.Running // the step the abort dialog is about is still running
 	m.resizeOutput()
 
-	c1, _ := pipeConn(t)
-	got := update(m, helperAsks(c1))
+	got := feed(m, askpassAsks())
 
 	if got.screen != screenPassword {
 		t.Fatalf("screen = %d, want screenPassword", got.screen)
@@ -156,15 +162,16 @@ func TestAskpassOverAbortConfirmPreservesTheDialog(t *testing.T) {
 }
 
 func TestAskpassOverPasswordScreenKeepsRealBackground(t *testing.T) {
-	m := sudoStepRunning(t, fixedModel())
+	m := fixedModel()
+	m.queue = queueOf(1)
+	m.current = 0
+	m.queue[0].status = steps.Running
 	m.screen = screenPassword
 	m.bg = screenMenu
 
-	c1, _ := pipeConn(t)
-	req := helperAsks(c1)
-	got := update(m, req)
+	got := feed(m, askpassAsks())
 
-	if got.screen != screenPassword || got.askpassReq != req.req {
+	if got.screen != screenPassword || !got.eng.askpassOpen() {
 		t.Fatal("the request didn't open the askpass prompt")
 	}
 	if got.bg != screenMenu {

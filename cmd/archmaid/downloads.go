@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -52,16 +53,16 @@ func downloadsOptions() downloads.Options {
 // deleteOldDownloads is the delete step's run. An abort cancels ctx, which
 // stops the deletion between entries: nothing after that is touched.
 //
-// An aborted run's result is dropped (stepSeq), and finishStep never logs
-// it, so a real run puts what it deleted on record itself: when it sees the
-// abort, and — should the abort land after it returned but before the model
-// took its result — from a context.AfterFunc. The AfterFunc logs only for an
-// abort (stepAborted): once the model has taken the result it cancels ctx
-// with errResultTaken, which the AfterFunc lets pass, so a result taken
-// without its commit run (refused, or gated behind a confirm) leaves no
-// false abort record. The commit just disarms it early. Either way
-// cleanup.log gets one entry naming exactly what was deleted, in store: both
-// run off the model's goroutine, so they must not look the store up
+// An aborted run's result is dropped and the engine never logs it, so a
+// real run puts what it deleted on record itself: when it sees the abort,
+// and — should the abort land after it returned but before the engine took
+// its result — from a context.AfterFunc. The AfterFunc logs only for an
+// abort (stepAborted): once the engine has taken the result its Driver
+// cancels ctx with steps.ErrResultTaken, which the AfterFunc lets pass, so
+// a result taken without its commit run (refused, or gated behind a
+// confirm) leaves no false abort record. The commit just disarms it early.
+// Either way cleanup.log gets one entry naming exactly what was deleted, in
+// store: both run on a Driver worker, so they must not look the store up
 // themselves (logs).
 func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context.Context, steps.Env) steps.Result {
 	return func(ctx context.Context, _ steps.Env) steps.Result {
@@ -71,7 +72,7 @@ func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context
 		r, err := downloads.Delete(ctx, plan, opt)
 		res := steps.Result{Output: r.Output, Err: err}
 		if opt.DryRun {
-			return res // nothing deleted; finishStep logs the DRYRUN entry
+			return res // nothing deleted; the engine logs the DRYRUN entry
 		}
 		if ctx.Err() != nil {
 			logAbortedDownloads(store, res.Output)
@@ -97,6 +98,13 @@ func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context
 	}
 }
 
+// stepAborted reports whether an in-process step's ctx was cancelled by an
+// abort, as opposed to released after its result was taken
+// (steps.ErrResultTaken).
+func stepAborted(ctx context.Context) bool {
+	return ctx.Err() != nil && !errors.Is(context.Cause(ctx), steps.ErrResultTaken)
+}
+
 // downloadsRunning counts deletions (and their pending abort records) still
 // in flight, so main can let them finish before the process exits.
 var downloadsRunning sync.WaitGroup
@@ -116,8 +124,8 @@ func waitForDownloads(w io.Writer) {
 }
 
 // logAbortedDownloads records an aborted real run's output — what it deleted
-// and where it stopped — in place of the entry finishStep would have written.
-// Like appendLog, a failed write is dropped.
+// and where it stopped — in place of the entry the engine would have
+// written. A failed write is dropped: logging must never break a step.
 func logAbortedDownloads(store *logstore.Store, output string) {
 	_ = store.Append(logCategoryCleanup, "ABORT", "Old downloads deleted (aborted)", output)
 }

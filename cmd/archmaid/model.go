@@ -1,19 +1,10 @@
 package main
 
 import (
-	"context"
-	"strings"
-	"time"
-
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/Enzord758/archmaid/internal/actions"
-	"github.com/Enzord758/archmaid/internal/privilege"
-	"github.com/Enzord758/archmaid/internal/proc"
-	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── screens ──────────────────────────────────────────────────────────────────
@@ -29,18 +20,17 @@ const (
 	screenLogPicker // "View log" category menu (topgrade / orphans / cleanup)
 	screenLog
 	screenNotice       // one-line result ("nothing to do") → any key back
-	screenDiscovering  // spinner while a discovery cmd runs
+	screenDiscovering  // spinner while a discovery runs
 	screenServices     // multi-select checklist of services to disable
-	screenAbortConfirm // ctrl+c while running → confirm before killing the child
+	screenAbortConfirm // ctrl+c while running → confirm before stopping the step
 	screenAudit        // scrollable AUR-audit report (see audit.go)
 )
 
-// maxSudoAttempts is how many wrong passwords are allowed before we give up,
-// skip the sudo-requiring steps, and log them.
-const maxSudoAttempts = 3
-
 // ── model ────────────────────────────────────────────────────────────────────
 
+// model is the TUI: what it shows, derived from the engine's Events
+// (adapter.go), and the TUI's own state (the menu, the log viewer, the
+// output pane's scroll).
 type model struct {
 	screen screen // active screen; for popup screens, drawn over bg
 	bg     screen // background screen to composite a popup over
@@ -56,21 +46,11 @@ type model struct {
 	// resizeOutput).
 	termWidth, termHeight int
 
-	// last-run record state (see recordRun)
-	runAction  string    // menu id of the action in progress
-	runStarted time.Time // when the action was chosen
-	runDone    bool      // the record for this run has been written
-
 	// password-prompt state
-	password        textinput.Model
-	pwErr           string
-	pwAttempts      int                // consecutive wrong passwords this action
-	authInFlight    bool               // prime submitted, waiting on PAM — input locked
-	sudoUnavailable bool               // set after maxSudoAttempts failures: skip sudo steps
-	sudoAlive       bool               // keep-alive loop active for the running queue
-	sudoGen         int                // generation of the live keep-alive loop; stale ticks are dropped
-	askpassReq      *privilege.Request // pending sudo askpass request (nil = prime-mode prompt)
-	askpassFrom     askpassRequester   // who askpassReq came from, for the popup
+	password     textinput.Model
+	pwErr        string
+	authInFlight bool             // a password was sent and is being checked: input locked
+	askpassFrom  askpassRequester // who the open askpass prompt is for, for the popup
 
 	// dynamic-action state
 	notice      string // screenNotice message
@@ -80,64 +60,31 @@ type model struct {
 	services      []string
 	serviceOn     []bool
 	serviceCursor int
-	selectSteps   func(selected []string) []steps.Step // builds the queue for the picked services
 
 	// log viewer state
 	logCursor int         // screenLogPicker selection
 	logCat    logCategory // category currently open in screenLog
 	logReturn screen      // screen to return to on esc from screenLogPicker
 
-	// auditCommit accepts the open audit report's high findings into the
-	// maintainer snapshot (`a` on screenAudit); nil when there's nothing to
-	// accept. Leaving the screen drops it.
-	auditCommit func() error
-
 	// running-queue state
 	queue   []stepState
-	current int              // index into queue
-	proc    *proc.Child      // the active step's child (for abort; its Start ties askpass requests to it, see verifyAskpassPeer)
-	stream  chan proc.Msg    // output channel for the active step
-	quit    chan struct{}    // closed on abort: releases the active step's stream goroutines
-	stepSeq int              // bumped per launch and on abort; stream messages and in-process results carry it so stale ones are dropped
-	buf     *strings.Builder // accumulated output of the active step (pointer:
-	//                          strings.Builder must not be copied by value, and
-	//                          the model is copied on every Update)
-	tail *lineTail // the newest lines of buf: what the output pane shows (see output.go)
+	current int       // index into queue
+	tail    *lineTail // the newest lines of the running step: what the output pane shows (see output.go)
 
 	errs    int  // steps that failed
-	skipped int  // steps skipped (sudo unavailable, or aborted queue)
-	aborted bool // queue aborted by declining a required confirm
+	skipped int  // steps skipped (refused, declined or aborted)
+	aborted bool // queue stopped by declining a required confirm
 
-	// stepCancel cancels the running in-process step's ctx (see launch); an
-	// abort calls it so the step returns at once. Once the step's result has
-	// been taken it is called with errResultTaken, the one cause that is not
-	// an abort. nil when none is running.
-	stepCancel context.CancelCauseFunc
-	// auditFetch is the current action's AUR audit, started when the action
-	// was chosen so it runs behind the password prompt (see startAuditFetch
-	// and audit.Prefetch).
-	// nil when the action has none or it was dropped (dropAuditFetch).
-	auditFetch *auditFetch
-
-	// confirm-modal state
-	pending    []steps.Step // queue waiting on a confirm
+	// confirm-modal state: gateActive marks the action's proceed-gate, as
+	// opposed to a step's confirm.
 	confirmMsg string
 	confirmYes bool
-
-	// proceed-gate state: gate is the message to show when sudo is cached (no
-	// password prompt to act as the gate); gateActive marks that the current
-	// confirm is the gate rather than a per-step confirm.
-	gate       string
 	gateActive bool
 
-	// eng is the engine side of the model (adapter.go): set, the model runs
-	// its actions on an engine.Driver and derives its state from the Events.
+	// eng is the engine side of the model (adapter.go): the Driver the
+	// model runs its actions on, and the prompts it has open. nil only in
+	// a test that just draws the model.
 	eng *engineState
-
-	// needsRoot is a discovery waiting on sudo (Repair's recheck of the
-	// packages its user scan flagged): its Rescan runs once the ticket is
-	// primed, in place of starting a queue.
-	needsRoot *actions.NeedsRoot
 }
 
 func initialModel() model {
@@ -159,7 +106,6 @@ func initialModel() model {
 		spinner:  sp,
 		output:   vp,
 		password: pw,
-		buf:      &strings.Builder{},
 		tail:     newLineTail(maxVisibleLines),
 		status:   systemStatus(),
 	}

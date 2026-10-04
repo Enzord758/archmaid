@@ -13,162 +13,31 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/engine"
-	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
-// stepState tracks a step's live status for the checklist view.
+// stepState is a step of the checklist: as the engine planned it, and its
+// live status.
 type stepState struct {
-	step   steps.Step
+	step   steps.Step // the plan as the checklist and confirms read it (planned)
 	status steps.Status
-	plan   engine.PlanStep // the step as the engine planned it (engine mode only)
-}
-
-// ── streaming ────────────────────────────────────────────────────────────────
-//
-// The whole reason to leave gum: a running command's output streams into the
-// UI live instead of being swallowed by a spinner and dumped in a pager after.
-//
-// internal/proc runs the child and puts every output line on one ordered
-// channel, then a single done with the exit error (see proc.Runner.Start).
-// The pump (waitForStream) hands the UI whatever has piled up on the channel
-// as one streamBatchMsg rather than one Update per line: a fast producer
-// (topgrade, pacman -Qk) emits thousands of lines, and a re-render per line
-// made the UI's cost grow with the square of the output. Each batch is
-// stamped with the launch it belongs to (seq, from model.stepSeq), so
-// handleStream can drop one from an aborted step even after a new run has
-// started.
-
-// streamBatchMsg is what the pump delivers: a proc.Batch stamped with the
-// launch it belongs to.
-type streamBatchMsg struct {
-	seq   int      // the launch this batch belongs to
-	lines []string // raw output lines, in order (may be empty when done)
-	done  bool     // the step's done message ended the batch
-	err   error    // the step's exit error (only meaningful when done)
+	plan   engine.PlanStep
 }
 
 // stepWaitDelay is how long a step's output pipe is still read after its
-// child has exited (proc.Options.WaitDelay): something the child left running
-// in the background can't keep the finished step "running". A var so tests
-// can shrink it.
+// child has exited (driver.Deps.WaitDelay): something the child left
+// running in the background can't keep the finished step "running". A var
+// so tests can shrink it.
 var stepWaitDelay = 2 * time.Second
 
-// procOptions is how this run starts its children, read from the package's
-// knobs on the caller's goroutine (a test may swap them between runs).
-func procOptions() proc.Options {
-	return proc.Options{DryRun: dryRun, WaitDelay: stepWaitDelay, KillGrace: sigkillGrace}
-}
-
-// runStep starts the step's command and streams its output on ch (see
-// proc.Runner.Start), returning the running child so the caller can stop it
-// on abort (nil in a dry run or if the command never starts). Closing quit
-// releases its goroutines once nobody reads ch; nil never fires.
-func runStep(s steps.Step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
-	return proc.New(procOptions()).Start(stepSpec(s), ch, quit)
-}
-
-// stepSpec is the command a step runs: sudo gets -A or -n, and only
-// NeedsPriv steps see SUDO_ASKPASS (privilege.Sudo.Command). A dry run
-// reports the step's own command line, without the sudo flag.
-func stepSpec(s steps.Step) proc.Spec {
-	return privileged().Command(s.Argv, s.NeedsPriv)
-}
-
-// waitForStream is the pump: proc.Next as a tea.Cmd, its batch stamped with
-// seq, the launch that owns ch. Re-issue it after every batch without a done
-// to keep pumping the channel through Update. A closed quit (abort) releases
-// a pump that is still waiting, with no msg — but a pump that finds a line
-// ready as quit closes may still deliver it, after the abort and possibly
-// after a new launch: seq is what lets handleStream tell it apart.
-func waitForStream(ch <-chan proc.Msg, quit <-chan struct{}, seq int) tea.Cmd {
-	return func() tea.Msg {
-		b, ok := proc.Next(ch, quit, proc.BatchMax)
-		if !ok {
-			return nil
-		}
-		return streamBatchMsg{seq: seq, lines: b.Lines, done: b.Done, err: b.Err}
-	}
-}
-
-// ── sudo ─────────────────────────────────────────────────────────────────────
-//
-// Rather than dropping out of the alt-screen, we authenticate inside the TUI:
-// a masked textinput collects the password and pipes it to `sudo -S -v`, which
-// caches the credential timestamp so the queue's later `sudo` calls run without
-// prompting. The password is never logged and the input is reset after use.
-
-type sudoCachedMsg struct{ cached bool } // result of the non-interactive probe
-// sudoResultMsg is the result of an auth attempt. detail carries a message
-// worth showing verbatim (e.g. an account-lockout notice) instead of the
-// generic wrong-password error.
-type sudoResultMsg struct {
-	err    error
-	detail string
-}
-
-// checkSudoCached probes whether sudo credentials are already valid, so we can
-// skip the password prompt entirely when they are (e.g. re-running within the
-// timeout).
-func checkSudoCached() tea.Cmd {
-	dry, priv := dryRun, privileged()
-	return func() tea.Msg {
-		if dry {
-			return sudoCachedMsg{cached: true} // never prompt during a dry run
-		}
-		return sudoCachedMsg{cached: priv.Probe(context.Background())}
-	}
-}
-
-// authSudo validates the password with su and only then mints the sudo
-// ticket (privilege.Sudo.Authenticate: a wrong password must never reach
-// sudo, which would burn two pam_faillock failures). A mid-run askpass popup
-// validates the same way (see answerAskpass).
-func authSudo(password string) tea.Cmd {
-	priv := privileged()
-	return func() tea.Msg {
-		detail, err := priv.Authenticate(context.Background(), password)
-		return sudoResultMsg{err: err, detail: detail}
-	}
-}
-
-// sudoKeepAliveMsg drives the keep-alive loop that refreshes the cached sudo
-// timestamp while a queue runs, so a long step (topgrade) can't let it lapse
-// and force a later step to re-prompt on the tty.
-//
-// gen ties a tick to the queue that started its loop (model.sudoGen): a queue
-// that ends or aborts leaves one tick pending for up to a minute, and if a new
-// queue starts meanwhile, that old tick must not keep a second loop alive.
-type sudoKeepAliveMsg struct{ gen int }
-
-const sudoKeepAliveInterval = 60 * time.Second
-
-func sudoTick(gen int) tea.Cmd {
-	return tickFn(sudoKeepAliveInterval, func(time.Time) tea.Msg { return sudoKeepAliveMsg{gen: gen} })
-}
-
-// refreshSudo extends the cached timestamp non-interactively (a no-op if it has
-// already lapsed — a step's `sudo -A` then re-prompts via the popup).
-func refreshSudo() tea.Cmd {
-	priv := privileged()
-	return func() tea.Msg {
-		priv.Refresh(context.Background())
-		return nil
-	}
-}
+// sigkillGrace is how long a stopped child gets to honour SIGINT before it
+// is killed (driver.Deps.KillGrace). A var so tests can shrink it.
+var sigkillGrace = 5 * time.Second
 
 // ── actions ──────────────────────────────────────────────────────────────────
 //
-// The menu and its queues are data in internal/actions. Discovery is
-// read-only (safe even in a dry run) and runs off the UI thread as a tea.Cmd;
-// its typed result (actions.Discovery) comes back as a discoveryMsg.
-
-// discoveryMsg is a discovery's result. authed marks a NeedsRoot rescan's:
-// the sudo ticket is already primed, so its queue starts without a probe.
-type discoveryMsg struct {
-	d      actions.Discovery
-	authed bool
-}
+// The menu and its queues are data in internal/actions; the engine runs
+// them (adapter.go).
 
 type editorDoneMsg struct{ err error }
 
@@ -178,20 +47,20 @@ type editorDoneMsg struct{ err error }
 var repairScanWorkers = actions.DefaultRepairWorkers
 
 // actionEnv is what the actions get from the TUI: the run's flags and seams,
-// and the audit and downloads glue that lives in this package. Call it on
-// the model's goroutine. What it reads when:
+// and the audit and downloads glue that lives in this package. main builds
+// the Session with it, before the program starts. What it reads when:
 //
-//   - here, on the model's goroutine: dryRun, repairScanWorkers, the menu
-//     audit's config and the log store the downloads delete records an
-//     abort in (both captured, so the Cmds that use them never look them up);
-//   - when a queue is built (activate, on the model's goroutine):
-//     auditStep, for Full Cleanup and Run topgrade;
-//   - when a discovery runs, off the model's goroutine: the menu audit
-//     (with the captured config), downloadsOptions — so --downloads,
+//   - here: dryRun, repairScanWorkers, the menu audit's config and the log
+//     store the downloads delete records an abort in (both captured, so
+//     what uses them later never looks them up);
+//   - when the Session builds a queue, on the Driver's loop: auditStep, for
+//     Full Cleanup and Run topgrade;
+//   - when a discovery runs, on a Driver worker: the menu audit (with the
+//     captured config), downloadsOptions — so --downloads,
 //     $ARCHMAID_DOWNLOADS, $HOME, dryRun and the downloads test seams are
 //     read then, not here — and DeleteDownloads, which builds the delete
 //     step's Run around the captured store;
-//   - when that delete step runs, off the model's goroutine: downloadsOptions
+//   - when that delete step runs, on a Driver worker: downloadsOptions
 //     again (deleteOldDownloads).
 //
 // main checks it with Validate at startup.
@@ -210,12 +79,6 @@ func actionEnv() actions.Env {
 			return deleteOldDownloads(plan, store)
 		},
 	}
-}
-
-// discover runs f off the UI thread and delivers its result as a
-// discoveryMsg.
-func discover(f func(context.Context, actions.Env) actions.Discovery, env actions.Env, authed bool) tea.Cmd {
-	return func() tea.Msg { return discoveryMsg{d: f(context.Background(), env), authed: authed} }
 }
 
 // execProcess is a seam over tea.ExecProcess so tests can capture the editor

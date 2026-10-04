@@ -1,10 +1,10 @@
 package main
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
@@ -37,10 +37,10 @@ func viewGolden(t *testing.T, m model) {
 // goldenQueue builds a checklist from titled steps with the given statuses.
 func goldenQueue(statuses ...steps.Status) []stepState {
 	list := []steps.Step{
-		{Title: "Auditing AUR packages…", LogLabel: "AUR audit"},
-		{Title: "Cleaning package cache…", LogLabel: "Old package cache cleaned"},
-		{Title: "Removing orphaned packages…", LogLabel: "Orphaned packages removed"},
-		{Title: "Vacuuming logs…", LogLabel: "Old logs removed"},
+		{ID: "audit", Title: "Auditing AUR packages…", LogLabel: "AUR audit"},
+		{ID: "cache", Title: "Cleaning package cache…", LogLabel: "Old package cache cleaned"},
+		{ID: "orphans", Title: "Removing orphaned packages…", LogLabel: "Orphaned packages removed"},
+		{ID: "logs", Title: "Vacuuming logs…", LogLabel: "Old logs removed"},
 	}
 	q := make([]stepState, len(statuses))
 	for i, st := range statuses {
@@ -75,11 +75,11 @@ func TestSummaryGolden(t *testing.T) {
 	}
 }
 
-// passwordOverMenu is the prime prompt as an uncached sudo probe opens it,
-// with a typed (masked) password.
+// passwordOverMenu is the up-front prompt as the engine opens it, with a
+// typed (masked) password.
 func passwordOverMenu(t *testing.T) model {
 	t.Helper()
-	m := update(sizedModel(), sudoCachedMsg{cached: false})
+	m := feed(sizedModel(), engine.NeedsPassword{ID: 1, Kind: engine.PasswordUpFront, AttemptsLeft: 3})
 	m = update(m, key("hunter2"))
 	if m.screen != screenPassword || m.bg != screenMenu {
 		t.Fatalf("screen=%d bg=%d, want the password prompt over the menu", m.screen, m.bg)
@@ -93,12 +93,14 @@ func TestPasswordGolden(t *testing.T) {
 }
 
 // TestPasswordErrorGolden: the same popup after a wrong password, with the
-// attempts-left line.
+// attempts-left line: the engine re-opens it with Error set.
 func TestPasswordErrorGolden(t *testing.T) {
 	m := passwordOverMenu(t)
-	m = update(m, sudoResultMsg{err: errors.New("auth failed")})
-	if m.pwErr == "" {
-		t.Fatal("no error text after a wrong password")
+	m = update(m, key("enter"))
+	m = feed(m, engine.NeedsPassword{ID: 2, Kind: engine.PasswordUpFront, AttemptsLeft: 2,
+		Error: "Incorrect password — 2 attempts left"})
+	if m.pwErr == "" || m.authInFlight {
+		t.Fatalf("pwErr=%q authInFlight=%v after a wrong password", m.pwErr, m.authInFlight)
 	}
 	viewGolden(t, m)
 }
@@ -126,13 +128,12 @@ func TestAskpassGolden(t *testing.T) {
 	m.queue = goldenQueue(steps.OK, steps.Running, steps.Pending, steps.Pending)
 	m.current = 1
 	m.output.SetContent(":: Synchronizing package databases...")
-	m = sudoStepRunning(t, m)
 	m.screen = screenRunning
-	conn, _ := pipeConn(t)
-	m = update(m, helperAsks(conn))
+	m = feed(m, engine.NeedsPassword{ID: 1, Kind: engine.PasswordAskpass, Step: m.queue[1].step.ID,
+		Requester: "/usr/bin/yay (pid 5000150)", Prompt: "[sudo] password for u: ", AttemptsLeft: 3})
 	m = update(m, key("hunter2"))
-	if m.screen != screenPassword || m.askpassReq == nil {
-		t.Fatalf("screen=%d conn set=%v, want the askpass prompt", m.screen, m.askpassReq != nil)
+	if m.screen != screenPassword || !m.eng.askpassOpen() {
+		t.Fatalf("screen=%d askpass open=%v, want the askpass prompt", m.screen, m.eng.askpassOpen())
 	}
 	viewGolden(t, m)
 }
@@ -161,7 +162,7 @@ func TestAuditReportGolden(t *testing.T) {
 			{Name: "fresh-pkg", Flags: []string{"modified 5h ago"}},
 		},
 	}
-	m := update(sizedModel(), discoveryMsg{d: actions.Report{Text: renderAudit(res)}})
+	m := feed(sizedModel(), engine.OutputReport{ID: 1, Text: renderAudit(res)})
 	if m.screen != screenAudit {
 		t.Fatalf("screen = %d, want screenAudit", m.screen)
 	}
@@ -170,20 +171,22 @@ func TestAuditReportGolden(t *testing.T) {
 
 // TestNoticeGolden: a discovery notice popup over the menu.
 func TestNoticeGolden(t *testing.T) {
-	m := update(sizedModel(), discoveryMsg{d: actions.Notice{Text: "Nothing in Downloads is older than 30 days."}})
+	m := feed(sizedModel(), engine.Notice{Text: "Nothing in Downloads is older than 30 days."})
 	if m.screen != screenNotice || m.bg != screenMenu {
 		t.Fatalf("screen=%d bg=%d, want the notice over the menu", m.screen, m.bg)
 	}
 	viewGolden(t, m)
 }
 
-// TestDiscoveringGolden: the spinner screen while a discovery runs. The
-// discovery command is never executed (update drops it), and the spinner is
-// on its initial frame since no tick is delivered.
+// TestDiscoveringGolden: the spinner screen while a discovery runs, as the
+// engine announces it. The spinner is on its initial frame since no tick is
+// delivered.
 func TestDiscoveringGolden(t *testing.T) {
 	m := sizedModel()
 	m.cursor = menuIndex(t, "Disable unused services")
 	m = update(m, key("enter"))
+	a, _ := actions.ByID(actions.IDServices)
+	m = feed(m, engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: a.Busy})
 	if m.screen != screenDiscovering {
 		t.Fatalf("screen = %d, want screenDiscovering", m.screen)
 	}

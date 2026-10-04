@@ -4,12 +4,11 @@ import "strings"
 
 // ── output pane ──────────────────────────────────────────────────────────────
 //
-// A running step's output is kept twice: all of it in m.buf, which is what
-// the log gets (finishStep), and only the newest maxVisibleLines in m.tail,
-// which is what the viewport shows. The viewport re-splits its whole content
-// on every SetContent, so feeding it the full buffer made each batch cost as
-// much as everything streamed so far; the tail keeps that cost flat however
-// long the step runs.
+// The pane keeps only the newest maxVisibleLines of the running step's output
+// (m.tail); the whole of it is the engine's, which logs it. The viewport
+// re-splits its whole content on every SetContent, so feeding it everything
+// made each batch cost as much as everything streamed so far; the tail keeps
+// that cost flat however long the step runs.
 
 // maxVisibleLines is how much of a step's output the pane keeps scrollable.
 const maxVisibleLines = 2000
@@ -42,8 +41,7 @@ func (t *lineTail) reset() {
 	t.lines = t.lines[:0]
 }
 
-// String is the tail as the pane shows it: every line newline-terminated,
-// exactly as m.buf holds the same lines.
+// String is the tail as the pane shows it: every line newline-terminated.
 func (t *lineTail) String() string {
 	n := 0
 	for _, l := range t.lines {
@@ -58,9 +56,8 @@ func (t *lineTail) String() string {
 	return b.String()
 }
 
-// resetOutput empties the pane and the buffer for a new step.
+// resetOutput empties the pane for a new step.
 func (m *model) resetOutput() {
-	m.buf.Reset()
 	m.tail.reset()
 	m.output.SetContent("")
 	m.output.GotoTop()
@@ -73,10 +70,6 @@ func (m *model) resetOutput() {
 // of the text sliding under them.
 func (m *model) appendOutput(lines []string) {
 	follow := m.output.AtBottom()
-	for _, l := range lines {
-		m.buf.WriteString(l)
-		m.buf.WriteByte('\n')
-	}
 	dropped := m.tail.push(lines)
 	m.output.SetContent(m.tail.String())
 	switch {

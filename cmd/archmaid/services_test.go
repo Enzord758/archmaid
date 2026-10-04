@@ -66,7 +66,7 @@ func TestDiscoverServicesFixture(t *testing.T) {
 	shimFixtureSystemctl(t)
 	msg := discoverNow(t, actions.IDServices)
 	want := []string{"avahi-daemon.service", "bluetooth.service", "cups.service", "docker.service"}
-	if sel, ok := msg.d.(actions.NeedsSelection); !ok || !reflect.DeepEqual(sel.Items, want) {
+	if sel, ok := msg.(actions.NeedsSelection); !ok || !reflect.DeepEqual(sel.Items, want) {
 		t.Fatalf("got %+v, want %v", msg, want)
 	}
 }
@@ -78,7 +78,7 @@ func TestDiscoverServicesNone(t *testing.T) {
 	}
 	t.Setenv("PATH", dir)
 	msg := discoverNow(t, actions.IDServices)
-	if noticeOf(msg.d) == "" {
+	if noticeOf(msg) == "" {
 		t.Fatalf("want the nothing-to-do notice, got %+v", msg)
 	}
 }
@@ -98,7 +98,7 @@ func TestServicesDiscoveryMatchesLegacyPipeline(t *testing.T) {
 	if len(old) == 0 {
 		t.Fatal("legacy pipeline selected nothing; the fixture proves nothing")
 	}
-	got := discoverNow(t, actions.IDServices).d.(actions.NeedsSelection).Items
+	got := discoverNow(t, actions.IDServices).(actions.NeedsSelection).Items
 	if !reflect.DeepEqual(got, old) {
 		t.Fatalf("new discovery %v != legacy pipeline %v", got, old)
 	}

@@ -56,7 +56,7 @@ func currentAuditConfig() audit.Config {
 		DryRun:       dryRun,
 		Foreign:      foreignPackages,
 		// A Store never changes once made, so this is safe off the model's
-		// goroutine. Like appendLog, a failed write is dropped.
+		// goroutine. A failed write is dropped: logging must never break a step.
 		Log: func(kind, label, body string) { _ = store.Append(logCategoryAudit, kind, label, body) },
 	}
 }
@@ -113,16 +113,15 @@ func menuAudit(now time.Time, cfg audit.Config) auditOutcome {
 //
 // AlwaysLog: the step's own log entry is the audit record, so unlike the menu
 // action it doesn't call LogSummary. It never needs sudo. An abort cancels the
-// step's ctx, which ends the lookup at once; the late result is then dropped by
-// stepSeq like any other.
+// step's ctx, which ends the lookup at once; the engine then drops the late
+// result like any other.
 //
-// Its Prefetch has activate start the lookup as an auditFetch
-// the moment the action is chosen, so it runs while the password prompt is
-// open; launch then awaits that instead of calling run.
+// Its Prefetch has the engine start the lookup (the Driver's Prefetch: an
+// auditFetch) the moment the action is chosen, so it runs while the password
+// prompt is open; the step then awaits that instead of calling run.
 //
 // Without a prefetch, run audits the config captured here, when the queue is
-// built on the model's goroutine (the moment a prefetch would capture it),
-// not when run executes in its Cmd.
+// built (the moment a prefetch would capture it), not when run executes.
 func auditStep() steps.Step {
 	cfg := currentAuditConfig()
 	return steps.Step{
@@ -175,16 +174,12 @@ func auditStepResult(cfg audit.Config, res audit.Result, err error) steps.Result
 		// Name the packages: the popup covers the report that explains it.
 		r.ConfirmNext = why + " Update anyway?"
 	}
-	// Run by handleStepResult right away when nothing gates, otherwise only if
+	// Run by the engine as it takes the result when nothing gates, otherwise only if
 	// the gated update is accepted: declining leaves the snapshot as it was,
 	// so the same change gates the next run too.
 	r.Commit = res.Commit(false, r.ConfirmNext != "")
 	return r
 }
-
-// shortErr trims an error to something that fits a notice popup (see
-// audit.ShortErr); a deadline it names is auditDeadline.
-func shortErr(err error) string { return audit.ShortErr(err, auditDeadline) }
 
 // renderAudit builds the styled report shown on the audit screen.
 func renderAudit(res audit.Result) string {

@@ -4,9 +4,7 @@ package main
 // engine mode — keys through Update, the model's actions on a syncDriver in
 // pull mode, its Events back through Update — and records what the model
 // then shows: the checklist's statuses, its plan flags, the screen. It is
-// the target TestTranscript records the goldens through; until the old
-// path is gone, TestTranscriptEngine also holds each prompt and end screen
-// to the old path's frame.
+// the target TestTranscript records the goldens through.
 
 import (
 	"fmt"
@@ -24,42 +22,6 @@ import (
 	tt "github.com/Enzord758/archmaid/internal/testtranscript"
 )
 
-// TestTranscriptEngine replays every scenario through the old path and
-// through the TUI in engine mode, and compares their frames.
-func TestTranscriptEngine(t *testing.T) {
-	for _, sc := range transcriptScenarios {
-		t.Run(sc.name, func(t *testing.T) {
-			if *updateTranscripts {
-				t.Skip("-update-transcripts records through TestTranscript only")
-			}
-			var old *tuiTarget
-			if !t.Run("old", func(t *testing.T) {
-				sc.run(t, func(t *testing.T, shimLog string) tt.Target {
-					old = newTUITarget(t, shimLog)
-					old.frames = []string{}
-					return old
-				})
-			}) {
-				t.Fatal("the old path's reference run failed")
-			}
-			var tg *tuiEngineTarget
-			got := sc.run(t, func(t *testing.T, shimLog string) tt.Target {
-				tg = newTUIEngineTarget(t, shimLog)
-				return tg
-			}).Transcript()
-			checkGolden(t, sc.name, got)
-			if len(tg.frames) != len(old.frames) {
-				t.Fatalf("engine mode showed %d prompt/end frames, the old path %d", len(tg.frames), len(old.frames))
-			}
-			for i := range tg.frames {
-				if tg.frames[i] != old.frames[i] {
-					t.Errorf("frame %d differs:\nengine:\n%s\nold:\n%s", i+1, tg.frames[i], old.frames[i])
-				}
-			}
-		})
-	}
-}
-
 type tuiEngineTarget struct {
 	m  model
 	d  *syncDriver
@@ -70,17 +32,17 @@ type tuiEngineTarget struct {
 
 	seen    []steps.Status
 	flags   []tt.Step
-	aborted bool     // the Aborted line was recorded
-	frames  []string // the view at each prompt answered and at the end
+	aborted bool // the Aborted line was recorded
 }
 
+// newTUIEngineTarget starts a target on a fresh model at 100×40 with the
+// status line pinned, on a syncDriver. The Cmds Update returns are never
+// run (no ticks, no blinking cursor). Call it after installShims and after
+// seeding HOME/logDir.
 func newTUIEngineTarget(t *testing.T, shimLog string) *tuiEngineTarget {
 	t.Helper()
-	old := tickFn
-	tickFn = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd {
-		return func() tea.Msg { return tickMsg{} }
-	}
-	t.Cleanup(func() { tickFn = old })
+	// The real binary always wires askpass, so sudo steps run `sudo -A`; the
+	// wrapper is never invoked here (sudo is a shim), only named.
 	oldWrapper := askpassWrapper
 	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
 	t.Cleanup(func() { askpassWrapper = oldWrapper })
@@ -259,7 +221,7 @@ func (tg *tuiEngineTarget) Next() (tt.Event, error) {
 }
 
 // prompt reports the open prompt from the screen; nil when the action is
-// over (a report ends it, as on the old path).
+// over (a report ends it).
 func (tg *tuiEngineTarget) prompt() (tt.Event, error) {
 	switch tg.m.screen {
 	case screenConfirm:
@@ -271,12 +233,10 @@ func (tg *tuiEngineTarget) prompt() (tt.Event, error) {
 	case screenRunning, screenDiscovering, screenAbortConfirm:
 		return nil, fmt.Errorf("stalled on screen %d with nothing left to run", tg.m.screen)
 	}
-	tg.frames = append(tg.frames, tg.m.View())
 	return nil, nil
 }
 
 func (tg *tuiEngineTarget) Reply(a tt.Answer) error {
-	tg.frames = append(tg.frames, tg.m.View())
 	var keys []tea.Msg
 	switch a.Kind {
 	case "confirm":

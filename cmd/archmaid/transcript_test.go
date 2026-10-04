@@ -7,10 +7,11 @@ package main
 // testdata/transcripts/. Nothing is rendered.
 //
 // It's two halves. internal/testtranscript's Recorder owns the format and the
-// answer script; a Target runs the action and reports events. tuiTarget, here,
-// pumps the model through Update; from P4 on a sessionTarget drives
-// engine.Session against the same shims, and the same goldens hold it to the
-// same behaviour. See TESTING.md → Transcripts.
+// answer script; a Target runs the action and reports events.
+// tuiEngineTarget (transcript_engine_test.go) drives the TUI's model on a
+// syncDriver; sessionTarget drives engine.Session and driverTarget the
+// syncDriver alone, against the same shims, and the same goldens hold them
+// to the same behaviour. See TESTING.md → Transcripts.
 
 import (
 	"encoding/json"
@@ -20,18 +21,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Enzord758/archmaid/internal/actions"
-	"github.com/Enzord758/archmaid/internal/engine"
-	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
-	"github.com/charmbracelet/bubbles/cursor"
-	tea "github.com/charmbracelet/bubbletea"
 
 	tt "github.com/Enzord758/archmaid/internal/testtranscript"
 )
@@ -144,8 +139,8 @@ type Answer struct{ Kind, Match, Reply string }
 const shimPassword = "hunter2"
 
 // newTarget makes the Target a scenario runs on, once the scenario has set up
-// its environment (scratch HOME and log dir, shims, fakes). tuiTarget is the
-// only one until engine.Session exists (P4); sessionTarget plugs in here.
+// its environment (scratch HOME and log dir, shims, fakes): tuiEngineTarget,
+// sessionTarget or driverTarget.
 type newTarget func(t *testing.T, shimLog string) tt.Target
 
 // record runs the menu item matching item on a fresh target and records it,
@@ -166,15 +161,15 @@ func record(t *testing.T, mk newTarget, shimLog, item string, script ...Answer) 
 // the model it left behind (d.m).
 type Driver struct {
 	*tt.Recorder
-	*tuiTarget
+	*tuiEngineTarget
 }
 
-// run records item through a tuiTarget and keeps the model.
+// run records item through a tuiEngineTarget and keeps the model.
 func run(t *testing.T, shimLog, item string, script ...Answer) *Driver {
 	t.Helper()
-	var tg *tuiTarget
+	var tg *tuiEngineTarget
 	r := record(t, func(t *testing.T, shimLog string) tt.Target {
-		tg = newTUITarget(t, shimLog)
+		tg = newTUIEngineTarget(t, shimLog)
 		return tg
 	}, shimLog, item, script...)
 	return &Driver{r, tg}
@@ -305,418 +300,6 @@ func (fx *effects) snapshot() []tt.Event {
 func readFileString(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	return string(b), err
-}
-
-// ── tuiTarget ────────────────────────────────────────────────────────────────
-
-// tickMsg replaces every tea.Tick (tickFn); the target drops it unseen.
-type tickMsg struct{}
-
-// tuiTarget is the Target that drives the TUI's model through Update.
-//
-// Cmds run synchronously in FIFO order and each resulting msg is fed back
-// through Update; tea.BatchMsg is expanded in order; ticks are dropped; Init
-// is never called, so the spinner never ticks. Each Update's events are
-// buffered and handed out before the next cmd runs. When nothing is left to
-// run, an open prompt is reported, and the action is over when there's
-// neither work nor a prompt.
-type tuiTarget struct {
-	m       model
-	fx      *effects
-	q       []tea.Cmd  // cmds still to run
-	pending []tt.Event // events not yet handed out
-	err     error      // the first fault; reported once pending is empty
-
-	queue0  *stepState // &queue[0] of the planned queue, to spot a new one
-	seen    []steps.Status
-	flags   []tt.Step // the plan as last reported
-	aborted bool      // an abort answer fired
-
-	confirms []confirmInfo   // each confirm as it was answered (sessionTarget compares)
-	gated    map[string]bool // steps a result's ConfirmNext put a confirm on, by ID
-
-	// frames, when not nil, collects the view at each prompt answered and
-	// at the end (TestTranscriptEngine compares engine mode's).
-	frames []string
-}
-
-// confirmInfo is what the open confirm says past its text, from the model:
-// the gate, or the current step's confirm (its kind as the engine names
-// it: the audit gate where a result's ConfirmNext put it there).
-func (tg *tuiTarget) confirmInfo() confirmInfo {
-	m := tg.m
-	if m.gateActive {
-		return confirmInfo{Kind: engine.ConfirmGate, Default: m.confirmYes}
-	}
-	if m.current < 0 || m.current >= len(m.queue) {
-		tg.fail("a confirm with no gate and no current step — teach the recorder")
-		return confirmInfo{}
-	}
-	s := m.queue[m.current].step
-	c := confirmInfo{Kind: engine.ConfirmStep, Step: s.ID, Default: m.confirmYes,
-		Destructive: destructiveSteps[s.ID], Commits: s.OnAccept != nil}
-	switch {
-	case tg.gated[s.ID]:
-		c.Kind = engine.ConfirmAuditGate
-	case s.ID == steps.IDOrphansRemove:
-		c.Kind = engine.ConfirmOrphans
-	case s.ID == steps.IDDownloads:
-		c.Kind = engine.ConfirmDownloads
-	}
-	if c.Kind == engine.ConfirmOrphans {
-		c.Direct, c.Cascade = quoted(s.Items), quoted(s.Cascade)
-	} else {
-		c.Items = quoted(s.Items)
-	}
-	return c
-}
-
-// newTUITarget starts a target on a fresh model at 100×40 with the status
-// line pinned. Call it after installShims and after seeding HOME/logDir.
-func newTUITarget(t *testing.T, shimLog string) *tuiTarget {
-	t.Helper()
-	old := tickFn
-	tickFn = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd {
-		return func() tea.Msg { return tickMsg{} }
-	}
-	t.Cleanup(func() { tickFn = old })
-	// The real binary always wires askpass, so sudo steps run `sudo -A`; the
-	// wrapper is never invoked here (sudo is a shim), only named.
-	oldWrapper := askpassWrapper
-	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
-	t.Cleanup(func() { askpassWrapper = oldWrapper })
-
-	m := initialModel()
-	m.status = testStatus
-	// A blinking cursor's Focus cmd sleeps and re-arms forever; static is inert.
-	m.password.Cursor.SetMode(cursor.CursorStatic)
-	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 40})
-	return &tuiTarget{m: m, fx: newEffects(shimLog)}
-}
-
-func (tg *tuiTarget) push(evs ...tt.Event) { tg.pending = append(tg.pending, evs...) }
-
-func (tg *tuiTarget) fail(format string, a ...any) {
-	if tg.err == nil {
-		tg.err = fmt.Errorf(format, a...)
-	}
-}
-
-// Start moves the menu cursor to the item whose label contains sub and
-// presses enter.
-func (tg *tuiTarget) Start(sub string) (string, error) {
-	idx := -1
-	for i, it := range actions.Menu {
-		if strings.Contains(it.Label, sub) {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return "", fmt.Errorf("no menu item %q", sub)
-	}
-	for tg.m.cursor < idx {
-		tg.m = update(tg.m, key("down"))
-	}
-	label := actions.Menu[idx].Label
-	tg.q = tg.update(key("enter"))
-	return label, nil
-}
-
-// Next hands out the buffered events, running cmds until there are some;
-// with no cmd left it reports the open prompt, or nil when there's none.
-func (tg *tuiTarget) Next() (tt.Event, error) {
-	for len(tg.pending) == 0 {
-		if tg.err != nil {
-			return nil, tg.err
-		}
-		if len(tg.q) == 0 {
-			return tg.prompt()
-		}
-		c := tg.q[0]
-		tg.q = tg.q[1:]
-		if c == nil {
-			continue
-		}
-		switch msg := c().(type) {
-		case nil, tickMsg, statusNowMsg: // the status line is pinned
-		case tea.BatchMsg:
-			tg.q = append(tg.q, msg...)
-		default:
-			// whatever the cmd ran synchronously (a probe, a discovery, the
-			// audit) — or the async step child, whose line is known to be
-			// logged by the time its first stream msg arrives
-			tg.push(tg.fx.execs()...)
-			tg.q = append(tg.q, tg.update(msg)...)
-		}
-	}
-	ev := tg.pending[0]
-	tg.pending = tg.pending[1:]
-	return ev, nil
-}
-
-// prompt reports the open prompt; nil when the action is over.
-func (tg *tuiTarget) prompt() (tt.Event, error) {
-	switch tg.m.screen {
-	case screenConfirm:
-		return tt.NeedsConfirm{Text: tg.m.confirmMsg}, nil
-	case screenPassword:
-		return tt.NeedsPassword{}, nil
-	case screenServices:
-		return tt.NeedsSelection{Options: slices.Clone(tg.m.services)}, nil
-	case screenRunning, screenDiscovering, screenAbortConfirm:
-		return nil, fmt.Errorf("stalled on screen %d with nothing left to run", tg.m.screen)
-	}
-	if tg.frames != nil {
-		tg.frames = append(tg.frames, tg.m.View())
-	}
-	return nil, nil
-}
-
-// Reply answers the open prompt with keys, or aborts the running step.
-func (tg *tuiTarget) Reply(a tt.Answer) error {
-	if tg.frames != nil {
-		tg.frames = append(tg.frames, tg.m.View())
-	}
-	var keys []tea.Msg
-	switch a.Kind {
-	case "confirm":
-		tg.confirms = append(tg.confirms, tg.confirmInfo())
-		keys = []tea.Msg{key(a.Reply[:1])}
-	case "password":
-		pw := "not-the-password"
-		if a.Reply == "correct" {
-			pw = shimPassword
-		}
-		tg.m.password.SetValue(pw)
-		keys = []tea.Msg{key("enter")}
-	case "select":
-		want := strings.Fields(a.Reply)
-		for _, svc := range tg.m.services {
-			if slices.Contains(want, svc) {
-				keys = append(keys, key(" "))
-			}
-			keys = append(keys, key("down"))
-		}
-		keys = append(keys, key("enter"))
-	case "abort":
-		return tg.abort()
-	default:
-		return fmt.Errorf("no reply of kind %q", a.Kind)
-	}
-	for _, k := range keys {
-		tg.q = append(tg.q, tg.update(k)...)
-	}
-	return nil
-}
-
-// abort answers ctrl+c → y on the running step. It first waits for the child
-// to log itself, so the shim's SIGINT trap (if any) is installed and the exec
-// line is deterministic.
-func (tg *tuiTarget) abort() error {
-	i := tg.m.current
-	if i < 0 || i >= len(tg.m.queue) || tg.m.queue[i].status != steps.Running {
-		return fmt.Errorf("abort with no running step (current %d)", i)
-	}
-	if tg.m.proc != nil {
-		if !tg.fx.awaitExec(5 * time.Second) {
-			return fmt.Errorf("step %d's child never reached its shim", i+1)
-		}
-		tg.push(tg.fx.execs()...)
-	}
-	tg.push(tt.Aborted{Index: i})
-	tg.aborted = true
-	for _, k := range []tea.KeyMsg{{Type: tea.KeyCtrlC}, key("y")} {
-		next, cmd := tg.m.Update(k)
-		tg.m = next.(model)
-		if cmd != nil {
-			return fmt.Errorf("abort key %q returned a cmd", k)
-		}
-	}
-	// The abort settles the checklist: the running step is Aborted and every
-	// pending one behind it Skipped. The abort line stands for those changes
-	// (a step line each would say nothing it doesn't), so check them and
-	// take them as seen.
-	for j := i; j < len(tg.seen); j++ {
-		want := steps.Skipped
-		if j == i {
-			want = steps.Aborted
-		} else if tg.seen[j] != steps.Pending {
-			continue
-		}
-		if st := tg.m.queue[j].status; st != want {
-			return fmt.Errorf("after the abort step %d is %d, want %d", j+1, st, want)
-		}
-		tg.seen[j] = want
-	}
-	tg.observe(-1)
-	return nil
-}
-
-// update feeds one msg through Update and buffers what changed.
-func (tg *tuiTarget) update(msg tea.Msg) []tea.Cmd {
-	switch msg.(type) {
-	case tea.KeyMsg, tea.WindowSizeMsg, sudoCachedMsg, sudoResultMsg, discoveryMsg,
-		streamBatchMsg, stepResultMsg, editorDoneMsg:
-	default:
-		tg.fail("unexpected msg %T (%v) — teach the target about it", msg, msg)
-		return nil
-	}
-	cur, seq, wasScreen := tg.m.current, tg.m.stepSeq, tg.m.screen
-	inserted := -1 // a step this Update put into the queue
-	var curStatus steps.Status
-	if cur >= 0 && cur < len(tg.m.queue) {
-		curStatus = tg.m.queue[cur].status
-	}
-
-	next, cmd := tg.m.Update(msg)
-	tg.m = next.(model)
-	// An action that audits starts the lookup on its own goroutine when it's
-	// chosen (auditFetch). Let it finish here, so its pacman -Qqm lands in
-	// this Update's exec lines rather than at a racy point later.
-	if f := tg.m.auditFetch; f != nil {
-		select {
-		case <-f.Done():
-		case <-time.After(5 * time.Second):
-			tg.fail("the prefetched AUR audit never finished")
-			return nil
-		}
-	}
-
-	// A child launched by this Update logs itself asynchronously; its line is
-	// drained with its first stream msg (or by the abort) so it never races in.
-	if !(tg.m.stepSeq != seq && tg.m.proc != nil) {
-		tg.push(tg.fx.execs()...)
-	}
-	switch msg := msg.(type) {
-	case streamBatchMsg:
-		// One out line per streamed line, however the pump batched them.
-		// Dropped late output doesn't count (a batch ending in done may have
-		// launched the next step, which resets buf, so judge by seq).
-		// The lines as the TUI shows them: sanitized one by one.
-		if msg.seq == seq {
-			for _, l := range msg.lines {
-				tg.push(tt.OutputLine{Index: cur, Text: sanitize.String(l, sanitize.KeepSGR)})
-			}
-		}
-	case stepResultMsg:
-		accepted := cur >= 0 && cur < len(tg.m.queue) && tg.m.queue[cur].status != curStatus
-		// The output as handleStepResult shows it: a refused result with
-		// the refusal behind it, sanitized whole, then split.
-		res := msg.Result
-		if err := res.Check(); err != nil {
-			res = steps.Result{Output: res.Output + "\narchmaid: " + err.Error(), Err: err, ConfirmNext: res.ConfirmNext}
-		}
-		if accepted && res.Output != "" {
-			out := sanitize.String(strings.TrimRight(res.Output, "\n"), sanitize.KeepSGR)
-			for _, l := range strings.Split(out, "\n") {
-				tg.push(tt.OutputLine{Index: cur, Text: l})
-			}
-		}
-		if accepted && res.Err == nil && res.InsertNext != nil {
-			inserted = cur + 1
-		}
-		if accepted && res.ConfirmNext != "" && cur+1 < len(tg.m.queue) {
-			if tg.gated == nil {
-				tg.gated = map[string]bool{}
-			}
-			tg.gated[tg.m.queue[cur+1].step.ID] = true
-		}
-	}
-	tg.observe(inserted)
-	if tg.m.screen != wasScreen {
-		switch tg.m.screen {
-		case screenNotice:
-			tg.push(tt.Notice{Text: tg.m.notice})
-		case screenAudit:
-			if dm, ok := msg.(discoveryMsg); ok {
-				r, _ := dm.d.(actions.Report)
-				tg.push(tt.OutputReport{Text: r.Text})
-			}
-		}
-	}
-	return []tea.Cmd{cmd}
-}
-
-// observe buffers the plan once a queue exists, then — in a fixed order — the
-// steps that finished (with a step inserted at index inserted, -1 for none,
-// in its place among them), changed plan flags, log and snapshot writes, and
-// the steps that started.
-func (tg *tuiTarget) observe(inserted int) {
-	q := tg.m.queue
-	if inserted >= 0 {
-		// The same queue, one step longer (it may have moved in memory):
-		// shift the bookkeeping behind the insertion point, not a new plan.
-		tg.queue0 = &q[0]
-		tg.seen = slices.Insert(tg.seen, inserted, steps.Pending)
-		tg.flags = slices.Insert(tg.flags, inserted, planStep(q[inserted].step))
-	}
-	if len(q) > 0 && &q[0] != tg.queue0 {
-		tg.queue0 = &q[0]
-		tg.seen = make([]steps.Status, len(q))
-		tg.flags = make([]tt.Step, len(q))
-		for i, s := range q {
-			tg.flags[i] = planStep(s.step)
-		}
-		tg.push(tt.QueueStarted{Steps: slices.Clone(tg.flags)})
-	}
-	for i := range tg.seen {
-		if i == inserted { // in place: after the step that inserted it finished
-			tg.push(tt.StepInserted{Index: i, Step: tg.flags[i]})
-		}
-		if st := q[i].status; st != tg.seen[i] && st >= steps.OK {
-			tg.seen[i] = st
-			tg.push(tt.StepDone{Index: i, Status: planStatus(st)})
-		}
-	}
-	for i := range tg.flags {
-		if s := planStep(q[i].step); !s.SameFlags(tg.flags[i]) {
-			tg.flags[i] = s
-			tg.push(tt.PlanChanged{Index: i, Step: s})
-		}
-	}
-	tg.push(tg.fx.logs()...)
-	tg.push(tg.fx.snapshot()...)
-	for i := range tg.seen {
-		if st := q[i].status; st != tg.seen[i] {
-			tg.seen[i] = st
-			if st != steps.Running {
-				tg.fail("step %d went back to %s — teach the recorder", i+1, planStatus(st))
-				continue
-			}
-			tg.push(tt.StepStarted{Index: i})
-		}
-	}
-}
-
-// Outcome classifies where the action ended, independent of screens.
-func (tg *tuiTarget) Outcome() (tt.Outcome, error) {
-	out := tt.Outcome{Errs: tg.m.errs, Skipped: tg.m.skipped}
-	switch {
-	case tg.aborted, tg.m.screen == screenSummary && tg.m.aborted:
-		out.Kind = "aborted"
-	case tg.m.screen == screenSummary:
-		out.Kind = "completed"
-	case tg.m.screen == screenNotice:
-		out.Kind = "notice"
-	case tg.m.screen == screenAudit:
-		out.Kind = "report"
-	case tg.m.screen == screenMenu:
-		out.Kind = "cancelled"
-	default:
-		return out, fmt.Errorf("action ended on screen %d", tg.m.screen)
-	}
-	return out, nil
-}
-
-// planStep is what a transcript records of a step.
-func planStep(s steps.Step) tt.Step {
-	p := tt.Step{Title: s.Title, InProc: s.Run != nil, Sudo: s.NeedsPriv, Confirm: s.Confirm != "",
-		Optional: s.Optional, AlwaysLog: s.AlwaysLog, Category: string(s.LogCategory())}
-	if !p.InProc {
-		p.Argv = append([]string(nil), s.Argv...)
-	}
-	return p
 }
 
 // planStatus is how the checklist draws s: every "didn't run" state is a skip.

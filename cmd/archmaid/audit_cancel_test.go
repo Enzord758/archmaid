@@ -3,9 +3,12 @@ package main
 import (
 	"net/http"
 	"runtime"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -61,41 +64,56 @@ func settleGoroutines(t *testing.T, base int, what string) {
 	}
 }
 
+// awaitFinished reads evs until the action's Finished, failing after 5 s.
+func awaitFinished(t *testing.T, evs <-chan engine.Event) engine.Finished {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	for {
+		select {
+		case ev, ok := <-evs:
+			if !ok {
+				t.Fatal("Events closed without a Finished")
+			}
+			if f, ok := ev.(engine.Finished); ok {
+				return f
+			}
+		case <-timeout:
+			t.Fatal("no Finished")
+		}
+	}
+}
+
 // TestAbortCancelsAuditStep: aborting while the audit step waits on the AUR
-// ends the step's Cmd at once, its late result is dropped, and nothing it
-// started (connection, handler, pacman) is left running.
+// (through its prefetch, as the binary runs it: the real Driver from
+// newDriver) ends the step at once, and nothing it started (connection,
+// handler, pacman) is left running once the Driver is closed.
 func TestAbortCancelsAuditStep(t *testing.T) {
 	auditEnv(t)
 	shimPacmanForeign(t, "victim\n")
 	arrived := hangingAUR(t)
+	probe := actions.Action{ID: "auditonly", Label: "Audit only", Steps: func(actions.Env) []steps.Step {
+		return []steps.Step{auditStep()}
+	}}
+	old := actions.Menu
+	actions.Menu = append(slices.Clone(old), probe)
+	t.Cleanup(func() { actions.Menu = old })
 	base := runtime.NumGoroutine()
 
 	for i := 0; i < 3; i++ {
-		m := initialModel()
-		m.pending = []steps.Step{auditStep(), harmlessTopgrade()}
-		cmd := m.startQueue()
-		result := make(chan stepResultMsg, 1)
-		go func() { result <- cmd().(stepResultMsg) }()
+		d := newDriver(engine.New(engine.Options{Env: actionEnv()}), nil)
+		d.Send(engine.Start{Action: probe.ID})
 		waitArrived(t, arrived)
 
 		start := time.Now()
-		m.abortRunning()
-		if m.stepCancel != nil {
-			t.Fatal("abort must clear stepCancel")
+		d.Send(engine.Abort{})
+		fin := awaitFinished(t, d.Events())
+		if el := time.Since(start); el > cancelSlack {
+			t.Fatalf("the audit step ended %s after the abort, want within %s", el, cancelSlack)
 		}
-		select {
-		case msg := <-result:
-			if d := time.Since(start); d > cancelSlack {
-				t.Fatalf("audit step returned %s after the abort, want within %s", d, cancelSlack)
-			}
-			got := update(m, msg)
-			if got.screen != screenMenu || got.queue[0].status != steps.Aborted || got.errs != 0 {
-				t.Fatalf("late audit result applied: screen=%d status=%d errs=%d",
-					got.screen, got.queue[0].status, got.errs)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("the audit step ran on after the abort")
+		if fin.Outcome != engine.OutcomeAborted || fin.Errs != 0 {
+			t.Fatalf("finished %+v, want aborted with no failure", fin)
 		}
+		d.Close()
 	}
 	settleGoroutines(t, base, "3 aborted audits")
 }

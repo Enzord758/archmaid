@@ -65,18 +65,18 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	snapshot := filepath.Join(origLog, "aur-maintainers.json")
 	elsewhere := []string{t.TempDir(), t.TempDir()}
 
-	store := logs()                         // the store they all capture
-	menu := discoverCmd(actions.IDAURAudit) // captured here, on "the model's goroutine"
+	store := logs()                           // the store they all capture
+	menu := discoverLater(actions.IDAURAudit) // its Env captured here, as main does
 	fetch := startAuditFetch()
 	reapAuditFetch(t, fetch)
 	step := auditStep()
 	fetchDone := fetch.Done()
-	menuDone := make(chan discoveryMsg, 1)
+	menuDone := make(chan actions.Discovery, 1)
 	stepDone := make(chan steps.Result, 1)
-	go func() { menuDone <- menu().(discoveryMsg) }()
+	go func() { menuDone <- menu() }()
 	go func() { stepDone <- step.Run(context.Background(), steps.Env{}) }()
 
-	var msg discoveryMsg
+	var msg actions.Discovery
 	var sr steps.Result
 	gotMenu, gotStep, gotFetch, arrivals, released := false, false, false, 0, false
 	deadline := time.Now().Add(10 * time.Second)
@@ -108,8 +108,8 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	}
 	logDir, dryRun = origLog, oldDry
 
-	if r, _ := msg.d.(actions.Report); !strings.Contains(r.Text, "1 foreign package") {
-		t.Fatalf("menu audit: %#v", msg.d)
+	if r, _ := msg.(actions.Report); !strings.Contains(r.Text, "1 foreign package") {
+		t.Fatalf("menu audit: %#v", msg)
 	}
 	if sr.Err != nil || !strings.Contains(sr.Output, "1 foreign package(s) checked") {
 		t.Fatalf("audit step: err=%v output=%q", sr.Err, sr.Output)

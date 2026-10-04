@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/Enzord758/archmaid/internal/audit"
 )
 
@@ -78,19 +76,12 @@ func TestAuditStateStepTakeoverDeclineThenAccept(t *testing.T) {
 
 func TestAuditStateMenuAuditAcceptWithA(t *testing.T) {
 	stateTakeoverFixture(t)
-	msg := runAudit(auditNow)
+	menuAuditRun(t, "")
 	wantHigh(t, readState(t), "maintainer bob → mallory") // held until accepted
-
-	m := initialModel()
-	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
-	m.screen = screenDiscovering
-	m = update(m, discoveryMsg{d: msg.discovery()})
-	if back := update(m, key("q")); back.auditCommit != nil { // leaving keeps it listed
-		t.Fatal("leaving must drop the accept")
-	}
+	menuAuditRun(t, "q")                                  // leaving keeps it listed
 	wantHigh(t, readState(t), "maintainer bob → mallory")
 
-	update(m, key("a"))
+	menuAuditRun(t, "a")
 	wantHigh(t, readState(t))
 }
 

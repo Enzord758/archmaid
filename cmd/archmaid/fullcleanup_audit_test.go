@@ -2,14 +2,17 @@ package main
 
 import (
 	"context"
-	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/steps"
+
+	tt "github.com/Enzord758/archmaid/internal/testtranscript"
 )
 
 // ── Full Cleanup's AUR audit step + topgrade alwaysLog ────────────────────────
@@ -23,26 +26,63 @@ import (
 // gets the gating wrong can't start a real system update.
 func harmlessTopgrade() steps.Step {
 	return steps.Step{
-		Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
+		ID: "topgrade", Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
 		Argv: []string{"true"}, Category: logCategoryTopgrade, AlwaysLog: true,
 	}
 }
 
-// startAudit builds a model running [audit, next...], executes the audit's
-// Cmd synchronously, and feeds the result back through Update.
-func startAudit(t *testing.T, next ...steps.Step) model {
+// auditQueue is the TUI on the engine (a tuiEngineTarget) running a queue
+// of its own: a menu action of its own, started and run up to its first
+// prompt or its end.
+type auditQueue struct {
+	*tuiEngineTarget
+	t *testing.T
+}
+
+// startAudit starts [audit, next...] and runs it to its first prompt or end.
+func startAudit(t *testing.T, next ...steps.Step) auditQueue {
 	t.Helper()
-	m := initialModel()
-	m.pending = append([]steps.Step{auditStep()}, next...)
-	cmd := m.startQueue()
-	if m.queue[0].status != steps.Running || cmd == nil {
-		t.Fatalf("audit step should be running with a Cmd, status=%d", m.queue[0].status)
+	return startQueue(t, append([]steps.Step{auditStep()}, next...)...)
+}
+
+// startQueue starts q as a menu action and runs it to its first prompt or
+// end.
+func startQueue(t *testing.T, q ...steps.Step) auditQueue {
+	t.Helper()
+	probe := actions.Action{ID: "testq", Label: "Test queue", Steps: func(actions.Env) []steps.Step { return q }}
+	old := actions.Menu
+	actions.Menu = append(slices.Clone(old), probe)
+	t.Cleanup(func() { actions.Menu = old })
+	a := auditQueue{newTUIEngineTarget(t, ""), t}
+	if _, err := a.Start(probe.Label); err != nil {
+		t.Fatal(err)
 	}
-	msg, ok := cmd().(stepResultMsg)
-	if !ok {
-		t.Fatalf("audit Cmd returned %T, want stepResultMsg", msg)
+	a.settle()
+	return a
+}
+
+// settle runs what the last answer started, up to the next prompt or the
+// end.
+func (a auditQueue) settle() {
+	a.t.Helper()
+	for {
+		ev, err := a.Next()
+		if err != nil {
+			a.t.Fatal(err)
+		}
+		switch ev.(type) {
+		case nil, tt.NeedsConfirm, tt.NeedsPassword, tt.NeedsSelection:
+			return
+		}
 	}
-	return update(m, msg)
+}
+
+// answer presses k on the open prompt and settles what it started.
+func (a auditQueue) answer(k string) auditQueue {
+	a.t.Helper()
+	a.keys(key(k))
+	a.settle()
+	return a
 }
 
 // takeoverFixture: one foreign package whose maintainer changed since the saved
@@ -138,7 +178,7 @@ func TestRunAuditStepResults(t *testing.T) {
 // front of topgrade; the report is in the output pane and on record.
 func TestAuditHighFindingGatesTopgrade(t *testing.T) {
 	takeoverFixture(t)
-	got := startAudit(t, harmlessTopgrade(), steps.Step{Title: "after", LogLabel: "after", Argv: []string{"true"}})
+	got := startAudit(t, harmlessTopgrade(), steps.Step{ID: "after", Title: "after", LogLabel: "after", Argv: []string{"true"}}).m
 
 	if got.queue[0].status != steps.OK {
 		t.Fatalf("audit status = %d, want steps.OK", got.queue[0].status)
@@ -149,14 +189,14 @@ func TestAuditHighFindingGatesTopgrade(t *testing.T) {
 	if !strings.Contains(got.confirmMsg, "changed maintainer") || got.confirmYes {
 		t.Fatalf("confirm = %q (yes=%v), want the maintainer warning defaulting to No", got.confirmMsg, got.confirmYes)
 	}
-	if next := got.queue[1].step; !next.Optional || next.Confirm == "" {
+	if next := got.queue[1].plan; !next.Optional || !next.Confirm {
 		t.Fatalf("topgrade should now be an optional, confirmed step, got %+v", next)
 	}
 	if got.queue[1].status != steps.Pending {
 		t.Fatal("topgrade must not have started before the confirm is answered")
 	}
-	if !strings.Contains(got.buf.String(), "[HIGH] victim") {
-		t.Fatalf("report missing from the output pane:\n%s", got.buf.String())
+	if !strings.Contains(got.tail.String(), "[HIGH] victim") {
+		t.Fatalf("report missing from the output pane:\n%s", got.tail.String())
 	}
 	log, _ := os.ReadFile(logPath(logCategoryAudit))
 	if !strings.Contains(string(log), "OK: AUR audit") || !strings.Contains(string(log), "[HIGH] victim") {
@@ -168,9 +208,7 @@ func TestAuditHighFindingGatesTopgrade(t *testing.T) {
 // since it's alwaysLog) and the cleanup carries on.
 func TestDecliningGatedTopgradeSkipsOnlyTheUpdate(t *testing.T) {
 	takeoverFixture(t)
-	gated := startAudit(t, harmlessTopgrade())
-
-	got := update(gated, key("n"))
+	got := startAudit(t, harmlessTopgrade()).answer("n").m
 	if got.queue[1].status != steps.Skipped {
 		t.Fatalf("topgrade status = %d, want steps.Skipped", got.queue[1].status)
 	}
@@ -191,41 +229,20 @@ func TestDecliningGatedTopgradeSkipsOnlyTheUpdate(t *testing.T) {
 func TestAuditFailureDoesNotGate(t *testing.T) {
 	auditEnv(t)
 	shimPacmanForeign(t, "something\n")
-	got := startAudit(t, harmlessTopgrade())
+	got := startAudit(t, harmlessTopgrade()).m
 
 	if got.queue[0].status != steps.Failed || got.errs != 1 {
 		t.Fatalf("audit status=%d errs=%d, want failed/1", got.queue[0].status, got.errs)
 	}
-	if got.queue[1].step.Confirm != "" {
-		t.Fatalf("a failed audit must not gate topgrade, confirm=%q", got.queue[1].step.Confirm)
+	if got.queue[1].plan.Confirm {
+		t.Fatal("a failed audit must not gate topgrade")
 	}
-	if got.queue[1].status != steps.Running {
-		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
+	if got.queue[1].status != steps.OK {
+		t.Fatalf("topgrade should have run, status=%d", got.queue[1].status)
 	}
 	log, _ := os.ReadFile(logPath(logCategoryAudit))
 	if !strings.Contains(string(log), "FAIL: AUR audit") {
 		t.Fatalf("audit.log:\n%s", log)
-	}
-}
-
-// TestStaleStepResultIsDropped: a result from an earlier launch (the run was
-// aborted and restarted) or one arriving after the run ended changes nothing.
-func TestStaleStepResultIsDropped(t *testing.T) {
-	m := initialModel()
-	m.screen = screenRunning
-	m.queue = []stepState{{step: auditStep(), status: steps.Running}}
-	m.current = 0
-	m.stepSeq = 2
-
-	stale := stepResultMsg{seq: 1, Result: steps.Result{Err: errors.New("old run")}}
-	if got := update(m, stale); got.queue[0].status != steps.Running || got.errs != 0 {
-		t.Fatalf("stale result applied: status=%d errs=%d", got.queue[0].status, got.errs)
-	}
-
-	m.screen = screenMenu // aborted
-	late := stepResultMsg{seq: 2, Result: steps.Result{Err: errors.New("late")}}
-	if got := update(m, late); got.queue[0].status != steps.Running || got.errs != 0 {
-		t.Fatalf("late result after abort applied: status=%d errs=%d", got.queue[0].status, got.errs)
 	}
 }
 
@@ -237,7 +254,7 @@ func TestAuditStepRunsInDryRunAndLogsOnce(t *testing.T) {
 	dryRun = true
 	defer func() { dryRun = false }()
 
-	got := startAudit(t)
+	got := startAudit(t).m
 	if got.queue[0].status != steps.OK || got.screen != screenSummary {
 		t.Fatalf("status=%d screen=%d", got.queue[0].status, got.screen)
 	}
@@ -281,12 +298,12 @@ func TestAuditStepDoesNotSaveByItself(t *testing.T) {
 // next Full Cleanup gates on the same change again.
 func TestDecliningGateKeepsTheAlarm(t *testing.T) {
 	takeoverFixture(t)
-	update(startAudit(t, harmlessTopgrade()), key("n"))
+	startAudit(t, harmlessTopgrade()).answer("n")
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "bob" {
 		t.Fatalf("declining must not record the new maintainer, snapshot = %v", snap)
 	}
 
-	again := startAudit(t, harmlessTopgrade())
+	again := startAudit(t, harmlessTopgrade()).m
 	if again.screen != screenConfirm || !strings.Contains(again.confirmMsg, "victim changed maintainer") {
 		t.Fatalf("the next run should gate again, screen=%d confirm=%q", again.screen, again.confirmMsg)
 	}
@@ -296,9 +313,9 @@ func TestDecliningGateKeepsTheAlarm(t *testing.T) {
 // audit.log) as topgrade launches, and the next run doesn't gate.
 func TestAcceptingGateRecordsTheChange(t *testing.T) {
 	takeoverFixture(t)
-	got := update(startAudit(t, harmlessTopgrade()), key("y"))
-	if got.queue[1].status != steps.Running {
-		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
+	got := startAudit(t, harmlessTopgrade()).answer("y").m
+	if got.queue[1].status != steps.OK {
+		t.Fatalf("topgrade should have run, status=%d", got.queue[1].status)
 	}
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "mallory" {
 		t.Fatalf("accepting should record the new maintainer, snapshot = %v", snap)
@@ -307,9 +324,9 @@ func TestAcceptingGateRecordsTheChange(t *testing.T) {
 		t.Fatalf("audit.log:\n%s", log)
 	}
 
-	again := startAudit(t, harmlessTopgrade())
-	if again.queue[1].step.Confirm != "" || again.queue[1].status != steps.Running {
-		t.Fatalf("an accepted change must not gate again, confirm=%q status=%d", again.queue[1].step.Confirm, again.queue[1].status)
+	again := startAudit(t, harmlessTopgrade()).m
+	if again.queue[1].plan.Confirm || again.queue[1].status != steps.OK {
+		t.Fatalf("an accepted change must not gate again, confirm=%v status=%d", again.queue[1].plan.Confirm, again.queue[1].status)
 	}
 }
 
@@ -318,7 +335,7 @@ func TestAcceptingGateInDryRunSavesNothing(t *testing.T) {
 	takeoverFixture(t)
 	dryRun = true
 	defer func() { dryRun = false }()
-	update(startAudit(t, harmlessTopgrade()), key("y"))
+	startAudit(t, harmlessTopgrade()).answer("y")
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "bob" {
 		t.Fatalf("a dry run must not advance the snapshot, snapshot = %v", snap)
 	}

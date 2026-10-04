@@ -2,17 +2,14 @@ package main
 
 // sessionTarget: the transcript Target that drives internal/engine's
 // Session instead of the TUI's model, playing the Session's Effects against
-// the same shims, log store and fake AUR as tuiTarget, so the same goldens
+// the same shims, log store and fake AUR as tuiEngineTarget, so the same goldens
 // hold both front ends to the same behaviour (TESTING.md → Transcripts).
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -35,7 +32,8 @@ import (
 var sessionSkips = map[string]string{}
 
 // TestTranscriptSession replays every scenario through the engine's
-// Session, against the goldens TestTranscript records through the TUI.
+// Session, against the goldens TestTranscript records through the TUI, and
+// checks the last-run record the golden doesn't hold.
 func TestTranscriptSession(t *testing.T) {
 	for name := range sessionSkips {
 		if !slices.ContainsFunc(transcriptScenarios, func(sc transcriptScenario) bool { return sc.name == name }) {
@@ -50,102 +48,23 @@ func TestTranscriptSession(t *testing.T) {
 			if *updateTranscripts {
 				t.Skip("-update-transcripts records through the TUI (TestTranscript) only")
 			}
-			// What the golden doesn't hold, the TUI's own run of the
-			// scenario says: its confirms past their text, its last-run.json.
-			var ref tuiReference
-			if !t.Run("tui", func(t *testing.T) { ref = recordTUIReference(t, sc) }) {
-				t.Fatal("the TUI's reference run failed")
-			}
 			var tg *sessionTarget
 			got := sc.run(t, func(t *testing.T, shimLog string) tt.Target {
 				tg = newSessionTarget(t, shimLog)
 				return tg
 			}).Transcript()
 			checkGolden(t, sc.name, got)
-			tg.compare(t, ref)
+			tg.checkLastRun(t)
 		})
 	}
 }
 
-// tuiReference is what the TUI's run of a scenario showed that its golden
-// doesn't record.
-type tuiReference struct {
-	confirms []confirmInfo
-	lastRun  *logstore.RunRecord // last-run.json as the TUI left it, nil if none
-}
-
-// recordTUIReference runs sc through the TUI and keeps what it asked and
-// recorded.
-func recordTUIReference(t *testing.T, sc transcriptScenario) tuiReference {
-	var tg *tuiTarget
-	sc.run(t, func(t *testing.T, shimLog string) tt.Target {
-		tg = newTUITarget(t, shimLog)
-		return tg
-	})
-	ref := tuiReference{confirms: tg.confirms}
-	r, err := logs().ReadLastRun()
-	switch {
-	case err == nil:
-		ref.lastRun = &r
-	case !errors.Is(err, os.ErrNotExist):
-		t.Fatal(err)
-	}
-	return ref
-}
-
-// confirmInfo is what a confirm prompt says past its text (which the
-// goldens hold): an engine.NeedsConfirm's fields, or what the TUI's model
-// had up when it asked.
-type confirmInfo struct {
-	Kind                          engine.ConfirmKind
-	Step                          string
-	Items, Direct, Cascade        []string
-	Default, Destructive, Commits bool
-}
-
-// destructiveSteps are the steps whose confirm guards something archmaid
-// can't bring back (NeedsConfirm.Destructive). The TUI has no such flag;
-// this is the harness's own list.
-var destructiveSteps = map[string]bool{
-	steps.IDPaccacheWipe:  true,
-	steps.IDOrphansRemove: true,
-	steps.IDUserCache:     true,
-	steps.IDDownloads:     true,
-}
-
-// quoted is a confirm's list as NeedsConfirm carries it: one safe line
-// each, nil for none.
-func quoted(items []string) []string {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]string, len(items))
-	for i, it := range items {
-		out[i] = sanitize.QuoteName(it, 200)
-	}
-	return out
-}
-
-// sessionConfirm is what the Session's confirm said.
-func sessionConfirm(nc engine.NeedsConfirm) confirmInfo {
-	return confirmInfo{Kind: nc.Kind, Step: nc.Step, Items: nc.Items, Direct: nc.Direct, Cascade: nc.Cascade,
-		Default: nc.Default, Destructive: nc.Destructive, Commits: nc.Commits}
-}
-
-// compare holds what the session target saw, past the transcript, to the
-// TUI's run of the same scenario: every confirm (in the order answered)
-// and the last-run record, which the Session's WriteLastRun carries and
-// the TUI writes itself.
-func (tg *sessionTarget) compare(t *testing.T, ref tuiReference) {
+// checkLastRun holds the last-run record the session asked for to what
+// the file got: written at most once, with a sane span. (Its fields were
+// held to the old TUI's own record, scenario by scenario, until E7b
+// deleted that path; the outcomes are internal/engine's to test.)
+func (tg *sessionTarget) checkLastRun(t *testing.T) {
 	t.Helper()
-	if len(tg.confirms) != len(ref.confirms) {
-		t.Errorf("the session asked %d confirms, the TUI %d", len(tg.confirms), len(ref.confirms))
-	}
-	for i := range min(len(tg.confirms), len(ref.confirms)) {
-		if got, want := tg.confirms[i], ref.confirms[i]; !reflect.DeepEqual(got, want) {
-			t.Errorf("confirm %d:\nsession %+v\nTUI     %+v", i+1, got, want)
-		}
-	}
 	norm := func(r logstore.RunRecord) logstore.RunRecord {
 		r.V, r.Started, r.Finished = 0, time.Time{}, time.Time{}
 		return r
@@ -153,17 +72,12 @@ func (tg *sessionTarget) compare(t *testing.T, ref tuiReference) {
 	switch {
 	case len(tg.lastRuns) > 1:
 		t.Errorf("the session wrote last-run.json %d times: %+v", len(tg.lastRuns), tg.lastRuns)
-	case (len(tg.lastRuns) == 1) != (ref.lastRun != nil):
-		t.Errorf("last-run.json: the session wrote %+v, the TUI left %+v", tg.lastRuns, ref.lastRun)
-	case ref.lastRun != nil:
+	case len(tg.lastRuns) == 1:
 		got := tg.lastRuns[0]
-		if norm(got) != norm(*ref.lastRun) {
-			t.Errorf("last-run.json:\nsession %+v\nTUI     %+v", norm(got), norm(*ref.lastRun))
-		}
 		if got.Started.IsZero() || got.Finished.Before(got.Started) {
 			t.Errorf("the session's last run went from %v to %v", got.Started, got.Finished)
 		}
-		// and what the effect carried is what the file got
+		// what the effect carried is what the file got
 		if r, err := logs().ReadLastRun(); err != nil || norm(r) != norm(got) {
 			t.Errorf("last-run.json reads back %+v (%v), the session wrote %+v", r, err, got)
 		}
@@ -176,7 +90,7 @@ func (tg *sessionTarget) compare(t *testing.T, ref tuiReference) {
 // Effects that answer at once (WriteLog, WriteLastRun, RunHook, the
 // prefetch) run as the Output is applied; those whose answer is an Input —
 // the probe, a discovery, a step — become work, run in FIFO order by Next,
-// each answer fed back through Handle. That is tuiTarget's cmd queue with
+// each answer fed back through Handle. That was the old tuiTarget's cmd queue with
 // Inputs for msgs, so the exec lines land where they do there: a work
 // item's after it ran, a step child's with its first output or exit.
 //
@@ -197,7 +111,6 @@ type sessionTarget struct {
 
 	contract *enginetest.Checker // every Output's events, as they come
 	outputs  int                 // Outputs applied so far
-	confirms []confirmInfo       // each confirm as it was answered
 	lastRuns []logstore.RunRecord
 	ask      engine.NeedsConfirm // the open confirm, when prompt is one
 
@@ -219,7 +132,7 @@ type sessionChild struct {
 
 func newSessionTarget(t *testing.T, shimLog string) *sessionTarget {
 	t.Helper()
-	// As in tuiTarget: the real binary always wires askpass, so sudo steps
+	// As in tuiEngineTarget: the real binary always wires askpass, so sudo steps
 	// run `sudo -A`; the wrapper is only named, never run.
 	oldWrapper := askpassWrapper
 	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
@@ -335,7 +248,6 @@ func (tg *sessionTarget) Reply(a tt.Answer) error {
 		if _, ok := tg.prompt.(tt.NeedsConfirm); !ok {
 			return fmt.Errorf("confirm reply with %T open", tg.prompt)
 		}
-		tg.confirms = append(tg.confirms, sessionConfirm(tg.ask))
 		tg.prompt, tg.promptID = nil, 0
 		tg.apply(tg.s.Confirm(id, a.Reply == "yes"))
 		return nil
@@ -363,7 +275,7 @@ func (tg *sessionTarget) Reply(a tt.Answer) error {
 	return fmt.Errorf("the session target can't reply %q yet", a.Kind)
 }
 
-// abort aborts the running step, as tuiTarget's abort does: a child is
+// abort aborts the running step, as the old tuiTarget's abort did: a child is
 // first awaited until it has logged itself, so its shim's SIGINT trap (if
 // any) is installed and its exec line lands before the abort.
 func (tg *sessionTarget) abort() error {
@@ -458,7 +370,7 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			tg.flags = slices.Insert(tg.flags, ev.Index, transcriptStep(ev.Step))
 		case engine.PlanChanged:
 			// A plan line is written again only when its flags changed, as
-			// tuiTarget does (a new confirm text alone isn't recorded).
+			// the old tuiTarget did (a new confirm text alone isn't recorded).
 			if s := transcriptStep(ev.Step); !s.SameFlags(tg.flags[ev.Index]) {
 				tg.flags[ev.Index] = s
 				changed = append(changed, tt.PlanChanged{Index: ev.Index, Step: s})
@@ -511,7 +423,7 @@ func (tg *sessionTarget) apply(o engine.Output) {
 }
 
 // tuiRank is where an event of one Output lands in its transcript (apply's
-// buckets: tuiTarget.observe's order within one Update), or -1 for an
+// buckets: the old tuiTarget.observe's order within one Update), or -1 for an
 // event with no transcript line.
 func tuiRank(ev engine.Event) int {
 	switch ev.(type) {
@@ -639,7 +551,7 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 			return
 		}
 		// Let it finish here, so its pacman -Qqm lands with the action's
-		// own queries, as tuiTarget does.
+		// own queries, as tuiEngineTarget does.
 		f := startAuditFetch()
 		tg.fetches[e.Name] = f
 		select {
@@ -649,7 +561,7 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 		}
 	case engine.Stop:
 		// As a Driver: a child gets SIGINT, then SIGKILL after the grace
-		// (proc.Child.Stop with procOptions' KillGrace); an in-process
+		// (proc.Child.Stop with runStep's KillGrace); an in-process
 		// step's ctx is cancelled with plain context.Canceled, an abort.
 		if c := tg.children[e.Seq]; c != nil {
 			close(c.quit)
@@ -686,7 +598,7 @@ func (tg *sessionTarget) startStep(e engine.StartStep) bool {
 		return false
 	}
 	c := &sessionChild{ch: make(chan proc.Msg, proc.BatchMax), quit: make(chan struct{})}
-	c.c = proc.New(procOptions()).Start(stepSpec(e.Step), c.ch, c.quit)
+	c.c = runStep(e.Step, c.ch, c.quit)
 	tg.children[e.Seq] = c
 	tg.work = append(tg.work, tg.pump(e.Seq, c))
 	return true
@@ -764,8 +676,8 @@ func TestSessionDownloadsRealRunLogsNoAbort(t *testing.T) {
 }
 
 // L7: an in-process step's output with an escape sequence spanning a
-// newline. The TUI sanitizes Result.Output whole and then splits it
-// (handleStepResult), so the OSC below swallows the newline and the "y"
+// newline. The old TUI path sanitized Result.Output whole and then split it
+// (handleStepResult), so the OSC below swallowed the newline and the "y"
 // in it. The Session does the same (stepResult), so both show ab, c.
 func TestSessionInProcOutputLikeTUI(t *testing.T) {
 	const out = "a\x1b]0;x\ny\x07b\nc"
@@ -778,7 +690,7 @@ func TestSessionInProcOutputLikeTUI(t *testing.T) {
 	t.Cleanup(func() { actions.Menu = old })
 	got := map[string]string{}
 	for name, mk := range map[string]newTarget{
-		"tui":     func(t *testing.T, shimLog string) tt.Target { return newTUITarget(t, shimLog) },
+		"tui":     func(t *testing.T, shimLog string) tt.Target { return newTUIEngineTarget(t, shimLog) },
 		"session": func(t *testing.T, shimLog string) tt.Target { return newSessionTarget(t, shimLog) },
 	} {
 		t.Run(name, func(t *testing.T) {

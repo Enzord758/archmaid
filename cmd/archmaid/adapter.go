@@ -16,19 +16,16 @@ import (
 
 // ── the TUI on the engine (E7) ───────────────────────────────────────────────
 //
-// In engine mode the model runs its actions on an engine.Driver: a key that
-// answers a prompt or starts an action becomes a Command (Driver.Send), and
-// the model's state — the checklist, the screen, the prompt, the output
-// pane — is derived from the Events (applyEvents). The view is the same
-// either way.
+// The TUI is a front end to the engine: the model runs its actions on an
+// engine.Driver. A key that answers a prompt or starts an action becomes a
+// Command (Driver.Send), and the model's state — the checklist, the screen,
+// the prompt, the output pane — is derived from the Events (applyEvents).
+// The queue, privilege, askpass vetting, logging and the last-run record
+// are all the engine's.
 //
 // The seam is engine.Driver, built by newDriver; main does the rest (the
-// model in engine mode, forwardEvents, Close after the program). The tests
-// drive the model on syncDriver (syncdriver_test.go) instead.
-
-// useEngine switches the binary onto the engine: main builds the model in
-// engine mode on newDriver.
-const useEngine = true
+// model on it, forwardEvents, Close after the program). The tests drive the
+// model on syncDriver (syncdriver_test.go) instead.
 
 // newDriver builds the Driver the binary runs on: internal/driver around s,
 // on the sudo path (E6a). Call it on main's goroutine before the program
@@ -137,8 +134,8 @@ type engineState struct {
 
 func newEngineState(d engine.Driver) *engineState { return &engineState{drv: d} }
 
-// askpassOpen reports whether an askpass prompt is open; false outside
-// engine mode.
+// askpassOpen reports whether an askpass prompt is open; false for a model
+// without a Driver.
 func (e *engineState) askpassOpen() bool { return e != nil && e.askpass != 0 }
 
 // canAccept reports whether the open report's findings can be accepted.
@@ -313,8 +310,10 @@ func (m *model) stepIndex(id string) int {
 	return slices.IndexFunc(m.queue, func(s stepState) bool { return s.step.ID == id })
 }
 
-// openAskpass pops the askpass prompt over whatever shows, as handleAskpass
-// does in the old path (see there for why bg stays put under three popups).
+// openAskpass pops the askpass prompt over whatever shows. The engine only
+// asks for a request the Driver verified (the running sudo step's own
+// child, through archmaid's helper); anything else was hung up on without
+// a popup.
 func (m *model) openAskpass(ev engine.NeedsPassword) tea.Cmd {
 	m.eng.askpass = ev.ID
 	title := ""
@@ -324,7 +323,18 @@ func (m *model) openAskpass(ev engine.NeedsPassword) tea.Cmd {
 	m.askpassFrom = askpassRequester{step: title, caller: ev.Requester, prompt: askpassPromptText(ev.Prompt)}
 	switch m.screen {
 	case screenPassword, screenConfirm, screenNotice:
+		// These three read the shared m.bg field for their own
+		// background (popupLayer in view.go). Overwriting it with their
+		// own screen value here would make it self-referential and
+		// recurse forever in renderScreen — so leave it as whatever it
+		// already correctly resolved to when that popup opened; once
+		// this askpass prompt is dismissed, m.screen = m.bg still lands
+		// back on that same popup.
 	default:
+		// screenAbortConfirm (safe: its background is hardcoded in
+		// popupLayer, not read from m.bg) or an ordinary screen — record
+		// it so whatever was showing reappears once the password prompt
+		// closes.
 		m.bg = m.screen
 	}
 	m.authInFlight = false
@@ -346,7 +356,7 @@ func (m *model) closeEngineAskpass() {
 }
 
 // engineKey turns a key on a prompt into a Command; ok is false for a key
-// the old handler takes (moving about, scrolling, the menu, the log).
+// handleKey takes (moving about, typing, scrolling, the menu, the log).
 func (m model) engineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	e := m.eng
 	switch m.screen {
@@ -434,7 +444,7 @@ func (m model) engineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 }
 
 // engineConfirm answers the open confirm. A step's confirm goes back to
-// the running screen at once, as in the old path; a gate waits for the
+// the running screen at once; a gate waits for the
 // queue (or the menu) the answer leads to.
 func (m model) engineConfirm() (tea.Model, tea.Cmd, bool) {
 	id := m.eng.prompt

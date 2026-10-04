@@ -11,15 +11,9 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/steps"
-	tea "github.com/charmbracelet/bubbletea"
 )
-
-// ── proceed-gate (cached-sudo path) ───────────────────────────────────────────
-//
-// A steps-action can carry a gate string (only Full Cleanup does). When sudo is
-// uncached the password prompt is the gate; when it's cached, the gate renders
-// as a confirm popup over the menu before anything runs.
 
 // menuIndex finds the menu row whose label contains sub.
 func menuIndex(t *testing.T, sub string) int {
@@ -31,154 +25,6 @@ func menuIndex(t *testing.T, sub string) int {
 	}
 	t.Fatalf("no menu item labelled %q", sub)
 	return -1
-}
-
-// gateArmedModel activates Full Cleanup from the menu (arming its gate) and
-// resolves the dry-run sudo probe, landing on the gate confirm.
-func gateArmedModel(t *testing.T) model {
-	t.Helper()
-	shimPacman(t, "") // the audit prefetch runs pacman -Qqm: keep it off the real one
-	m, cmd := activateMenu(t, initialModel(), "Full Cleanup")
-	if cmd == nil {
-		t.Fatal("activating Full Cleanup should return the sudo probe cmd")
-	}
-	// dryRun makes the probe report cached without shelling out.
-	return update(m, cmd().(sudoCachedMsg))
-}
-
-// TestGateShownWhenSudoCached: cached sudo + a gated action → the proceed-gate
-// confirm appears over the menu, defaulting to No, with no queue built yet.
-func TestGateShownWhenSudoCached(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-
-	got := gateArmedModel(t)
-	if got.screen != screenConfirm || !got.gateActive {
-		t.Fatalf("expected gate confirm (screenConfirm, gateActive), got screen=%d gateActive=%v",
-			got.screen, got.gateActive)
-	}
-	if got.confirmMsg != "Proceed with full cleanup?" {
-		t.Fatalf("confirmMsg = %q, want the Full Cleanup gate text", got.confirmMsg)
-	}
-	if got.confirmYes {
-		t.Fatal("gate should default to No")
-	}
-	if got.bg != screenMenu {
-		t.Fatalf("gate should float over the menu, bg=%d", got.bg)
-	}
-	if len(got.queue) != 0 {
-		t.Fatalf("no queue may exist before the gate is answered, got %d steps", len(got.queue))
-	}
-}
-
-// TestGateNoReturnsToMenu: declining the gate goes back to the menu and runs
-// nothing.
-func TestGateNoReturnsToMenu(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-
-	got := update(gateArmedModel(t), key("n"))
-	if got.screen != screenMenu {
-		t.Fatalf("gate 'no' should return to the menu, got screen=%d", got.screen)
-	}
-	if got.gateActive {
-		t.Fatal("gateActive should be cleared after resolving")
-	}
-	if len(got.queue) != 0 {
-		t.Fatalf("nothing may run after a declined gate, got %d queued steps", len(got.queue))
-	}
-}
-
-// TestGateShownWithoutRoot: a gated queue that needs no root has no password
-// prompt to stand in for its gate, so the gate is asked before anything
-// runs (no current action is one; the engine does the same).
-func TestGateShownWithoutRoot(t *testing.T) {
-	m := initialModel()
-	m.gate = "Proceed?"
-	m.pending = []steps.Step{{ID: "a", Title: "a…", Argv: []string{"true"}}}
-	if cmd := m.beginPending(); cmd != nil {
-		t.Fatal("beginPending returned a cmd: something started before the gate")
-	}
-	if m.screen != screenConfirm || !m.gateActive || m.confirmMsg != "Proceed?" || m.bg != screenMenu {
-		t.Fatalf("screen=%d gateActive=%v confirmMsg=%q bg=%d, want the gate over the menu",
-			m.screen, m.gateActive, m.confirmMsg, m.bg)
-	}
-	if len(m.queue) != 0 {
-		t.Fatalf("queued %d steps before the gate was answered", len(m.queue))
-	}
-}
-
-// TestGateYesStartsQueue: accepting the gate starts the queue.
-func TestGateYesStartsQueue(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-
-	armed := gateArmedModel(t)
-	pending := len(armed.pending)
-	got := update(armed, key("y"))
-	if got.screen != screenRunning {
-		t.Fatalf("gate 'yes' should start the queue, got screen=%d", got.screen)
-	}
-	if got.gateActive {
-		t.Fatal("gateActive should be cleared after resolving")
-	}
-	if len(got.queue) != pending {
-		t.Fatalf("queue has %d steps, want the %d pending ones", len(got.queue), pending)
-	}
-}
-
-// TestNoGateForUngatedAction: cached sudo + an action without a gate runs
-// straight to the queue — the gate confirm is Full Cleanup–only.
-func TestNoGateForUngatedAction(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-
-	m := initialModel()
-	m.pending = []steps.Step{{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true}}
-	got := update(m, sudoCachedMsg{cached: true})
-	if got.screen != screenRunning {
-		t.Fatalf("ungated action should run immediately, got screen=%d", got.screen)
-	}
-	if got.gateActive {
-		t.Fatal("gateActive must stay false without a gate")
-	}
-}
-
-// TestStaleGateClearedByActivate: activate resets m.gate before dispatch, so a
-// leftover gate from a previous action never gates a different one.
-func TestStaleGateClearedByActivate(t *testing.T) {
-	dryRun = true
-	defer func() { dryRun = false }()
-
-	shimPacman(t, "") // choosing Run topgrade starts the audit's pacman -Qqm
-	m := initialModel()
-	m.gate = "stale gate from an earlier action"
-	got, _ := activateMenu(t, m, "topgrade (system update)")
-	if got.gate != "" {
-		t.Fatalf("activate should clear a stale gate, got %q", got.gate)
-	}
-	// topgrade primes sudo (needsSudo) — under dry-run the probe reports cached,
-	// so completing it runs the queue with no gate confirm.
-	got = update(got, sudoCachedMsg{cached: true})
-	if got.screen != screenRunning {
-		t.Fatalf("ungated action should run after the sudo probe, got screen=%d", got.screen)
-	}
-}
-
-// TestGateUncachedShowsPasswordNotGate: with sudo uncached the password prompt
-// itself is the gate — no extra confirm even for a gated action.
-func TestGateUncachedShowsPasswordNotGate(t *testing.T) {
-	m := initialModel()
-	m.gate = "Proceed with full cleanup?"
-	m.pending = []steps.Step{{Title: "x", LogLabel: "x", Argv: []string{"sudo"}, NeedsPriv: true}}
-
-	got := update(m, sudoCachedMsg{cached: false})
-	if got.screen != screenPassword {
-		t.Fatalf("uncached sudo should show the password prompt, got screen=%d", got.screen)
-	}
-	if got.gateActive {
-		t.Fatal("the gate confirm must not activate on the uncached path")
-	}
 }
 
 // ── orphan removal in Full Cleanup ────────────────────────────────────────────
@@ -274,11 +120,13 @@ func TestActivateFullCleanupRunsNoPacman(t *testing.T) {
 	shimLog := installShims(t, fullCleanupShims(false, "liba\nlibb", "liba\nlibb\nlibc"))
 	aurClean(t)
 
-	got, cmd := activateMenu(t, initialModel(), "Full Cleanup")
-	if cmd == nil || len(got.pending) == 0 || got.auditFetch == nil {
-		t.Fatal("activating Full Cleanup should queue its steps, start the audit prefetch and probe sudo")
+	tg := newTUIEngineTarget(t, shimLog)
+	if _, err := tg.Start("Full Cleanup"); err != nil { // awaits the prefetch
+		t.Fatal(err)
 	}
-	awaitFetch(t, got.auditFetch, 5*time.Second)
+	if tg.d.fetches[steps.PrefetchAURAudit] == nil {
+		t.Fatal("activating Full Cleanup should start the audit prefetch")
+	}
 	b, _ := os.ReadFile(shimLog)
 	if log := strings.TrimSpace(string(b)); log != "pacman -Qqm" {
 		t.Fatalf("activate ran:\n%s\nwant only the audit prefetch's pacman -Qqm", log)
@@ -365,28 +213,18 @@ func TestFindOrphansProbeFails(t *testing.T) {
 	}
 }
 
-// orphanProbeModel is a running queue of [probe, a following step] in a real
-// run with the probe launched; it returns the model and the probe's Cmd.
-func orphanProbeModel(t *testing.T) (model, tea.Cmd) {
-	t.Helper()
-	m := initialModel()
-	m.pending = []steps.Step{orphanProbeStep(), {Title: "after", LogLabel: "after", Argv: []string{"true"}}}
-	cmd := m.startQueue()
-	if m.current != 0 || m.queue[0].status != steps.Running || cmd == nil {
-		t.Fatalf("the probe should be running, got current=%d", m.current)
-	}
-	return m, cmd
-}
+// afterStep is a harmless step behind the orphan probe.
+var afterStep = steps.Step{ID: "after", Title: "after", LogLabel: "after", Argv: []string{"true"}}
 
 // TestOrphanProbeInsertsConfirmedRemoval: the probe's result puts the removal
 // next in the queue and asks its confirm right away, defaulting to No;
 // declining skips just the removal (logged as SKIP) and carries on.
 func TestOrphanProbeInsertsConfirmedRemoval(t *testing.T) {
 	transcriptEnv(t, false)
-	installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba\nlibb\nlibc", "")})
-	m, cmd := orphanProbeModel(t)
+	installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba\nlibb\nlibc", "")}, "true")
+	q := startQueue(t, orphanProbeStep(), afterStep)
 
-	m = update(m, cmd())
+	m := q.m
 	if len(m.queue) != 3 || m.queue[0].status != steps.OK {
 		t.Fatalf("queue = %d steps, probe status %d; want the removal inserted after an ok probe", len(m.queue), m.queue[0].status)
 	}
@@ -398,62 +236,60 @@ func TestOrphanProbeInsertsConfirmedRemoval(t *testing.T) {
 		t.Fatalf("screen=%d confirm=%q yes=%v, want %q defaulting to No", m.screen, m.confirmMsg, m.confirmYes, want)
 	}
 
-	m = update(m, key("n"))
-	if m.queue[1].status != steps.Skipped || m.skipped != 1 || m.current != 2 {
-		t.Fatalf("declined removal: status=%d skipped=%d current=%d, want skipped and moved on", m.queue[1].status, m.skipped, m.current)
+	m = q.answer("n").m
+	if m.queue[1].status != steps.Skipped || m.skipped != 1 || m.queue[2].status != steps.OK {
+		t.Fatalf("declined removal: status=%d skipped=%d after=%d, want skipped and moved on", m.queue[1].status, m.skipped, m.queue[2].status)
 	}
 	data, _ := os.ReadFile(logPath(logCategoryOrphans))
 	if !strings.Contains(string(data), "SKIP: Orphaned packages removed (declined)") {
 		t.Fatalf("orphans log lacks the declined SKIP:\n%s", data)
 	}
-	m.abortRunning() // stop the following step's child
 }
 
 // TestOrphanProbeNoneInsertsNothing: no orphans → no confirm, no removal; the
 // queue just moves on.
 func TestOrphanProbeNoneInsertsNothing(t *testing.T) {
 	transcriptEnv(t, false)
-	installShims(t, Shims{"pacman": pacmanRules("", "", "")})
-	m, cmd := orphanProbeModel(t)
-
-	m = update(m, cmd())
-	if len(m.queue) != 2 || m.queue[0].status != steps.OK || m.current != 1 ||
-		m.queue[1].status != steps.Running || m.screen != screenRunning {
-		t.Fatalf("queue=%d probe=%d current=%d screen=%d, want the next step running",
-			len(m.queue), m.queue[0].status, m.current, m.screen)
+	installShims(t, Shims{"pacman": pacmanRules("", "", "")}, "true")
+	m := startQueue(t, orphanProbeStep(), afterStep).m
+	if len(m.queue) != 2 || m.queue[0].status != steps.OK || m.queue[1].status != steps.OK || m.screen != screenSummary {
+		t.Fatalf("queue=%d probe=%d after=%d screen=%d, want the next step run",
+			len(m.queue), m.queue[0].status, m.queue[1].status, m.screen)
 	}
-	m.abortRunning()
 }
 
 // TestOrphanProbeFailureInsertsNothing: a failed probe fails its step (logged
 // with pacman's reason) and the queue carries on without a removal.
 func TestOrphanProbeFailureInsertsNothing(t *testing.T) {
 	transcriptEnv(t, false)
-	installShims(t, Shims{"pacman": {{Prefix: "-Qdtq", Script: "echo 'error: boom' >&2", Exit: 1}}})
-	m, cmd := orphanProbeModel(t)
-
-	m = update(m, cmd())
-	if len(m.queue) != 2 || m.queue[0].status != steps.Failed || m.errs != 1 || m.current != 1 {
-		t.Fatalf("queue=%d probe=%d errs=%d current=%d, want a failed probe and no insert",
-			len(m.queue), m.queue[0].status, m.errs, m.current)
+	installShims(t, Shims{"pacman": {{Prefix: "-Qdtq", Script: "echo 'error: boom' >&2", Exit: 1}}}, "true")
+	m := startQueue(t, orphanProbeStep(), afterStep).m
+	if len(m.queue) != 2 || m.queue[0].status != steps.Failed || m.errs != 1 || m.queue[1].status != steps.OK {
+		t.Fatalf("queue=%d probe=%d errs=%d after=%d, want a failed probe and no insert",
+			len(m.queue), m.queue[0].status, m.errs, m.queue[1].status)
 	}
 	data, _ := os.ReadFile(logPath(logCategoryOrphans))
 	if !strings.Contains(string(data), "FAIL: Orphaned packages checked") || !strings.Contains(string(data), "error: boom") {
 		t.Fatalf("orphans log lacks the failure:\n%s", data)
 	}
-	m.abortRunning()
 }
 
-// TestAbortDuringOrphanProbe: an abort while the probe's pacman runs kills it
-// (ctx), and the late result is dropped by stepSeq: nothing is inserted and
-// no confirm pops up over the menu.
+// TestAbortDuringOrphanProbe: an abort while the probe's pacman runs (the
+// real Driver, from newDriver) kills it through the step's ctx, and its late
+// result is dropped: nothing is inserted.
 func TestAbortDuringOrphanProbe(t *testing.T) {
 	transcriptEnv(t, false)
 	shimLog := installShims(t, Shims{"pacman": {{Prefix: "-Qdtq", Block: true}}})
-	m, cmd := orphanProbeModel(t)
+	probe := actions.Action{ID: "orphanq", Label: "Orphan queue", Steps: func(actions.Env) []steps.Step {
+		return []steps.Step{orphanProbeStep(), afterStep}
+	}}
+	old := actions.Menu
+	actions.Menu = append(slices.Clone(old), probe)
+	t.Cleanup(func() { actions.Menu = old })
 
-	res := make(chan tea.Msg, 1)
-	go func() { res <- cmd() }()
+	d := newDriver(engine.New(engine.Options{Env: actionEnv()}), nil)
+	t.Cleanup(d.Close)
+	d.Send(engine.Start{Action: probe.ID})
 	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(time.Millisecond) {
 		if b, _ := os.ReadFile(shimLog); len(b) > 0 {
 			break // pacman is running
@@ -462,23 +298,27 @@ func TestAbortDuringOrphanProbe(t *testing.T) {
 			t.Fatal("the probe's pacman never started")
 		}
 	}
-	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
-	m = update(m, key("y"))
-	if m.screen != screenMenu {
-		t.Fatalf("screen = %d after the abort, want the menu", m.screen)
+	d.Send(engine.Abort{})
+	var inserted bool
+	timeout := time.After(5 * time.Second)
+	for done := false; !done; {
+		select {
+		case ev := <-d.Events():
+			switch ev := ev.(type) {
+			case engine.StepInserted:
+				inserted = true
+			case engine.Finished:
+				if ev.Outcome != engine.OutcomeAborted {
+					t.Fatalf("finished %+v, want aborted", ev)
+				}
+				done = true
+			}
+		case <-timeout:
+			t.Fatal("the probe kept running after the abort: ctx didn't kill pacman")
+		}
 	}
-	var late tea.Msg
-	select {
-	case late = <-res:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the probe kept running after the abort: ctx didn't kill pacman")
-	}
-	if r := late.(stepResultMsg); r.Err == nil {
-		t.Fatalf("aborted probe returned %+v, want an error", r.Result)
-	}
-	m = update(m, late)
-	if len(m.queue) != 2 || m.screen != screenMenu {
-		t.Fatalf("late result changed the model: queue=%d screen=%d", len(m.queue), m.screen)
+	if inserted {
+		t.Fatal("the aborted probe's result inserted a step")
 	}
 }
 

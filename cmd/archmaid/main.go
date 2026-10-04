@@ -31,35 +31,21 @@ func main() {
 	srv := startAskpassServer() // nil: askpass isn't wired, sudo steps run -n
 	defer stopAskpassServer(srv)
 
+	// The TUI is a front end to the engine: the Driver owns the Session and
+	// takes the askpass requests itself.
+	var reqs <-chan *privilege.Request
+	if srv != nil {
+		reqs = srv.Requests()
+	}
+	drv := newDriver(engine.New(engine.Options{DryRun: dryRun, Env: actionEnv()}), reqs)
 	m := initialModel()
-	var drv engine.Driver
-	if useEngine && newDriver != nil {
-		// Engine mode (E7): the Driver owns the Session and takes the
-		// askpass requests itself.
-		var reqs <-chan *privilege.Request
-		if srv != nil {
-			reqs = srv.Requests()
-		}
-		drv = newDriver(engine.New(engine.Options{DryRun: dryRun, Env: actionEnv()}), reqs)
-		m.eng = newEngineState(drv)
-	}
+	m.eng = newEngineState(drv)
 	p := tea.NewProgram(m, tea.WithAltScreen())
-	switch {
-	case drv != nil:
-		go forwardEvents(drv.Events(), p.Send)
-	case srv != nil:
-		go func() { // deliver sudo password requests to the model
-			for req := range srv.Requests() {
-				p.Send(askpassMsg{req: req})
-			}
-		}()
-	}
+	go forwardEvents(drv.Events(), p.Send)
 
 	_, err := p.Run()
-	if drv != nil {
-		drv.Close() // stops what runs and waits for its workers
-		driverReports.flush(os.Stderr)
-	}
+	drv.Close() // stops what runs and waits for its workers
+	driverReports.flush(os.Stderr)
 	// An aborted downloads deletion finishes its current entry and logs what
 	// it deleted; don't cut that short by exiting.
 	waitForDownloads(os.Stderr)

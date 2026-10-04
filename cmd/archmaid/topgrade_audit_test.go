@@ -20,25 +20,15 @@ func standaloneTopgrade() steps.Step {
 	return list[findStep(list, "topgrade")]
 }
 
-// startTopgradeAction runs the Run topgrade queue's audit, with topgrade
-// itself replaced by a stand-in, and feeds the result back through Update.
-func startTopgradeAction(t *testing.T) model {
+// startTopgradeAction runs the Run topgrade queue on the engine, with
+// topgrade itself replaced by a stand-in, up to its first prompt or end.
+func startTopgradeAction(t *testing.T) auditQueue {
 	t.Helper()
 	list := topgradeSteps()
 	if len(list) != 2 || findStep(list, "topgrade") != 1 {
 		t.Fatalf("Run topgrade queue = %+v, want [audit, topgrade]", list)
 	}
-	m := initialModel()
-	m.pending = []steps.Step{list[0], harmlessTopgrade()}
-	cmd := m.startQueue()
-	if m.queue[0].status != steps.Running || cmd == nil {
-		t.Fatalf("audit step should be running with a Cmd, status=%d", m.queue[0].status)
-	}
-	msg, ok := cmd().(stepResultMsg)
-	if !ok {
-		t.Fatalf("audit Cmd returned %T, want stepResultMsg", msg)
-	}
-	return update(m, msg)
+	return startQueue(t, list[0], harmlessTopgrade())
 }
 
 // TestTopgradeActionAuditsFirst: the action's first step is the in-process
@@ -60,7 +50,7 @@ func TestTopgradeActionAuditsFirst(t *testing.T) {
 // confirm, defaulting to No, in front of topgrade before it starts.
 func TestTopgradeActionGatedOnHighFinding(t *testing.T) {
 	takeoverFixture(t)
-	got := startTopgradeAction(t)
+	got := startTopgradeAction(t).m
 
 	if got.screen != screenConfirm || got.bg != screenRunning {
 		t.Fatalf("expected the gate confirm over the running screen, got screen=%d bg=%d", got.screen, got.bg)
@@ -68,7 +58,7 @@ func TestTopgradeActionGatedOnHighFinding(t *testing.T) {
 	if got.confirmMsg != "victim changed maintainer since the last audit. Update anyway?" || got.confirmYes {
 		t.Fatalf("confirm = %q (yes=%v), want the named warning defaulting to No", got.confirmMsg, got.confirmYes)
 	}
-	if got.queue[1].status != steps.Pending || !got.queue[1].step.Optional {
+	if got.queue[1].status != steps.Pending || !got.queue[1].plan.Optional {
 		t.Fatalf("topgrade must wait, optional, for the answer: %+v", got.queue[1])
 	}
 }
@@ -77,7 +67,7 @@ func TestTopgradeActionGatedOnHighFinding(t *testing.T) {
 // record), saves nothing, and the next run gates again.
 func TestTopgradeActionDeclineSkipsAndKeepsAlarm(t *testing.T) {
 	takeoverFixture(t)
-	got := update(startTopgradeAction(t), key("n"))
+	got := startTopgradeAction(t).answer("n").m
 
 	if got.queue[1].status != steps.Skipped || got.screen != screenSummary || got.errs != 0 {
 		t.Fatalf("topgrade status=%d screen=%d errs=%d, want skipped/summary/0", got.queue[1].status, got.screen, got.errs)
@@ -88,7 +78,7 @@ func TestTopgradeActionDeclineSkipsAndKeepsAlarm(t *testing.T) {
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "bob" {
 		t.Fatalf("declining must not record the new maintainer, snapshot = %v", snap)
 	}
-	if again := startTopgradeAction(t); again.screen != screenConfirm {
+	if again := startTopgradeAction(t).m; again.screen != screenConfirm {
 		t.Fatalf("the next run should gate again, screen=%d", again.screen)
 	}
 }
@@ -97,10 +87,10 @@ func TestTopgradeActionDeclineSkipsAndKeepsAlarm(t *testing.T) {
 // the snapshot (logged ACCEPT), so the next run doesn't gate.
 func TestTopgradeActionAcceptRunsAndCommits(t *testing.T) {
 	takeoverFixture(t)
-	got := update(startTopgradeAction(t), key("y"))
+	got := startTopgradeAction(t).answer("y").m
 
-	if got.queue[1].status != steps.Running {
-		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
+	if got.queue[1].status != steps.OK {
+		t.Fatalf("topgrade should have run, status=%d", got.queue[1].status)
 	}
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "mallory" {
 		t.Fatalf("accepting should record the new maintainer, snapshot = %v", snap)
@@ -108,8 +98,8 @@ func TestTopgradeActionAcceptRunsAndCommits(t *testing.T) {
 	if log, _ := os.ReadFile(logPath(logCategoryAudit)); !strings.Contains(string(log), "ACCEPT: AUR maintainer changes accepted") {
 		t.Fatalf("audit.log:\n%s", log)
 	}
-	if again := startTopgradeAction(t); again.queue[1].step.Confirm != "" || again.queue[1].status != steps.Running {
-		t.Fatalf("an accepted change must not gate again, confirm=%q status=%d", again.queue[1].step.Confirm, again.queue[1].status)
+	if again := startTopgradeAction(t).m; again.queue[1].plan.Confirm || again.queue[1].status != steps.OK {
+		t.Fatalf("an accepted change must not gate again, confirm=%v status=%d", again.queue[1].plan.Confirm, again.queue[1].status)
 	}
 }
 
@@ -118,13 +108,13 @@ func TestTopgradeActionAcceptRunsAndCommits(t *testing.T) {
 func TestTopgradeActionAuditFailureDoesNotGate(t *testing.T) {
 	auditEnv(t)
 	shimPacmanForeign(t, "something\n") // aurRPCURL stays TestMain's closed port
-	got := startTopgradeAction(t)
+	got := startTopgradeAction(t).m
 
 	if got.queue[0].status != steps.Failed || got.errs != 1 {
 		t.Fatalf("audit status=%d errs=%d, want failed/1", got.queue[0].status, got.errs)
 	}
-	if got.queue[1].step.Confirm != "" || got.queue[1].status != steps.Running {
-		t.Fatalf("a failed audit must not gate topgrade, confirm=%q status=%d", got.queue[1].step.Confirm, got.queue[1].status)
+	if got.queue[1].plan.Confirm || got.queue[1].status != steps.OK {
+		t.Fatalf("a failed audit must not gate topgrade, confirm=%v status=%d", got.queue[1].plan.Confirm, got.queue[1].status)
 	}
 }
 
@@ -136,10 +126,10 @@ func TestTopgradeActionDryRunNeverCommits(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	gated := startTopgradeAction(t)
-	if gated.screen != screenConfirm {
-		t.Fatalf("a dry run should still gate, screen=%d", gated.screen)
+	if gated.m.screen != screenConfirm {
+		t.Fatalf("a dry run should still gate, screen=%d", gated.m.screen)
 	}
-	update(gated, key("y"))
+	gated.answer("y")
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "bob" {
 		t.Fatalf("a dry run must not advance the snapshot, snapshot = %v", snap)
 	}

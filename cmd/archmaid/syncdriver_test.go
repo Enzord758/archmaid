@@ -248,7 +248,7 @@ func (d *syncDriver) effect(e engine.Effect) {
 }
 
 // stop ends what Seq started: a child gets SIGINT, then SIGKILL after the
-// grace (procOptions); an in-process step's or discovery's ctx is
+// grace (runStep); an in-process step's or discovery's ctx is
 // cancelled with plain context.Canceled, an abort. Called with mu held.
 func (d *syncDriver) stop(seq uint64) {
 	if c := d.child[seq]; c != nil {
@@ -277,7 +277,7 @@ func (d *syncDriver) startStep(e engine.StartStep) {
 		return
 	}
 	c := &runnerChild{ch: make(chan proc.Msg, proc.BatchMax), quit: make(chan struct{})}
-	c.c = proc.New(procOptions()).Start(stepSpec(e.Step), c.ch, c.quit)
+	c.c = runStep(e.Step, c.ch, c.quit)
 	d.child[e.Seq] = c
 	d.launches++
 	d.work = append(d.work, d.pump(e.Seq, c))

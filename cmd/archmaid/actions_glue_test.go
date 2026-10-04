@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/steps"
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Helpers over internal/actions for the TUI's tests: the real queues and
@@ -41,8 +39,8 @@ func findOrphans(ctx context.Context) steps.Result {
 }
 
 // discoverNow runs the menu action id's discovery synchronously, with env
-// adjusted by tweak (if any), and returns it as the TUI would receive it.
-func discoverNow(t *testing.T, id string, tweak ...func(*actions.Env)) discoveryMsg {
+// adjusted by tweak (if any), and returns what it found.
+func discoverNow(t *testing.T, id string, tweak ...func(*actions.Env)) actions.Discovery {
 	t.Helper()
 	a, ok := actions.ByID(id)
 	if !ok || a.Discover == nil {
@@ -52,14 +50,15 @@ func discoverNow(t *testing.T, id string, tweak ...func(*actions.Env)) discovery
 	for _, f := range tweak {
 		f(&env)
 	}
-	return discoveryMsg{d: a.Discover(context.Background(), env)}
+	return a.Discover(context.Background(), env)
 }
 
-// discoverCmd is the Cmd activate would start for the discovery action id,
-// its Env captured here, as on the model's goroutine.
-func discoverCmd(id string) tea.Cmd {
+// discoverLater is the discovery action id with its Env captured here, as
+// main captures it for the Session, to run later on another goroutine.
+func discoverLater(id string) func() actions.Discovery {
 	a, _ := actions.ByID(id)
-	return discover(a.Discover, actionEnv(), false)
+	env := actionEnv()
+	return func() actions.Discovery { return a.Discover(context.Background(), env) }
 }
 
 // noticeOf is d's notice text, or "" when d is no Notice.
@@ -85,27 +84,5 @@ func menuItemIndex(t *testing.T, id string) int {
 func TestActionEnvIsComplete(t *testing.T) {
 	if err := actionEnv().Validate(); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// TestReportAcceptReachesTheModel: a Report's Accept is what `a` on the
-// audit screen runs. It is typed, so a producer can't hand over a func of
-// another type that the model would silently drop (Report.Audit was an any
-// the model type-asserted, leaving `a` a no-op on a mismatch).
-func TestReportAcceptReachesTheModel(t *testing.T) {
-	accepted := 0
-	m := update(initialModel(), discoveryMsg{d: actions.Report{Text: "1 high finding",
-		Accept: func() error { accepted++; return nil }}})
-	if m.screen != screenAudit || m.auditCommit == nil {
-		t.Fatalf("screen=%d commit=%v, want the audit screen holding Accept", m.screen, m.auditCommit != nil)
-	}
-	m = update(m, key("a"))
-	if accepted != 1 || m.screen != screenNotice || !strings.Contains(m.notice, "accepted") {
-		t.Fatalf("accepted %d times, screen=%d notice=%q", accepted, m.screen, m.notice)
-	}
-	// Nothing to accept: `a` does nothing.
-	m = update(initialModel(), discoveryMsg{d: actions.Report{Text: "clean"}})
-	if m = update(m, key("a")); m.screen != screenAudit {
-		t.Fatalf("screen=%d after a with nothing to accept, want the audit screen", m.screen)
 	}
 }

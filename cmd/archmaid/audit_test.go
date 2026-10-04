@@ -14,9 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Enzord758/archmaid/internal/actions"
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -311,23 +308,19 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 		t.Fatalf("snapshot = %v, want victim held at bob and fresh recorded", snap)
 	}
 
-	m := initialModel()
-	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
-	m.screen = screenDiscovering
-	m = update(m, discoveryMsg{d: msg.discovery()})
-	if !strings.Contains(m.View(), "a accept maintainer changes") {
-		t.Fatalf("audit screen should hint at a:\n%s", m.View())
+	if v := menuAuditRun(t, "").m.View(); !strings.Contains(v, "a accept maintainer changes") {
+		t.Fatalf("audit screen should hint at a:\n%s", v)
 	}
-	if back := update(m, key("q")); back.auditCommit != nil {
-		t.Fatal("leaving the report must drop the pending accept")
+	if back := menuAuditRun(t, "q"); back.m.screen != screenMenu || back.m.eng.canAccept() {
+		t.Fatalf("leaving the report: screen %d, can accept %v", back.m.screen, back.m.eng.canAccept())
 	}
 	if again := runAudit(auditNow); !strings.Contains(again.report, "bob → mallory") {
 		t.Fatalf("an unaccepted change must be flagged again:\n%s", again.report)
 	}
 
-	got := update(m, key("a"))
-	if got.screen != screenNotice || got.bg != screenAudit || !strings.Contains(got.notice, "accepted") || got.auditCommit != nil {
-		t.Fatalf("screen=%d bg=%d notice=%q commit=%v", got.screen, got.bg, got.notice, got.auditCommit != nil)
+	got := menuAuditRun(t, "a").m
+	if got.screen != screenNotice || got.bg != screenAudit || !strings.Contains(got.notice, "accepted") || got.eng.canAccept() {
+		t.Fatalf("screen=%d bg=%d notice=%q can accept=%v", got.screen, got.bg, got.notice, got.eng.canAccept())
 	}
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "mallory" {
 		t.Fatalf("snapshot = %v, want victim accepted as mallory", snap)
@@ -339,7 +332,7 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	if third.commit != nil || strings.Contains(third.report, "maintainer changed") {
 		t.Fatalf("an accepted change must not be flagged again:\n%s", third.report)
 	}
-	if v := update(m, discoveryMsg{d: actions.Report{Text: third.report}}).View(); strings.Contains(v, "a accept") {
+	if v := menuAuditRun(t, "").m.View(); strings.Contains(v, "a accept") {
 		t.Fatalf("no a hint without anything to accept:\n%s", v)
 	}
 }
@@ -420,7 +413,7 @@ func TestOldFormatSnapshotIsACoMaintainerBaseline(t *testing.T) {
 	if r.Err != nil || r.ConfirmNext != "" || !strings.Contains(r.Output, "0 high, 0 glance, 2 clean") {
 		t.Fatalf("err=%v confirmNext=%q, want no gate:\n%s", r.Err, r.ConfirmNext, r.Output)
 	}
-	if err := r.Commit(); err != nil { // nothing gates: handleStepResult commits at once
+	if err := r.Commit(); err != nil { // nothing gates: the engine commits as it takes the result
 		t.Fatal(err)
 	}
 	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob"}) {
@@ -468,11 +461,7 @@ func TestMenuAuditHoldsCoMaintainerUntilAccepted(t *testing.T) {
 		t.Fatal("an unaccepted co-maintainer must be flagged again")
 	}
 
-	m := initialModel()
-	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
-	m.screen = screenDiscovering
-	m = update(m, discoveryMsg{d: msg.discovery()})
-	if got := update(m, key("a")); !strings.Contains(got.notice, "accepted") {
+	if got := menuAuditRun(t, "a").m; !strings.Contains(got.notice, "accepted") {
 		t.Fatalf("notice = %q", got.notice)
 	}
 	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob", "mallory"}) {
@@ -484,49 +473,26 @@ func TestMenuAuditHoldsCoMaintainerUntilAccepted(t *testing.T) {
 }
 
 // ── UI flow ───────────────────────────────────────────────────────────────────
+//
+// The report screen's keys and its accept notice on canned Events are
+// adapter_test.go's (TestEngineReport); these run the real menu audit.
 
-func TestAuditMenuItemStartsDiscovery(t *testing.T) {
-	m := initialModel()
-	for i, it := range actions.Menu {
-		if it.ID == actions.IDAURAudit {
-			m.cursor = i
+// menuAuditRun runs "Audit AUR packages" through the TUI on the engine,
+// lands on its report, answers it with k (q leaves, a accepts; "" leaves
+// it up) and settles what the answer started.
+func menuAuditRun(t *testing.T, k string) *Driver {
+	t.Helper()
+	d := run(t, "", "Audit AUR packages")
+	if d.m.screen != screenAudit {
+		t.Fatalf("screen %d, want the report", d.m.screen)
+	}
+	if k != "" {
+		d.keys(key(k))
+		for evs := d.d.Pull(); len(evs) > 0; evs = d.d.Pull() {
+			d.deliver(evs, d.d.launches)
 		}
 	}
-	if actions.Menu[m.cursor].ID != actions.IDAURAudit {
-		t.Fatal("menu has no audit item")
-	}
-	got := update(m, key("enter"))
-	if got.screen != screenDiscovering || !strings.Contains(got.discovering, "AUR") {
-		t.Fatalf("screen=%d discovering=%q", got.screen, got.discovering)
-	}
-}
-
-func TestAuditReportShowsScrollableScreenAndEscReturns(t *testing.T) {
-	m := initialModel()
-	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
-	m.screen = screenDiscovering
-
-	got := update(m, discoveryMsg{d: actions.Report{Text: "line one\nline two"}})
-	if got.screen != screenAudit {
-		t.Fatalf("screen = %d, want screenAudit", got.screen)
-	}
-	if !strings.Contains(got.View(), "line two") || !strings.Contains(got.View(), "AUR audit") {
-		t.Fatalf("audit screen doesn't render the report:\n%s", got.View())
-	}
-	if back := update(got, key("esc")); back.screen != screenMenu {
-		t.Fatalf("esc = screen %d, want screenMenu", back.screen)
-	}
-	if back := update(got, key("q")); back.screen != screenMenu {
-		t.Fatalf("q = screen %d, want screenMenu", back.screen)
-	}
-}
-
-func TestAuditNoticeRoutesToNoticePopup(t *testing.T) {
-	m := initialModel()
-	got := update(m, discoveryMsg{d: actions.Notice{Text: "Couldn't reach the AUR: boom"}})
-	if got.screen != screenNotice || !strings.Contains(got.notice, "boom") {
-		t.Fatalf("screen=%d notice=%q", got.screen, got.notice)
-	}
+	return d
 }
 
 func TestAuditLogIsInTheViewLogPicker(t *testing.T) {
