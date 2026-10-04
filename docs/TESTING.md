@@ -102,7 +102,7 @@ gotk4 build takes about 7 minutes). Two layers:
 
 | Layer | Where | Needs |
 |---|---|---|
-| View-model and pump | `gui/internal/runview`, plain `go test` (`-race` is fine: it doesn't build gotk4) | nothing: no display, no GTK |
+| View-models and pump | `gui/internal/runview`, `overview`, `logview`, plain `go test` (`-race` is fine: they don't build gotk4) | nothing: no display, no GTK |
 | The real window | `gui/internal/ui/harness_test.go`, through `gui/scripts/headless.sh` | gtk4, libadwaita, weston |
 
 `runview`'s tests replay `stub.FullCleanup` one event at a time and as one
@@ -127,14 +127,21 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
 ~35 s warm, CI sets 600), so nothing outlives the run. Scenarios:
-`fullcleanup` (the stub run end to end, each confirm answered through its
-dialog), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
+Actions start from their Overview row against the stub's `Catalog`
+(the page must switch to Run). `fullcleanup` (the stub run end to end, each
+confirm answered through its dialog, its buttons labelled by `YesLabel` and
+"Skip"/"Cancel"), `usercache-no` (a required step's confirm declined: the
+step skipped, outcome aborted), `repair` (the menu as shown, a discovery
+ending in a notice, the empty last run), `logs` (a scratch state dir with a
+20-day-old failed last-run.json and two runs' logs: the Overview's stale
+warning, View log's run rows, one log opened; the state dir must be
+unchanged after), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
 `close-midrun` (closing mid-run asks first, then closes), `prompts` (a
 selection, the up-front password with its gate and an askpass mid-step, each
 answered through its dialog: boxes ticked, a password typed; the Driver must
 get `Select` and two `SubmitPassword`s with the right IDs, and the entry must
 be empty after the answer), `audit` (the AUR report's Accept is
-`Confirm(yes)`), `idle` (first frame
+`Confirm(yes)`, and `ReportAccepted` is a toast), `idle` (first frame
 and RAM), `flood` (50k unpaced lines, dropping off: the view's real capacity),
 `flood-paced` (100 lines every 10 ms = 10k lines/s, default pump: nothing may
 drop), `flood-default` (unpaced, default pump), `flood-colour` (as `flood`,

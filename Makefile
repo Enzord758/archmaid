@@ -42,7 +42,7 @@ gui:
 	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview && go test -count=1 ./...
 
 # `gui` plus the display tests in a private headless weston (no window on the
-# desktop): Full Cleanup through the real window, Stop, close mid-run, the
+# desktop): every action from its Overview row, the logs, Stop, close mid-run, the
 # 50k-line throughput proof and first frame/RAM, all leak-checked. Add
 # ARCHMAID_GUI_PERF=1 to also enforce the budgets (machine-specific).
 gui-test: gui
