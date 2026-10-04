@@ -8,7 +8,7 @@
 // group, no Setsid/Setpgid/Setctty. sudo keys its ticket to the tty and the
 // session, so one primed ticket covers every step and everything they spawn
 // only while they share archmaid's session. See docs/HANDOVER.md ("Steps run
-// as plain children").
+// as plain children") and TestNoSetsid, which enforces it.
 package proc
 
 import (

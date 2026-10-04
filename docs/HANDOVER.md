@@ -56,7 +56,11 @@ comments and `git log`; this is the "read before you touch it" list.
   the tty *and* session. Per-child `Setsid` gave every internal sudo its own
   ticket (repeated popups during topgrade); a shared-pty attempt froze topgrade.
   Both are reverted in git. Plain children share the session, so the one primed
-  ticket covers every step and everything topgrade/yay spawn.
+  ticket covers every step and everything topgrade/yay spawn. `TestNoSetsid`
+  (`internal/proc`) holds the line: a started child shares our session and
+  process group, and no non-test code under `cmd/` or `internal/` sets
+  `SysProcAttr`'s `Setsid`, `Setpgid` or `Setctty` — except the root helper
+  (`cmd/archmaid-helper`), which runs outside the TUI's session.
 - **Auth is two-stage (`authSudo`).** One wrong `sudo -S -v` burns *two*
   `pam_faillock` failures (the wrong password plus sudo's retry hitting EOF), and
   `sudo -A` burns two as well — with Arch's `deny=3`, one typo from lockout. So
