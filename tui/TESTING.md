@@ -43,6 +43,7 @@ go vet ./... && gofmt -l .          # must print nothing
 go test -run TestAbort ./...        # a subset by name
 go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
 go test -run TestTranscript ./...   # the transcripts; -update-transcripts rewrites them
+go test -run '^$' -bench StreamView -benchmem ./...   # UI cost of streaming 5k / 20k lines
 bash e2e/run.sh                     # VHS e2e (needs vhs, ttyd, ffmpeg)
 go build -o archmaid . && ./archmaid --dryrun   # manual poke; logs go to ~/.local/state/archmaid/dryrun/
 ```
@@ -167,7 +168,7 @@ go test -race -count=5 -run Transcript ./...            # must stay deterministi
 | `pick` | `[<services offered>] -> [<ticked>]` |
 | `plan` | `N steps`, then `<i> "<title>" inproc\|argv=… [sudo] [confirm] [optional] [alwayslog] cat=<c>` per step; re-emitted when a step's flags change mid-run (the audit gating topgrade) |
 | `step` | `<i> running\|ok\|failed\|skipped` |
-| `out` | `<i> <line>` of a step's output, as the model accepted it |
+| `out` | `<i> <line>` of a step's output, as the model accepted it — one per line, however the pump batched them |
 | `log` | `<cat> <KIND>: <label>` — the entry header, no timestamp or run dir |
 | `snap` | the AUR maintainer snapshot, whenever its content changes |
 | `abort` | `<i> "<title>"` — ctrl+c, then y |
@@ -221,6 +222,7 @@ the names.
 | `sudo_hardening_test.go` | Sudo steps run as `sudo -A` (password via `SUDO_ASKPASS`, never the tty), or `sudo -n` when askpass isn't wired, and other commands are untouched; the keep-alive loop arms only for real sudo queues and disarms on summary/abort; `pruneLogs` keeps the newest 5 run directories and exempts `dryrun/` and non-run entries. |
 | `auth_test.go` | Two-stage prime: a wrong password never reaches `sudo` (no faillock burn), and su runs as `su -s /usr/bin/true <user>`; a correct one mints the ticket; a lockout notice is surfaced verbatim; submit locks the input and ignores all keys until the result arrives. |
 | `abort_test.go` | ctrl+c opens a confirm instead of quitting; "no" resumes with the child alive; "yes" really terminates a real child; a SIGINT-ignoring child is SIGKILLed after the grace period; late output after an abort is dropped, by its step sequence, so even once a new queue has started an aborted step's late line never reaches the new step's pane or log and its late done never finishes it. |
+| `stream_test.go` | The pump batches what's buffered (at most `streamBatchMax` lines, in order, ending at the done, nothing left behind, seq on every batch); an aborted pump returns nil. The pane follows output only at the bottom: scrolled up, new batches don't yank it, and when the tail drops old lines the line being read stays on top. A 20k-line `alwaysLog` step logs all 20k lines in order while the pane holds the newest 2000. `BenchmarkStreamView5k`/`20k`: Update + View cost of streaming a flood. |
 | `overlay_test.go` | Popups float, centered, over their background; ANSI-styled backgrounds keep their width; the abort dialog stays over the running screen. |
 | `resize_test.go` | The output pane never overflows the terminal (running queue, log viewer, resize while a popup is open); askpass prompts over another popup keep the real background; nested popups resolve to the right base screen. |
 | `services_test.go` | Services discovery: `parseInactiveServices` on a captured `list-units` fixture (the `●` not-found row, masked, template instances, excluded names), the batched `is-enabled` with its per-unit fallback, and an equivalence test running the old bash pipeline against the same fixture system (`testdata/systemctl_list_*.txt` served by a shim) to prove both select the same units. |

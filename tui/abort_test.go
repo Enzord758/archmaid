@@ -100,7 +100,7 @@ func TestLateOutputDroppedAfterAbort(t *testing.T) {
 	m = update(m, key("y")) // abort back to the menu
 
 	// a late failure message from the killed process, stamped by its pump
-	next, cmd := m.handleStream(streamMsg{seq: 1, done: true, err: exec.ErrNotFound})
+	next, cmd := m.handleStream(streamBatchMsg{seq: 1, done: true, err: exec.ErrNotFound})
 	got := next.(model)
 	if got.screen != screenMenu {
 		t.Fatalf("late output must not change screen, got %d", got.screen)
@@ -176,16 +176,12 @@ func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
 	pumpA := m.beginPending()
 	seqA := m.stepSeq
 
-	// The pump delivers A's line; the next one, released by the abort, finds
-	// A's done ready and delivers it anyway. Taken before the abort so the
-	// test doesn't depend on which select case wins.
-	lateLine, ok := pumpA().(streamMsg)
-	if !ok || lateLine.done || !strings.Contains(lateLine.line, "from-A") {
-		t.Fatalf("expected A's output line, got %#v", lateLine)
-	}
-	lateDone, ok := waitForStream(m.stream, m.quit, seqA)().(streamMsg)
-	if !ok || !lateDone.done {
-		t.Fatalf("expected A's done, got %#v", lateDone)
+	// The pump delivers A's line and done — in one batch, or the done in a
+	// second one that the abort releases and finds ready. Taken before the
+	// abort so the test doesn't depend on which select case wins.
+	late := pumpAll(t, m, pumpA)
+	if got := late[0]; len(got.lines) != 1 || !strings.Contains(got.lines[0], "from-A") || got.seq != seqA {
+		t.Fatalf("expected A's output line, got %#v", got)
 	}
 
 	m = update(m, key("ctrl+c"))
@@ -200,7 +196,7 @@ func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
 		t.Fatalf("B should be running under a new seq: screen=%d seq=%d (A's %d)", m.screen, m.stepSeq, seqA)
 	}
 
-	for _, late := range []streamMsg{lateLine, lateDone} {
+	for _, late := range late {
 		next, cmd := m.Update(late)
 		m = next.(model)
 		if cmd != nil {
@@ -219,12 +215,12 @@ func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
 	}
 
 	// B's own line and done are applied as usual.
-	next, cmd := m.Update(pumpB())
-	m = next.(model)
-	if !strings.Contains(m.buf.String(), "from-B") || cmd == nil {
-		t.Fatalf("B's line not applied (pump %v):\n%s", cmd != nil, m.buf.String())
+	for _, batch := range pumpAll(t, m, pumpB) {
+		m = update(m, batch)
 	}
-	m = update(m, cmd())
+	if !strings.Contains(m.buf.String(), "from-B") {
+		t.Fatalf("B's line not applied:\n%s", m.buf.String())
+	}
 	if m.screen != screenSummary || m.queue[0].status != statusOK {
 		t.Fatalf("B's done should finish it: screen=%d status=%d", m.screen, m.queue[0].status)
 	}

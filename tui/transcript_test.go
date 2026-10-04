@@ -271,11 +271,11 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 	d.t.Helper()
 	switch msg.(type) {
 	case tea.KeyMsg, tea.WindowSizeMsg, sudoCachedMsg, sudoResultMsg, discoveryMsg,
-		streamMsg, stepResultMsg, editorDoneMsg:
+		streamBatchMsg, stepResultMsg, editorDoneMsg:
 	default:
 		d.t.Fatalf("unexpected msg %T (%v) — teach the driver about it\n%s", msg, msg, d.dump())
 	}
-	cur, seq, bufLen, wasScreen := d.m.current, d.m.stepSeq, d.m.buf.Len(), d.m.screen
+	cur, seq, wasScreen := d.m.current, d.m.stepSeq, d.m.screen
 	var curStatus stepStatus
 	if cur >= 0 && cur < len(d.m.queue) {
 		curStatus = d.m.queue[cur].status
@@ -290,9 +290,14 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 		d.drainExec()
 	}
 	switch msg := msg.(type) {
-	case streamMsg:
-		if !msg.done && d.m.buf.Len() > bufLen { // dropped late output doesn't count
-			d.emit("out", "%d %s", cur+1, msg.line)
+	case streamBatchMsg:
+		// One out line per streamed line, however the pump batched them.
+		// Dropped late output doesn't count (a batch ending in done may have
+		// launched the next step, which resets buf, so judge by seq).
+		if msg.seq == seq {
+			for _, l := range msg.lines {
+				d.emit("out", "%d %s", cur+1, l)
+			}
 		}
 	case stepResultMsg:
 		if cur >= 0 && cur < len(d.m.queue) && d.m.queue[cur].status != curStatus && msg.output != "" {

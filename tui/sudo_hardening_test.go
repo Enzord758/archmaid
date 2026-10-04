@@ -165,7 +165,7 @@ func TestKeepAliveClearedOnSummary(t *testing.T) {
 	m.queue = []stepState{{step: step{title: "x", logLabel: "x"}, status: statusRunning}}
 	m.current = 0
 
-	next, _ := m.handleStream(streamMsg{done: true})
+	next, _ := m.handleStream(streamBatchMsg{done: true})
 	got := next.(model)
 	if got.screen != screenSummary {
 		t.Fatalf("expected summary, got screen=%d", got.screen)

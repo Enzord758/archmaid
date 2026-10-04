@@ -116,6 +116,8 @@ type model struct {
 	buf     *strings.Builder // accumulated output of the active step (pointer:
 	//                          strings.Builder must not be copied by value, and
 	//                          the model is copied on every Update)
+	tail *lineTail // the newest lines of buf: what the output pane shows (see output.go)
+
 	errs    int  // steps that failed
 	skipped int  // steps skipped (sudo unavailable, or aborted queue)
 	aborted bool // queue aborted by declining a required confirm
@@ -156,6 +158,7 @@ func initialModel() model {
 		output:   vp,
 		password: pw,
 		buf:      &strings.Builder{},
+		tail:     newLineTail(maxVisibleLines),
 		status:   systemStatus(),
 	}
 }

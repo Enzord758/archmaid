@@ -23,7 +23,8 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
 | `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
-| `tasks.go` | `step`, `runStep` (streams a child's output), the step queues, sudo probe/auth/keep-alive, discovery commands, `editConfig` |
+| `tasks.go` | `step`, `runStep` (streams a child's output), `waitForStream` (pumps it to the UI in batches), the step queues, sudo probe/auth/keep-alive, discovery commands, `editConfig` |
+| `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
 | `audit.go` | the AUR audit: RPC lookup, classification, maintainer snapshot, report |
 | `log.go` | log categories, per-run directories, `pruneLogs` |
 | `askpass.go` | `SUDO_ASKPASS` helper + socket server |
@@ -166,6 +167,22 @@ comments and `git log`; this is the "read before you touch it" list.
   folder is still the scanned inode, re-checks each entry right before
   removing it, and removes via `os.Root.RemoveAll` (hence `go 1.25`). Tests
   can't set ctimes: they move `downloadsNow` past a mark instead.
+- **Streamed output is batched, and the pane shows only a tail.** A step's
+  child writes combined stdout+stderr to one ordered channel: every line, then
+  exactly one done. The pump (`waitForStream`) blocks for the first message,
+  then takes whatever else is already buffered — up to `streamBatchMax` (256)
+  lines, stopping at the done — and delivers it as one `streamBatchMsg`
+  stamped with the launch's `stepSeq`; `handleStream` applies the whole batch
+  with one `SetContent`, or drops it if the seq is stale. A slow producer gets
+  one-line batches; a flood gets full ones, so the UI catches up by itself. The
+  full output still accumulates in `m.buf` (what `finishStep` logs, so
+  `alwaysLog` steps keep everything); the viewport gets only the newest
+  `maxVisibleLines` (2000) from `m.tail`. One update per line with the whole
+  buffer re-split each time was quadratic: 5k lines cost ~1 s of CPU and
+  ~1.8 GB of allocations, 20k lines ~5 s (`BenchmarkStreamView*`, now ~5 ms
+  and ~21 ms). The pane follows new output only while it's at the bottom; a
+  user who scrolled up stays put, and when the tail drops old lines their
+  offset moves with the text.
 - **`m.bg` is one field, not a stack.** A popup that overwrites it with its own
   screen value makes `renderScreen` recurse forever; see `handleAskpass` in
   `update.go`.

@@ -96,7 +96,7 @@ func TestDryRunLogsEveryStep(t *testing.T) {
 	m.current = 0
 	m.buf.WriteString("[dry-run] would run: echo hi\n")
 
-	tm, _ := m.handleStream(streamMsg{done: true})
+	tm, _ := m.handleStream(streamBatchMsg{done: true})
 	_ = tm
 
 	data, err := os.ReadFile(logPath(logCategoryCleanup))
@@ -393,7 +393,7 @@ func TestStreamFailurePropagates(t *testing.T) {
 	m.current = 0
 	m.buf.WriteString(strings.Join(lines, "\n") + "\n")
 
-	next, _ := m.handleStream(streamMsg{done: true, err: err})
+	next, _ := m.handleStream(streamBatchMsg{done: true, err: err})
 	got := next.(model)
 	if got.queue[0].status != statusFailed {
 		t.Fatalf("status = %d, want statusFailed", got.queue[0].status)
@@ -580,7 +580,7 @@ func TestFailureLogsToItsStepCategory(t *testing.T) {
 	m.current = 0
 	m.buf.WriteString("boom\n")
 
-	next, _ := m.handleStream(streamMsg{done: true, err: errors.New("fail")})
+	next, _ := m.handleStream(streamBatchMsg{done: true, err: errors.New("fail")})
 	_ = next.(model)
 
 	topgradeLog, _ := os.ReadFile(logPath(logCategoryTopgrade))
@@ -615,7 +615,7 @@ func TestAlwaysLogStepLogsOnSuccess(t *testing.T) {
 	m.current = 0
 	m.buf.WriteString("removing liba libb\n")
 
-	next, _ := m.handleStream(streamMsg{done: true})
+	next, _ := m.handleStream(streamBatchMsg{done: true})
 	got := next.(model)
 	if got.queue[0].status != statusOK {
 		t.Fatalf("status = %d, want statusOK", got.queue[0].status)
@@ -646,7 +646,7 @@ func TestOrdinaryStepStaysSilentOnSuccess(t *testing.T) {
 	m.current = 0
 	m.buf.WriteString("ok\n")
 
-	m.handleStream(streamMsg{done: true})
+	m.handleStream(streamBatchMsg{done: true})
 
 	if _, err := os.Stat(logPath(logCategoryCleanup)); !os.IsNotExist(err) {
 		data, _ := os.ReadFile(logPath(logCategoryCleanup))

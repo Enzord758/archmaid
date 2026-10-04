@@ -34,7 +34,7 @@ func TestStatusLoopDoesNotMultiply(t *testing.T) {
 	m.screen = screenRunning
 	m.queue = []stepState{{step: step{title: "x", logLabel: "x"}, status: statusRunning}}
 	m.current = 0
-	next, cmd := m.handleStream(streamMsg{done: true}) // last step → summary
+	next, cmd := m.handleStream(streamBatchMsg{done: true}) // last step → summary
 	if next.(model).screen != screenSummary {
 		t.Fatalf("expected the summary, got screen=%d", next.(model).screen)
 	}

@@ -60,13 +60,13 @@ func TestLogsAreSanitized(t *testing.T) {
 		category: logCategoryTopgrade, alwaysLog: true}, status: statusRunning}}
 	m.current = 0
 	for _, line := range []string{"\x1b[1m:: \x1b[0mupgrading", "10%\r100%", "\x1b]52;c;ZXZpbA==\x07done"} {
-		next, _ := m.handleStream(streamMsg{line: line})
+		next, _ := m.handleStream(streamBatchMsg{lines: []string{line}})
 		m = next.(model)
 	}
 	if got := m.buf.String(); got != "\x1b[1m:: \x1b[0mupgrading\n100%\ndone\n" {
 		t.Fatalf("output pane = %q: colours kept, everything else stripped", got)
 	}
-	m.handleStream(streamMsg{done: true})
+	m.handleStream(streamBatchMsg{done: true})
 
 	data, err := os.ReadFile(logPath(logCategoryTopgrade))
 	if err != nil {

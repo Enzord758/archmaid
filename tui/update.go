@@ -146,7 +146,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.screen = screenMenu
 		return m, refreshStatusNow()
 
-	case streamMsg:
+	case streamBatchMsg:
 		return m.handleStream(msg)
 
 	case stepResultMsg:
@@ -659,8 +659,7 @@ func (m *model) advance() tea.Cmd {
 
 func (m *model) launch() tea.Cmd {
 	m.queue[m.current].status = statusRunning
-	m.buf.Reset()
-	m.output.SetContent("")
+	m.resetOutput()
 	m.stepSeq++
 	s := m.queue[m.current].step
 	if s.run != nil {
@@ -670,7 +669,7 @@ func (m *model) launch() tea.Cmd {
 		seq, run := m.stepSeq, s.run
 		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run()} }
 	}
-	m.stream = make(chan streamMsg, 128)
+	m.stream = make(chan streamMsg, streamBatchMax)
 	m.quit = make(chan struct{})
 	m.proc, m.procAt = runStepUntil(s, m.stream, m.quit)
 	// The spinner is already ticking (started in Init); just pump the stream.
@@ -761,8 +760,8 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
-	// A message from any launch but the active one is late output from an
+func (m model) handleStream(msg streamBatchMsg) (tea.Model, tea.Cmd) {
+	// A batch from any launch but the active one is late output from an
 	// aborted step (abortRunning retires its seq; a new run may have started
 	// since): drop it and stop pumping. Applied, a late line would land in the
 	// new step's pane and log, a late done would finish the new step, and the
@@ -774,13 +773,17 @@ func (m model) handleStream(msg streamMsg) (tea.Model, tea.Cmd) {
 	if msg.seq != m.stepSeq {
 		return m, nil
 	}
+	// The whole batch is applied in one go: one SetContent, one render.
+	if len(msg.lines) > 0 {
+		clean := make([]string, len(msg.lines)) // msg.lines stays raw
+		for i, l := range msg.lines {
+			clean[i] = Sanitize(l, SanitizeKeepSGR) // colours only
+		}
+		m.appendOutput(clean)
+	}
 	if !msg.done {
-		m.buf.WriteString(Sanitize(msg.line, SanitizeKeepSGR) + "\n") // colours only
-		m.output.SetContent(m.buf.String())
-		m.output.GotoBottom()
 		return m, waitForStream(m.stream, m.quit, m.stepSeq) // keep pumping
 	}
-
 	return m.finishStep(msg.err)
 }
 
@@ -792,8 +795,8 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.output != "" {
-		m.buf.WriteString(Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR) + "\n")
-		m.output.SetContent(m.buf.String())
+		out := Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR)
+		m.appendOutput(strings.Split(out, "\n"))
 		m.output.GotoTop() // a report reads top-down; its worst findings come first
 	}
 	if msg.confirmNext != "" && m.current+1 < len(m.queue) {
