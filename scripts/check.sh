@@ -59,7 +59,15 @@ if compgen -G 'internal/*/*.go' >/dev/null; then
 fi
 
 echo "==> go test -race -count=3 (every package)"
-go test -race -count=3 ./...
+# The full output is kept in a file so a red run always names its package.
+gatelog="${TMPDIR:-/tmp}/archmaid-gate-$$.log"
+if go test -race -count=3 ./... 2>&1 | tee "$gatelog"; then
+	rm -f "$gatelog"
+else
+	echo "FAIL: go test -race; full output in $gatelog"
+	grep -E -- '^(--- FAIL|FAIL|panic:)|DATA RACE' "$gatelog" || true
+	exit 1
+fi
 
 echo "==> go vet"
 go vet ./...
