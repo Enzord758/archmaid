@@ -37,7 +37,11 @@ that path suffix), which carries the sudo password. Per-file
 coverage is computed from the profile itself. When coverage rises, raise the
 floor in the same commit; never lower one to make a change pass. Around all
 of that, `scripts/state-guard.sh` snapshots the real state dir first and
-compares it last (ground rule 8); a change fails the gate.
+compares it last (ground rule 8); a change fails the gate. Before trusting
+the guard, the gate runs `scripts/state-guard-selftest.sh`, which checks on
+scratch dirs that the guard says ok for an unchanged or still-absent dir and
+fails for a grown, deleted, added or touched entry and for a dir that
+appeared.
 
 ### Perf guard (opt-in)
 

@@ -40,6 +40,11 @@ finish() {
 }
 trap finish EXIT
 
+# A guard that can't see a change would pass every run: prove it on scratch
+# dirs first (scripts/state-guard-selftest.sh, well under a second).
+echo "==> state-guard self-test"
+scripts/state-guard-selftest.sh
+
 TUI=./cmd/archmaid
 
 # Coverage is measured over the TUI and the packages it is being split into
