@@ -157,6 +157,7 @@ type Driver struct {
 	quitOnce sync.Once
 	stop     chan struct{} // closed by the loop's teardown: everything else ends
 	done     chan struct{} // closed once Events is closed
+	aborted  chan struct{} // closed once teardown has aborted the run (Aborted)
 
 	root    context.Context // every worker's; cancelled at teardown
 	cancel  context.CancelFunc
@@ -224,6 +225,7 @@ func New(s *engine.Session, cfg Deps) *Driver {
 		quit:     make(chan struct{}),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
+		aborted:  make(chan struct{}),
 		root:     root,
 		cancel:   cancel,
 		pubDone:  make(chan struct{}),
@@ -274,6 +276,13 @@ func (d *Driver) Send(c engine.Command) bool {
 	}
 	return true
 }
+
+// Aborted is closed once Close (or a Session panic) has begun the
+// teardown and, for a Close, aborted the run: its last-run record is
+// written (WriteLastRun runs on the loop, to completion), while stopping
+// the children may still take up to KillGrace. A front end that must exit
+// at once can wait for it so the record isn't lost.
+func (d *Driver) Aborted() <-chan struct{} { return d.aborted }
 
 // Close stops the run and everything the Driver started, then closes
 // Events (see the package doc). Safe to call more than once and from any
@@ -534,6 +543,7 @@ func (d *Driver) teardown(asked bool) {
 			d.apply(o)
 		}
 	}
+	close(d.aborted) // the abort's last-run record is written
 	close(d.stop)
 	d.cancel()
 	for seq, c := range d.children {

@@ -395,7 +395,20 @@ func TestCloseMidStep(t *testing.T) {
 		}
 	}
 	at := time.Now()
-	r.d.Close()
+	closed := make(chan struct{})
+	go func() { r.d.Close(); close(closed) }()
+	// Aborted comes first, the record written, while the child (it
+	// ignores SIGINT) is still waiting out the grace.
+	<-r.d.Aborted()
+	if rec, err := r.log.ReadLastRun(); err != nil || rec.Outcome != logstore.OutcomeAborted {
+		t.Fatalf("at Aborted: last run %+v (%v), want aborted", rec, err)
+	}
+	select {
+	case <-closed:
+		t.Fatal("Close returned before the child's grace: Aborted came no earlier")
+	default:
+	}
+	<-closed
 	t.Logf("Close took %v", time.Since(at))
 	if !gone(pid, 0) {
 		t.Fatalf("pid %d outlived Close", pid)
