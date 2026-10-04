@@ -141,7 +141,7 @@ func (s *Session) authorized(o *Output) {
 	r.prompt, r.promptFor = s.promptID(), promptGate
 	title, body := splitQuestion(r.gate)
 	o.event(NeedsConfirm{ID: r.prompt, Kind: ConfirmGate, Title: title, Body: body, Msg: r.gate,
-		Plan: planSteps(hyprpmLast(r.pending))})
+		Plan: planSteps(hyprpmLast(r.pending)), YesLabel: "Proceed"})
 }
 
 // startQueue publishes the plan and runs its first step. hyprpm is kept
@@ -241,10 +241,11 @@ func (s *Session) askStep(o *Output) {
 		ID: r.prompt, Kind: ConfirmStep, Step: st.ID,
 		Title: title, Body: body, Msg: msg,
 		Destructive: destructive[st.ID], Commits: st.OnAccept != nil,
+		YesLabel: yesLabel[st.ID],
 	}
 	switch {
 	case r.plan[r.cur].gated:
-		nc.Kind = ConfirmAuditGate
+		nc.Kind, nc.YesLabel = ConfirmAuditGate, "Update anyway"
 	case st.ID == steps.IDOrphansRemove:
 		nc.Kind = ConfirmOrphans
 	case st.ID == steps.IDDownloads:
@@ -278,6 +279,16 @@ var destructive = map[string]bool{
 	steps.IDOrphansRemove: true,
 	steps.IDUserCache:     true,
 	steps.IDDownloads:     true,
+}
+
+// yesLabel names the yes button of a step's confirm by what it does.
+var yesLabel = map[string]string{
+	steps.IDPaccacheWipe:  "Delete",
+	steps.IDOrphansRemove: "Remove",
+	steps.IDUserCache:     "Clear",
+	steps.IDDownloads:     "Delete",
+	steps.IDRepair:        "Reinstall",
+	steps.IDDisableUnits:  "Disable",
 }
 
 // splitQuestion is a confirm's first line as its title, the rest (blank

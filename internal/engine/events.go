@@ -150,6 +150,11 @@ type NeedsConfirm struct {
 	// QueueStarted will carry on "yes", equal to its Steps (same order,
 	// same sanitized arguments). nil for every other kind.
 	Plan []PlanStep
+	// YesLabel is the yes button's label, saying what "yes" does
+	// ("Proceed", "Delete", "Remove", "Update anyway"); "" when there is no
+	// better word than "Yes", which the front end then shows. The no button
+	// is the front end's own ("Skip" for an Optional step, else "Cancel").
+	YesLabel string
 }
 
 // PasswordKind is which password prompt a NeedsPassword is.

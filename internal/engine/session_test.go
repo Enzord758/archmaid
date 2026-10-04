@@ -704,6 +704,40 @@ func TestSessionGatePreviewsThePlan(t *testing.T) {
 	}
 }
 
+// Each confirm names its yes button by what "yes" does; "" leaves it "Yes".
+func TestSessionYesLabel(t *testing.T) {
+	step := func(id string) steps.Step {
+		s := child(id, "true")
+		s.Confirm, s.Optional = "Sure?", true
+		return s
+	}
+	gated := queue("q", step(steps.IDPaccacheWipe), step(steps.IDUserCache), step(steps.IDRepair),
+		step(steps.IDDownloads), step(steps.IDOrphansRemove), step("other"), inproc("audit"), child(steps.IDTopgrade, "topgrade"))
+	gated.Gate = "Proceed?"
+	h := newHarness(t, Options{}, gated)
+	o := h.start("q")
+	var got []string
+	for {
+		if nc, ok := find[NeedsConfirm](o.Events); ok {
+			got = append(got, nc.YesLabel)
+			o = h.confirm(true)
+			continue
+		}
+		if _, ok := find[Finished](o.Events); ok {
+			break
+		}
+		if effect[StartStep](t, o).Step.Run != nil {
+			o = h.result(steps.Result{ConfirmNext: "Flagged. Update anyway?"})
+		} else {
+			o = h.ok()
+		}
+	}
+	want := []string{"Proceed", "Delete", "Clear", "Reinstall", "Delete", "Remove", "", "Update anyway"}
+	if !slices.Equal(got, want) {
+		t.Errorf("YesLabel = %q, want %q", got, want)
+	}
+}
+
 func TestSplitQuestion(t *testing.T) {
 	for msg, want := range map[string][2]string{
 		"One line?":            {"One line?", ""},

@@ -108,7 +108,7 @@ func FullCleanup(start time.Time) Script {
 	b.wait(60 * time.Millisecond)
 	const gate = "Proceed with full cleanup?"
 	b.emit(engine.NeedsConfirm{ID: 1, Kind: engine.ConfirmGate, Title: gate, Msg: gate,
-		Plan: append([]engine.PlanStep(nil), b.plan...)})
+		Plan: append([]engine.PlanStep(nil), b.plan...), YesLabel: "Proceed"})
 
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
 	b.emit(engine.QueueStarted{Action: "fullcleanup", Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
@@ -135,7 +135,7 @@ func FullCleanup(start time.Time) Script {
 	b.emit(engine.NeedsConfirm{
 		ID: 2, Kind: engine.ConfirmStep, Step: steps.IDPaccacheWipe,
 		Title: "Delete the entire package cache?", Body: "Without it, packages can't be reinstalled offline.",
-		Destructive: true, Msg: wipe,
+		Destructive: true, Msg: wipe, YesLabel: "Delete",
 	})
 	b.run(steps.IDPaccacheWipe, 200*time.Millisecond)
 	b.log(logstore.Cleanup, "OK: Entire package cache removed")
@@ -148,7 +148,7 @@ func FullCleanup(start time.Time) Script {
 		ID: 3, Kind: engine.ConfirmOrphans, Step: steps.IDOrphansRemove,
 		Title: "Remove 2 orphaned packages?", Body: "Their now-unneeded dependencies go with them: 3 packages in total.",
 		Direct: []string{"libfoo", "libbar"}, Cascade: []string{"libfoo", "libbar", "libbaz"},
-		Destructive: true, Msg: "Remove 2 orphaned package(s) — 3 total once dependencies cascade?",
+		Destructive: true, Msg: "Remove 2 orphaned package(s) — 3 total once dependencies cascade?", YesLabel: "Remove",
 	})
 	b.run(steps.IDOrphansRemove, 700*time.Millisecond,
 		"checking dependencies...", "removing libbaz...", "removing libbar...", "removing libfoo...")
