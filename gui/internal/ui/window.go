@@ -10,12 +10,13 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
+	"github.com/Enzord758/archmaid/gui/internal/overview"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/engine"
 )
 
-// Window is the main window with its Run page. Every method runs on the
-// GTK main thread.
+// Window is the main window: a view stack of the Overview, Run, Logs and
+// Settings pages. Every method runs on the GTK main thread.
 type Window struct {
 	app  *adw.Application
 	win  *adw.ApplicationWindow
@@ -29,7 +30,7 @@ type Window struct {
 	palette runview.Palette
 
 	toasts  *adw.ToastOverlay
-	runBtn  *gtk.Button
+	stack   *adw.ViewStack
 	stopBtn *gtk.Button
 	status  *gtk.Label
 	steps   *gtk.ListBox
@@ -54,6 +55,16 @@ type Window struct {
 	busy, quitting, closed bool
 	closeOnce              sync.Once
 
+	// The Overview page: the status header, the last run, the menu rows by
+	// action ID. current is the action last started.
+	statLabel *gtk.Label
+	lastRow   *adw.ActionRow
+	lastIcon  *gtk.Image
+	lastRun   overview.LastRun
+	menu      map[string]*menuRow
+	current   string
+	logs      *logsPage
+
 	// onApply, when set, sees every applied batch's Change (the harness).
 	onApply func(runview.Change)
 	// toasted is every toast shown, for the harness.
@@ -72,15 +83,16 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.win.SetTitle("archmaid")
 	w.win.SetDefaultSize(960, 640)
 
-	w.runBtn = gtk.NewButtonWithLabel("Run Full Cleanup")
-	w.runBtn.AddCSSClass("suggested-action")
-	w.runBtn.ConnectClicked(w.start)
 	w.stopBtn = gtk.NewButtonWithLabel("Stop")
 	w.stopBtn.AddCSSClass("destructive-action")
 	w.stopBtn.SetSensitive(false)
 	w.stopBtn.ConnectClicked(w.stop)
+	w.stack = adw.NewViewStack()
+	switcher := adw.NewViewSwitcher()
+	switcher.SetStack(w.stack)
+	switcher.SetPolicy(adw.ViewSwitcherPolicyWide)
 	header := adw.NewHeaderBar()
-	header.PackStart(w.runBtn)
+	header.SetTitleWidget(switcher)
 	header.PackEnd(w.stopBtn)
 
 	w.steps = gtk.NewListBox()
@@ -145,9 +157,19 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.status.AddCSSClass("dim-label")
 	w.status.SetMarginStart(12)
 
+	w.stack.AddTitledWithIcon(w.newOverview(), "overview", "Overview", "go-home-symbolic")
+	w.stack.AddTitledWithIcon(paned, "run", "Run", "media-playback-start-symbolic")
+	w.stack.AddTitledWithIcon(w.newLogs(), "logs", "Logs", "document-open-recent-symbolic")
+	w.stack.SetVisibleChildName("overview")
+	w.stack.NotifyProperty("visible-child-name", func() {
+		if w.stack.VisibleChildName() == "logs" {
+			w.refreshLogs()
+		}
+	})
+
 	view := adw.NewToolbarView()
 	view.AddTopBar(header)
-	view.SetContent(paned)
+	view.SetContent(w.stack)
 	view.AddBottomBar(w.status)
 	w.toasts = adw.NewToastOverlay()
 	w.toasts.SetChild(view)
@@ -159,15 +181,16 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	return w
 }
 
-// start sends the Run button's action.
-func (w *Window) start() {
+// startAction starts action id (a menu row) and shows the Run page.
+func (w *Window) startAction(id string) {
 	if w.busy || w.closed {
 		return
 	}
-	w.busy = true
-	w.runBtn.SetSensitive(false)
+	w.busy, w.current = true, id
 	w.stopBtn.SetSensitive(true)
-	w.send(engine.Start{Action: w.opts.Action})
+	w.stack.SetVisibleChildName("run")
+	w.updateOverview()
+	w.send(engine.Start{Action: id})
 }
 
 // stop is the Stop button: Abort the running action.
@@ -242,14 +265,15 @@ func (w *Window) apply(evs []engine.Event) {
 	}
 	if c.Finished {
 		w.busy = false
-		w.runBtn.SetSensitive(true)
 		w.stopBtn.SetSensitive(false)
+		w.refreshLastRun()
 		if f := w.model.Finished; f != nil {
 			w.toast("Run " + f.Outcome.String())
 		}
 	}
-	if c.Status {
+	if c.Status || c.Finished {
 		w.status.SetText(w.statusText())
+		w.updateOverview()
 	}
 	if w.onApply != nil {
 		w.onApply(c)

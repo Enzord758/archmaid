@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strconv"
@@ -33,9 +34,12 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"go.uber.org/goleak"
 
+	"github.com/Enzord758/archmaid/gui/internal/overview"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/stub"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/Enzord758/archmaid/internal/testenv"
 )
@@ -76,6 +80,14 @@ type report struct {
 	Sent             []string // the prompt answers the Driver got
 	Buttons          []string // each confirm's "id yes/no" button labels
 	Toasts           []string
+	Menu             []string // the Overview's rows
+	MenuSub          string   // the started row's subtitle right after the click
+	Page             string   // the page up after starting an action
+	LastRun          []string // the Overview's last run: title, then issues
+	LogRows          []string // the Logs page's "run/category" rows
+	LogShown         string   // the log opened, and its lines
+	LogLines         []string
+	Notice           string
 	Leaked           string // goleak's verdict after Run returned, "" if clean
 	Errors           []string
 }
@@ -118,28 +130,40 @@ func runChild(scenario, path string) int {
 	fail := func(format string, a ...any) { rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...)) }
 	var closes atomic.Int32
 
-	script := stub.FullCleanup(time.Now())
-	opts := Options{Flags: gio.ApplicationNonUnique, Action: "fullcleanup"}
+	// Most scenarios start a menu action from the Overview against the
+	// stub's Catalog; the flood and password ones play a single script.
+	var script stub.Script
+	opts := Options{Flags: gio.ApplicationNonUnique, StateDir: os.Getenv("ARCHMAID_GUI_STATE")}
+	action, answerNo := actions.IDFullCleanup, false
 	switch scenario {
 	case "flood": // unpaced, nothing dropped: the view's real capacity
-		script, opts.Action, opts.Pump = runview.Flood(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
+		script, action, opts.Pump = runview.Flood(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
 	case "flood-paced": // 10k lines/s, twice the budget, default pump
-		script, opts.Action = runview.Flood(time.Now(), 50000, 100, 10*time.Millisecond), "flood"
+		script, action = runview.Flood(time.Now(), 50000, 100, 10*time.Millisecond), "flood"
 	case "flood-default": // unpaced, default pump (drops what the view can't keep)
-		script, opts.Action = runview.Flood(time.Now(), 50000, 1, 0), "flood"
+		script, action = runview.Flood(time.Now(), 50000, 1, 0), "flood"
 	case "flood-colour": // as flood, every line in colour (seven spans)
-		script, opts.Action, opts.Pump = runview.FloodColour(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
+		script, action, opts.Pump = runview.FloodColour(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
 	case "prompts": // selection, up-front password, askpass
-		script, opts.Action = runview.Prompts(time.Now()), "services"
+		script, action = runview.Prompts(time.Now()), actions.IDServices
 	case "audit": // the AUR audit report, accepted
-		script, opts.Action = runview.Audit(), "auraudit"
-	case "idle", "fullcleanup", "stop", "close-midrun":
+		action = actions.IDAURAudit
+	case "usercache-no": // a declined required step
+		action, answerNo = actions.IDUserCache, true
+	case "repair": // a discovery that ends in a notice
+		action = actions.IDRepair
+	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
 	default:
 		fail("unknown scenario %q", scenario)
 	}
 	var sentMu sync.Mutex
 	opts.NewDriver = func() engine.Driver {
-		return countingDriver{Driver: stub.New(script, stub.Options{}), closes: &closes, mu: &sentMu, sent: &rep.Sent}
+		so := stub.Options{}
+		if script == nil {
+			so.Scripts = stub.Catalog(time.Now())
+		}
+		d := stub.New(script, so)
+		return countingDriver{Driver: d, closes: &closes, mu: &sentMu, sent: &rep.Sent}
 	}
 
 	var started time.Time
@@ -160,8 +184,25 @@ func runChild(scenario, path string) int {
 							w.win.Close()
 							return
 						}
+						for _, e := range overview.Entries() {
+							rep.Menu = append(rep.Menu, e.ID)
+						}
+						rep.LastRun = append([]string{w.lastRun.Title}, w.lastRun.Issues...)
+						if scenario == "logs" {
+							browseLogs(w, rep, fail)
+							return
+						}
 						started, measuring = time.Now(), true
-						w.runBtn.Emit("clicked")
+						// Start it the way a user does: its Overview row.
+						if r, ok := w.menu[action]; ok {
+							r.row.Emit("activated")
+							if rep.Page = w.stack.VisibleChildName(); rep.Page != "run" {
+								fail("starting %s left the %q page up", action, rep.Page)
+							}
+							rep.MenuSub = r.row.Subtitle()
+						} else {
+							w.startAction(action)
+						}
 					})
 				}
 				if measuring && !painting.IsZero() {
@@ -183,6 +224,9 @@ func runChild(scenario, path string) int {
 					}
 					// Answer the way a user would: type, tick, then press.
 					resp := "yes"
+					if answerNo {
+						resp = "no"
+					}
 					if p.Confirm != nil {
 						rep.Buttons = append(rep.Buttons, fmt.Sprintf("%d %s/%s", id, d.ResponseLabel("yes"), d.ResponseLabel("no")))
 					}
@@ -225,6 +269,7 @@ func runChild(scenario, path string) int {
 				rep.EndMem = readMem()
 				m := w.model
 				rep.Outcome = m.Finished.Outcome.String()
+				rep.Notice = m.Notice
 				for _, r := range m.Rows {
 					rep.Rows = append(rep.Rows, r.ID+"="+r.State.String())
 				}
@@ -259,6 +304,28 @@ func runChild(scenario, path string) int {
 		return 3
 	}
 	return 0
+}
+
+// browseLogs opens the Logs page from the Overview's View log row, opens
+// the log ARCHMAID_GUI_LOG names ("run/category"), records what it shows,
+// then closes the window.
+func browseLogs(w *Window, rep *report, fail func(string, ...any)) {
+	w.menu[actions.IDViewLog].row.Emit("activated")
+	if rep.Page = w.stack.VisibleChildName(); rep.Page != "logs" {
+		fail("View log left the %q page up", rep.Page)
+	}
+	for k := range w.logs.rows {
+		rep.LogRows = append(rep.LogRows, k)
+	}
+	slices.Sort(rep.LogRows)
+	if r, ok := w.logs.rows[os.Getenv("ARCHMAID_GUI_LOG")]; ok {
+		r.Emit("activated")
+	}
+	rep.LogShown = w.logs.shown
+	for i := range w.logs.textLen {
+		rep.LogLines = append(rep.LogLines, w.logs.text.String(i))
+	}
+	glib.TimeoutAdd(50, func() { w.win.Close() })
 }
 
 // countLabels walks the output list's widgets: the labels showing text,
@@ -321,11 +388,11 @@ func perf() bool { return os.Getenv("ARCHMAID_GUI_PERF") == "1" }
 
 // child runs one scenario and returns its report and how long after the
 // exec its first frame was painted.
-func child(t *testing.T, scenario string) (*report, time.Duration) {
+func child(t *testing.T, scenario string, env ...string) (*report, time.Duration) {
 	t.Helper()
 	path := t.TempDir() + "/report.json"
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
-	cmd.Env = append(os.Environ(), "ARCHMAID_GUI_CHILD="+scenario, "ARCHMAID_GUI_REPORT="+path)
+	cmd.Env = append(append(os.Environ(), "ARCHMAID_GUI_CHILD="+scenario, "ARCHMAID_GUI_REPORT="+path), env...)
 	cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 	start := time.Now()
 	if err := cmd.Start(); err != nil {
@@ -406,9 +473,97 @@ func TestGUIAudit(t *testing.T) {
 	if rep.Outcome != "report" || !slices.Equal(rep.Sent, []string{"confirm 1 true"}) {
 		t.Errorf("outcome %q sent %q; want report after confirm 1 true", rep.Outcome, rep.Sent)
 	}
-	if !slices.Contains(rep.Toasts, "Maintainer changes accepted: foo-bin") {
+	if !slices.Contains(rep.Toasts, "Maintainer changes accepted: they won't be flagged again.") {
 		t.Errorf("toasts %q: ReportAccepted's text wasn't shown", rep.Toasts)
 	}
+}
+
+// TestGUIOverviewStarts: an action started from its Overview row (the
+// menu is actions.Menu without Exit and Edit config) shows the Run page.
+func TestGUIOverviewStarts(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "repair")
+	want := []string{"fullcleanup", "usercache", "repair", "downloads", "topgrade", "services", "auraudit", "viewlog"}
+	if !slices.Equal(rep.Menu, want) {
+		t.Errorf("menu %q, want %q", rep.Menu, want)
+	}
+	if rep.Page != "run" || rep.Outcome != "notice" || rep.Notice != "No broken packages found." {
+		t.Errorf("page %q outcome %q notice %q", rep.Page, rep.Outcome, rep.Notice)
+	}
+	if rep.MenuSub == "" {
+		t.Errorf("the started row says nothing while it runs")
+	}
+	if len(rep.LastRun) != 1 || rep.LastRun[0] != "No run recorded yet" {
+		t.Errorf("last run %q with an empty state dir", rep.LastRun)
+	}
+}
+
+// TestGUIDeclined: "no" at a required step's confirm (the Catalog's
+// declined path) ends the run aborted with the step skipped.
+func TestGUIDeclined(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "usercache-no")
+	if !slices.Equal(rep.Sent, []string{"confirm 1 false"}) || !slices.Equal(rep.Buttons, []string{"1 Clear/Cancel"}) {
+		t.Errorf("sent %q buttons %q", rep.Sent, rep.Buttons)
+	}
+	if rep.Outcome != "aborted" || !slices.Equal(rep.Rows, []string{steps.IDUserCache + "=skipped"}) {
+		t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
+	}
+}
+
+// TestGUILogsAndLastRun: the Overview reads last-run.json (20 days old: the
+// stale warning) and View log lists the runs and opens one, all from a
+// scratch state dir that the window leaves exactly as it was.
+func TestGUILogsAndLastRun(t *testing.T) {
+	needDisplay(t)
+	dir := filepath.Join(t.TempDir(), "state")
+	old := time.Now().Add(-20 * 24 * time.Hour).Truncate(time.Minute)
+	st := logstore.New(logstore.Options{Dir: dir, Now: func() time.Time { return old }})
+	if err := st.Append(logstore.Topgrade, "OK", "Topgrade completed", "\x1b[1m==>\x1b[0m done\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.WriteLastRun(logstore.RunRecord{Action: actions.IDFullCleanup, Outcome: logstore.OutcomeFailed, StepsFailed: 1, Started: old, Finished: old}); err != nil {
+		t.Fatal(err)
+	}
+	dry := logstore.New(logstore.Options{Dir: dir, DryRun: true})
+	if err := dry.Append(logstore.Cleanup, "DRYRUN", "Clearing cache", ""); err != nil {
+		t.Fatal(err)
+	}
+	before := stateTree(t, dir)
+	run := old.Format("20060102-1504")
+	rep, _ := child(t, "logs", "ARCHMAID_GUI_STATE="+dir, "ARCHMAID_GUI_LOG="+run+"/topgrade")
+	if want := []string{"Full Cleanup (Recommended) · 20 days ago", "Last run failed (1 steps)", "No cleanup for 20 days"}; !slices.Equal(rep.LastRun, want) {
+		t.Errorf("last run %q, want %q", rep.LastRun, want)
+	}
+	if want := []string{run + "/topgrade", "dryrun/cleanup"}; rep.Page != "logs" || !slices.Equal(rep.LogRows, want) {
+		t.Errorf("page %q log rows %q, want logs and %q", rep.Page, rep.LogRows, want)
+	}
+	if rep.LogShown != run+"/topgrade" || len(rep.LogLines) != 4 || rep.LogLines[2] != "==> done" {
+		t.Errorf("shown %q lines %q", rep.LogShown, rep.LogLines)
+	}
+	if after := stateTree(t, dir); !slices.Equal(before, after) {
+		t.Errorf("the GUI changed the state dir:\n%q\n%q", before, after)
+	}
+}
+
+func stateTree(t *testing.T, dir string) []string {
+	t.Helper()
+	var out []string
+	err := filepath.WalkDir(dir, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		fi, err := d.Info()
+		if err != nil {
+			return err
+		}
+		out = append(out, fmt.Sprint(p, fi.ModTime(), fi.Mode(), fi.Size()))
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
 }
 
 func TestGUIStop(t *testing.T) {

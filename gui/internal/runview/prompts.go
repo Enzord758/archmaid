@@ -9,10 +9,10 @@ import (
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
-// Prompts is a stub script that opens every prompt kind but the confirm
-// (FullCleanup has those): a selection (which services), the up-front
-// sudo password standing in for the action's gate, and sudo's askpass
-// mid-step. Its prompt IDs are 1, 2 and 3, in that order.
+// Prompts is a stub script for the password prompts, which the stub's
+// Catalog doesn't have: a selection (which services), the up-front sudo
+// password standing in for the action's gate, and sudo's askpass mid-step.
+// Its prompt IDs are 1, 2 and 3, in that order.
 func Prompts(start time.Time) stub.Script {
 	disable := engine.PlanStep{ID: steps.IDDisableUnits, Title: "Disabling 2 services…", Argv: []string{"sudo", "systemctl", "disable", "--now", "--", "cups.service", "avahi-daemon.service"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup}
 	update := engine.PlanStep{ID: steps.IDTopgrade, Title: "Updating system with topgrade…", Argv: []string{"topgrade", "-y"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Topgrade}
@@ -35,25 +35,6 @@ func Prompts(start time.Time) stub.Script {
 		{After: 400 * ms, Event: engine.OutputChunk{ID: update.ID, Index: 1, Lines: []string{"\x1b[1;32m==>\x1b[0m Finished making: foo-bin 1.3-1", "\x1b[1;34m::\x1b[0m Installing foo-bin..."}}},
 		{Event: engine.StepDone{ID: update.ID, Index: 1, Status: steps.OK, Elapsed: 1100 * ms}},
 		{Event: engine.Finished{Action: "services", Outcome: engine.OutcomeCompleted, Elapsed: 1300 * ms}},
-		{Event: engine.PhaseChanged{Phase: engine.PhaseIdle}},
-	}
-}
-
-// Audit is a stub script for the AUR audit's report: two findings, one
-// high, with CanAccept. Its prompt is ID 1.
-func Audit() stub.Script {
-	return stub.Script{
-		{Event: engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Auditing AUR packages…"}},
-		{After: 400 * time.Millisecond, Event: engine.OutputReport{ID: 1, Text: "12 foreign package(s) checked against the AUR: 1 high, 1 glance, 10 clean", Audit: &engine.AuditReport{
-			Total: 12,
-			Findings: []engine.AuditFinding{
-				{Name: "foo-bin", High: true, Flags: []string{"maintainer changed", "source URL changed"}, Reason: "maintainer alice → mallory"},
-				{Name: "bar-git", Flags: []string{"new package (3 days old)"}},
-			},
-			CanAccept: true,
-		}}},
-		{Event: engine.ReportAccepted{ID: 1, Saved: true, Text: "Maintainer changes accepted: foo-bin"}},
-		{Event: engine.Finished{Action: "auraudit", Outcome: engine.OutcomeReport, Elapsed: 400 * time.Millisecond}},
 		{Event: engine.PhaseChanged{Phase: engine.PhaseIdle}},
 	}
 }

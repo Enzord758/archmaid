@@ -28,38 +28,39 @@ const AppID = "io.github.enzord758.archmaid"
 type Options struct {
 	Flags gio.ApplicationFlags
 	// NewDriver makes the Driver the window talks to; it is closed when the
-	// window closes. Action is what the Run button starts.
+	// window closes.
 	NewDriver func() engine.Driver
-	Action    string
 	Pump      runview.PumpOptions
+	// StateDir is archmaid's state directory, read only (last-run.json,
+	// the run logs); "" is logstore's default, ~/.local/state/archmaid.
+	StateDir string
 	// hook, when set, sees the window once it is built (the headless
 	// harness drives it from there).
 	hook func(*Window)
 }
 
 // Main runs archmaid-gui with the stub Driver and returns its exit status.
-// ARCHMAID_GUI_SCRIPT picks the stub's script: "fullcleanup" (default),
-// "flood" or "flood-colour" (50k lines, for eyeballing the output view),
-// "prompts" (selection, password, askpass) or "audit" (the report).
+// By default the stub plays its Catalog: a script for every menu action
+// that runs, with the declined paths. ARCHMAID_GUI_SCRIPT picks a single
+// script instead, played whatever action is started: "flood" or
+// "flood-colour" (50k lines, for eyeballing the output view) or "prompts"
+// (selection, password, askpass).
 //
 // TODO(E6): the real Driver replaces the stub here.
 func Main(args []string) int {
-	opts := Options{Action: "fullcleanup"}
+	var opts Options
+	single := func(s stub.Script) func() engine.Driver {
+		return func() engine.Driver { return stub.New(s, stub.Options{}) }
+	}
 	switch os.Getenv("ARCHMAID_GUI_SCRIPT") {
 	case "flood":
-		opts.Action = "flood"
-		opts.NewDriver = func() engine.Driver { return stub.New(runview.Flood(time.Now(), 50000, 1, 0), stub.Options{}) }
+		opts.NewDriver = single(runview.Flood(time.Now(), 50000, 1, 0))
 	case "flood-colour":
-		opts.Action = "flood"
-		opts.NewDriver = func() engine.Driver { return stub.New(runview.FloodColour(time.Now(), 50000, 1, 0), stub.Options{}) }
+		opts.NewDriver = single(runview.FloodColour(time.Now(), 50000, 1, 0))
 	case "prompts":
-		opts.Action = "services"
-		opts.NewDriver = func() engine.Driver { return stub.New(runview.Prompts(time.Now()), stub.Options{}) }
-	case "audit":
-		opts.Action = "auraudit"
-		opts.NewDriver = func() engine.Driver { return stub.New(runview.Audit(), stub.Options{}) }
+		opts.NewDriver = single(runview.Prompts(time.Now()))
 	default:
-		opts.NewDriver = func() engine.Driver { return stub.New(stub.FullCleanup(time.Now()), stub.Options{}) }
+		opts.NewDriver = func() engine.Driver { return stub.New(nil, stub.Options{Scripts: stub.Catalog(time.Now())}) }
 	}
 	return Run(args, opts)
 }
