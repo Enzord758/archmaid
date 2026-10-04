@@ -57,7 +57,7 @@ func TestSessionPasswordRight(t *testing.T) {
 	}
 	noOutput(t, "a second faillock answer", h.s.Handle(FaillockRead{}))
 	np := event[NeedsPassword](t, o)
-	if np.Kind != PasswordUpFront || np.AttemptsLeft != 3 || np.Error != "" {
+	if np.Kind != PasswordUpFront || np.AttemptsLeft != 3 || np.Error != "" || np.Gate != "Proceed?" {
 		t.Errorf("NeedsPassword = %+v", np)
 	}
 	noOutput(t, "a stale password", h.s.SubmitPassword(np.ID+1, "pw"))
@@ -101,7 +101,7 @@ func TestSessionPasswordWrongThenRight(t *testing.T) {
 		t.Errorf("AuthResolved = %+v", got)
 	}
 	np2 := event[NeedsPassword](t, o)
-	if np2.ID == np.ID || np2.AttemptsLeft != 2 || np2.Error != "Incorrect password — 2 attempts left" {
+	if np2.ID == np.ID || np2.AttemptsLeft != 2 || np2.Error != "Incorrect password — 2 attempts left" || np2.Gate != "Proceed?" {
 		t.Errorf("re-ask = %+v", np2)
 	}
 	noOutput(t, "the first prompt's ID", h.s.SubmitPassword(np.ID, "pw"))
@@ -304,6 +304,9 @@ func TestSessionNeedsRootPassword(t *testing.T) {
 		h.discovered(nr)
 		h.handle(ProbeDone{})
 		np := event[NeedsPassword](t, h.handle(FaillockRead{Deny: 3}))
+		if np.Gate != "" {
+			t.Errorf("Gate = %q for an action without one", np.Gate)
+		}
 		o := h.cancel(np.ID)
 		if rec := effect[WriteLastRun](t, o).Record; rec.Action != "r" || rec.Outcome != logstore.OutcomeCancelled {
 			t.Errorf("record = %+v (the TUI records a cancelled recheck)", rec)

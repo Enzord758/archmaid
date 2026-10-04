@@ -173,6 +173,10 @@ type NeedsPassword struct {
 	// Error is why the last attempt failed ("wrong password", a faillock
 	// notice verbatim), or "" on the first ask.
 	Error string
+	// Gate is the proceed-gate this up-front prompt stands in for
+	// ("Proceed with full cleanup?"), so a dialog can ask it with the
+	// password; "" when the action has none, and for askpass.
+	Gate string
 }
 
 // NeedsSelection opens a multi-select (the services list); answer with

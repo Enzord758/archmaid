@@ -90,7 +90,8 @@ func faillockState(in FaillockRead) FaillockState {
 func (s *Session) askPassword(o *Output, why string) {
 	r := s.run
 	r.prompt, r.promptFor = s.promptID(), promptPassword
-	o.event(NeedsPassword{ID: r.prompt, Kind: PasswordUpFront, AttemptsLeft: maxAttempts - r.attempts, Error: why})
+	o.event(NeedsPassword{ID: r.prompt, Kind: PasswordUpFront, AttemptsLeft: maxAttempts - r.attempts, Error: why,
+		Gate: sanitize.String(r.gate, sanitize.Plain)})
 }
 
 // submitUpFront hands the password to the Driver's two-stage check, with
