@@ -79,7 +79,8 @@ func discoverServices(ctx context.Context, _ Env) Discovery {
 }
 
 // DisableUnits is the services pick list's queue: one step that disables and
-// stops the picked units; nothing picked is nothing to run.
+// stops the picked units; nothing picked is nothing to run. Its Items are
+// the units: the root helper's disable-unit verb takes them from there.
 func DisableUnits(units []string) []steps.Step {
 	if len(units) == 0 {
 		return nil
@@ -88,6 +89,7 @@ func DisableUnits(units []string) []steps.Step {
 		ID: steps.IDDisableUnits, Verb: steps.VerbDisableUnit,
 		Title: "Disabling services…", LogLabel: "Services disabled",
 		Argv:      append([]string{"sudo", "systemctl", "disable", "--now", "--"}, units...),
+		Items:     slices.Clone(units),
 		NeedsPriv: true, AlwaysLog: true,
 	}}
 }

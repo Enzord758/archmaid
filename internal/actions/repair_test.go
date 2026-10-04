@@ -157,3 +157,17 @@ func TestQkqOutput(t *testing.T) {
 		t.Fatalf("want the exit status, got %v", err)
 	}
 }
+
+// TestRepairStepItems: the reinstall step carries its packages as Items, the
+// typed field the root helper's argv is built from, as its own copy.
+func TestRepairStepItems(t *testing.T) {
+	pkgs := []string{"a", "b"}
+	s := RepairStep(pkgs)
+	if !slices.Equal(s.Items, pkgs) || s.Verb != steps.VerbRepair {
+		t.Fatalf("Items %q verb %q, want %q and repair", s.Items, s.Verb, pkgs)
+	}
+	pkgs[0] = "x"
+	if s.Items[0] != "a" {
+		t.Errorf("the step must not share the caller's slice: %q", s.Items)
+	}
+}

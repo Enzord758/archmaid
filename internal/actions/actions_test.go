@@ -155,6 +155,15 @@ func TestDisableUnits(t *testing.T) {
 		!slices.Equal(q[0].Argv, []string{"sudo", "systemctl", "disable", "--now", "--", "a.service", "b.service"}) {
 		t.Fatalf("got %+v", q)
 	}
+	units := []string{"a.service"}
+	q = DisableUnits(units)
+	if !slices.Equal(q[0].Items, units) {
+		t.Fatalf("Items %q, want the units", q[0].Items)
+	}
+	units[0] = "x.service"
+	if q[0].Items[0] != "a.service" {
+		t.Errorf("the step must not share the caller's slice: %q", q[0].Items)
+	}
 }
 
 // TestAuditReportIsHandedIn: the AUR-audit action is the front end's report.

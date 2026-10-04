@@ -83,6 +83,7 @@ func RepairCheckStep(candidates []string) steps.Step {
 // RepairStep reinstalls pkgs, the packages the root recheck confirmed
 // broken: the step rescanRepair queues under sudo, and the one a polkit
 // front end queues after RepairCheckStep reports a non-empty broken list.
+// Its Items are pkgs: the root helper's repair verb takes them from there.
 func RepairStep(pkgs []string) steps.Step {
 	return steps.Step{
 		ID: steps.IDRepair, Verb: steps.VerbRepair,
@@ -90,6 +91,7 @@ func RepairStep(pkgs []string) steps.Step {
 		Argv:      append([]string{"sudo", "pacman", "-S", "--noconfirm", "--"}, pkgs...),
 		NeedsPriv: true, Optional: true, AlwaysLog: true,
 		Confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
+		Items:   slices.Clone(pkgs),
 	}
 }
 
