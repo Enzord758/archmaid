@@ -15,14 +15,14 @@
 //     Driver from the askpass Server, which verifies it against the running
 //     step (Request.Verify) and asks the GUI with NeedsPassword{Kind:
 //     Askpass};
-//   - the actions' front-end glue the TUI keeps in cmd/archmaid (the AUR
-//     audit step and menu report, the downloads delete step with its abort
-//     record), mirrored here for a front end without lipgloss;
-//   - the AUR audit's prefetch (Deps.Prefetch, the TUI's startPrefetch):
-//     the lookup starts when the queue is planned, so it runs while the
-//     gate is up; the audit step awaits it instead of looking up again,
-//     and a declined gate, an abort or Close cancels and reaps it (the
-//     engine's CancelPrefetch, the Driver's Close);
+//   - the actions' front-end glue, shared with the TUI (internal/frontend:
+//     the AUR audit step and menu report, drawn as plain text; the
+//     downloads delete step with its abort record);
+//   - the AUR audit's prefetch (Deps.Prefetch = frontend.Prefetcher): the
+//     lookup starts when the queue is planned, so it runs while the gate
+//     is up; the audit step awaits it instead of looking up again, and a
+//     declined gate, an abort or Close cancels and reaps it (the engine's
+//     CancelPrefetch, the Driver's Close);
 //   - the log store: a fresh one per Driver, so every run gets its own
 //     <stamp> directory, stamped when the run starts (Config.Now); a dry
 //     run writes to the reused dryrun slot. A real run's first write
@@ -36,11 +36,7 @@ package realdriver
 
 import (
 	"context"
-	"errors"
 	"os"
-	"path/filepath"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -49,10 +45,10 @@ import (
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/frontend"
 	"github.com/Enzord758/archmaid/internal/helperclient"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/privilege"
-	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -115,7 +111,7 @@ type Wiring struct {
 
 	// deleting counts downloads deletions (and their pending abort
 	// records) still in flight; Close waits for them.
-	deleting sync.WaitGroup
+	deleting frontend.Deletions
 }
 
 // Start makes a Wiring and starts its askpass Server. Best effort, as the
@@ -173,9 +169,11 @@ func (w *Wiring) New(o engine.Options) engine.Driver {
 	store := w.store(o.DryRun)
 	o.Env = w.env(o.Env, o.DryRun, store)
 	deps := driver.Deps{
-		Priv:      privilege.Sudo{},
-		Log:       store,
-		Prefetch:  w.prefetch(store, o.DryRun),
+		Priv: privilege.Sudo{},
+		Log:  store,
+		// The run's own store: the prefetched audit logs where the rest
+		// of the run does.
+		Prefetch:  frontend.Prefetcher(func() audit.Config { return w.auditConfig(store, o.DryRun) }),
 		Polkit:    true,
 		Faillock:  w.cfg.Faillock,
 		KillGrace: w.cfg.KillGrace,
@@ -200,17 +198,20 @@ func (w *Wiring) env(base actions.Env, dry bool, store *logstore.Store) actions.
 		e.PlanOrphans = helperclient.PlanOrphans
 	}
 	e.LookPath = w.cfg.LookPath
-	e.AuditStep = func() steps.Step { return auditStep(w.auditConfig(store, dry)) }
-	e.AuditReport = func(ctx context.Context) actions.Discovery {
-		return menuAudit(ctx, w.auditConfig(store, dry))
-	}
-	if e.Downloads == nil {
-		e.Downloads = func() downloads.Options { return resolverOptions(dry) }
-	}
-	e.DeleteDownloads = func(plan downloads.Plan) func(context.Context, steps.Env) steps.Result {
-		return w.deleteOldDownloads(plan, store, e.Downloads)
-	}
-	return e
+	return frontend.Glue{
+		AuditConfig: func() audit.Config { return w.auditConfig(store, dry) },
+		Render:      nil, // plain text: the GUI draws the findings from Report.Audit
+		Downloads:   func() downloads.Options { return frontend.DownloadsOptions("", dry) },
+		Store:       store,
+		Deletions:   &w.deleting,
+	}.Env(e)
+}
+
+// auditConfig is the audit's config for a run logging to store: its
+// snapshot and state files in the state dir's root, its entries in the
+// run's audit log.
+func (w *Wiring) auditConfig(store *logstore.Store, dry bool) audit.Config {
+	return frontend.AuditConfig(store, frontend.AuditOptions{RPCURL: w.cfg.RPCURL, DryRun: dry, Foreign: w.cfg.Foreign})
 }
 
 // store is a run's log store, a fresh one: its run directory is stamped
@@ -235,187 +236,4 @@ func runClock(start time.Time) func() time.Time {
 		}
 		return time.Now()
 	}
-}
-
-// resolverOptions is the downloads resolver's input from the environment,
-// as the TUI gathers it, without a folder (the Settings page sets one).
-func resolverOptions(dry bool) downloads.Options {
-	return downloads.Options{
-		Env:           os.Getenv(downloads.EnvVar),
-		Home:          os.Getenv("HOME"),
-		PasswdHome:    downloads.PasswdHome(),
-		XDGConfigHome: os.Getenv("XDG_CONFIG_HOME"),
-		DryRun:        dry,
-	}
-}
-
-// ── the AUR audit (cmd/archmaid/audit.go's glue, without the styling) ──
-
-// auditConfig is every setting an audit reads, captured when the queue is
-// built or the menu audit starts.
-func (w *Wiring) auditConfig(store *logstore.Store, dry bool) audit.Config {
-	rpc := w.cfg.RPCURL
-	if rpc == "" {
-		rpc = audit.DefaultRPCURL
-	}
-	foreign := w.cfg.Foreign
-	if foreign == nil {
-		foreign = foreignPackages
-	}
-	return audit.Config{
-		RPCURL:       rpc,
-		SnapshotPath: filepath.Join(store.Root(), audit.SnapshotFile),
-		StatePath:    filepath.Join(store.Root(), audit.StateFile),
-		Deadline:     audit.DefaultDeadline,
-		DryRun:       dry,
-		Foreign:      foreign,
-		Log:          func(kind, label, body string) { _ = store.Append(logstore.Audit, kind, label, body) },
-	}
-}
-
-// foreignPackages is `pacman -Qqm`: the installed packages in no sync
-// repo. A failure reads as none (audit.Run then reports ErrNoForeign).
-func foreignPackages(ctx context.Context) ([]string, error) {
-	out, _ := proc.Query(ctx, "pacman", "-Qqm")
-	var names []string
-	for _, l := range strings.Split(string(out), "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			names = append(names, l)
-		}
-	}
-	return names, nil
-}
-
-// menuAudit is the menu's audit (Env.AuditReport): a notice, or the report
-// with its findings (the GUI draws them from Audit) and Accept for the
-// high ones.
-func menuAudit(ctx context.Context, cfg audit.Config) actions.Discovery {
-	res, err := audit.Run(ctx, cfg, time.Now())
-	switch {
-	case errors.Is(err, audit.ErrNoForeign):
-		return actions.Notice{Text: "No foreign (AUR or locally built) packages installed."}
-	case err != nil:
-		return actions.Notice{Text: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline)}
-	}
-	res.LogSummary()
-	r := actions.Report{Text: res.Text(), Audit: &res}
-	// The snapshot advances for everything but the high findings; those
-	// stay flagged until the report's Accept.
-	if save := res.Commit(true, false); save != nil {
-		save()
-	}
-	if res.High() > 0 {
-		r.Accept = res.Commit(false, true)
-	}
-	return r
-}
-
-// auditStep is the audit in front of topgrade (Full Cleanup, Run
-// topgrade): an in-process step whose high finding gates the update. Its
-// Prefetch has the Driver start the lookup (prefetch) when the queue is
-// planned, so it runs while the gate is up; the step then awaits that
-// instead of calling Run. Without one, Run audits cfg, captured here when
-// the queue is built (the moment a prefetch would capture it).
-func auditStep(cfg audit.Config) steps.Step {
-	return steps.Step{
-		ID:    steps.IDAURAudit,
-		Title: "Auditing AUR packages…", LogLabel: "AUR audit",
-		Category: logstore.Audit, AlwaysLog: true,
-		Run: func(ctx context.Context, _ steps.Env) steps.Result {
-			res, err := audit.Run(ctx, cfg, time.Now())
-			return auditStepResult(cfg, res, err)
-		},
-		Prefetch: steps.PrefetchAURAudit,
-	}
-}
-
-// prefetch is Deps.Prefetch for a run logging to store (the TUI's
-// startPrefetch): the AUR audit's lookup, started on the Driver's loop
-// with the config read there; nil for a name it doesn't know. The Driver
-// hands the audit step's ctx to its Run, and cancels and reaps it when the
-// engine drops it (a declined gate, an abort, the run's end) or on Close.
-func (w *Wiring) prefetch(store *logstore.Store, dry bool) func(string) driver.Prefetch {
-	return func(name string) driver.Prefetch {
-		if name != steps.PrefetchAURAudit {
-			return nil
-		}
-		cfg := w.auditConfig(store, dry)
-		return &auditFetch{Fetch: audit.Prefetch(cfg), cfg: cfg}
-	}
-}
-
-// auditFetch is a prefetched audit with the config it captured.
-type auditFetch struct {
-	*audit.Fetch
-	cfg audit.Config
-}
-
-// Run is the audit step's run when the lookup was prefetched: it waits for
-// the fetch rather than starting another. An abort cancels ctx and the
-// fetch, so it returns at once either way.
-func (f *auditFetch) Run(ctx context.Context) steps.Result {
-	res, err := f.Wait(ctx)
-	return auditStepResult(f.cfg, res, err)
-}
-
-// auditStepResult is the audit as the step's result: the report, a gate on
-// topgrade for a high finding, and the snapshot commit.
-func auditStepResult(cfg audit.Config, res audit.Result, err error) steps.Result {
-	switch {
-	case errors.Is(err, audit.ErrNoForeign):
-		return steps.Result{Output: "No foreign (AUR or locally built) packages installed — nothing to audit."}
-	case err != nil:
-		return steps.Result{Output: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline), Err: err}
-	}
-	r := steps.Result{Output: res.Text()}
-	if why := res.GateReason(); why != "" {
-		r.ConfirmNext = why + " Update anyway?"
-	}
-	r.Commit = res.Commit(false, r.ConfirmNext != "")
-	return r
-}
-
-// ── "Delete old downloads" (cmd/archmaid/downloads.go's glue) ──
-
-// deleteOldDownloads is the delete step's Run. An aborted real run's
-// result is dropped by the engine, so the step records what it deleted
-// itself: when it sees the abort, or from a context.AfterFunc should the
-// abort land after it returned but before the result was taken (the
-// Driver then cancels with steps.ErrResultTaken, which isn't an abort).
-func (w *Wiring) deleteOldDownloads(plan downloads.Plan, store *logstore.Store, opts func() downloads.Options) func(context.Context, steps.Env) steps.Result {
-	return func(ctx context.Context, _ steps.Env) steps.Result {
-		w.deleting.Add(1)
-		defer w.deleting.Done()
-		opt := opts()
-		r, err := downloads.Delete(ctx, plan, opt)
-		res := steps.Result{Output: r.Output, Err: err}
-		if opt.DryRun {
-			return res
-		}
-		if ctx.Err() != nil {
-			logAbortedDownloads(store, res.Output)
-			return res
-		}
-		if ctx.Done() == nil {
-			return res
-		}
-		w.deleting.Add(1) // until the AfterFunc has run or been disarmed
-		stop := context.AfterFunc(ctx, func() {
-			defer w.deleting.Done()
-			if !errors.Is(context.Cause(ctx), steps.ErrResultTaken) {
-				logAbortedDownloads(store, res.Output)
-			}
-		})
-		res.Commit = func() error {
-			if stop() {
-				w.deleting.Done()
-			}
-			return nil
-		}
-		return res
-	}
-}
-
-func logAbortedDownloads(store *logstore.Store, output string) {
-	_ = store.Append(logstore.Cleanup, "ABORT", "Old downloads deleted (aborted)", output)
 }
