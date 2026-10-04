@@ -44,6 +44,18 @@ type Step struct {
 	// OrphanPlan). Nil under sudo, where Argv names the packages.
 	Plan *OrphanPlan
 
+	// Combine, set only under polkit, names the root helper's combined verb
+	// this step is a part of (VerbFullCleanup). A front end runs consecutive
+	// steps with the same Combine as ONE helper call, so one polkit dialog
+	// covers them all: their confirms are asked first, then the call runs
+	// and reports each part's start and end, so every step keeps its own
+	// row (engine: combine.go). Empty under sudo.
+	Combine string
+	// Parts, set only on the step a front end builds for such a call (never
+	// by an action), are the steps it covers, in order: the root helper's
+	// arguments are built from them (helperclient.Argv).
+	Parts []Step
+
 	// NeedsPriv steps need root. The front end authenticates once before a
 	// queue holding any of them runs, instead of prompting mid-run, and only
 	// their children may reach the password prompt. topgrade is one: it runs
@@ -203,6 +215,9 @@ const (
 	VerbCheckFiles    = "check-files"
 	VerbRepair        = "repair"
 	VerbDisableUnit   = "disable-unit"
+	// VerbFullCleanup is the combined verb: Full Cleanup's root steps under
+	// one polkit dialog (see Step.Combine).
+	VerbFullCleanup = "full-cleanup"
 )
 
 // PrefetchAURAudit is the Prefetch of the AUR audit step: the front end

@@ -18,7 +18,9 @@ import (
 // the running step has output; a step ends once, with StepDone or Aborted,
 // never as StepDone{Aborted}, and a step that never ran is settled only as
 // Skipped or AuthRefused; a step's confirm names a step of the plan that
-// hasn't run; the plan changes (StepInserted, PlanChanged) only between
+// hasn't run, and may be asked ahead of its step (a combined run asks all
+// its confirms first), but no step at or after it starts while it is
+// open; the plan changes (StepInserted, PlanChanged) only between
 // steps — never while a step runs or a step's confirm is open, so what a
 // result changes comes after that step's StepDone and before the next
 // step's events — and only at steps that haven't run; an AuthWaiting is
@@ -41,9 +43,10 @@ type Checker struct {
 	n        int // events seen so far: the next one's index in the stream
 	plan     []string
 	queued   bool
-	running  string // the step between its StepStarted and its end
-	asking   string // the step whose confirm is open
-	waiting  bool   // an AuthWaiting has no AuthResolved yet
+	running  string          // the step between its StepStarted and its end
+	asking   string          // the step whose confirm is open
+	asked    map[string]bool // steps whose confirm was asked, not yet started or ended
+	waiting  bool            // an AuthWaiting has no AuthResolved yet
 	settled  map[string]bool
 	started  map[string]bool
 	prompts  map[engine.PromptID]bool
@@ -53,7 +56,7 @@ type Checker struct {
 // NewChecker starts a Checker that reports on t.
 func NewChecker(t testing.TB) *Checker {
 	return &Checker{t: t, settled: map[string]bool{}, started: map[string]bool{},
-		prompts: map[engine.PromptID]bool{}}
+		prompts: map[engine.PromptID]bool{}, asked: map[string]bool{}}
 }
 
 // Done reports a stream that never finished its action.
@@ -132,7 +135,7 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 				engine.NeedsSelection, engine.OutputReport:
 				// the next action
 				c.plan, c.queued, c.running, c.asking, c.waiting, c.finished = nil, false, "", "", false, false
-				c.settled, c.started = map[string]bool{}, map[string]bool{}
+				c.settled, c.started, c.asked = map[string]bool{}, map[string]bool{}, map[string]bool{}
 			default:
 				errorf("event %d (%T) after Finished", i, ev)
 				continue
@@ -163,7 +166,7 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 			if c.running != "" {
 				errorf("event %d: confirm for step %s while %s runs", i, ev.Step, c.running)
 			}
-			c.asking = ev.Step
+			c.asking, c.asked[ev.Step] = ev.Step, true
 		case engine.StepInserted:
 			if replan(i, "StepInserted "+ev.Step.ID, ev.Index) {
 				c.plan = slices.Insert(c.plan, ev.Index, ev.Step.ID)
@@ -178,10 +181,18 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 			if c.running != "" {
 				errorf("event %d starts %s while %s runs", i, ev.ID, c.running)
 			}
-			if c.asking != "" && c.asking != ev.ID {
-				errorf("event %d starts %s while %s's confirm is open", i, ev.ID, c.asking)
+			// A confirm asked ahead (a combined run's) is fine for a step
+			// before its own; one at or before this step was jumped over.
+			for a := range c.asked {
+				if a != ev.ID && slices.Index(c.plan, a) <= slices.Index(c.plan, ev.ID) {
+					errorf("event %d starts %s while %s's confirm is open", i, ev.ID, a)
+				}
 			}
-			c.running, c.started[ev.ID], c.asking = ev.ID, true, ""
+			delete(c.asked, ev.ID)
+			c.running, c.started[ev.ID] = ev.ID, true
+			if c.asking == ev.ID || len(c.asked) == 0 {
+				c.asking = ""
+			}
 		case engine.OutputChunk:
 			at(i, ev.ID, ev.Index)
 			if c.running != ev.ID {
@@ -201,6 +212,7 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 			if c.running == ev.ID {
 				c.running = ""
 			}
+			delete(c.asked, ev.ID)
 			if c.asking == ev.ID {
 				c.asking = ""
 			}
@@ -212,6 +224,7 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 			c.settled[ev.ID], c.running = true, ""
 		case engine.Finished:
 			c.finished, c.asking = true, ""
+			clear(c.asked)
 			if ev.Outcome == engine.OutcomeCompleted {
 				for _, id := range c.plan {
 					if !c.settled[id] {

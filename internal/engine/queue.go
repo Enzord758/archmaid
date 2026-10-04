@@ -53,6 +53,7 @@ type run struct {
 	selShown []string
 	report   *report      // the open report (report.go), or nil
 	check    *HelperCheck // the running repair-check's check event, or nil (repaircheck.go)
+	comb     *combined    // the combined run in progress (combine.go), or nil
 
 	errs, skipped, refused int
 }
@@ -62,6 +63,9 @@ type slot struct {
 	step   steps.Step
 	status steps.Status
 	gated  bool // its confirm came from the step before's ConfirmNext
+	// accepted: a combined run's step whose confirm was answered yes, or
+	// that has none (combine.go).
+	accepted bool
 }
 
 type promptKind int
@@ -222,6 +226,10 @@ const maxArg = 4096
 func (s *Session) advance(o *Output) {
 	r := s.run
 	r.cur++
+	if r.comb != nil && !r.comb.running {
+		s.combineNext(o) // the next of a combined run's confirms
+		return
+	}
 	if r.cur >= len(r.plan) {
 		s.finish(o, OutcomeCompleted)
 		return
@@ -230,6 +238,9 @@ func (s *Session) advance(o *Output) {
 		s.settle(o, steps.AuthRefused, "")
 		s.log(o, st.LogCategory(), "SKIP", st.LogLabel+" (sudo authentication failed)", "")
 		s.advance(o)
+		return
+	}
+	if s.combineAt(o) {
 		return
 	}
 	if r.plan[r.cur].step.Confirm != "" {
@@ -311,6 +322,13 @@ func splitQuestion(msg string) (title, body string) {
 // helper step reads the faillock count first (faillockRead goes on).
 func (s *Session) launch(o *Output, accepted bool) {
 	r := s.run
+	if c := r.comb; c != nil && !c.running {
+		// A combined run's confirm: noted, and on to the next.
+		r.plan[r.cur].accepted = true
+		r.cur++
+		s.combineNext(o)
+		return
+	}
 	if s.polkitStep(r.plan[r.cur].step) {
 		r.acceptedLaunch = accepted
 		s.readFaillock(o, faillockPolkit)
@@ -385,6 +403,11 @@ func (s *Session) output(o *Output, lines []string) {
 }
 
 func (s *Session) stepExited(o *Output, in StepExited) {
+	if s.callOf(in.Seq) != nil {
+		s.dropAskpass(o)
+		s.combinedExited(o, in)
+		return
+	}
 	if s.current(in.Seq) == nil {
 		return
 	}

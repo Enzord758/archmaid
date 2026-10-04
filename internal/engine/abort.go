@@ -44,6 +44,11 @@ func (s *Session) abort(o *Output) {
 		}
 		st.status = steps.Aborted
 		o.event(Aborted{ID: st.step.ID, Index: r.cur, Elapsed: s.now().Sub(r.stepAt)})
+	} else if r.comb != nil && r.comb.running && r.stepSeq != 0 {
+		// A combined call between two parts: stop it all the same (once
+		// the helper runs as root, the Driver can only note the stop).
+		o.effect(Stop{Seq: r.stepSeq})
+		r.stepSeq = 0
 	}
 	outcome := OutcomeCancelled
 	switch {

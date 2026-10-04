@@ -80,6 +80,25 @@ type HelperCheck struct {
 	Broken []string
 }
 
+// PartStarted: the combined root-helper call Seq (a StartStep whose Step
+// has Parts) began its part Step (that part's step ID). A Driver sends it,
+// parsed from the helper's output (internal/helperclient), for every part
+// after the first, which runs from the call's start. The Session takes
+// only the next part in order, once the one before is done.
+type PartStarted struct {
+	Seq  uint64
+	Step string
+}
+
+// PartDone: part Step of the combined call Seq finished with Err (nil on
+// success). The call's StepExited settles the part still running and every
+// part that never started.
+type PartDone struct {
+	Seq  uint64
+	Step string
+	Err  error
+}
+
 // HookDone answers RunHook with Seq.
 type HookDone struct {
 	Seq uint64
@@ -118,3 +137,5 @@ func (HookDone) isInput()         {}
 func (HelperCheck) isInput()      {}
 func (AskpassRequest) isInput()   {}
 func (AskpassAnswered) isInput()  {}
+func (PartStarted) isInput()      {}
+func (PartDone) isInput()         {}

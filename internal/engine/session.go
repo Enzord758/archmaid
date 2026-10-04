@@ -273,6 +273,10 @@ func (s *Session) Handle(in Input) Output {
 		s.hookDone(&o, in)
 	case HelperCheck:
 		s.helperCheck(&o, in)
+	case PartStarted:
+		s.partStarted(&o, in)
+	case PartDone:
+		s.partDone(&o, in)
 	}
 	return o
 }

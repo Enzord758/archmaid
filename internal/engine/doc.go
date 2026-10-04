@@ -48,6 +48,12 @@
 //     StepDone or Aborted. Nothing names it after that, except PlanChanged
 //     or StepInserted entries for other steps and LogWritten for its log
 //     entry, which follows its StepDone.
+//   - A combined run (under AuthPolkit, consecutive helper steps with the
+//     same steps.Step.Combine: one root-helper call, one polkit dialog)
+//     asks every confirm among its steps first, in plan order, before the
+//     first of them starts; then its steps run one at a time, in order,
+//     each with its own StepStarted … StepDone (combine.go). A confirm may
+//     so come ahead of its step, never behind a step after it.
 //   - A step that never runs (declined, behind a declined required step,
 //     privilege not granted) gets one StepDone with Skipped or AuthRefused
 //     and no StepStarted.

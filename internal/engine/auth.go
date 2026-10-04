@@ -31,9 +31,10 @@ import (
 type faillockWait int
 
 const (
-	faillockNone    faillockWait = iota
-	faillockUpFront              // the up-front password prompt
-	faillockPolkit               // the current helper step
+	faillockNone     faillockWait = iota
+	faillockUpFront               // the up-front password prompt
+	faillockPolkit                // the current helper step
+	faillockCombined              // a combined run's one call (combine.go)
 )
 
 // readFaillock asks for the faillock count; w is what follows its answer.
@@ -58,6 +59,14 @@ func (s *Session) faillockRead(o *Output, in FaillockRead) {
 	}
 	if w == faillockUpFront {
 		s.askPassword(o, "")
+		return
+	}
+	if w == faillockCombined {
+		if fs.Locked {
+			s.combineLocked(o)
+		} else {
+			s.combineStart(o)
+		}
 		return
 	}
 	if fs.Locked {
