@@ -81,12 +81,24 @@ if [[ -n "$unformatted" ]]; then
 fi
 
 echo "==> layering"
-# The shared packages must stay UI-free so a GUI can use them: nothing under
-# internal/ except internal/tui may pull in Bubble Tea, lipgloss or bubbles.
+# The shared packages must stay UI-free so both front ends can use them:
+# nothing under internal/ except internal/tui may pull in Bubble Tea, lipgloss
+# or bubbles, and nothing under internal/ at all may pull in gotk4 (the GUI's
+# toolkit lives in the gui/ module). internal/frontend, the glue the TUI and
+# the GUI share, is held to both by name, so the rule can't lapse for it.
 if compgen -G 'internal/*/*.go' >/dev/null; then
-	for pkg in $(go list ./internal/... | grep -v '/internal/tui'); do
-		if go list -deps "$pkg" | grep -q '^github.com/charmbracelet/'; then
+	go list ./internal/frontend >/dev/null || {
+		echo "FAIL: internal/frontend is missing; the layering rule below names it"
+		exit 1
+	}
+	for pkg in $(go list ./internal/...); do
+		deps="$(go list -deps -test "$pkg")"
+		if [[ "$pkg" != */internal/tui ]] && grep -q '^github.com/charmbracelet/' <<<"$deps"; then
 			echo "FAIL: $pkg imports github.com/charmbracelet/* (only internal/tui may)"
+			exit 1
+		fi
+		if grep -q '^github.com/diamondburned/' <<<"$deps"; then
+			echo "FAIL: $pkg imports github.com/diamondburned/* (gotk4: only the gui/ module may)"
 			exit 1
 		fi
 	done
