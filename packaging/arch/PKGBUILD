@@ -1,0 +1,81 @@
+# DRAFT — not yet built with makepkg or published. See cmd/archmaid-helper/README.md.
+#
+# Builds the TUI (tui/) and the root helper (cmd/archmaid-helper/) from git.
+# The helper is installed 0755 root:root at the fixed path its polkit policy
+# names. It is NEVER setuid: privilege comes only from pkexec.
+#
+# TODO before publishing:
+#   - pick a license (the repo has none yet), then set license=() and install it
+#   - switch source to a tagged release + checksum once there is one
+#   - a later phase moves the Go module to the repo root; drop the per-dir
+#     builds below for a single `go build ./cmd/...` then
+#   - the GUI (P6b) adds its binary, .desktop file and gotk4 deps here
+
+pkgname=archmaid-git
+_pkgname=archmaid
+pkgver=r0.0000000
+pkgrel=1
+pkgdesc='Arch Linux housekeeping: package cache, orphans, journal, temp files, updates (TUI + polkit helper)'
+arch=('x86_64')
+url='https://github.com/Enzord758/archmaid'
+license=('LicenseRef-unknown')
+depends=('glibc' 'pacman' 'pacman-contrib' 'polkit' 'systemd')
+makedepends=('git' 'go')
+optdepends=('topgrade: system/AUR update step in the TUI'
+            'yay: AUR cache cleaning and updates')
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+https://github.com/Enzord758/archmaid.git")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  cd "$_pkgname/tui"
+  export GOPATH="$srcdir/gopath"
+  go mod download -x
+}
+
+_goenv() {
+  export GOPATH="$srcdir/gopath"
+  export CGO_CPPFLAGS="$CPPFLAGS"
+  export CGO_CFLAGS="$CFLAGS"
+  export CGO_CXXFLAGS="$CXXFLAGS"
+  export CGO_LDFLAGS="$LDFLAGS"
+  # -modcacherw keeps the module cache deletable by the building user
+  export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
+}
+
+build() {
+  _goenv
+  mkdir -p "$srcdir/build"
+  cd "$srcdir/$_pkgname/tui"
+  go build -o "$srcdir/build/archmaid" .
+  # The helper is stdlib-only: no module download, no cgo.
+  cd "$srcdir/$_pkgname/cmd/archmaid-helper"
+  CGO_ENABLED=0 go build -o "$srcdir/build/archmaid-helper" .
+}
+
+check() {
+  _goenv
+  # The helper's tests never run pacman/systemctl or need root (fake runner).
+  cd "$srcdir/$_pkgname/cmd/archmaid-helper"
+  go test ./...
+  # The TUI's suite needs a real terminal size and shims; run its gate in CI.
+}
+
+package() {
+  cd "$srcdir/$_pkgname"
+  install -Dm0755 "$srcdir/build/archmaid" "$pkgdir/usr/bin/archmaid"
+  # Fixed path, root-owned, 0755, never setuid. The helper refuses to run as
+  # root from anywhere else or with group/other-writable parents.
+  install -Dm0755 "$srcdir/build/archmaid-helper" "$pkgdir/usr/lib/archmaid/archmaid-helper"
+  install -Dm0644 packaging/polkit/org.archmaid.helper.policy \
+    "$pkgdir/usr/share/polkit-1/actions/org.archmaid.helper.policy"
+  install -Dm0644 packaging/archmaid.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/archmaid.svg"
+  install -Dm0644 cmd/archmaid-helper/README.md "$pkgdir/usr/share/doc/$_pkgname/helper.md"
+}
