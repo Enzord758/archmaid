@@ -331,6 +331,24 @@ fake runner. It can't answer these questions, which decide the GUI's design:
    can reuse it, but a fresh shell can't)?
 4. Does pkexec 127 pick an action by `exec.argv1`?
 
+**Answered on 2026-10-04** (polkit/pkexec 127, scratch user, full report in
+[`polkit-live-test.md`](polkit-live-test.md)):
+
+1. **One** failure per wrong password: pkttyagent doesn't re-prompt, one dialog
+   is one attempt. A successful authentication resets the count to 0.
+2. **Yes**: a dismissed dialog (EOF or Ctrl-C) adds one failure.
+3. **The requesting process**, when it has no login session: a second pkexec
+   from the same parent skipped the prompt, a new parent was asked again.
+   Still to re-check inside a real session (tty3 or the GUI), where polkit may
+   tie it to the session instead.
+4. **Yes**, but an action *without* argv1 on the same `exec.path` can win over
+   an argv1-specific one. Our policy has none (every action carries its verb as
+   argv1, and `TestPolicyMatchesVerbs` fails otherwise) — keep it that way.
+
+Also seen: pkexec exits **127** for every refusal (wrong password, dismissed,
+locked) — never 126; a locked account fails even with the right password and
+pkttyagent prints "The account is locked due to 3 failed logins".
+
 To hand this to an agent with sudo instead, give it
 [`packaging/polkit/LIVE-TEST-AGENT.md`](../packaging/polkit/LIVE-TEST-AGENT.md).
 It runs the same cases without a tty.

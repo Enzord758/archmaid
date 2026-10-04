@@ -326,7 +326,23 @@ to:
 - Check the result in `~/.local/state/archmaid/<run>/` (or View log), and use
   `/var/log/pacman.log` as the independent record of what pacman actually did.
 
+- **pkexec: one exit code for every refusal, and a cancel costs a failure.**
+  Live-tested (`docs/polkit-live-test.md`): pkexec 127 exits 127 for a wrong
+  password, a dismissed dialog and a locked account alike, so the engine
+  can't tell them apart — "the helper exited 127 before its `start` line"
+  means *privilege not granted*. One wrong polkit password costs one
+  `pam_faillock` failure (deny=3), and so does cancelling the dialog; a
+  success resets the count. The GUI should read `/run/faillock/$USER` before
+  asking and warn at two. Never add a policy action without `exec.argv1` for
+  the helper's path: it can capture calls meant for the verb actions.
+
 ## Open items
+
+- **`auth_admin_keep` inside a real session.** The live test (see
+  `docs/polkit-live-test.md`) showed keep scoped to the requesting process when
+  there is no login session; re-check on tty3 or from the GUI, where polkit may
+  scope it to the session. The docs assume the wider (session) scope, which is
+  the safe assumption.
 
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.
