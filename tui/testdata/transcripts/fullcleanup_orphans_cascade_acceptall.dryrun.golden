@@ -1,7 +1,7 @@
 action "Full Cleanup (Recommended)"
 exec  pacman -Qdtq
-exec  pacman -Qqm
 exec  pacman -Rs --print -- libfoo libbar
+exec  pacman -Qqm
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit

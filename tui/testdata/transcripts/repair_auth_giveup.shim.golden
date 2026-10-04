@@ -1,4 +1,7 @@
 action "Repair broken packages"
+exec  pacman -Qq
+exec  pacman -Qkq -- amd-ucode baz
+exec  pacman -Qkq -- foo glibc
 exec  sudo -n -v
 auth  password -> <wrong>
 exec  su -s /usr/bin/true $USER

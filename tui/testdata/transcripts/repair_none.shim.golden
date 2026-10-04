@@ -1,5 +1,6 @@
 action "Repair broken packages"
-exec  sudo -n -v
-exec  sudo -n pacman -Qkq
+exec  pacman -Qq
+exec  pacman -Qkq -- amd-ucode baz
+exec  pacman -Qkq -- foo glibc
 note  "No broken packages found."
 end   outcome=notice errs=0 skipped=0

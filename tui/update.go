@@ -105,6 +105,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.screen = screenNotice
 			return m, nil
 		}
+		if len(msg.candidates) > 0 {
+			// Repair's user scan flagged these. Some may be false positives
+			// (files in root-only dirs), so recheck them as root: authenticate
+			// the same way Full Cleanup does, then the recheck follows.
+			m.scanAfterAuth = discoverRepair(msg.candidates)
+			m.pwAttempts = 0
+			return m, checkSudoCached()
+		}
 		if msg.kind == "services" {
 			m.services = msg.services
 			m.serviceOn = make([]bool, len(msg.services))
@@ -122,7 +130,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pending = msg.pending // repair / downloads
 		if msg.kind == "repair" {
-			// The scan only ran once the sudo ticket was primed (scanAfterAuth),
+			// The recheck only ran once the sudo ticket was primed (scanAfterAuth),
 			// so don't probe it a second time — go straight to the queue.
 			m.resetRun()
 			cmd := m.startQueue()
@@ -544,11 +552,11 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	case "editconfig":
 		return m, editConfig()
 	case "repair":
-		// pacman -Qkq must run as root (see brokenPackages), so authenticate
-		// first, the same way Full Cleanup does; the scan follows.
-		m.scanAfterAuth = discoverRepair()
-		m.pwAttempts = 0
-		return m, checkSudoCached()
+		// Scan as the user first; sudo is only asked for when that flags
+		// something to recheck as root (see the "repair" discoveryMsg).
+		m.screen = screenDiscovering
+		m.discovering = "Scanning for broken packages…"
+		return m, scanRepairCandidates()
 	case "downloads":
 		m.screen = screenDiscovering
 		m.discovering = "Checking Downloads…"
@@ -589,12 +597,13 @@ func (m *model) dropAuditFetch() {
 	}
 }
 
-// startScan runs the discovery that was waiting on sudo (scanAfterAuth).
+// startScan runs the discovery that was waiting on sudo (scanAfterAuth):
+// Repair's root recheck of the packages its user scan flagged.
 func (m model) startScan() (tea.Model, tea.Cmd) {
 	cmd := m.scanAfterAuth
 	m.scanAfterAuth = nil
 	m.screen = screenDiscovering
-	m.discovering = "Scanning for broken packages…"
+	m.discovering = "Rechecking flagged packages as root…"
 	return m, cmd
 }
 

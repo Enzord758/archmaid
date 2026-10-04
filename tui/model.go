@@ -142,8 +142,9 @@ type model struct {
 	gate       string
 	gateActive bool
 
-	// scanAfterAuth is a discovery that needs root (Repair's pacman -Qkq): it
-	// runs once the sudo ticket is primed, in place of starting a queue.
+	// scanAfterAuth is a discovery that needs root (Repair's recheck of the
+	// packages its user scan flagged): it runs once the sudo ticket is primed,
+	// in place of starting a queue.
 	scanAfterAuth tea.Cmd
 }
 

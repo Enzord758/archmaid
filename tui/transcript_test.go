@@ -479,8 +479,10 @@ func (d *Driver) answer() []tea.Msg {
 var suUser = regexp.MustCompile(`^su ((?:-s \S+ )?)\S+`)
 
 // drainExec emits the shim invocations logged since the last drain. Runs of
-// one command are sorted: a pipeline's processes start concurrently, so their
-// relative order isn't behaviour (an order between different commands is).
+// one command with the same first argument are sorted: a pipeline's processes,
+// or Repair's parallel `pacman -Qkq -- <chunk>` scans, start concurrently, so
+// their relative order isn't behaviour (an order between different commands
+// is, as is `pacman -Qq` before the scans it feeds).
 func (d *Driver) drainExec() {
 	b, _ := os.ReadFile(d.shimLog)
 	if len(b) <= d.shimOff {
@@ -489,10 +491,15 @@ func (d *Driver) drainExec() {
 	chunk := string(b[d.shimOff:])
 	d.shimOff = len(b)
 	lines := strings.Split(strings.TrimSuffix(chunk, "\n"), "\n")
+	runKey := func(l string) string {
+		if f := strings.Fields(l); len(f) > 1 {
+			return f[0] + " " + f[1]
+		}
+		return l
+	}
 	for i := 0; i < len(lines); {
 		j := i + 1
-		name, _, _ := strings.Cut(lines[i], " ")
-		for j < len(lines) && strings.HasPrefix(lines[j], name+" ") {
+		for j < len(lines) && runKey(lines[j]) == runKey(lines[i]) {
 			j++
 		}
 		sort.Strings(lines[i:j])

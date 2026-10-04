@@ -204,10 +204,13 @@ aborted; `TrapINT` ignores SIGINT so only the SIGKILL escalation ends it).
 Unmatched argv exits 0. PATH is *only* that dir, so anything unshimmed is "not
 installed"; `passthrough` symlinks real tools (`bash`, `find`, …) in for
 actions that need them — always under the scratch `HOME` from
-`transcriptEnv`. Consecutive `exec` lines of one command are sorted (a
-pipeline's processes start concurrently), so the services run lists
-`systemctl is-enabled …` before `systemctl list-units …` although it ran
-second. The AUR is `fakeAUR` plus `saveBaseline` for the snapshot.
+`transcriptEnv`. Consecutive `exec` lines of one command with the same first
+argument are sorted (a pipeline's processes, or Repair's parallel
+`pacman -Qkq -- <chunk>` scans, start concurrently); different subcommands
+keep the order they ran in, so `pacman -Qq` stays ahead of the scans it feeds.
+Repair's scenarios pin `repairScanWorkers` (`pinScanWorkers`) so the chunks
+don't depend on the machine's core count. The AUR is `fakeAUR` plus
+`saveBaseline` for the snapshot.
 
 **Add a scenario.** Append to `transcriptScenarios`: `transcriptEnv(t, dry)`,
 shims, fakes, then `NewDriver(t, shimLog, answers...)` and `d.Select("<menu
@@ -230,7 +233,7 @@ the names.
 | `overlay_test.go` | Popups float, centered, over their background; ANSI-styled backgrounds keep their width; the abort dialog stays over the running screen. |
 | `resize_test.go` | The output pane never overflows the terminal (running queue, log viewer, resize while a popup is open); askpass prompts over another popup keep the real background; nested popups resolve to the right base screen. |
 | `services_test.go` | Services discovery: `parseInactiveServices` on a captured `list-units` fixture (the `●` not-found row, masked, template instances, excluded names), the batched `is-enabled` with its per-unit fallback, and an equivalence test running the old bash pipeline against the same fixture system (`testdata/systemctl_list_*.txt` served by a shim) to prove both select the same units. |
-| `repair_test.go` | Repair: authenticates first (password prompt, or straight to the scan when cached), esc drops the held scan, three wrong passwords end in a notice; the scan runs `sudo -n pacman -Qkq` (one "pkg /path" line per missing file; fixture `testdata/pacman_Qkq.txt`), treats pacman's exit 1 as a result, reports a missing ticket instead of "nothing broken", and lists a package with several missing files once. |
+| `repair_test.go` | Repair, against a `pacman`/`sudo` shim pair that flags different packages as the user and as root: the user scan (`pacman -Qq`, then `pacman -Qkq -- <chunk>` per worker) reports the same packages in the same order for 1, 2, 4, 16 or 100 workers, checks each installed package once and never runs sudo; nothing flagged ends in "No broken packages" with no sudo at all; candidates get one probe (password prompt, or straight to the recheck when cached) and one `sudo -n pacman -Qkq -- <candidates>`, and only what root confirms is offered for reinstalling — a package flagged only as the user is dropped; esc drops the held recheck, three wrong passwords end in a notice. Both stages treat pacman's exit 1 as a result and a failure with empty stdout as an error (a missing ticket, a failing chunk), never as "nothing broken"; a package with several missing files is listed once (fixture `testdata/pacman_Qkq.txt`). |
 | `hyprpm_test.go` | `hyprpm` is disabled inside topgrade and runs as the last step, only when installed (it drops the sudo ticket on exit). |
 | `coverage_test.go` | Thin spots: `editConfig` (creates defaults, never clobbers, via the `execProcess` seam); password masking in the rendered frame; every checklist glyph; the status line (formatting, N/A fallbacks and the no-child-process guarantee are in `status_test.go`, which also has `BenchmarkSystemStatus`); all summary outcomes. |
 | `audit_test.go` | AUR audit, fully offline: severity classification (adoption/maintainer change = high; orphaned, recent push, out of date, 0 votes, not-on-AUR = glance); local `-debug` companions skipped; chunked POST lookups and RPC error handling, an 8 MiB response cap, results for names that weren't requested dropped; AUR names and maintainers stripped of control/format characters and length-capped before display (the raw value still drives the comparison and the snapshot); the maintainer snapshot (round-trip, kept for missing packages, written atomically at 0600, a held lock skips the save, a corrupt or unreadable file is never "no baseline": it fails closed as a high finding that gates topgrade, is left alone until accepted, then kept aside as `.corrupt-<time>`); an end-to-end first-audit-then-takeover run; dry run never advances the snapshot; the menu audit saves all but the high findings and `a` on the report accepts those (q drops the accept, so they stay flagged); the screen/notice flow. |
@@ -334,6 +337,32 @@ pkaction | grep -c org.archmaid.test   # must print 0
 Paste the results into HANDOVER's open items. They decide whether the GUI
 needs its own pre-validation (like the TUI's `su` stage), and whether
 `auth_admin_keep` verbs really save dialogs.
+
+## Manual measurements
+
+Real pacman can't run in CI, so the Repair scan's speed-up is a hand
+measurement, not a benchmark. Measured on the dev machine (16 cores, 1422
+packages), warm cache, wall time:
+
+| Scan | Time |
+|---|---|
+| `pacman -Qkq` as the user, one process (the old scan, as root) | ~850 ms |
+| the same split into parallel chunks, 4 workers | 501 ms |
+| 8 workers | 369 ms |
+| 16 workers (`repairScanWorkers`' cap) | 316 ms |
+| root recheck of only the flagged packages (`sudo -n pacman -Qkq -- <candidates>`) | ~50 ms |
+
+The user scan flags every truly broken package (a missing file fails `stat`
+for anyone) plus false positives from root-only directories — here always
+amd-ucode (`/boot` is 0700) and nfs-utils (`/var/lib/nfs/statd`) — which is
+why the root recheck stays. To repeat it (read-only; the recheck needs your
+own sudo):
+
+```sh
+time pacman -Qkq >/dev/null
+n=8; time (pacman -Qq | xargs -P$n -n$(( ($(pacman -Qq | wc -l) + n - 1) / n )) pacman -Qkq -- >/dev/null)
+time sudo pacman -Qkq -- amd-ucode nfs-utils
+```
 
 ## Known gaps
 

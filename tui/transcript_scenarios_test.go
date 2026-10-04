@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -17,6 +18,10 @@ import (
 //     `find /tmp /var/tmp … -exec rm -rf {} +` over live system state.
 //   - Delete old downloads is in-process and judges age by ctime; the folder
 //     itself is never a candidate (downloads_old_folder).
+//   - Repair scans as the user first (pacman -Qq, then parallel
+//     `pacman -Qkq -- <chunk>`) and only probes sudo when that flags
+//     something, rechecking just those as root (repair_none has no sudo at
+//     all; repair_false_positive drops a package root finds intact).
 //
 // Known bugs these goldens deliberately pin (see the P0 plan):
 //   - The orphan list is computed before topgrade runs and removed after it
@@ -199,22 +204,48 @@ var transcriptScenarios = []struct {
 
 	// ── Repair broken packages ───────────────────────────────────────────────
 
+	// The user scan flags amd-ucode (a file under the 0700 /boot) besides the
+	// truly broken foo and baz; the root recheck confirms only those two.
 	{"repair_cached_found.shim", func(t *testing.T) *Driver {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qkq", Exit: 1, Out: "" +
-			"foo /usr/share/foo/a\n" +
-			"baz /usr/share/baz/a\n" +
-			"baz /usr/share/baz/b"})})
+		pinScanWorkers(t, 2)
+		shimLog := installShims(t, Shims{
+			"pacman": repairPacmanRules("amd-ucode baz foo glibc", "amd-ucode baz foo"),
+			"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qkq -- ", Exit: 1, Out: "" +
+				"baz /usr/share/baz/a\n" +
+				"baz /usr/share/baz/b\n" +
+				"foo /usr/share/foo/a"}),
+		})
 		return run(t, shimLog, "Repair broken packages", Answer{"confirm", "Reinstall 2 broken", "yes"})
 	}},
 	{"repair_none.shim", func(t *testing.T) *Driver {
+		// nothing flagged as the user: done, without sudo
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qkq"})})
+		pinScanWorkers(t, 2)
+		shimLog := installShims(t, Shims{
+			"pacman": repairPacmanRules("amd-ucode baz foo glibc", ""),
+			"sudo":   sudoRules(true),
+		})
+		return run(t, shimLog, "Repair broken packages")
+	}},
+	{"repair_false_positive.shim", func(t *testing.T) *Driver {
+		// flagged as the user, clean as root: nothing to reinstall
+		transcriptEnv(t, false)
+		pinScanWorkers(t, 2)
+		shimLog := installShims(t, Shims{
+			"pacman": repairPacmanRules("amd-ucode baz foo glibc", "amd-ucode"),
+			"sudo":   sudoRules(true, Rule{Prefix: "-n pacman -Qkq -- "}),
+		})
 		return run(t, shimLog, "Repair broken packages")
 	}},
 	{"repair_auth_giveup.shim", func(t *testing.T) *Driver {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(false), "su": suRules()})
+		pinScanWorkers(t, 2)
+		shimLog := installShims(t, Shims{
+			"pacman": repairPacmanRules("amd-ucode baz foo glibc", "foo"),
+			"sudo":   sudoRules(false),
+			"su":     suRules(),
+		})
 		return run(t, shimLog, "Repair broken packages",
 			Answer{"password", "", "wrong"},
 			Answer{"password", "", "wrong"},
@@ -369,6 +400,20 @@ func sudoRules(cached bool, extra ...Rule) []Rule {
 		probe.Exit = 1
 	}
 	return append([]Rule{probe}, extra...)
+}
+
+// repairPacmanRules answers Repair's user scan: -Qq lists installed (space
+// separated) and each `-Qkq -- <chunk>` prints a "pkg /path" line for every
+// package of its chunk in flagged, exiting 1 when it printed any.
+func repairPacmanRules(installed, flagged string) []Rule {
+	return []Rule{
+		{Prefix: "-Qq", Out: strings.ReplaceAll(installed, " ", "\n")},
+		{Prefix: "-Qkq -- ", Script: `shift 2; rc=0
+for p in "$@"; do for b in ` + flagged + `; do
+	if [ "$p" = "$b" ]; then echo "$p /usr/lib/$p/missing"; rc=1; fi
+done; done
+exit $rc`},
+	}
 }
 
 // suRules accepts shimPassword on stdin, the way authSudo's check feeds it.

@@ -92,6 +92,24 @@ comments and `git log`; this is the "read before you touch it" list.
   then checks out. The popup's caller line is what gives that away: genuine
   requests come from topgrade or yay, that one from whatever ran sudo inside
   the build (typically `/usr/bin/bash`).
+- **Repair scans as the user first, and asks for sudo only to recheck what it
+  flagged.** `scanRepairCandidates` lists the installed packages
+  (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as the user, in up to
+  `repairScanWorkers` (min(cores, 16)) parallel chunks, exec'd directly. Nothing
+  flagged is the "No broken packages" notice with no probe and no prompt.
+  Otherwise the candidates are held as `scanAfterAuth`, authenticated like any
+  sudo queue (one probe; the password prompt when uncached; esc drops the
+  held recheck; three wrong passwords end in a notice), and rechecked with one
+  `sudo -n pacman -Qkq -- <candidates>`; only what root confirms is offered for
+  reinstalling. Don't drop the recheck: as the user, files in root-only dirs
+  (`/boot` is 0700, `/var/lib/nfs/statd` is rpcuser's) fail `stat` and look
+  missing, so amd-ucode and nfs-utils would be "repaired" on every run. And
+  don't go back to scanning everything as root: the user scan can't miss a
+  truly broken package (a missing file fails `stat` for anyone), and it's
+  ~316 ms + ~50 ms for the recheck against ~850 ms for one root scan (see
+  `TESTING.md` → Manual measurements). In both stages pacman's exit 1 is
+  "found problems", a result; a failure with empty stdout is an error, never
+  "nothing broken".
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
   own final step.

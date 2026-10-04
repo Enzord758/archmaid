@@ -12,9 +12,11 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -549,15 +551,43 @@ type discoveryMsg struct {
 	notice   string // set when there's nothing to do
 	// commit (audit) accepts the report's high findings into the snapshot (`a`)
 	commit func() error
+	// candidates (repair) are what the user-level scan flagged; they still
+	// need the root recheck (discoverRepair) before anything is reinstalled
+	candidates []string
 }
 
 type editorDoneMsg struct{ err error }
 
-// discoverRepair runs after the sudo ticket is primed (see model.scanAfterAuth):
-// the scan itself needs root.
-func discoverRepair() tea.Cmd {
+// repairScanWorkers is how many `pacman -Qkq` Repair's user-level scan runs
+// side by side. The check is stat-bound and split over every installed
+// package, so it scales with cores up to about 16 (1422 packages: 850 ms in
+// one process, 501 ms at 4, 369 ms at 8, 316 ms at 16); more only adds
+// processes. A variable so tests can pin the chunking.
+var repairScanWorkers = min(runtime.NumCPU(), 16)
+
+// scanRepairCandidates is Repair's first stage, run as the user with no sudo:
+// every package with a file the user can't stat (brokenCandidates). Nothing
+// flagged means nothing is broken, which ends Repair without a password
+// prompt; otherwise the candidates go to discoverRepair, which needs root.
+func scanRepairCandidates() tea.Cmd {
 	return func() tea.Msg {
-		pkgs, err := brokenPackages()
+		cands, err := brokenCandidates(repairScanWorkers)
+		if err != nil {
+			return discoveryMsg{kind: "repair", notice: "Couldn't scan for broken packages: " + shortErr(err)}
+		}
+		if len(cands) == 0 {
+			return discoveryMsg{kind: "repair", notice: "No broken packages found."}
+		}
+		return discoveryMsg{kind: "repair", candidates: cands}
+	}
+}
+
+// discoverRepair runs after the sudo ticket is primed (see model.scanAfterAuth):
+// it rechecks the user scan's candidates as root, and only the packages it
+// confirms are offered for reinstalling.
+func discoverRepair(candidates []string) tea.Cmd {
+	return func() tea.Msg {
+		pkgs, err := brokenPackages(candidates)
 		if err != nil {
 			return discoveryMsg{kind: "repair", notice: "Couldn't scan for broken packages: " + shortErr(err)}
 		}
@@ -573,25 +603,78 @@ func discoverRepair() tea.Cmd {
 	}
 }
 
-// brokenPackages lists packages with missing files (pacman -Qkq). It runs as
-// root: as the user, files in root-only dirs (/boot is 700, /var/lib/nfs/statd
-// is rpcuser's) can't be stat'ed and count as "missing", so amd-ucode and
-// nfs-utils got "repaired" on every run. -n: the ticket is already primed, and
+// brokenCandidates lists, as the user, the packages pacman -Qkq flags. It
+// lists the installed packages (pacman -Qq), splits them into up to workers
+// contiguous chunks and checks those in parallel, one `pacman -Qkq -- <chunk>`
+// each (exec'd directly, no shell). A missing file fails stat for anyone, so
+// every truly broken package is in the result — but so is any package with a
+// file in a root-only directory (/boot is 0700, /var/lib/nfs/statd is
+// rpcuser's): amd-ucode and nfs-utils are flagged on every run. So the result
+// is only a candidate list for brokenPackages. Chunks are merged in order, so
+// it is what a single `pacman -Qkq` over everything would report.
+func brokenCandidates(workers int) ([]string, error) {
+	installed, err := qkqOutput(exec.Command("pacman", "-Qq"))
+	if err != nil {
+		return nil, err
+	}
+	chunks := chunkStrings(nonEmptyLines(installed), workers)
+	found := make([][]string, len(chunks))
+	errs := make([]error, len(chunks))
+	var wg sync.WaitGroup
+	for i, chunk := range chunks {
+		wg.Go(func() {
+			out, err := qkqOutput(exec.Command("pacman", append([]string{"-Qkq", "--"}, chunk...)...))
+			found[i], errs[i] = parseBrokenPackages(out), err
+		})
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return slices.Concat(found...), nil
+}
+
+// chunkStrings splits s into at most n contiguous chunks of near-equal size.
+func chunkStrings(s []string, n int) [][]string {
+	n = max(1, min(n, len(s)))
+	var chunks [][]string
+	for i := range n {
+		if lo, hi := i*len(s)/n, (i+1)*len(s)/n; hi > lo {
+			chunks = append(chunks, s[lo:hi])
+		}
+	}
+	return chunks
+}
+
+// brokenPackages rechecks the user scan's candidates as root
+// (`sudo -n pacman -Qkq -- <candidates>`) and returns those that really have
+// missing files: root can stat into the directories the user couldn't, so the
+// false positives drop out. Only the candidates are checked, which takes ~50 ms
+// where a full scan as root took ~850. -n: the ticket is already primed, and
 // nothing may prompt on the raw tty.
-func brokenPackages() ([]string, error) {
-	cmd := exec.Command("sudo", "-n", "pacman", "-Qkq")
+func brokenPackages(candidates []string) ([]string, error) {
+	out, err := qkqOutput(exec.Command("sudo", append([]string{"-n", "pacman", "-Qkq", "--"}, candidates...)...))
+	if err != nil {
+		return nil, err
+	}
+	return parseBrokenPackages(out), nil
+}
+
+// qkqOutput runs a pacman query and returns its stdout. pacman -Qkq exits 1
+// when it finds missing files, so an error with a report on stdout is a
+// result, not a failure; an error with nothing on stdout is one, reported
+// with the command's stderr when it has any.
+func qkqOutput(cmd *exec.Cmd) (string, error) {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
-	// pacman -Qkq exits 1 when it finds missing files, so an error with a
-	// report on stdout is a result, not a failure.
 	if err != nil && len(bytes.TrimSpace(out)) == 0 {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
-			return nil, errors.New(msg)
+			return "", errors.New(msg)
 		}
-		return nil, err
+		return "", err
 	}
-	return parseBrokenPackages(string(out)), nil
+	return string(out), nil
 }
 
 // parseBrokenPackages picks the packages out of `pacman -Qkq` output, which
