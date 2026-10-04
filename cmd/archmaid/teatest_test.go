@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
@@ -102,9 +103,9 @@ func TestServicesGolden(t *testing.T) {
 	tm := teatest.NewTestModel(t, fixedModel(), teatest.WithInitialTermSize(80, 24))
 	waitForText(t, tm, "archmaid")
 
-	tm.Send(discoveryMsg{kind: "services", services: []string{
+	tm.Send(discoveryMsg{d: actions.NeedsSelection{Items: []string{
 		"bluetooth.service", "cups.service", "docker.service",
-	}})
+	}, Steps: actions.DisableUnits}})
 	waitForText(t, tm, "select services to disable")
 
 	// cursor starts on row 0; select it, move down twice, select the third.

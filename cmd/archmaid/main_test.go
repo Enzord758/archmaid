@@ -8,6 +8,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -90,7 +91,7 @@ func TestDryRunLogsEveryStep(t *testing.T) {
 // TestDiscoveryNotice: a discovery with a notice routes to the notice screen.
 func TestDiscoveryNotice(t *testing.T) {
 	m := initialModel()
-	tm, _ := m.Update(discoveryMsg{kind: "downloads", notice: "nothing to do"})
+	tm, _ := m.Update(discoveryMsg{d: actions.Notice{Text: "nothing to do"}})
 	got := tm.(model)
 	if got.screen != screenNotice || got.notice != "nothing to do" {
 		t.Fatalf("expected notice screen, got screen=%d notice=%q", got.screen, got.notice)
@@ -102,7 +103,7 @@ func TestDiscoveryNotice(t *testing.T) {
 func TestDiscoveryServices(t *testing.T) {
 	m := initialModel()
 	svcs := []string{"a.service", "b.service"}
-	tm, _ := m.Update(discoveryMsg{kind: "services", services: svcs})
+	tm, _ := m.Update(discoveryMsg{d: actions.NeedsSelection{Items: svcs, Steps: actions.DisableUnits}})
 	got := tm.(model)
 	if got.screen != screenServices {
 		t.Fatalf("expected services screen, got %d", got.screen)
@@ -373,9 +374,9 @@ func TestDiscoveryPendingRunsQueue(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	m := initialModel()
-	got := update(m, discoveryMsg{kind: "downloads", pending: []steps.Step{
+	got := update(m, discoveryMsg{d: actions.Pending{Steps: []steps.Step{
 		{Title: "del", LogLabel: "del", Argv: []string{"true"}},
-	}})
+	}}})
 	if got.screen != screenRunning {
 		t.Fatalf("pending discovery should start running, got screen=%d", got.screen)
 	}
@@ -388,9 +389,9 @@ func TestDiscoveryPendingSudoProbes(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	m := initialModel()
-	next, cmd := m.Update(discoveryMsg{kind: "downloads", pending: []steps.Step{
+	next, cmd := m.Update(discoveryMsg{d: actions.Pending{Steps: []steps.Step{
 		{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true},
-	}})
+	}}})
 	if cmd == nil {
 		t.Fatal("expected a sudo-probe command")
 	}
@@ -409,18 +410,13 @@ func TestDiscoverServicesRuns(t *testing.T) {
 	if _, err := os.Stat("/usr/bin/systemctl"); err != nil {
 		t.Skip("systemctl not available")
 	}
-	msg, ok := discoverServices()().(discoveryMsg)
-	if !ok {
-		t.Fatal("discoverServices should return a discoveryMsg")
-	}
-	if msg.kind != "services" {
-		t.Fatalf("kind = %q, want services", msg.kind)
-	}
-	if len(msg.services) == 0 && msg.notice == "" {
+	msg := discoverNow(t, actions.IDServices)
+	sel, _ := msg.d.(actions.NeedsSelection)
+	if len(sel.Items) == 0 && noticeOf(msg.d) == "" {
 		t.Fatal("expected either services or a notice")
 	}
 	// Any returned service line must be clean (trimmed, non-empty).
-	for _, s := range msg.services {
+	for _, s := range sel.Items {
 		if s != strings.TrimSpace(s) || s == "" {
 			t.Fatalf("unclean service line %q", s)
 		}
@@ -457,6 +453,7 @@ func TestServicesEnterBuildsDisableStep(t *testing.T) {
 	m.screen = screenServices
 	m.services = []string{"a.service", "b.service", "c.service"}
 	m.serviceOn = []bool{true, false, true}
+	m.selectSteps = actions.DisableUnits
 
 	m.confirmServices() // mutates m.pending in place
 	if len(m.pending) != 1 {
@@ -615,9 +612,9 @@ func TestOrdinaryStepStaysSilentOnSuccess(t *testing.T) {
 // picker, not straight to a pager, and remembers the menu as its way back.
 func TestViewLogOpensPicker(t *testing.T) {
 	m := initialModel()
-	m.cursor = len(menu) - 2 // "View log"
-	if menu[m.cursor].id != "viewlog" {
-		t.Fatalf("test menu index drifted: menu[%d].id = %q", m.cursor, menu[m.cursor].id)
+	m.cursor = len(actions.Menu) - 2 // "View log"
+	if actions.Menu[m.cursor].ID != actions.IDViewLog {
+		t.Fatalf("test menu index drifted: menu[%d].ID = %q", m.cursor, actions.Menu[m.cursor].ID)
 	}
 	got := update(m, key("enter"))
 	if got.screen != screenLogPicker {

@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
@@ -365,8 +366,8 @@ func (tg *tuiTarget) fail(format string, a ...any) {
 // presses enter.
 func (tg *tuiTarget) Start(sub string) (string, error) {
 	idx := -1
-	for i, it := range menu {
-		if strings.Contains(it.label, sub) {
+	for i, it := range actions.Menu {
+		if strings.Contains(it.Label, sub) {
 			idx = i
 			break
 		}
@@ -377,7 +378,7 @@ func (tg *tuiTarget) Start(sub string) (string, error) {
 	for tg.m.cursor < idx {
 		tg.m = update(tg.m, key("down"))
 	}
-	_, label, _ := strings.Cut(menu[idx].label, "  ") // drop the icon
+	label := actions.Menu[idx].Label
 	tg.q = tg.update(key("enter"))
 	return label, nil
 }
@@ -552,7 +553,8 @@ func (tg *tuiTarget) update(msg tea.Msg) []tea.Cmd {
 			tg.push(tt.Notice{Text: tg.m.notice})
 		case screenAudit:
 			if dm, ok := msg.(discoveryMsg); ok {
-				tg.push(tt.OutputReport{Text: dm.report})
+				r, _ := dm.d.(actions.Report)
+				tg.push(tt.OutputReport{Text: r.Text})
 			}
 		}
 	}

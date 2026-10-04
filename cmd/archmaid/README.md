@@ -35,7 +35,7 @@ straight over via `lipgloss`).
   a removed package's own now-unneeded dependencies (`-s`), so the real removal
   count can run well past the direct orphan list. Full Cleanup looks for
   orphans in a read-only in-process step after topgrade (`findOrphans` in
-  `tasks.go`: `pacman -Qdtq`, then a `pacman -Rs --print` preview), which
+  `internal/actions`: `pacman -Qdtq`, then a `pacman -Rs --print` preview), which
   inserts the removal step right behind itself only when it finds any; the
   confirm shows both counts when they differ, instead of only the direct
   count.

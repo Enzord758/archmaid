@@ -8,11 +8,8 @@ import (
 	"sync"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/logstore"
-	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -21,7 +18,8 @@ import (
 // Which folder, what is old and the deletion itself (every safety property:
 // ctime, Lstat, os.Root, the mount-point boundary, the re-check before each
 // removal) live in internal/downloads. This file turns them into a discovery
-// Cmd and an in-process step, and keeps the abort bookkeeping.
+// delete step's Run (actions.Env.DeleteDownloads; the discovery is in
+// internal/actions) and keeps the abort bookkeeping.
 
 // downloadsFlag is set by --downloads <dir>. It overrides discovery and may
 // point outside $HOME (a data disk), but never at a home folder, an ancestor
@@ -48,36 +46,6 @@ func downloadsOptions() downloads.Options {
 		DryRun:        dryRun,
 		Now:           downloadsNow,
 		EntryHook:     downloadsEntryHook,
-	}
-}
-
-// discoverDownloads resolves the folder and lists its old entries. Deleting
-// them is an in-process step that re-checks each entry first (see
-// deleteOldDownloads). The log store the step records an abort in is captured
-// here, on the model's goroutine, not in the Cmd.
-func discoverDownloads() tea.Cmd {
-	store := logs()
-	return func() tea.Msg {
-		notice := func(s string) tea.Msg { return discoveryMsg{kind: "downloads", notice: s} }
-		opt := downloadsOptions()
-		dir, err := downloads.Resolve(opt)
-		if err != nil {
-			return notice(sanitize.String(err.Error(), sanitize.Plain))
-		}
-		plan, err := downloads.Scan(dir, downloadsNow(), opt)
-		if err != nil {
-			return notice(err.Error())
-		}
-		if len(plan.Names) == 0 {
-			return notice("Nothing older than 30 days in " + plan.Shown + ".")
-		}
-		return discoveryMsg{kind: "downloads", pending: []steps.Step{{
-			ID:    steps.IDDownloads,
-			Title: "Deleting old downloads…", LogLabel: "Old downloads deleted",
-			Run:      deleteOldDownloads(plan, store),
-			Optional: true, AlwaysLog: true,
-			Confirm: plan.Confirm(),
-		}}}
 	}
 }
 

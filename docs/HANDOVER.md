@@ -19,14 +19,14 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | File | Owns |
 |---|---|
 | `main.go` | package doc + `main()`: `--askpass` dispatch to `privilege.RunClient`, the askpass server's requests fed to the program as `askpassMsg`s, flag parsing (`parseArgs`: `--dryrun`, `--downloads`), `pruneLogs`, `tea.NewProgram` |
-| `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `discoverDownloads` (Resolve + Scan -> confirm step), `deleteOldDownloads` (the in-process step, abort logging), `waitForDownloads` |
+| `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `deleteOldDownloads` (the in-process step's `Run`, abort logging), `waitForDownloads`; the discovery is `internal/actions` |
 | `internal/downloads` | the resolver (`Resolve(Options)`), `Scan(dir, now, Options) Plan`, `Plan.Confirm()`, `Delete(ctx, Plan, Options) (Result, error)`; ctime, Lstat, `os.Root`, the mountinfo boundary and the per-node re-check; no UI, no logging, no env reads |
-| `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
-| `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
+| `model.go` | screens, the `model` struct, `initialModel`, `Init` (the menu is `actions.Menu`) |
+| `update.go` | `Update`/`handleKey` — the single source of state transitions — plus `activate` (menu → queue or discovery), `handleDiscovery` (an `actions.Discovery` → its screen), queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
-| `tasks.go` | `runStep`/`stepSpec` (a `steps.Step`'s command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, the sudo probe/auth/keep-alive as `tea.Cmd`s over `privilege.Sudo` (`checkSudoCached`, `authSudo`, `refreshSudo`), discovery commands, `editConfig` |
+| `tasks.go` | `runStep`/`stepSpec` (a `steps.Step`'s command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the sudo probe/auth/keep-alive glue, `discoveryMsg` and `discover` (an action's `Discover` as a `tea.Cmd`), `actionEnv` (the `actions.Env` the TUI hands the actions), `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
-| `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`discoverAURAudit`/`menuAudit`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the model's prefetch (`auditFetch`, wrapping `audit.Fetch`), and the styled `renderAudit` |
+| `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`menuAudit`, handed to `internal/actions` as `Env.AuditReport` by `actionEnv`; `auditOutcome` → `actions.Notice`/`Report`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the model's prefetch (`auditFetch`, wrapping `audit.Fetch`), and the styled `renderAudit` |
 | `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process), thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering. `logs()`/`appendLog` are for the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
 | `askpass.go` | askpass tea glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper), `askpassMsg`/`askpassResultMsg`, `answerAskpass` (`Request.Answer` off the UI thread), `verifyAskpassPeer` (`privilege.Verify` with the `readProc`/`ourUID` seams), the popup's `askpassRequester`; the popup itself is `handleAskpass` in `update.go` |
 | `overlay.go` | ANSI-aware popup compositor |
@@ -49,6 +49,7 @@ charmbracelet, except `internal/tui`):
 | `internal/privilege` | getting root without prompting on the tty. `Privileged` (`Probe`, `Authenticate`, `Refresh`, `Command`) and its one implementation `Sudo{Wrapper}`: `sudo -n -v` probe and keep-alive, two-stage `Authenticate` (`CheckPassword` = `su -s /usr/bin/true <user>`, then `sudo -S -v`; lockout notices), `Command` (sudo gets `-A` or `-n`; `Env` strips `SUDO_ASKPASS` and gives the wrapper only to privileged steps). Askpass: `Listen(runtimeDir, exe, ServerOptions)` → `*Server` (`Requests`, `Wrapper`, `Close`; private 0700 dir, shell-quoted wrapper, per-client read deadline and `MaxPrompt` cap, `SO_PEERCRED` + start time per client), `*Request` (`Prompt`, `Peer`, `Answer(pw)` — su-checked before anything is written — and `Cancel`), `Verify(peer, stepPid, stepStart, VerifyOptions)` → `Requester`, `RunClient(sock, prompt)` (the `--askpass` helper) |
 | `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace}`, its combined output streamed as `Msg`s on one ordered channel, the dry-run echo, `ErrWaitDelay` → success on a clean exit), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
 | `internal/steps` | what a unit of work is: `Step` (stable `ID`, the root helper's `Verb` where one exists, `Argv` or an in-process `Run(ctx, Env) Result`, `Confirm`/`Optional`/`OnAccept`, `NeedsPriv`, `AlwaysLog`, log `Category`, `Prefetch`), `Result` (`Output`, `Err`, `ConfirmNext`, `Commit`, `InsertNext`; `Check` forbids gating and inserting at once), `Status` (`Pending` … `AuthRefused` — privilege not granted, one status whatever the reason, since pkexec exits 127 for every refusal — and `Aborted`) |
+| `internal/actions` | the menu as data: `Menu []Action` (`ID`, `Label`, `Icon`, `Gate`, `Busy`, `Steps func(Env) []steps.Step` or `Discover func(ctx, Env) Discovery`), `ByID`; the queues (Full Cleanup, Run topgrade, Clear user cache), the orphan probe, Repair's user scan and root recheck, the services discovery and `DisableUnits`, the downloads discovery. `Discovery` is a typed union: `Notice`, `Pending`, `NeedsSelection{Items, Steps}`, `Report{Text, Audit}`, `NeedsRoot{Items, Busy, AuthFailed, Rescan}`. `Env` carries the run's flags and what still lives in the TUI, as func values: the AUR audit (`AuditStep`, `AuditReport`) and the downloads delete step (`Downloads`, `DeleteDownloads`) |
 
 ## Decisions and landmines
 
@@ -122,11 +123,12 @@ comments and `git log`; this is the "read before you touch it" list.
   requests come from topgrade or yay, that one from whatever ran sudo inside
   the build (typically `/usr/bin/bash`).
 - **Repair scans as the user first, and asks for sudo only to recheck what it
-  flagged.** `scanRepairCandidates` lists the installed packages
-  (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as the user, in up to
-  `repairScanWorkers` (min(cores, 16)) parallel chunks, exec'd directly. Nothing
-  flagged is the "No broken packages" notice with no probe and no prompt.
-  Otherwise the candidates are held as `scanAfterAuth`, authenticated like any
+  flagged.** Repair's discovery (`internal/actions`, `discoverRepair`) lists
+  the installed packages (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as
+  the user, in up to `Env.RepairWorkers` (min(cores, 16)) parallel chunks,
+  exec'd directly. Nothing flagged is the "No broken packages" notice with no
+  probe and no prompt. Otherwise it returns `NeedsRoot`, which the TUI holds
+  as `model.needsRoot` and authenticates like any
   sudo queue (one probe; the password prompt when uncached; esc drops the
   held recheck; three wrong passwords end in a notice), and rechecked with one
   `sudo -n pacman -Qkq -- <candidates>`; only what root confirms is offered for
@@ -141,19 +143,21 @@ comments and `git log`; this is the "read before you touch it" list.
   "nothing broken".
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
-  own final step.
+  own final step. `TestNoPrivilegedStepAfterHyprpm` (`internal/actions`) fails
+  any action whose queue has a root step, or the orphan probe, after hyprpm.
 - **Full Cleanup's order:** AUR audit → topgrade → `paccache -r` → optional
   `paccache -rk0` → orphan probe → (orphan removal, inserted by the probe) →
   `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Building the
   queue runs nothing; the only work `activate` starts is the audit prefetch,
-  off the UI thread.
+  off the UI thread. `BenchmarkActivateFullCleanup` (~5 µs) holds that in the
+  opt-in perf guard, with a fixed 1 ms limit.
 - **Orphans are found after the update, by an in-process step.** The probe
-  (`findOrphans`) runs `pacman -Qdtq` once topgrade is done — an upgrade
-  orphans packages of its own, and the list `-Rns --noconfirm` acts on must be
+  (`findOrphans`, `internal/actions`) runs `pacman -Qdtq` once topgrade is
+  done — an upgrade orphans packages of its own, and the list `-Rns --noconfirm` acts on must be
   the one the confirm showed — and, if there are any, inserts the removal right
   behind itself (`steps.Result.InsertNext`), with exactly those names. No
   orphans: a line saying so, no confirm. A failed query fails the probe and
-  inserts nothing. Don't move the query back into `fullCleanupSteps`: it ran
+  inserts nothing. Don't move the query back into the queue's builder: it ran
   synchronously in `Update` (a 130–200 ms freeze) and went stale over
   topgrade.
 - **The orphan confirm previews the `-Rns` cascade.** `-s` recursively removes a
@@ -174,7 +178,7 @@ comments and `git log`; this is the "read before you touch it" list.
   lands after it returned — the result's `commit` disarms that when the
   result is taken, which is why `handleStepResult` releases the step's ctx
   only *after* `commit`. Both writers run off the model's goroutine, so they
-  append to the store `discoverDownloads` captured on it, never to `logs()`
+  append to the store `actionEnv` captured on it, never to `logs()`
   (which reads `logDir`/`dryRun`). `main` waits for such a run (`waitForDownloads`)
   before exiting. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
@@ -246,7 +250,7 @@ comments and `git log`; this is the "read before you touch it" list.
   `internal/audit` reads nothing global: `currentAuditConfig` builds its
   `audit.Config` — endpoint, snapshot path, deadline, dry run, the log store
   (`Config.Log` appends to the captured `*logstore.Store`) — in
-  `discoverAURAudit`, `auditStep` (when the queue is built) and
+  `actionEnv` (for the menu audit), `auditStep` (when the queue is built) and
   `startAuditFetch`. The `Result` keeps that `Config`, so `Commit` writes the
   snapshot the audit read and logs beside it even if `logDir` moved since.
   Don't read `logDir`, `aurRPCURL`, `auditDeadline` or `dryRun` inside the

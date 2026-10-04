@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -37,30 +38,6 @@ const (
 // maxSudoAttempts is how many wrong passwords are allowed before we give up,
 // skip the sudo-requiring steps, and log them.
 const maxSudoAttempts = 3
-
-// menuItem is one row of the main menu. Static actions supply steps(); dynamic
-// or special ones (discovery, editor, log, exit) dispatch on id in activate().
-type menuItem struct {
-	label string
-	id    string
-	steps func() []steps.Step
-	// gate, if set, is a confirm shown before a steps-action runs *only when
-	// sudo is already cached* — otherwise the sudo password prompt is the gate.
-	gate string
-}
-
-var menu = []menuItem{
-	{label: "󰓦  Full Cleanup (Recommended)", id: "fullcleanup", steps: fullCleanupSteps, gate: "Proceed with full cleanup?"},
-	{label: "󰃨  Clear user cache", id: "usercache", steps: clearUserCacheSteps},
-	{label: "󰚰  Repair broken packages", id: "repair"},
-	{label: "󰋊  Delete old downloads", id: "downloads"},
-	{label: "󰏗  Run topgrade (system update)", id: "topgrade", steps: topgradeSteps},
-	{label: "󰒔  Disable unused services", id: "services"},
-	{label: "󰶚  Audit AUR packages", id: "auraudit"},
-	{label: "󰙪  Edit topgrade config", id: "editconfig"},
-	{label: "󰑇  View log", id: "viewlog"},
-	{label: "󰗼  Exit", id: "exit"},
-}
 
 // ── model ────────────────────────────────────────────────────────────────────
 
@@ -103,6 +80,7 @@ type model struct {
 	services      []string
 	serviceOn     []bool
 	serviceCursor int
+	selectSteps   func(selected []string) []steps.Step // builds the queue for the picked services
 
 	// log viewer state
 	logCursor int         // screenLogPicker selection
@@ -150,10 +128,10 @@ type model struct {
 	gate       string
 	gateActive bool
 
-	// scanAfterAuth is a discovery that needs root (Repair's recheck of the
-	// packages its user scan flagged): it runs once the sudo ticket is primed,
-	// in place of starting a queue.
-	scanAfterAuth tea.Cmd
+	// needsRoot is a discovery waiting on sudo (Repair's recheck of the
+	// packages its user scan flagged): its Rescan runs once the ticket is
+	// primed, in place of starting a queue.
+	needsRoot *actions.NeedsRoot
 }
 
 func initialModel() model {

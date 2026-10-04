@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/audit"
@@ -57,7 +58,7 @@ func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEn
 }
 
 // runAudit is the menu action's audit against the current settings.
-func runAudit(now time.Time) discoveryMsg { return menuAudit(now, currentAuditConfig()) }
+func runAudit(now time.Time) auditOutcome { return menuAudit(now, currentAuditConfig()) }
 
 // runAuditStep is the audit step's run against the current settings.
 func runAuditStep(ctx context.Context) steps.Result { return auditStep().Run(ctx, steps.Env{}) }
@@ -313,7 +314,7 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	m := initialModel()
 	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.screen = screenDiscovering
-	m = update(m, msg)
+	m = update(m, discoveryMsg{d: msg.discovery()})
 	if !strings.Contains(m.View(), "a accept maintainer changes") {
 		t.Fatalf("audit screen should hint at a:\n%s", m.View())
 	}
@@ -338,7 +339,7 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	if third.commit != nil || strings.Contains(third.report, "maintainer changed") {
 		t.Fatalf("an accepted change must not be flagged again:\n%s", third.report)
 	}
-	if v := update(m, discoveryMsg{kind: "audit", report: third.report}).View(); strings.Contains(v, "a accept") {
+	if v := update(m, discoveryMsg{d: actions.Report{Text: third.report}}).View(); strings.Contains(v, "a accept") {
 		t.Fatalf("no a hint without anything to accept:\n%s", v)
 	}
 }
@@ -470,7 +471,7 @@ func TestMenuAuditHoldsCoMaintainerUntilAccepted(t *testing.T) {
 	m := initialModel()
 	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.screen = screenDiscovering
-	m = update(m, msg)
+	m = update(m, discoveryMsg{d: msg.discovery()})
 	if got := update(m, key("a")); !strings.Contains(got.notice, "accepted") {
 		t.Fatalf("notice = %q", got.notice)
 	}
@@ -486,12 +487,12 @@ func TestMenuAuditHoldsCoMaintainerUntilAccepted(t *testing.T) {
 
 func TestAuditMenuItemStartsDiscovery(t *testing.T) {
 	m := initialModel()
-	for i, it := range menu {
-		if it.id == "auraudit" {
+	for i, it := range actions.Menu {
+		if it.ID == actions.IDAURAudit {
 			m.cursor = i
 		}
 	}
-	if menu[m.cursor].id != "auraudit" {
+	if actions.Menu[m.cursor].ID != actions.IDAURAudit {
 		t.Fatal("menu has no audit item")
 	}
 	got := update(m, key("enter"))
@@ -505,7 +506,7 @@ func TestAuditReportShowsScrollableScreenAndEscReturns(t *testing.T) {
 	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.screen = screenDiscovering
 
-	got := update(m, discoveryMsg{kind: "audit", report: "line one\nline two"})
+	got := update(m, discoveryMsg{d: actions.Report{Text: "line one\nline two"}})
 	if got.screen != screenAudit {
 		t.Fatalf("screen = %d, want screenAudit", got.screen)
 	}
@@ -522,7 +523,7 @@ func TestAuditReportShowsScrollableScreenAndEscReturns(t *testing.T) {
 
 func TestAuditNoticeRoutesToNoticePopup(t *testing.T) {
 	m := initialModel()
-	got := update(m, discoveryMsg{kind: "audit", notice: "Couldn't reach the AUR: boom"})
+	got := update(m, discoveryMsg{d: actions.Notice{Text: "Couldn't reach the AUR: boom"}})
 	if got.screen != screenNotice || !strings.Contains(got.notice, "boom") {
 		t.Fatalf("screen=%d notice=%q", got.screen, got.notice)
 	}

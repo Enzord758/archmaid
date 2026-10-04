@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -64,8 +65,8 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	snapshot := filepath.Join(origLog, "aur-maintainers.json")
 	elsewhere := []string{t.TempDir(), t.TempDir()}
 
-	store := logs()            // the store they all capture
-	menu := discoverAURAudit() // captured here, on "the model's goroutine"
+	store := logs()                         // the store they all capture
+	menu := discoverCmd(actions.IDAURAudit) // captured here, on "the model's goroutine"
 	fetch := startAuditFetch()
 	reapAuditFetch(t, fetch)
 	step := auditStep()
@@ -107,8 +108,8 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	}
 	logDir, dryRun = origLog, oldDry
 
-	if msg.notice != "" || !strings.Contains(msg.report, "1 foreign package") {
-		t.Fatalf("menu audit: notice=%q report=%q", msg.notice, msg.report)
+	if r, _ := msg.d.(actions.Report); !strings.Contains(r.Text, "1 foreign package") {
+		t.Fatalf("menu audit: %#v", msg.d)
 	}
 	if sr.Err != nil || !strings.Contains(sr.Output, "1 foreign package(s) checked") {
 		t.Fatalf("audit step: err=%v output=%q", sr.Err, sr.Output)

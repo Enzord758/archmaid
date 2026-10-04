@@ -84,7 +84,7 @@ func TestAuditStateMenuAuditAcceptWithA(t *testing.T) {
 	m := initialModel()
 	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.screen = screenDiscovering
-	m = update(m, msg)
+	m = update(m, discoveryMsg{d: msg.discovery()})
 	if back := update(m, key("q")); back.auditCommit != nil { // leaving keeps it listed
 		t.Fatal("leaving must drop the accept")
 	}

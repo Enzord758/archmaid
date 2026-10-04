@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -43,7 +44,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case sudoCachedMsg:
-		if msg.cached && m.scanAfterAuth != nil {
+		if msg.cached && m.needsRoot != nil {
 			return m.startScan()
 		}
 		if msg.cached {
@@ -73,10 +74,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pwAttempts++
 			m.password.Reset()
 			if m.pwAttempts >= maxSudoAttempts {
-				if m.scanAfterAuth != nil {
+				if m.needsRoot != nil {
 					// no queue to skip through — the scan itself needs root
-					m.scanAfterAuth = nil
-					m.notice = "Sudo authentication failed — can't scan for broken packages."
+					m.notice = m.needsRoot.AuthFailed
+					m.needsRoot = nil
 					m.bg = screenMenu
 					m.screen = screenNotice
 					return m, nil
@@ -97,52 +98,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pwAttempts = 0
 		m.password.Reset()
-		if m.scanAfterAuth != nil {
+		if m.needsRoot != nil {
 			return m.startScan()
 		}
 		cmd := m.startQueue()
 		return m, cmd
 
 	case discoveryMsg:
-		if msg.notice != "" {
-			m.notice = msg.notice
-			m.bg = screenMenu
-			m.screen = screenNotice
-			return m, nil
-		}
-		if len(msg.candidates) > 0 {
-			// Repair's user scan flagged these. Some may be false positives
-			// (files in root-only dirs), so recheck them as root: authenticate
-			// the same way Full Cleanup does, then the recheck follows.
-			m.scanAfterAuth = discoverRepair(msg.candidates)
-			m.pwAttempts = 0
-			return m, checkSudoCached()
-		}
-		if msg.kind == "services" {
-			m.services = msg.services
-			m.serviceOn = make([]bool, len(msg.services))
-			m.serviceCursor = 0
-			m.screen = screenServices
-			return m, nil
-		}
-		if msg.kind == "audit" {
-			m.auditCommit = msg.commit
-			m.screen = screenAudit
-			m.resizeOutput()
-			m.output.SetContent(msg.report)
-			m.output.GotoTop()
-			return m, nil
-		}
-		m.pending = msg.pending // repair / downloads
-		if msg.kind == "repair" {
-			// The recheck only ran once the sudo ticket was primed (scanAfterAuth),
-			// so don't probe it a second time — go straight to the queue.
-			m.resetRun()
-			cmd := m.startQueue()
-			return m, cmd
-		}
-		cmd := m.beginPending()
-		return m, cmd
+		return m.handleDiscovery(msg)
 
 	case sudoKeepAliveMsg:
 		if !m.sudoAlive || msg.gen != m.sudoGen {
@@ -173,6 +136,52 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.screen == screenPassword {
 		var cmd tea.Cmd
 		m.password, cmd = m.password.Update(msg)
+		return m, cmd
+	}
+	return m, nil
+}
+
+// handleDiscovery routes a discovery's result: a notice, a queue (straight
+// to the run when it follows a root rescan, whose ticket is primed), a pick
+// list, a report, or a wait on sudo for a rescan.
+func (m model) handleDiscovery(msg discoveryMsg) (tea.Model, tea.Cmd) {
+	switch d := msg.d.(type) {
+	case actions.Notice:
+		m.notice = d.Text
+		m.bg = screenMenu
+		m.screen = screenNotice
+		return m, nil
+	case actions.NeedsRoot:
+		// Repair's user scan flagged these. Some may be false positives
+		// (files in root-only dirs), so recheck them as root: authenticate
+		// the same way Full Cleanup does, then the recheck follows.
+		m.needsRoot = &d
+		m.pwAttempts = 0
+		return m, checkSudoCached()
+	case actions.NeedsSelection:
+		m.services = d.Items
+		m.serviceOn = make([]bool, len(d.Items))
+		m.serviceCursor = 0
+		m.selectSteps = d.Steps
+		m.screen = screenServices
+		return m, nil
+	case actions.Report:
+		m.auditCommit, _ = d.Audit.(func() error)
+		m.screen = screenAudit
+		m.resizeOutput()
+		m.output.SetContent(d.Text)
+		m.output.GotoTop()
+		return m, nil
+	case actions.Pending:
+		m.pending = d.Steps
+		if msg.authed {
+			// The rescan only ran once the sudo ticket was primed, so don't
+			// probe it a second time — go straight to the queue.
+			m.resetRun()
+			cmd := m.startQueue()
+			return m, cmd
+		}
+		cmd := m.beginPending()
 		return m, cmd
 	}
 	return m, nil
@@ -344,7 +353,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(menu)-1 {
+			if m.cursor < len(actions.Menu)-1 {
 				m.cursor++
 			}
 		case "enter":
@@ -368,7 +377,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.password.Reset()
 			m.pwErr = ""
-			m.scanAfterAuth = nil
+			m.needsRoot = nil
 			m.dropAuditFetch() // the action is cancelled before it started
 			m.screen = screenMenu
 			m.recordRun(logstore.OutcomeCancelled)
@@ -531,58 +540,48 @@ func (m *model) confirmServices() tea.Cmd {
 			sel = append(sel, m.services[i])
 		}
 	}
-	if len(sel) == 0 {
+	var queue []steps.Step
+	if len(sel) > 0 && m.selectSteps != nil {
+		queue = m.selectSteps(sel)
+	}
+	if len(queue) == 0 {
 		m.screen = screenMenu
 		return nil
 	}
-	m.pending = []steps.Step{{
-		ID: steps.IDDisableUnits, Verb: steps.VerbDisableUnit,
-		Title: "Disabling services…", LogLabel: "Services disabled",
-		Argv:      append([]string{"sudo", "systemctl", "disable", "--now", "--"}, sel...),
-		NeedsPriv: true, AlwaysLog: true,
-	}}
+	m.pending = queue
 	return m.beginPending()
 }
 
-// activate handles an Enter on the menu.
+// activate handles an Enter on the menu: the TUI's own entries by ID, then
+// a discovery, or the action's queue.
 func (m model) activate() (tea.Model, tea.Cmd) {
-	item := menu[m.cursor]
+	a := actions.Menu[m.cursor]
 	m.gate = "" // only steps-actions with a gate re-arm it below
-	m.runAction, m.runStarted, m.runDone = item.id, time.Now(), false
+	m.runAction, m.runStarted, m.runDone = a.ID, time.Now(), false
 	m.dropAuditFetch() // a previous action's, should one still be around
-	switch item.id {
-	case "exit":
+	switch a.ID {
+	case actions.IDExit:
 		return m, tea.Quit
-	case "viewlog":
+	case actions.IDViewLog:
 		m.logReturn = screenMenu
 		return m.openLogPicker()
-	case "editconfig":
+	case actions.IDEditConfig:
 		return m, editConfig()
-	case "repair":
-		// Scan as the user first; sudo is only asked for when that flags
-		// something to recheck as root (see the "repair" discoveryMsg).
-		m.screen = screenDiscovering
-		m.discovering = "Scanning for broken packages…"
-		return m, scanRepairCandidates()
-	case "downloads":
-		m.screen = screenDiscovering
-		m.discovering = "Checking Downloads…"
-		return m, discoverDownloads()
-	case "services":
-		m.screen = screenDiscovering
-		m.discovering = "Finding unused services…"
-		return m, discoverServices()
-	case "auraudit":
-		m.screen = screenDiscovering
-		m.discovering = "Checking foreign packages against the AUR…"
-		return m, discoverAURAudit()
 	}
 
-	if item.steps == nil {
+	env := actionEnv()
+	if a.Discover != nil {
+		// Repair scans as the user first; sudo is only asked for when that
+		// flags something to recheck as root (actions.NeedsRoot).
+		m.screen = screenDiscovering
+		m.discovering = a.Busy
+		return m, discover(a.Discover, env, false)
+	}
+	if a.Steps == nil {
 		return m, nil
 	}
-	m.gate = item.gate
-	m.pending = item.steps()
+	m.gate = a.Gate
+	m.pending = a.Steps(env)
 	for _, s := range m.pending {
 		if s.Prefetch == steps.PrefetchAURAudit {
 			// Start the audit now, so its lookup runs while the password
@@ -604,14 +603,14 @@ func (m *model) dropAuditFetch() {
 	}
 }
 
-// startScan runs the discovery that was waiting on sudo (scanAfterAuth):
+// startScan runs the discovery that was waiting on sudo (needsRoot):
 // Repair's root recheck of the packages its user scan flagged.
 func (m model) startScan() (tea.Model, tea.Cmd) {
-	cmd := m.scanAfterAuth
-	m.scanAfterAuth = nil
+	nr := m.needsRoot
+	m.needsRoot = nil
 	m.screen = screenDiscovering
-	m.discovering = "Rechecking flagged packages as root…"
-	return m, cmd
+	m.discovering = nr.Busy
+	return m, discover(nr.Rescan, actionEnv(), true)
 }
 
 // resetRun clears the per-run counters and auth state before a queue starts.

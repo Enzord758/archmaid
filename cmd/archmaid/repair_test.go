@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -93,13 +95,7 @@ func pinScanWorkers(t *testing.T, n int) {
 func repairModel(t *testing.T) model {
 	t.Helper()
 	m := initialModel()
-	for i, it := range menu {
-		if it.id == "repair" {
-			m.cursor = i
-			return m
-		}
-	}
-	t.Fatal("no repair menu item")
+	m.cursor = menuItemIndex(t, actions.IDRepair)
 	return m
 }
 
@@ -118,70 +114,41 @@ func updateRun(t *testing.T, m model, msg tea.Msg) (model, tea.Msg) {
 // now probes sudo for the root recheck.
 func repairFlagged(t *testing.T, candidates ...string) model {
 	t.Helper()
-	m := update(repairModel(t), key("enter"))
-	next, cmd := m.Update(discoveryMsg{kind: "repair", candidates: candidates})
+	repairShim{installed: candidates, asUser: candidates}.install(t)
+	m, msg := updateRun(t, repairModel(t), key("enter")) // the user scan
+	next, cmd := m.Update(msg)
 	m = next.(model)
-	if cmd == nil || m.scanAfterAuth == nil {
+	if cmd == nil || m.needsRoot == nil {
 		t.Fatal("candidates should probe sudo with the root recheck held back")
 	}
 	return m
 }
 
-// TestParseBrokenPackages: `pacman -Qkq` prints "pkg /path" per missing file;
-// a package with several missing files is listed once, and stray lines (a
-// warning, a bare word) are ignored.
-func TestParseBrokenPackages(t *testing.T) {
-	out := "warning: something odd\n" +
-		"amd-ucode /boot/amd-ucode.img\n" +
-		"big /usr/share/big/one\n" +
-		"big /usr/share/big/two\n" +
-		"stray\n"
-	got := parseBrokenPackages(out)
-	want := []string{"amd-ucode", "big"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	if got := parseBrokenPackages(""); len(got) != 0 {
-		t.Fatalf("empty output should be no packages, got %v", got)
-	}
+// repairScan runs Repair's user scan with workers, as the menu would.
+func repairScan(t *testing.T, workers int) actions.Discovery {
+	t.Helper()
+	return discoverNow(t, actions.IDRepair, func(env *actions.Env) { env.RepairWorkers = workers }).d
 }
 
-// TestParseBrokenPackagesFixture parses a capture of real -Qkq output shape.
-func TestParseBrokenPackagesFixture(t *testing.T) {
-	data, err := os.ReadFile("testdata/pacman_Qkq.txt")
-	if err != nil {
-		t.Fatal(err)
+// repairCandidates is what repairScan flagged for the root recheck.
+func repairCandidates(t *testing.T, workers int) []string {
+	t.Helper()
+	d := repairScan(t, workers)
+	nr, ok := d.(actions.NeedsRoot)
+	if !ok {
+		t.Fatalf("workers=%d: user scan = %#v, want candidates for the root recheck", workers, d)
 	}
-	got := parseBrokenPackages(string(data))
-	want := []string{"amd-ucode", "nfs-utils", "big"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
+	return nr.Items
 }
 
-// TestChunkStrings: at most n contiguous chunks that together are s in order,
-// sizes differing by at most one; never an empty chunk.
-func TestChunkStrings(t *testing.T) {
-	s := strings.Fields("a b c d e f g h i j")
-	for _, n := range []int{-1, 0, 1, 3, 4, 10, 16} {
-		chunks := chunkStrings(s, n)
-		if want := max(1, min(n, len(s))); len(chunks) != want {
-			t.Fatalf("n=%d: %d chunks, want %d", n, len(chunks), want)
-		}
-		lo, hi := len(s), 0
-		for _, c := range chunks {
-			lo, hi = min(lo, len(c)), max(hi, len(c))
-		}
-		if lo == 0 || hi-lo > 1 {
-			t.Fatalf("n=%d: uneven chunks %v", n, chunks)
-		}
-		if got := slices.Concat(chunks...); !reflect.DeepEqual(got, s) {
-			t.Fatalf("n=%d: chunks %v don't add up to %v", n, chunks, s)
-		}
+// repairRecheck runs the root recheck of whatever the user scan flags.
+func repairRecheck(t *testing.T) actions.Discovery {
+	t.Helper()
+	nr, ok := repairScan(t, 2).(actions.NeedsRoot)
+	if !ok {
+		t.Fatal("the user scan flagged nothing to recheck")
 	}
-	if got := chunkStrings(nil, 4); len(got) != 0 {
-		t.Fatalf("nothing installed should be no chunks, got %v", got)
-	}
+	return nr.Rescan(context.Background(), actionEnv())
 }
 
 // TestBrokenCandidatesParallelMatchesSingle: however the packages are split,
@@ -196,10 +163,7 @@ func TestBrokenCandidatesParallelMatchesSingle(t *testing.T) {
 	flagged := []string{"pkg00", "pkg07", "pkg08", "pkg19", "pkg36"}
 	log := repairShim{installed: installed, asUser: flagged}.install(t)
 
-	single, err := brokenCandidates(1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	single := repairCandidates(t, 1)
 	if !reflect.DeepEqual(single, flagged) {
 		t.Fatalf("single call: got %v, want %v", single, flagged)
 	}
@@ -207,10 +171,7 @@ func TestBrokenCandidatesParallelMatchesSingle(t *testing.T) {
 		if err := os.Truncate(log, 0); err != nil {
 			t.Fatal(err)
 		}
-		got, err := brokenCandidates(workers)
-		if err != nil {
-			t.Fatalf("workers=%d: %v", workers, err)
-		}
+		got := repairCandidates(t, workers)
 		if !reflect.DeepEqual(got, single) {
 			t.Fatalf("workers=%d: got %v, want %v", workers, got, single)
 		}
@@ -247,34 +208,15 @@ func TestBrokenCandidatesErrors(t *testing.T) {
 		}
 	}
 	write("echo 'error: could not open database' >&2; exit 1\n")
-	if _, err := brokenCandidates(4); err == nil || !strings.Contains(err.Error(), "could not open database") {
-		t.Fatalf("want the -Qq failure, got %v", err)
+	if n := noticeOf(repairScan(t, 4)); !strings.Contains(n, "Couldn't scan") || !strings.Contains(n, "could not open database") {
+		t.Fatalf("want the -Qq failure, got %q", n)
 	}
 	write(`if [ "$1" = -Qq ]; then printf 'a\nb\nc\nd\n'; exit 0; fi
 case "$*" in *c*) echo 'error: chunk failed' >&2; exit 1;; esac
 exit 0
 `)
-	if _, err := brokenCandidates(4); err == nil || !strings.Contains(err.Error(), "chunk failed") {
-		t.Fatalf("want the chunk's failure, got %v", err)
-	}
-	msg := scanRepairCandidates()().(discoveryMsg)
-	if !strings.Contains(msg.notice, "Couldn't scan") || len(msg.candidates) != 0 {
-		t.Fatalf("want a couldn't-scan notice, got %+v", msg)
-	}
-}
-
-// TestQkqOutput: pacman's exit 1 with a report on stdout is a result; an
-// error with an empty stdout is reported with stderr, or the exit status.
-func TestQkqOutput(t *testing.T) {
-	out, err := qkqOutput("sh", "-c", "echo 'bad /usr/bad'; exit 1")
-	if err != nil || out != "bad /usr/bad\n" {
-		t.Fatalf("exit 1 with a report: got %q, %v", out, err)
-	}
-	if _, err := qkqOutput("sh", "-c", "echo nope >&2; exit 1"); err == nil || err.Error() != "nope" {
-		t.Fatalf("want stderr as the error, got %v", err)
-	}
-	if _, err := qkqOutput("sh", "-c", "exit 3"); err == nil || !strings.Contains(err.Error(), "exit status 3") {
-		t.Fatalf("want the exit status, got %v", err)
+	if n := noticeOf(repairScan(t, 4)); !strings.Contains(n, "Couldn't scan") || !strings.Contains(n, "chunk failed") {
+		t.Fatalf("want the chunk's failure, got %q", n)
 	}
 }
 
@@ -282,13 +224,15 @@ func TestQkqOutput(t *testing.T) {
 // over the candidates only, and pacman's exit 1 (missing files found) is a
 // result, not a failure.
 func TestBrokenPackagesRechecksAsRoot(t *testing.T) {
-	log := repairShim{installed: []string{"a", "bad", "z"}, asRoot: []string{"bad"}, sudoOK: true}.install(t)
-	got, err := brokenPackages([]string{"amd-ucode", "bad"})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !reflect.DeepEqual(got, []string{"bad"}) {
-		t.Fatalf("got %v, want [bad]", got)
+	log := repairShim{
+		installed: []string{"amd-ucode", "bad", "z"},
+		asUser:    []string{"amd-ucode", "bad"},
+		asRoot:    []string{"bad"},
+		sudoOK:    true,
+	}.install(t)
+	p, ok := repairRecheck(t).(actions.Pending)
+	if !ok || len(p.Steps) != 1 || !reflect.DeepEqual(p.Steps[0].Args(), []string{"pacman", "-S", "--noconfirm", "--", "bad"}) {
+		t.Fatalf("got %+v, want a reinstall of just bad", p)
 	}
 	if s := execLog(t, log, "sudo"); !reflect.DeepEqual(s, []string{"sudo -n pacman -Qkq -- amd-ucode bad"}) {
 		t.Fatalf("sudo calls %v, want one recheck of the candidates", s)
@@ -298,13 +242,9 @@ func TestBrokenPackagesRechecksAsRoot(t *testing.T) {
 // TestBrokenPackagesSudoUnavailable: without a sudo ticket the recheck reports
 // an error instead of a misleading "no broken packages".
 func TestBrokenPackagesSudoUnavailable(t *testing.T) {
-	repairShim{asUser: []string{"bad"}}.install(t)
-	if _, err := brokenPackages([]string{"bad"}); err == nil || !strings.Contains(err.Error(), "password is required") {
-		t.Fatalf("want sudo's error, got %v", err)
-	}
-	msg := discoverRepair([]string{"bad"})().(discoveryMsg)
-	if !strings.Contains(msg.notice, "Couldn't scan") {
-		t.Fatalf("want a couldn't-scan notice, got %q", msg.notice)
+	repairShim{installed: []string{"bad"}, asUser: []string{"bad"}}.install(t)
+	if n := noticeOf(repairRecheck(t)); !strings.Contains(n, "Couldn't scan") || !strings.Contains(n, "password is required") {
+		t.Fatalf("want a couldn't-scan notice with sudo's error, got %q", n)
 	}
 }
 
@@ -314,7 +254,7 @@ func TestRepairNothingFlaggedNeverAsksForSudo(t *testing.T) {
 	pinScanWorkers(t, 4)
 	log := repairShim{installed: []string{"a", "b", "c"}, sudoOK: true}.install(t)
 	m, msg := updateRun(t, repairModel(t), key("enter"))
-	if m.screen != screenDiscovering || m.scanAfterAuth != nil {
+	if m.screen != screenDiscovering || m.needsRoot != nil {
 		t.Fatalf("repair should scan straight away, got screen=%d", m.screen)
 	}
 	m, _ = updateRun(t, m, msg)
@@ -339,8 +279,8 @@ func TestRepairRechecksOnlyCandidatesAsRoot(t *testing.T) {
 		sudoOK:    true,
 	}.install(t)
 	m, msg := updateRun(t, repairModel(t), key("enter")) // user scan
-	if dm := msg.(discoveryMsg); !reflect.DeepEqual(dm.candidates, []string{"amd-ucode", "bad", "nfs-utils"}) {
-		t.Fatalf("candidates %v", dm.candidates)
+	if nr, _ := msg.(discoveryMsg).d.(actions.NeedsRoot); !reflect.DeepEqual(nr.Items, []string{"amd-ucode", "bad", "nfs-utils"}) {
+		t.Fatalf("candidates %v", nr.Items)
 	}
 	if s := execLog(t, log, "sudo"); len(s) != 0 {
 		t.Fatalf("the user scan ran sudo: %v", s)
@@ -350,10 +290,10 @@ func TestRepairRechecksOnlyCandidatesAsRoot(t *testing.T) {
 	if m.discovering == "" || m.screen != screenDiscovering {
 		t.Fatalf("a cached ticket should go straight to the recheck, got screen=%d", m.screen)
 	}
-	dm := msg.(discoveryMsg)
-	if len(dm.pending) != 1 || !slices.Contains(dm.pending[0].Args(), "bad") ||
-		slices.Contains(dm.pending[0].Args(), "amd-ucode") || slices.Contains(dm.pending[0].Args(), "nfs-utils") {
-		t.Fatalf("want a reinstall of just bad, got %+v", dm.pending)
+	p, _ := msg.(discoveryMsg).d.(actions.Pending)
+	if len(p.Steps) != 1 || !slices.Contains(p.Steps[0].Args(), "bad") ||
+		slices.Contains(p.Steps[0].Args(), "amd-ucode") || slices.Contains(p.Steps[0].Args(), "nfs-utils") {
+		t.Fatalf("want a reinstall of just bad, got %+v", p.Steps)
 	}
 	m = update(m, msg)
 	if m.screen != screenConfirm || !strings.Contains(m.confirmMsg, "Reinstall 1 broken") {
@@ -384,7 +324,7 @@ func TestRepairFalsePositiveDropped(t *testing.T) {
 // an empty queue.
 func TestRepairAsksForSudoOnlyForCandidates(t *testing.T) {
 	m := update(repairModel(t), key("enter"))
-	if m.scanAfterAuth != nil {
+	if m.needsRoot != nil {
 		t.Fatal("the user scan must not wait on sudo")
 	}
 	m = repairFlagged(t, "bad")
@@ -394,7 +334,7 @@ func TestRepairAsksForSudoOnlyForCandidates(t *testing.T) {
 	}
 	next, cmd := m.Update(sudoResultMsg{})
 	m = next.(model)
-	if m.screen != screenDiscovering || cmd == nil || m.scanAfterAuth != nil {
+	if m.screen != screenDiscovering || cmd == nil || m.needsRoot != nil {
 		t.Fatalf("auth should start the recheck, got screen=%d", m.screen)
 	}
 }
@@ -416,7 +356,7 @@ func TestRepairPromptEscCancels(t *testing.T) {
 	m := repairFlagged(t, "bad")
 	m = update(m, sudoCachedMsg{cached: false})
 	m = update(m, key("esc"))
-	if m.screen != screenMenu || m.scanAfterAuth != nil {
+	if m.screen != screenMenu || m.needsRoot != nil {
 		t.Fatalf("esc should cancel the recheck, got screen=%d", m.screen)
 	}
 }
@@ -429,7 +369,7 @@ func TestRepairAuthGiveUpShowsNotice(t *testing.T) {
 	for i := 0; i < maxSudoAttempts; i++ {
 		m = update(m, sudoResultMsg{err: fmt.Errorf("wrong")})
 	}
-	if m.screen != screenNotice || !strings.Contains(m.notice, "can't scan") || m.scanAfterAuth != nil {
+	if m.screen != screenNotice || !strings.Contains(m.notice, "can't scan") || m.needsRoot != nil {
 		t.Fatalf("want a give-up notice, got screen=%d notice=%q", m.screen, m.notice)
 	}
 }
@@ -439,9 +379,9 @@ func TestRepairAuthGiveUpShowsNotice(t *testing.T) {
 // probing again.
 func TestRepairDiscoveryDoesNotReprobeSudo(t *testing.T) {
 	m := repairModel(t)
-	next, _ := m.Update(discoveryMsg{kind: "repair", pending: []steps.Step{
+	next, _ := m.Update(discoveryMsg{d: actions.Pending{Steps: []steps.Step{
 		{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true},
-	}})
+	}}, authed: true})
 	m = next.(model)
 	if m.screen != screenRunning {
 		t.Fatalf("repair result should start the queue, got screen=%d", m.screen)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
@@ -160,7 +161,7 @@ func TestAuditReportGolden(t *testing.T) {
 			{Name: "fresh-pkg", Flags: []string{"modified 5h ago"}},
 		},
 	}
-	m := update(sizedModel(), discoveryMsg{kind: "audit", report: renderAudit(res)})
+	m := update(sizedModel(), discoveryMsg{d: actions.Report{Text: renderAudit(res)}})
 	if m.screen != screenAudit {
 		t.Fatalf("screen = %d, want screenAudit", m.screen)
 	}
@@ -169,7 +170,7 @@ func TestAuditReportGolden(t *testing.T) {
 
 // TestNoticeGolden: a discovery notice popup over the menu.
 func TestNoticeGolden(t *testing.T) {
-	m := update(sizedModel(), discoveryMsg{kind: "downloads", notice: "Nothing in Downloads is older than 30 days."})
+	m := update(sizedModel(), discoveryMsg{d: actions.Notice{Text: "Nothing in Downloads is older than 30 days."}})
 	if m.screen != screenNotice || m.bg != screenMenu {
 		t.Fatalf("screen=%d bg=%d, want the notice over the menu", m.screen, m.bg)
 	}

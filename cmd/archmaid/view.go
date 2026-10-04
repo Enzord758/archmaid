@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -100,14 +101,14 @@ func (m model) header() string {
 func (m model) viewMenu() string {
 	var b strings.Builder
 	b.WriteString(m.header() + "\n")
-	for i, it := range menu {
+	for i, it := range actions.Menu {
 		cursor := "  "
 		style := itemStyle
 		if i == m.cursor {
 			cursor = cursorStyle.Render("➤ ")
 			style = selectedStyle
 		}
-		b.WriteString(cursor + style.Render(it.label) + "\n")
+		b.WriteString(cursor + style.Render(it.Icon+"  "+it.Label) + "\n")
 	}
 	b.WriteString("\n" + hintStyle.Render("↑/↓ move · enter select · q quit"))
 	return b.String()

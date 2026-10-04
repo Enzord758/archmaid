@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/Enzord758/archmaid/internal/actions"
 )
 
 // legacyServicesPipeline is the bash pipeline discoverServices used before it
@@ -25,7 +27,7 @@ const legacyServicesPipeline = `comm -12 ` +
 // stderr and no stdout line for an unknown one.
 func shimFixtureSystemctl(t *testing.T) {
 	t.Helper()
-	fix, err := filepath.Abs("testdata")
+	fix, err := filepath.Abs("../../internal/actions/testdata")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,44 +59,14 @@ esac
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
-func TestParseInactiveServices(t *testing.T) {
-	data, err := os.ReadFile("testdata/systemctl_list_units.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := parseInactiveServices(string(data))
-	// ghost (● not-found), masked-thing (masked), the getty@/openvpn-client@/user@
-	// instances and systemd-timesyncd (excluded) are all dropped.
-	want := []string{"avahi-daemon.service", "bluetooth.service", "cups.service", "docker.service",
-		"fstrim.service", "tlp.service", "transient.service"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-}
-
-// TestParseInactiveServicesBullet: a leading "●" is a marker, never the name,
-// and a loaded unit carrying one is still read from its real column.
-func TestParseInactiveServicesBullet(t *testing.T) {
-	out := "● ghost.service not-found inactive dead ghost.service\n" +
-		"● failed-ish.service loaded inactive dead Odd one\n" +
-		"\n"
-	got := parseInactiveServices(out)
-	if !reflect.DeepEqual(got, []string{"failed-ish.service"}) {
-		t.Fatalf("got %v", got)
-	}
-	if got := parseInactiveServices(""); len(got) != 0 {
-		t.Fatalf("empty input: %v", got)
-	}
-}
-
 // TestDiscoverServicesFixture: the real discovery against the fixture system,
 // including the one batched is-enabled call and its per-unit fallback for the
 // transient unit that has no unit file.
 func TestDiscoverServicesFixture(t *testing.T) {
 	shimFixtureSystemctl(t)
-	msg := discoverServices()().(discoveryMsg)
+	msg := discoverNow(t, actions.IDServices)
 	want := []string{"avahi-daemon.service", "bluetooth.service", "cups.service", "docker.service"}
-	if msg.kind != "services" || !reflect.DeepEqual(msg.services, want) {
+	if sel, ok := msg.d.(actions.NeedsSelection); !ok || !reflect.DeepEqual(sel.Items, want) {
 		t.Fatalf("got %+v, want %v", msg, want)
 	}
 }
@@ -105,8 +77,8 @@ func TestDiscoverServicesNone(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	msg := discoverServices()().(discoveryMsg)
-	if msg.notice == "" || len(msg.services) != 0 {
+	msg := discoverNow(t, actions.IDServices)
+	if noticeOf(msg.d) == "" {
 		t.Fatalf("want the nothing-to-do notice, got %+v", msg)
 	}
 }
@@ -126,7 +98,7 @@ func TestServicesDiscoveryMatchesLegacyPipeline(t *testing.T) {
 	if len(old) == 0 {
 		t.Fatal("legacy pipeline selected nothing; the fixture proves nothing")
 	}
-	got := discoverServices()().(discoveryMsg).services
+	got := discoverNow(t, actions.IDServices).d.(actions.NeedsSelection).Items
 	if !reflect.DeepEqual(got, old) {
 		t.Fatalf("new discovery %v != legacy pipeline %v", got, old)
 	}

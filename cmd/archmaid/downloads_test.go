@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/downloads"
 )
 
@@ -44,15 +45,15 @@ func mkdirs(t *testing.T, dirs ...string) {
 func TestDiscoverDownloadsNamesFolder(t *testing.T) {
 	home := isolateDownloads(t)
 
-	msg := discoverDownloads()().(discoveryMsg)
-	if !strings.Contains(msg.notice, "No downloads folder found (set --downloads or ARCHMAID_DOWNLOADS)") {
-		t.Fatalf("notice = %q, want the no-folder notice", msg.notice)
+	n := noticeOf(discoverNow(t, actions.IDDownloads).d)
+	if !strings.Contains(n, "No downloads folder found (set --downloads or ARCHMAID_DOWNLOADS)") {
+		t.Fatalf("notice = %q, want the no-folder notice", n)
 	}
 
 	mkdirs(t, filepath.Join(home, "Download"))
-	msg = discoverDownloads()().(discoveryMsg)
-	if !strings.Contains(msg.notice, "~/Download") {
-		t.Fatalf("notice = %q, want it to name ~/Download", msg.notice)
+	n = noticeOf(discoverNow(t, actions.IDDownloads).d)
+	if !strings.Contains(n, "~/Download") {
+		t.Fatalf("notice = %q, want it to name ~/Download", n)
 	}
 }
 
@@ -109,7 +110,7 @@ func TestDownloadsThroughTheUI(t *testing.T) {
 	writeFile(t, filepath.Join(dl, "old.iso"), "x")
 	cutoffAt(t, ctimeMark(t))
 
-	m := update(initialModel(), discoverDownloads()())
+	m := update(initialModel(), discoverNow(t, actions.IDDownloads))
 	if m.screen != screenConfirm || !strings.Contains(m.confirmMsg, "old.iso") {
 		t.Fatalf("screen=%d confirm=%q, want the confirm naming old.iso", m.screen, m.confirmMsg)
 	}
@@ -153,7 +154,7 @@ func startDownloadsDelete(t *testing.T) (model, tea.Cmd, string) {
 		writeFile(t, filepath.Join(dl, n), "x")
 	}
 	cutoffAt(t, ctimeMark(t))
-	m := update(initialModel(), discoverDownloads()())
+	m := update(initialModel(), discoverNow(t, actions.IDDownloads))
 	next, cmd := m.Update(key("y"))
 	if cmd == nil {
 		t.Fatal("confirming should launch the delete step")

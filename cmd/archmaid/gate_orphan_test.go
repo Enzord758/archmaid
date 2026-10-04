@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -22,8 +23,8 @@ import (
 // menuIndex finds the menu row whose label contains sub.
 func menuIndex(t *testing.T, sub string) int {
 	t.Helper()
-	for i, it := range menu {
-		if strings.Contains(it.label, sub) {
+	for i, it := range actions.Menu {
+		if strings.Contains(it.Label, sub) {
 			return i
 		}
 	}

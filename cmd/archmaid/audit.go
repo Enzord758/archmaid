@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -62,26 +61,38 @@ func currentAuditConfig() audit.Config {
 	}
 }
 
-// discoverAURAudit runs the menu action's audit off the UI thread and returns
-// it as a discoveryMsg. The config is captured here, on the model's
-// goroutine, not in the Cmd.
-func discoverAURAudit() tea.Cmd {
-	cfg := currentAuditConfig()
-	return func() tea.Msg { return menuAudit(time.Now(), cfg) }
+// auditOutcome is the menu audit's result: a notice for "nothing to audit" /
+// "couldn't reach the AUR", or the rendered report for the audit screen with
+// commit accepting its high findings (`a`; nil when there are none).
+type auditOutcome struct {
+	notice, report string
+	commit         func() error
 }
 
-// menuAudit is the menu action's audit: a notice for "nothing to audit" /
-// "couldn't reach the AUR", or the rendered report for the audit screen.
-func menuAudit(now time.Time, cfg audit.Config) discoveryMsg {
+// discovery is o as the AUR-audit action's actions.Discovery.
+func (o auditOutcome) discovery() actions.Discovery {
+	if o.notice != "" {
+		return actions.Notice{Text: o.notice}
+	}
+	r := actions.Report{Text: o.report}
+	if o.commit != nil {
+		r.Audit = o.commit
+	}
+	return r
+}
+
+// menuAudit is the menu action's audit (actions.Env.AuditReport, with the
+// config captured on the model's goroutine; see actionEnv).
+func menuAudit(now time.Time, cfg audit.Config) auditOutcome {
 	res, err := audit.Run(context.Background(), cfg, now)
 	switch {
 	case errors.Is(err, audit.ErrNoForeign):
-		return discoveryMsg{kind: "audit", notice: "No foreign (AUR or locally built) packages installed."}
+		return auditOutcome{notice: "No foreign (AUR or locally built) packages installed."}
 	case err != nil:
-		return discoveryMsg{kind: "audit", notice: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline)}
+		return auditOutcome{notice: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline)}
 	}
 	res.LogSummary()
-	msg := discoveryMsg{kind: "audit", report: renderAudit(res)}
+	msg := auditOutcome{report: renderAudit(res)}
 	// Advance the snapshot for everything but the high findings (with none,
 	// that's all of it); those stay flagged until `a` on the audit screen
 	// runs msg.commit to acknowledge them.
