@@ -23,20 +23,29 @@ jobs:
       - name: Install toolchain
         run: pacman -Syu --noconfirm --needed go gcc git make  # gcc: -race needs cgo
       - uses: actions/checkout@v4
-      - name: Trust the workspace
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      # The app never runs as root, so neither do its tests: a root-only pass
+      # (permissions, uid checks) must not be able to hide a user-only failure.
+      - name: Create an unprivileged user
+        run: |
+          useradd --create-home --shell /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
       - name: Go version
         id: gover
-        run: echo "v=$(go env GOVERSION)" >> "$GITHUB_OUTPUT"
+        run: echo "v=$(runuser -u builder -- go env GOVERSION)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
+            /home/builder/.cache/go-build
+            /home/builder/go/pkg/mod
           key: go-${{ steps.gover.outputs.v }}-${{ hashFiles(env.GO_SUM_FILE) }}
           restore-keys: |
             go-${{ steps.gover.outputs.v }}-
-      - run: make all
+      - name: Make the restored caches the user's
+        run: |
+          mkdir -p /home/builder/.cache/go-build /home/builder/go/pkg/mod
+          chown -R builder:builder /home/builder
+      - name: make all (as builder)
+        run: runuser -u builder -- env HOME=/home/builder make -C "$GITHUB_WORKSPACE" all
 
   e2e:
     runs-on: ubuntu-latest
