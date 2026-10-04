@@ -39,7 +39,7 @@ bench:
 # alone would add minutes), the rest without. Needs gtk4, libadwaita, gcc.
 gui:
 	cd $(GUI_DIR) && go build ./... && go vet ./... && test -z "$$(gofmt -l .)"
-	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview ./internal/overview ./internal/logview ./internal/settings && go test -count=1 ./...
+	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview ./internal/overview ./internal/logview ./internal/settings ./internal/realdriver && go test -count=1 ./...
 
 # `gui` plus the display tests in a private headless weston (no window on the
 # desktop): every action from its Overview row, the logs, Stop, close mid-run, the

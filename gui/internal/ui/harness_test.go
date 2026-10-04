@@ -35,6 +35,7 @@ import (
 	"go.uber.org/goleak"
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
+	"github.com/Enzord758/archmaid/gui/internal/realdriver"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/actions"
@@ -52,6 +53,11 @@ func init() { runtime.LockOSThread() }
 // A child inherits the parent's testenv (scratch HOME and XDG dirs, the
 // privileged-binary traps), so only the parent sets one up.
 func TestMain(m *testing.M) {
+	// The askpass relay, as archmaid-gui's main: the real-Driver scenarios'
+	// sudo shim runs the wrapper, which execs this binary.
+	if code, relayed := realdriver.Relay(os.Args[1:]); relayed {
+		os.Exit(code)
+	}
 	if sc := os.Getenv("ARCHMAID_GUI_CHILD"); sc != "" {
 		os.Exit(runChild(sc, os.Getenv("ARCHMAID_GUI_REPORT")))
 	}
@@ -97,8 +103,10 @@ type report struct {
 	LogShown string   // the log opened, and its lines
 	LogLines []string
 	Notice   string
-	Leaked   string // goleak's verdict after Run returned, "" if clean
-	Errors   []string
+	// Subtitles is every "title: subtitle" a checklist row showed, once.
+	Subtitles []string
+	Leaked    string // goleak's verdict after Run returned, "" if clean
+	Errors    []string
 }
 
 // countingDriver counts Close calls and records the prompt answers sent.
@@ -144,6 +152,7 @@ func runChild(scenario, path string) int {
 	var script stub.Script
 	opts := Options{Flags: gio.ApplicationNonUnique, StateDir: os.Getenv("ARCHMAID_GUI_STATE")}
 	action, answerNo, password := actions.IDFullCleanup, false, "hunter2"
+	cancelPassword := false
 	switch scenario {
 	case "flood": // unpaced, nothing dropped: the view's real capacity
 		script, action, opts.Pump = runview.Flood(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
@@ -170,8 +179,18 @@ func runChild(scenario, path string) int {
 	case "settings": // home refused, a folder and dry run kept, then a run
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
+	case "real-dry", "real-refused", "real-locked", "real-close": // realdriver_harness_test.go
+	case "real-askpass": // topgrade's sudo asks through the relay
+		action = actions.IDTopgrade
+	case "real-askpass-cancel":
+		action, cancelPassword = actions.IDTopgrade, true
 	default:
 		fail("unknown scenario %q", scenario)
+	}
+	var wiring *realdriver.Wiring
+	if strings.HasPrefix(scenario, "real-") {
+		wiring = startRealWiring(fail)
+		opts.Engine = wiring.Options()
 	}
 	var sentMu sync.Mutex
 	opts.NewDriver = func(o engine.Options) engine.Driver {
@@ -180,11 +199,16 @@ func runChild(scenario, path string) int {
 			flag = o.Env.Downloads().Flag
 		}
 		rep.DriverOpts = append(rep.DriverOpts, fmt.Sprintf("dry=%v downloads=%q", o.DryRun, flag))
-		so := stub.Options{}
-		if script == nil {
-			so.Scripts = stub.Catalog(time.Now())
+		var d engine.Driver
+		if wiring != nil {
+			d = wiring.New(o)
+		} else {
+			so := stub.Options{}
+			if script == nil {
+				so.Scripts = stub.Catalog(time.Now())
+			}
+			d = stub.New(script, so)
 		}
-		d := stub.New(script, so)
 		return countingDriver{Driver: d, closes: &closes, mu: &sentMu, sent: &rep.Sent}
 	}
 
@@ -260,6 +284,9 @@ func runChild(scenario, path string) int {
 						rep.PwBodies = append(rep.PwBodies, d.Body())
 						w.pwEntry.SetText(password)
 						resp = "ok"
+						if cancelPassword {
+							resp = "cancel"
+						}
 					case p.Selection != nil:
 						w.checks[0].SetActive(true)
 						w.checks[1].SetActive(true)
@@ -274,12 +301,19 @@ func runChild(scenario, path string) int {
 					}
 				})
 			}
-			if !stopped && len(w.model.Rows) > 1 && w.model.Rows[1].State == runview.RowRunning {
+			for _, i := range c.Rows {
+				// Every row line shown, once: the polkit wait and the
+				// faillock warning come and go between batches.
+				if r := w.rows[i].row; !slices.Contains(rep.Subtitles, r.Title()+": "+r.Subtitle()) {
+					rep.Subtitles = append(rep.Subtitles, r.Title()+": "+r.Subtitle())
+				}
+			}
+			if !stopped && len(w.model.Rows) > 1 && w.model.Rows[1].State == runview.RowRunning && childStarted(scenario) {
 				switch scenario {
 				case "stop":
 					stopped = true
 					w.stopBtn.Emit("clicked")
-				case "close-midrun":
+				case "close-midrun", "real-close":
 					stopped = true
 					w.win.Close()
 					if w.quitDialog == nil || w.closed {
@@ -309,7 +343,7 @@ func runChild(scenario, path string) int {
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
 				})
-				if scenario == "close-midrun" {
+				if scenario == "close-midrun" || scenario == "real-close" {
 					fail("the run finished before the window closed")
 				}
 				closeSoon()
@@ -319,6 +353,10 @@ func runChild(scenario, path string) int {
 
 	code := Run([]string{"archmaid-gui-test"}, opts)
 	rep.DriverCloses = closes.Load()
+	if wiring != nil {
+		wiring.Close()
+		closeFakeSystem()
+	}
 	if err := goleak.Find(ignore); err != nil {
 		rep.Leaked = err.Error()
 	}

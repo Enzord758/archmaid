@@ -1,14 +1,22 @@
-// Command archmaid-gui is archmaid's GTK4/libadwaita front end. It is a
-// walking skeleton: it drives the engine's stub Driver, not the real one.
+// Command archmaid-gui is archmaid's GTK4/libadwaita front end. It drives
+// the real engine Driver on the polkit path; --stub (or ARCHMAID_GUI_STUB=1)
+// runs it on the stub Driver instead, which touches nothing.
 package main
 
 import (
 	"os"
 
+	"github.com/Enzord758/archmaid/gui/internal/realdriver"
 	"github.com/Enzord758/archmaid/gui/internal/ui"
 )
 
 func main() {
+	// SUDO_ASKPASS helper mode, first and before GTK: topgrade's sudo runs
+	// the wrapper, which execs us with --askpass <sock> [prompt]. Relay to
+	// the running window and exit (the TUI's main does the same).
+	if code, relayed := realdriver.Relay(os.Args[1:]); relayed {
+		os.Exit(code)
+	}
 	// Before anything initializes GTK: cairo unless the owner picked a
 	// renderer (docs/TESTING.md → GUI measurements).
 	ui.DefaultRenderer()

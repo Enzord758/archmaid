@@ -21,12 +21,15 @@ self="$(realpath "${BASH_SOURCE[0]}")"
 cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
-# The whole display suite takes ~80 s, past the bound, so the default runs
-# it in two halves of ~40 s, each with its own weston and timeout.
+# The whole display suite takes ~95 s, past the bound, so the default runs
+# it in three parts of at most ~40 s, each with its own weston and timeout:
+# the long stub scenarios, the real Driver's (shimmed), the rest.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
+	real='^TestGUIRealDriver$'
 	"$self" go test -count=1 -v -run "$long" ./internal/ui
-	exec "$self" go test -count=1 -v -skip "$long" ./internal/ui
+	"$self" go test -count=1 -v -run "$real" ./internal/ui
+	exec "$self" go test -count=1 -v -skip "$long|$real" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and

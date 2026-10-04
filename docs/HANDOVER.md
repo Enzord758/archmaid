@@ -55,7 +55,7 @@ charmbracelet, except `internal/tui`):
 | `internal/engine/enginetest` | test helpers shared by the engine's tests, the stub's and the transcript harness: `CheckContract(t, events)` holds an event sequence to the package doc's ordering rules |
 | `internal/engine/stub` | a `Driver` that replays a scripted event sequence (`Script` of `Cue{After, Event}`) on a `Clock` (the wall clock, or `FakeClock`, which jumps instead of sleeping): prompts wait for their answer, stale IDs and early commands are ignored, `Abort` withdraws the prompt and ends the run like the engine would. `FullCleanup(start)` is a ready-made run shaped like the orphan-cascade transcript. The GUI builds against it until the real Driver (E6) |
 
-### `gui/` (its own Go module: the GTK4/libadwaita GUI, a walking skeleton on the stub Driver)
+### `gui/` (its own Go module: the GTK4/libadwaita GUI, on the real Driver's polkit path; `--stub` for demos)
 
 `gui/go.mod` is `github.com/Enzord758/archmaid/gui`, with a `replace` onto the
 root module, so the root's `go test ./...`, `check.sh` and CI's `core` job
@@ -72,12 +72,13 @@ GTK-free; the DMS widget opens `archmaid-gui` when it is on PATH, else the TUI.
 
 | Path | Owns |
 |---|---|
-| `gui/cmd/archmaid-gui` | `main` → `ui.Main` |
+| `gui/cmd/archmaid-gui` | `main`: `realdriver.Relay` first (the SUDO_ASKPASS relay, `--askpass <sock> [prompt]` → `privilege.RunClient`, as the TUI's `startup`), then `ui.Main` |
+| `gui/internal/realdriver` | plain Go, no gotk4: the real Driver, wired. `Start(Config)` starts the askpass `Server` (best effort: without it topgrade's sudo runs `-n`); `Options()` is the base `engine.Options` (`AuthPolkit`, a complete `actions.Env`: `PlanOrphans` = `helperclient.PlanOrphans`, and the TUI's audit and downloads glue mirrored without lipgloss); `New(engine.Options)` is the window's `NewDriver` (`driver.New` with `Polkit`, `Priv: privilege.Sudo{Wrapper}`, the Server's requests — the Driver verifies each — and one log store per process and dry-run flag, named once like the TUI's); `Close` waits for a downloads deletion's abort record, then closes the Server. `Config` swaps in fakes (faillock, orphan plan, foreign packages, LookPath, state dir) for tests |
 | `gui/internal/runview` | plain Go, no gotk4: `Model` (the Run page's state: checklist `Row`s keyed on step ID, the open confirm, phase/status, the output ring capped at `OutputCap` = 10k lines; `Apply(events) Change` says exactly what to redraw, including the output diff `OutRemove`/`OutAppend` so a batch bigger than the cap never inserts a line only to drop it), `Pump` (one goroutine reads `Driver.Events()`, merges adjacent `OutputChunk`s of a step, drops the oldest queued lines past `MaxPending` counting them in `Dropped`, and posts one flush at a time to the main thread; a flush applies at most `FlushLines` = 512 lines, so a flood is sliced into ~1–2 ms pieces), `Flood`, `FloodColour` (the 50k-line stub scripts), `ParseSGR`/`StripSGR` (output SGR → text + styled spans; only SGR is interpreted, anything else is dropped), `Palette` (DMS's dank16 read from `$XDG_CACHE_HOME/DankMaterialShell/dms-colors.json`, by its `mode`, else the fixed `FallbackPalette`; 16–255 are the xterm cube and greys) |
 | `gui/internal/overview` | plain Go: `Entries` (`actions.Menu` as the GUI shows it: Adwaita symbolic icons, `Busy`; View log opens the Logs page; Exit and Edit config are the TUI's), `StatusLine`, `ReadLastRun`/`Summarize` (last-run.json through logstore, read only; the DMS widget's rule: outcome issue first, stale past `StaleDays` = 14) |
 | `gui/internal/logview` | plain Go: `Runs` (the run directories under the state dir, newest first, the dry-run slot last, with the category logs each has) and `Run.Read` (through a `logstore.Store` whose clock reads the run's stamp). Read only: never creates, deletes or rotates |
 | `gui/internal/settings` | plain Go: the Settings page's `Settings` (downloads folder, dry run), `Path`/`Load`/`Save` (`$XDG_CONFIG_HOME/archmaid/gui.json`, never the state dir; written atomically, 0600), `CheckDownloads` (`downloads.Resolve` with the Flag set: refuses what the TUI's `--downloads` refuses) and `Apply` (the settings onto the `engine.Options` for the next run) |
-| `gui/internal/ui` | the only gotk4 package: `Main` (the stub plays its `Catalog`, a script per menu action with the declined paths; `ARCHMAID_GUI_SCRIPT`: `flood`, `flood-colour` play a single script, `uncached`, `askpass` swap in the stub's password variants of Full Cleanup), `DefaultRenderer` (cairo unless `GSK_RENDERER` is set), `Run`, `Window` (a view stack: Overview — status line, last run, the menu, a row starts its action —, Run, Logs — runs as expanders, the log in a `ListView` —, Settings — dry run and the downloads folder, its error inline; they apply to the next Start, which makes a fresh Driver through `Options.NewDriver(engine.Options)` when they changed; header with the view switcher and Stop; on the Run page a checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList` whose rows get their SGR colour as Pango attributes at bind, status bar, toasts, close-mid-run confirm). `dialogs.go`: one `AdwAlertDialog` per open prompt — confirm (Items, or the orphans' Direct and the cascade's extra, the gate's `Plan`; yes is `YesLabel` or "Yes", no is "Skip" for an Optional step else "Cancel"; no is the default for `Destructive` whatever `Default` says, else `Default`; yes red when destructive), password (up front with `Gate` as heading; askpass naming `Requester` and sudo's prompt; `Error`, attempts left), selection (check boxes → `Select`), report (audit findings, high ones flagged; "Accept" only with `CanAccept`). Every answer goes through `Window.answer`, which sends only when `Model.Answer` claims the ID, so a stale ID never reaches the engine. `secret.go` reads the password entry's text as C bytes (never a gotk4 Go string), wipes the entry, and zeroes the bytes after building the `Secret`. `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
+| `gui/internal/ui` | the only gotk4 package: `Main` (the real Driver through `realdriver`, its base Options checked by `Validate` first; `--stub`, `ARCHMAID_GUI_STUB=1` or any `ARCHMAID_GUI_SCRIPT` run the stub instead, which touches nothing. The stub plays its `Catalog`, a script per menu action with the declined paths; `ARCHMAID_GUI_SCRIPT`: `flood`, `flood-colour` play a single script, `uncached`, `askpass` swap in the stub's password variants of Full Cleanup), `DefaultRenderer` (cairo unless `GSK_RENDERER` is set), `Run`, `Window` (a view stack: Overview — status line, last run, the menu, a row starts its action —, Run, Logs — runs as expanders, the log in a `ListView` —, Settings — dry run and the downloads folder, its error inline; they apply to the next Start, which makes a fresh Driver through `Options.NewDriver(engine.Options)` when they changed; header with the view switcher and Stop; on the Run page a checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList` whose rows get their SGR colour as Pango attributes at bind, status bar, toasts, close-mid-run confirm). `dialogs.go`: one `AdwAlertDialog` per open prompt — confirm (Items, or the orphans' Direct and the cascade's extra, the gate's `Plan`; yes is `YesLabel` or "Yes", no is "Skip" for an Optional step else "Cancel"; no is the default for `Destructive` whatever `Default` says, else `Default`; yes red when destructive), password (up front with `Gate` as heading; askpass naming `Requester` and sudo's prompt; `Error`, attempts left), selection (check boxes → `Select`), report (audit findings, high ones flagged; "Accept" only with `CanAccept`). Every answer goes through `Window.answer`, which sends only when `Model.Answer` claims the ID, so a stale ID never reaches the engine. `secret.go` reads the password entry's text as C bytes (never a gotk4 Go string), wipes the entry, and zeroes the bytes after building the `Secret`. `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
 | `gui/scripts/headless.sh` | runs a command against a private `weston --backend=headless` and a private, activation-free D-Bus, so GUI tests never open a window on the desktop |
 
 ## Decisions and landmines
@@ -543,15 +544,23 @@ to:
   the safe assumption. The owner's step-by-step check, with a throwaway
   action and a results table: `docs/polkit-keep-session-check.md`.
 
-- **GUI TODOs, waiting for the real Driver (E6):** the polkit dialog →
-  helper progress in the checklist (`AuthWaiting{WaitPolkit}`,
-  `AuthResolved`, `FaillockState` are recorded in `runview.Model.Auth` but not
-  shown). Declined paths come from the stub Catalog's `OnNo`/`OnCancel`
-  branches.
-- **`archmaid-gui-git` ships the stub GUI.** Until E6 wires the real
-  Driver, installing it makes the DMS widget open a window that only replays
-  stub scripts (`packaging/arch/README.md` says not to install it yet). Two
-  launchers are both named "archmaid" once it is installed (the TUI's
+- **GUI on the real Driver: not yet run live.** The polkit path, the askpass
+  relay and the progress rows (`Row.Waiting` "Waiting for authorisation…",
+  the faillock warning and lock time, "Not authorised") are tested only
+  against shims (`TESTING.md` → GUI, `real-*`). Still open: the AUR audit
+  prefetch (`Deps.Prefetch` is nil, so the audit step looks up when it runs,
+  not while the gate is up); the log store names one run directory per GUI
+  process, so every real run of a long session lands in it; the root
+  helper isn't installed by `install.sh` for the GUI yet (`packaging/`).
+- **`proc.Child.Stop`'s SIGKILL timer outlives `Driver.Close`.**
+  `escalateKill` sleeps the whole `KillGrace` (5 s by default) even when the
+  child is already reaped, so a goroutine survives Close by up to that long
+  (harmless: `Kill` on a reaped process is a no-op). The GUI's `real-close`
+  scenario runs with a 100 ms grace so goleak's retries outwait it.
+- **`archmaid-gui-git` is not live-tested yet.** It now runs on the real
+  Driver (polkit + askpass), but only against shims; install it only for
+  the owner's first live run (`packaging/arch/README.md`). Two launchers
+  are both named "archmaid" once it is installed (the TUI's
   `archmaid.desktop`, kept as is, and the GUI's); rename the TUI's entry
   (e.g. "archmaid (terminal)") when the GUI becomes the default front end.
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle

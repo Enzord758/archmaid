@@ -126,7 +126,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~80 s warm, so with no command it runs two halves of ~40 s, each with its own weston; CI sets 600), so nothing outlives the run. Scenarios:
+~95 s warm, so with no command it runs three parts of at most ~40 s, each with its own weston; CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -154,6 +154,31 @@ and 24-bit; it also checks that every visible output row carries its Pango
 attributes). Every scenario also checks
 that `Close` was called on the Driver and that no goroutine is left after
 `Run` returns (goleak, against the goroutines from before the app started).
+
+The `real-*` scenarios (`TestGUIRealDriver`, its own part of the default
+`headless.sh` run) drive the **real Driver** through `gui/internal/realdriver`
+on the polkit path. Every privileged binary is a shim first on PATH, ahead
+of testenv's traps: `pkexec` checks it got the helper's install path and
+speaks the helper's JSON lines (start, a line, check-files' check event,
+result) after 0.3 s (the dialog), or exits 127 for the verbs it refuses;
+`sudo` runs `$SUDO_ASKPASS` — archmaid's wrapper, which execs the test binary
+in `--askpass` mode (`TestMain` calls `realdriver.Relay` first, as main
+does) — and records the password it got; `su` takes one password; `topgrade`
+and `yay` are shims. The faillock count, the orphan plan and the
+foreign-package list (so no `pacman` and no AUR request) are fakes, and the
+child's privilege view of `/proc` (`privtest.FakeSystem`) shows the sudo
+shim as `/usr/bin/sudo`, so `Request.Verify` walks the real process tree.
+`real-dry` (Full Cleanup as the Settings page's dry run: no shim runs),
+`real-refused` (paccache's dialog refused: "Not authorised", the run goes on;
+the other helper steps show "Waiting for authorisation…" with the
+last-attempt warning, and pkexec gets exactly the six helper verbs),
+`real-locked` (a locked account: no pkexec at all, each helper row
+"Not authorised · account locked until …"), `real-askpass` and
+`real-askpass-cancel` (the right password reaches the sudo shim; a cancel
+doesn't, topgrade fails), `real-close` (the window closed mid-topgrade: the
+topgrade shim's pid is gone and goleak is clean). The plain-Go
+`gui/internal/realdriver` tests cover the relay, `Options.Validate` and a
+dry Full Cleanup on the real Driver without a display.
 
 ```sh
 cd gui
