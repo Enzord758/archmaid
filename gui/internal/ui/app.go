@@ -28,10 +28,18 @@ const AppID = "io.github.enzord758.archmaid"
 // Options configure a run of the application.
 type Options struct {
 	Flags gio.ApplicationFlags
-	// NewDriver makes the Driver the window talks to; it is closed when the
-	// window closes.
-	NewDriver func() engine.Driver
-	Pump      runview.PumpOptions
+	// NewDriver makes the Driver the window talks to from the Options for
+	// its runs: Engine with the Settings page's settings applied. The
+	// window makes one at start, and a fresh one for the first Start after
+	// the settings changed (a Session is cheap); each is closed when it is
+	// replaced or the window closes. The stub ignores the Options.
+	NewDriver func(engine.Options) engine.Driver
+	// Engine is the base of every run's engine.Options.
+	Engine engine.Options
+	// SettingsPath is the settings file; "" is settings.DefaultPath(),
+	// $XDG_CONFIG_HOME/archmaid/gui.json.
+	SettingsPath string
+	Pump         runview.PumpOptions
 	// StateDir is archmaid's state directory, read only (last-run.json,
 	// the run logs); "" is logstore's default, ~/.local/state/archmaid.
 	StateDir string
@@ -51,11 +59,11 @@ type Options struct {
 // TODO(E6): the real Driver replaces the stub here.
 func Main(args []string) int {
 	var opts Options
-	single := func(s stub.Script) func() engine.Driver {
-		return func() engine.Driver { return stub.New(s, stub.Options{}) }
+	single := func(s stub.Script) func(engine.Options) engine.Driver {
+		return func(engine.Options) engine.Driver { return stub.New(s, stub.Options{}) }
 	}
-	catalog := func(f func(time.Time) map[string]stub.Script) func() engine.Driver {
-		return func() engine.Driver { return stub.New(nil, stub.Options{Scripts: f(time.Now())}) }
+	catalog := func(f func(time.Time) map[string]stub.Script) func(engine.Options) engine.Driver {
+		return func(engine.Options) engine.Driver { return stub.New(nil, stub.Options{Scripts: f(time.Now())}) }
 	}
 	switch os.Getenv("ARCHMAID_GUI_SCRIPT") {
 	case "flood":

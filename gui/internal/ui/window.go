@@ -13,6 +13,7 @@ import (
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
+	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/engine"
 )
 
@@ -23,9 +24,17 @@ type Window struct {
 	win  *adw.ApplicationWindow
 	opts Options
 
-	drv   engine.Driver
-	pump  *runview.Pump
-	model *runview.Model
+	drv  engine.Driver
+	pump *runview.Pump
+	// gen counts the Drivers made; a flush from a replaced one's pump
+	// (already posted when it closed) is dropped.
+	gen int
+	// settings are the Settings page's (saved, or the defaults);
+	// drvSettings those the current Driver was made with. They differ
+	// until the next Start, which makes a fresh Driver.
+	settings, drvSettings settings.Settings
+	set                   *settingsPage
+	model                 *runview.Model
 	// palette colours the output's ANSI 16: DMS's dank16, read once at
 	// start, or the fallback table.
 	palette runview.Palette
@@ -166,6 +175,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.stack.AddTitledWithIcon(w.newOverview(), "overview", "Overview", "go-home-symbolic")
 	w.stack.AddTitledWithIcon(paned, "run", "Run", "media-playback-start-symbolic")
 	w.stack.AddTitledWithIcon(w.newLogs(), "logs", "Logs", "document-open-recent-symbolic")
+	w.stack.AddTitledWithIcon(w.newSettings(), "settings", "Settings", "emblem-system-symbolic")
 	w.stack.SetVisibleChildName("overview")
 	w.stack.NotifyProperty("visible-child-name", func() {
 		if w.stack.VisibleChildName() == "logs" {
@@ -182,15 +192,40 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.win.SetContent(w.toasts)
 	w.win.ConnectCloseRequest(w.closeRequest)
 
-	w.drv = opts.NewDriver()
-	w.pump = runview.NewPump(w.drv, post, w.apply, opts.Pump)
+	w.newDriver()
 	return w
+}
+
+// newDriver makes the Driver (and its pump) for w.settings.
+func (w *Window) newDriver() {
+	w.gen++
+	gen := w.gen
+	w.drvSettings = w.settings
+	w.drv = w.opts.NewDriver(w.settings.Apply(w.opts.Engine))
+	w.pump = runview.NewPump(w.drv, post, func(evs []engine.Event) {
+		if gen == w.gen {
+			w.apply(evs)
+		}
+	}, w.opts.Pump)
+}
+
+// replaceDriver closes the idle Driver and makes a fresh one with the
+// current settings. It waits for the old pump, which posts without
+// blocking, so it never waits on this thread; an idle Driver has no child
+// to stop, so its Close is quick.
+func (w *Window) replaceDriver() {
+	w.drv.Close()
+	<-w.pump.Done()
+	w.newDriver()
 }
 
 // startAction starts action id (a menu row) and shows the Run page.
 func (w *Window) startAction(id string) {
 	if w.busy || w.closed {
 		return
+	}
+	if w.settings != w.drvSettings {
+		w.replaceDriver() // settings apply to the next Start: this one
 	}
 	w.busy, w.current = true, id
 	w.stopBtn.SetSensitive(true)

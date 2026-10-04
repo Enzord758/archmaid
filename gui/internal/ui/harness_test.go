@@ -36,6 +36,7 @@ import (
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
+	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/stub"
@@ -80,17 +81,24 @@ type report struct {
 	Sent             []string // the prompt answers the Driver got
 	Buttons          []string // each confirm's "id yes/no" button labels
 	PwBodies         []string // each password dialog's body
-	Toasts           []string
-	Menu             []string // the Overview's rows
-	MenuSub          string   // the started row's subtitle right after the click
-	Page             string   // the page up after starting an action
-	LastRun          []string // the Overview's last run: title, then issues
-	LogRows          []string // the Logs page's "run/category" rows
-	LogShown         string   // the log opened, and its lines
-	LogLines         []string
-	Notice           string
-	Leaked           string // goleak's verdict after Run returned, "" if clean
-	Errors           []string
+	// DriverOpts is each Driver's engine.Options, as made: dry run and
+	// the downloads Flag.
+	DriverOpts []string
+	// The Settings page: the folder row's error after each apply ("" when
+	// kept), and the problem line at the end.
+	DlErrors []string
+	Problem  string
+	Toasts   []string
+	Menu     []string // the Overview's rows
+	MenuSub  string   // the started row's subtitle right after the click
+	Page     string   // the page up after starting an action
+	LastRun  []string // the Overview's last run: title, then issues
+	LogRows  []string // the Logs page's "run/category" rows
+	LogShown string   // the log opened, and its lines
+	LogLines []string
+	Notice   string
+	Leaked   string // goleak's verdict after Run returned, "" if clean
+	Errors   []string
 }
 
 // countingDriver counts Close calls and records the prompt answers sent.
@@ -159,12 +167,19 @@ func runChild(scenario, path string) int {
 		action, answerNo = actions.IDUserCache, true
 	case "repair": // a discovery that ends in a notice
 		action = actions.IDRepair
+	case "settings": // home refused, a folder and dry run kept, then a run
+		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
 	default:
 		fail("unknown scenario %q", scenario)
 	}
 	var sentMu sync.Mutex
-	opts.NewDriver = func() engine.Driver {
+	opts.NewDriver = func(o engine.Options) engine.Driver {
+		flag := "<none>"
+		if o.Env.Downloads != nil {
+			flag = o.Env.Downloads().Flag
+		}
+		rep.DriverOpts = append(rep.DriverOpts, fmt.Sprintf("dry=%v downloads=%q", o.DryRun, flag))
 		so := stub.Options{}
 		if script == nil {
 			so.Scripts = stub.Catalog(time.Now())
@@ -198,6 +213,9 @@ func runChild(scenario, path string) int {
 						if scenario == "logs" {
 							browseLogs(w, rep, fail)
 							return
+						}
+						if scenario == "settings" {
+							changeSettings(w, rep)
 						}
 						started, measuring = time.Now(), true
 						// Start it the way a user does: its Overview row.
@@ -338,6 +356,29 @@ func browseLogs(w *Window, rep *report, fail func(string, ...any)) {
 
 // countLabels walks the output list's widgets: the labels showing text,
 // and how many of them carry attributes (colour).
+// changeSettings works the Settings page the way a user does: the home
+// folder typed and applied (refused), then ARCHMAID_GUI_DL (kept), then dry
+// run switched on. The run that follows must get a fresh Driver.
+func changeSettings(w *Window, rep *report) {
+	w.stack.SetVisibleChildName("settings")
+	p := w.set
+	shown := func() string {
+		if p.dlError.Visible() {
+			return p.dlError.Text()
+		}
+		return ""
+	}
+	for _, folder := range []string{os.Getenv("HOME"), os.Getenv("ARCHMAID_GUI_DL")} {
+		p.downloads.SetText(folder)
+		p.downloads.Emit("apply")
+		rep.DlErrors = append(rep.DlErrors, shown())
+	}
+	p.dryRun.SetActive(true)
+	if p.problem.Visible() {
+		rep.Problem = p.problem.Text()
+	}
+}
+
 func countLabels(root *gtk.Widget) (labels, coloured int) {
 	for c := root.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
 		w := gtk.BaseWidget(c)
@@ -576,6 +617,46 @@ func TestGUILogsAndLastRun(t *testing.T) {
 	}
 	if after := stateTree(t, dir); !slices.Equal(before, after) {
 		t.Errorf("the GUI changed the state dir:\n%q\n%q", before, after)
+	}
+}
+
+// TestGUISettings: the Settings page refuses the home folder inline (the
+// TUI's --downloads check), keeps a folder and dry run in a scratch
+// XDG_CONFIG_HOME's archmaid/gui.json (0600), and the next Start runs on a
+// fresh Driver made with them; a second start of the app begins with them.
+func TestGUISettings(t *testing.T) {
+	needDisplay(t)
+	cfg, dl := t.TempDir(), t.TempDir()
+	env := []string{"XDG_CONFIG_HOME=" + cfg, "ARCHMAID_GUI_DL=" + dl}
+	rep, _ := child(t, "settings", env...)
+	if len(rep.DlErrors) != 2 || !strings.Contains(rep.DlErrors[0], "home") || rep.DlErrors[1] != "" {
+		t.Errorf("folder errors %q: want the home folder refused, then %s kept", rep.DlErrors, dl)
+	}
+	want := []string{`dry=false downloads=""`, fmt.Sprintf("dry=true downloads=%q", dl)}
+	if !slices.Equal(rep.DriverOpts, want) || rep.DriverCloses != 2 {
+		t.Errorf("drivers %q (%d closed), want %q, both closed", rep.DriverOpts, rep.DriverCloses, want)
+	}
+	if rep.Outcome != "notice" || rep.Problem != "" {
+		t.Errorf("outcome %q problem %q", rep.Outcome, rep.Problem)
+	}
+	path := filepath.Join(cfg, "archmaid", "gui.json")
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("gui.json mode %v, want 0600", fi.Mode().Perm())
+	}
+	if s, err := settings.Load(path); err != nil || s != (settings.Settings{Downloads: dl, DryRun: true}) {
+		t.Errorf("gui.json holds %+v, %v", s, err)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(cfg, "archmaid")); len(ents) != 1 {
+		t.Errorf("config folder holds %v, want only gui.json", ents)
+	}
+
+	rep, _ = child(t, "repair", env...)
+	if want := want[1:]; !slices.Equal(rep.DriverOpts, want) || rep.DriverCloses != 1 {
+		t.Errorf("restarted: drivers %q (%d closed), want %q", rep.DriverOpts, rep.DriverCloses, want)
 	}
 }
 

@@ -126,7 +126,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~35 s warm, CI sets 600), so nothing outlives the run. Scenarios:
+~80 s warm, so with no command it runs two halves of ~40 s, each with its own weston; CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -135,7 +135,7 @@ step skipped, outcome aborted), `repair` (the menu as shown, a discovery
 ending in a notice, the empty last run), `logs` (a scratch state dir with a
 20-day-old failed last-run.json and two runs' logs: the Overview's stale
 warning, View log's run rows, one log opened; the state dir must be
-unchanged after), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
+unchanged after), `settings` (a scratch `XDG_CONFIG_HOME`: the home folder typed as the downloads folder is refused inline, a folder and dry run are kept in `archmaid/gui.json` at 0600, the next Start gets a fresh Driver made with them, both Drivers closed; a second app start begins with them), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
 `close-midrun` (closing mid-run asks first, then closes), `services`,
 `uncached`, `wrong-password` and `askpass` (from the stub's Catalog: the
 services pick, the up-front password standing in for Full Cleanup's gate,
