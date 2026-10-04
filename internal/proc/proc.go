@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Spec is one command to run.
@@ -35,25 +36,151 @@ type Spec struct {
 }
 
 // ErrSudoMayPrompt refuses a sudo that could ask for a password on the
-// terminal: one whose first argument is neither -n nor -A.
+// terminal: one whose first argument is neither -n nor -A (see CheckSudo).
 var ErrSudoMayPrompt = errors.New("refusing to run sudo without -n or -A: it could prompt on the terminal")
 
-// isSudo reports whether name runs sudo (by name or by path).
-func isSudo(name string) bool { return filepath.Base(name) == "sudo" }
+// isSudo reports whether name runs sudo or sudo-rs (by name or by path).
+func isSudo(name string) bool {
+	switch filepath.Base(name) {
+	case "sudo", "sudo-rs":
+		return true
+	}
+	return false
+}
 
-// CheckSudo refuses a sudo command (name "sudo", or a path to one) whose first
-// argument isn't -n (never prompt) or -A (prompt through SUDO_ASKPASS): any
-// other sudo reads a password from the terminal, under a full-screen UI,
+// shells are the shells whose arguments CheckSudo searches for sudo.
+var shells = map[string]bool{"sh": true, "bash": true, "dash": true, "zsh": true, "ksh": true, "mksh": true, "fish": true}
+
+// maxWrap bounds how deep CheckSudo follows wrappers (env in a shell in env…).
+const maxWrap = 8
+
+// CheckSudo refuses a sudo command (name "sudo" or "sudo-rs", or a path to
+// one) whose first argument doesn't keep it off the terminal: -n or
+// --non-interactive (never prompt), -A or --askpass (prompt through
+// SUDO_ASKPASS), or a cluster of short flags with one of them, such as -nA.
+// Any other sudo reads a password from the terminal, under a full-screen UI,
 // where the user can't see the prompt and every keystroke goes to sudo. Only
-// privilege.Sudo.Command builds the allowed forms. Any other command passes.
-func CheckSudo(name string, args []string) error {
-	if !isSudo(name) {
-		return nil
+// privilege.Sudo.Command builds the allowed forms.
+//
+// The same rule holds for a sudo behind env (env [VAR=…] sudo …) and for
+// every sudo named in a shell's arguments (sh -c '… sudo …'). The check
+// covers direct invocations only: a sudo reached through a script file, a
+// variable or any other wrapper (nice, timeout, …) isn't seen. Any other
+// command passes.
+func CheckSudo(name string, args []string) error { return checkSudo(name, args, 0) }
+
+func checkSudo(name string, args []string, depth int) error {
+	if depth > maxWrap {
+		return ErrSudoMayPrompt
 	}
-	if len(args) > 0 && (args[0] == "-n" || args[0] == "-A") {
-		return nil
+	switch base := filepath.Base(name); {
+	case isSudo(name):
+		if sudoWontPrompt(args) {
+			return nil
+		}
+		return ErrSudoMayPrompt
+	case base == "env":
+		if cmd, rest := envCommand(args); cmd != "" {
+			return checkSudo(cmd, rest, depth+1)
+		}
+	case shells[base]:
+		return checkShellWords(shellWords(args), depth+1)
 	}
-	return ErrSudoMayPrompt
+	return nil
+}
+
+// sudoValueFlags are sudo's short options that take a value: in a cluster
+// such as -nu, everything after one is its value, not more flags.
+const sudoValueFlags = "aCcDghpRrTtUu"
+
+// sudoWontPrompt reports whether sudo's first argument keeps it off the
+// terminal. -S (password from stdin) cancels -A in the same cluster; only the
+// first argument counts, since a later -n could be another option's value
+// (sudo -p -n reads the prompt "-n").
+func sudoWontPrompt(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	a := args[0]
+	if a == "--non-interactive" || a == "--askpass" {
+		return true
+	}
+	if len(a) < 2 || a[0] != '-' || a[1] == '-' {
+		return false
+	}
+	askpass, stdin := false, false
+	for _, c := range a[1:] {
+		switch {
+		case c == 'n':
+			return true
+		case c == 'A':
+			askpass = true
+		case c == 'S':
+			stdin = true
+		case strings.ContainsRune(sudoValueFlags, c):
+			return askpass && !stdin // the rest is c's value
+		}
+	}
+	return askpass && !stdin
+}
+
+// envCommand finds the command env would run: past its options, their
+// values and VAR=value assignments. A -S/--split-string value is split into
+// words that come first, as env does. "" means env runs no command.
+func envCommand(args []string) (cmd string, rest []string) {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			if i+1 < len(args) {
+				return args[i+1], args[i+2:]
+			}
+			return "", nil
+		case a == "-S" || a == "--split-string":
+			if i+1 < len(args) {
+				return envCommand(append(shellWords(args[i+1:i+2]), args[i+2:]...))
+			}
+			return "", nil
+		case strings.HasPrefix(a, "--split-string="):
+			return envCommand(append(shellWords([]string{strings.TrimPrefix(a, "--split-string=")}), args[i+1:]...))
+		case strings.HasPrefix(a, "-S") && !strings.HasPrefix(a, "--"):
+			return envCommand(append(shellWords([]string{a[2:]}), args[i+1:]...))
+		case a == "-u" || a == "-C" || a == "-a" || a == "--unset" || a == "--chdir" || a == "--argv0":
+			i++ // skip the value
+		case strings.HasPrefix(a, "-"), strings.Contains(a, "="):
+			// another option, a value attached to one, or an assignment
+		default:
+			return a, args[i+1:]
+		}
+	}
+	return "", nil
+}
+
+// shellWords splits shell text into rough words: quotes and backslashes are
+// dropped, and whitespace and the operators ; & | ( ) < > ` $ { } end a word.
+// It isn't a shell parser; it only has to find each sudo and the word after
+// it.
+func shellWords(args []string) []string {
+	unquote := strings.NewReplacer(`'`, "", `"`, "", `\`, "")
+	var words []string
+	for _, a := range args {
+		words = append(words, strings.FieldsFunc(unquote.Replace(a), func(r rune) bool {
+			return unicode.IsSpace(r) || strings.ContainsRune(";&|()<>`${}", r)
+		})...)
+	}
+	return words
+}
+
+// checkShellWords holds every sudo among words, and every env, to the rule.
+func checkShellWords(words []string, depth int) error {
+	for i, w := range words {
+		if isSudo(w) || filepath.Base(w) == "env" {
+			if err := checkSudo(w, words[i+1:], depth); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // env is the environment spec's child gets: Env, or for a nil Env
@@ -84,7 +211,8 @@ func (s Spec) display() string {
 // Options are the knobs a Runner starts children with.
 type Options struct {
 	// DryRun starts nothing: Start reports what it would run as one line
-	// ("[dry-run] would run: <Display>"), then a done, and returns nil.
+	// ("[dry-run] would run: <Display>"), then a done, and returns nil. A
+	// sudo that could prompt is refused (CheckSudo) just as in a real run.
 	DryRun bool
 	// WaitDelay bounds how long the output pipe is still read after the
 	// child exits (exec.Cmd.WaitDelay). Anything the child started in the
@@ -152,17 +280,19 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 		}
 	}
 
+	// Before the dry run: a dry run never reports "would run" for a sudo the
+	// real run refuses.
+	if err := CheckSudo(spec.Name, spec.Args); err != nil {
+		go func() { send(Msg{Done: true, Err: err}) }()
+		return nil
+	}
+
 	if r.opts.DryRun {
 		go func() {
 			if send(Msg{Line: DryRunPrefix + spec.display()}) {
 				send(Msg{Done: true})
 			}
 		}()
-		return nil
-	}
-
-	if err := CheckSudo(spec.Name, spec.Args); err != nil {
-		go func() { send(Msg{Done: true, Err: err}) }()
 		return nil
 	}
 	cmd := exec.Command(spec.Name, spec.Args...)

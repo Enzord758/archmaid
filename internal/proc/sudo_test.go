@@ -128,9 +128,81 @@ func TestCheckSudo(t *testing.T) {
 		{"/usr/bin/sudo", []string{"-A", "true"}, true},
 		{"/usr/bin/sudo", []string{"true"}, false},
 		{"sudo", []string{"--", "-n"}, false},
+		// A value-taking flag swallows the rest of its cluster, and only
+		// the first argument counts: here "-n" is a prompt or a user.
+		{"sudo", []string{"-pn", "true"}, false},
+		{"sudo", []string{"-p", "-n", "true"}, false},
+		{"sudo", []string{"-un", "true"}, false},
+		{"sudo", []string{"-SA", "true"}, false}, // -S reads stdin, not askpass
+		{"sudo", []string{"--non-interactive=x", "true"}, false},
+		// Wrappers that leave sudo's rule intact, and ones without sudo.
+		{"env", []string{"FOO=1", "sudo", "-n", "true"}, true},
+		{"env", []string{"-u", "SUDO_ASKPASS", "sudo", "-A", "true"}, true},
+		{"env", nil, true},
+		{"env", []string{"FOO=1", "pacman", "-Qq"}, true},
+		{"sh", []string{"-c", "sudo -n pacman -Qk"}, true},
+		{"bash", []string{"-c", `rm -rf "$HOME/.cache/"*`}, true},
+		{"sh", []string{"script.sh"}, true},
+		{"sudo-rs", []string{"-n", "true"}, true},
 	} {
 		if err := CheckSudo(c.name, c.args); (err == nil) != c.ok {
 			t.Errorf("CheckSudo(%s %s) = %v, want ok=%v", c.name, strings.Join(c.args, " "), err, c.ok)
 		}
+	}
+}
+
+// TestCheckSudoFixed: the forms the first version of CheckSudo got wrong.
+// Every case here fails on it: sudo's long and combined flags were refused,
+// and a sudo behind env, a shell or the sudo-rs name ran unchecked.
+func TestCheckSudoFixed(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		args []string
+		ok   bool
+	}{
+		{"sudo", []string{"--non-interactive", "true"}, true},
+		{"sudo", []string{"--askpass", "true"}, true},
+		{"sudo", []string{"-nA", "true"}, true},
+		{"sudo", []string{"-An", "true"}, true},
+		{"sudo", []string{"-kn", "true"}, true},
+		{"/usr/bin/sudo", []string{"-Au", "root", "true"}, true},
+		{"env", []string{"sudo", "pacman", "-Syu"}, false},
+		{"env", []string{"FOO=1", "sudo", "pacman", "-Syu"}, false},
+		{"/usr/bin/env", []string{"-i", "PATH=/usr/bin", "sudo", "-v"}, false},
+		{"env", []string{"-u", "SUDO_ASKPASS", "sudo", "-v"}, false},
+		{"env", []string{"--", "sudo", "-v"}, false},
+		{"env", []string{"-S", "sudo -v"}, false},
+		{"env", []string{"--split-string=FOO=1 sudo -v"}, false},
+		{"sudo-rs", []string{"pacman", "-Syu"}, false},
+		{"/usr/bin/sudo-rs", []string{"-v"}, false},
+		{"sh", []string{"-c", "sudo pacman -Syu"}, false},
+		{"bash", []string{"-lc", "yay -Sua && sudo pacman -Syu"}, false},
+		{"/bin/sh", []string{"-c", "echo hi;'sudo' -v"}, false},
+		{"zsh", []string{"-c", "x=$(sudo -v)"}, false},
+		{"sh", []string{"-c", "sudo -n true; sudo -v"}, false},
+		{"env", []string{"FOO=1", "sh", "-c", "sudo -v"}, false},
+		{"sh", []string{"-c", "env FOO=1 sudo -v"}, false},
+	} {
+		if err := CheckSudo(c.name, c.args); (err == nil) != c.ok {
+			t.Errorf("CheckSudo(%s %q) = %v, want ok=%v", c.name, c.args, err, c.ok)
+		}
+	}
+}
+
+// TestDryRunRefusesAPromptingSudo: a dry run refuses a sudo that could
+// prompt, as the real run would, instead of reporting it would run it.
+func TestDryRunRefusesAPromptingSudo(t *testing.T) {
+	ch := make(chan Msg, 16)
+	if c := New(Options{DryRun: true}).Start(Spec{Name: "sudo", Args: []string{"pacman", "-Syu"}}, ch, nil); c != nil {
+		t.Fatalf("Start = %v, want nil", c)
+	}
+	lines, err := drain(t, ch)
+	if !errors.Is(err, ErrSudoMayPrompt) || len(lines) != 0 {
+		t.Fatalf("dry run = %q, %v; want no would-run line and ErrSudoMayPrompt", lines, err)
+	}
+
+	New(Options{DryRun: true}).Start(Spec{Name: "sudo", Args: []string{"-n", "pacman", "-Syu"}}, ch, nil)
+	if lines, err := drain(t, ch); err != nil || len(lines) != 1 || lines[0] != DryRunPrefix+"sudo -n pacman -Syu" {
+		t.Fatalf("dry run of sudo -n = %q, %v; want the would-run line", lines, err)
 	}
 }

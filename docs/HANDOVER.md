@@ -74,9 +74,12 @@ comments and `git log`; this is the "read before you touch it" list.
     checks against aren't the caller's to choose. Other packages' tests use
     `privilege/privtest` (`NewRequest`, `FakeSystem`), which panics outside
     a test binary.
-  - `proc.Runner.Start` and `proc.Query` refuse a sudo whose first argument
-    isn't `-n` or `-A` (`ErrSudoMayPrompt`), and a sudo with a nil `Env` runs
-    without an inherited `SUDO_ASKPASS`.
+  - `proc.Runner.Start` (dry run included) and `proc.Query` refuse a sudo or
+    sudo-rs whose first argument isn't `-n`/`--non-interactive`,
+    `-A`/`--askpass` or a short-flag cluster with one of them
+    (`ErrSudoMayPrompt`), also behind `env` or named in a shell's arguments;
+    a sudo reached any other way (a script, a variable, `nice`…) isn't seen.
+    A sudo with a nil `Env` runs without an inherited `SUDO_ASKPASS`.
   - `privilege.CheckPassword` (so `Authenticate` and `Answer`) refuses a
     password with `\r` or `\n`; su's lockout notice is sanitized and clipped.
   - `sanitize.Mode`'s zero value is `Plain`; colours need `KeepSGR`.
