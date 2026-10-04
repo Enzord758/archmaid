@@ -1,0 +1,265 @@
+# Live check: does `auth_admin_keep` carry across processes in a session?
+
+For the owner to run by hand. No agent runs any of this (CLAUDE.md rule 2).
+
+**The open question** (HANDOVER → Open items, `docs/polkit-live-test.md` case
+F2): outside any logind session, polkit kept an `auth_admin_keep`
+authorization only for the process that asked (pkexec's parent); a new process
+was prompted again. Inside a real session (the graphical one, or a tty login),
+polkit may key the kept authorization to the **session**. Then any process
+in that session would get it for about 5 minutes. This check finds out which
+one happens.
+
+**How it stays safe**
+
+- One throwaway action, `org.archmaid.keepcheck.k7q2`. It runs only
+  `/usr/bin/true`, and only with the marker argument `archmaid-keepcheck-k7q2`
+  (`exec.argv1`). No other installed action uses `/usr/bin/true`, so it can't
+  take over any other action's calls. Nothing else on the system changes.
+- **At most 2 polkit password prompts**, one per part. Every check after the
+  first password is `pkcheck` without `--allow-user-interaction`, which never
+  prompts. It only answers authorized or not.
+- faillock has `deny=3`, and every wrong password counts: a polkit prompt, the
+  tty3 login and `sudo` all go through `pam_faillock`. **A cancelled or
+  dismissed polkit dialog also counts as one failure.** A correct password
+  resets the count to 0.
+- **Stop rule:** after any wrong password or cancelled dialog, don't retry.
+  Go straight to the cleanup. If `faillock` ever shows **2 or more rows**,
+  type no password at all (not even the cleanup's `sudo`) until 15 minutes
+  have passed since the newest row (`fail_interval` = 900 s). Then check
+  again.
+
+**Time:** about 15 minutes for Part A, cleanup and the results. Part B (tty3)
+is optional and adds about 5–10 minutes. The steps are numbered 1–14.
+
+## What you are looking for
+
+- **Which action's banner appeared.** On a tty, pkexec's own text agent
+  prints `==== AUTHENTICATING FOR org.archmaid.keepcheck.k7q2 ====`, and the
+  next line is the message
+  `archmaid keep check k7q2: throwaway test, runs /usr/bin/true`. In the
+  graphical session, the polkit-gnome dialog shows that same message; its
+  **Details** expander shows `Action: org.archmaid.keepcheck.k7q2`. If
+  anything else shows up (a different id, a different message, or no
+  `k7q2`), don't type your password. Write down what it says, cancel it
+  (that costs one faillock row) and go to the cleanup.
+- **pkcheck's exit code.** `0` = authorized now, without a prompt (stdout may
+  show `polkit.temporary_authorization_id=…`). `2` = would need a password
+  (pkcheck was told not to ask). Anything else: copy stderr into the notes.
+
+## Setup
+
+1. **faillock first.** In a terminal in your graphical session:
+
+   ```sh
+   faillock --user "$USER"
+   ```
+
+   Write down the number of rows under the `When Type Source Valid` header.
+   **It must be 0.** If it isn't, wait until the rows are older than 15
+   minutes, or find out where they came from first.
+
+2. **Write the policy** to a scratch directory (no root needed):
+
+   ```sh
+   d=$(mktemp -d) && cat > "$d/org.archmaid.keepcheck.k7q2.policy" <<'EOF'
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+    "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+   <policyconfig>
+     <vendor>archmaid live check (throwaway)</vendor>
+     <action id="org.archmaid.keepcheck.k7q2">
+       <description>archmaid keep check k7q2 (throwaway)</description>
+       <message>archmaid keep check k7q2: throwaway test, runs /usr/bin/true</message>
+       <defaults>
+         <allow_any>auth_admin_keep</allow_any>
+         <allow_inactive>auth_admin_keep</allow_inactive>
+         <allow_active>auth_admin_keep</allow_active>
+       </defaults>
+       <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/true</annotate>
+       <annotate key="org.freedesktop.policykit.exec.argv1">archmaid-keepcheck-k7q2</annotate>
+     </action>
+   </policyconfig>
+   EOF
+   echo "$d"
+   ```
+
+   Keep the printed directory for the cleanup.
+
+3. **Install it** (one `sudo` password, so type it carefully):
+
+   ```sh
+   sudo install -o root -g root -m 0644 "$d/org.archmaid.keepcheck.k7q2.policy" /usr/share/polkit-1/actions/
+   ```
+
+4. **Check that polkit sees it** (no root needed). polkitd picks up new
+   action files by itself:
+
+   ```sh
+   pkaction --action-id org.archmaid.keepcheck.k7q2 --verbose
+   ```
+
+   It must list `implicit any/inactive/active: auth_admin_keep` (three
+   times). If it says "No action with action id", wait 10 s and try again.
+   If it still isn't there, stop and clean up. Don't restart polkit.
+
+## Part A: the graphical session (required)
+
+Do steps 5–9 within 5 minutes; a kept authorization lasts about 5 minutes.
+Use the same terminal as in steps 1–4 (call it terminal 1) unless a step says
+otherwise.
+
+5. **Context and baseline** (no prompt):
+
+   ```sh
+   echo "shell pid $$"; loginctl show-user "$USER" -p Display; cat /proc/$$/cgroup
+   pkcheck --action-id org.archmaid.keepcheck.k7q2 --process $$; echo "rc=$?"
+   ```
+
+   Case **G0**. Expected: `rc=2`. If it's `0`, a local rule already grants
+   the action, so the check means nothing. Stop and clean up.
+
+6. **The one password for Part A**:
+
+   ```sh
+   pkexec /usr/bin/true archmaid-keepcheck-k7q2; echo "rc=$?"
+   ```
+
+   Case **G1**. A polkit-gnome dialog appears. Before typing, check the
+   message and, under Details, the action id (see "What you are looking
+   for"). Type your password once. Expected: `rc=0`.
+
+7. **Same process** (no prompt): the shell that ran pkexec.
+
+   ```sh
+   pkcheck --action-id org.archmaid.keepcheck.k7q2 --process $$; echo "rc=$?"
+   ```
+
+   Case **G2**. Expected `rc=0`, which shows that keep works at all.
+
+8. **A new process in the same session** (no prompt):
+
+   ```sh
+   sh -c 'pkcheck --action-id org.archmaid.keepcheck.k7q2 --process $$; echo "pid $$ rc=$?"'
+   ```
+
+   Case **G3**, the question itself. Then open a **new terminal window**
+   (terminal 2, a fresh process tree) and run the same `sh -c …` line there:
+   case **G4**.
+
+9. **What polkit kept** (no prompt):
+
+   ```sh
+   pkcheck --list-temp
+   ```
+
+   Case **G5**. Copy the output. It names the action and the **subject** the
+   authorization is kept for: `unix-session:…` means session scope,
+   `unix-process:…` means process scope. If it errors (for example "no
+   session" for a process outside a session scope), copy the error. That's
+   a result too.
+
+   How to read Part A: if G3/G4 give `rc=0`, keep carries across processes
+   in the graphical session. If they give `rc=2` while G2 gives `0`, keep is
+   per process here too.
+
+## Part B: a tty login (optional)
+
+Only if faillock still shows 0 rows (`faillock --user "$USER"`). Logging in on
+tty3 is a password too.
+
+10. Press **Ctrl+Alt+F3** and log in as yourself. Then run step 5's commands
+    (case **T0**). Also write down how long it has been since G1. A `0` here
+    would mean the graphical session's keep reaches a different session.
+
+11. **The one password for Part B**:
+
+    ```sh
+    pkexec /usr/bin/true archmaid-keepcheck-k7q2; echo "rc=$?"
+    ```
+
+    Case **T1**. pkexec's own text agent prints the
+    `==== AUTHENTICATING FOR org.archmaid.keepcheck.k7q2 ====` banner. Check
+    the id, then type the password once. If no banner appears within 10 s
+    (the prompt went somewhere else), press Ctrl+C, which costs one faillock
+    row. Note it and go to the cleanup.
+
+12. Run step 7 (**T2**), step 8's `sh -c …` line (**T3**) and step 9 (**T5**).
+    Then a real exec from a new process, which can't prompt either: with
+    `--disable-internal-agent` and no agent registered for the tty3 session,
+    pkexec fails with "No authentication agent found" instead of asking:
+
+    ```sh
+    sh -c 'pkexec --disable-internal-agent /usr/bin/true archmaid-keepcheck-k7q2; echo "pid $$ rc=$?"'
+    ```
+
+    Case **T4**. `rc=0` = authorized by the kept authorization. `rc=127`
+    plus "No authentication agent found" = it would have needed a password.
+    If a prompt appears anyway, don't answer it: press Ctrl+C (one faillock
+    row) and note it.
+
+    Then `pkcheck --revoke-temp`, `exit`, and **Ctrl+Alt+F2** back to the
+    graphical session.
+
+## Cleanup (always, also after a stop)
+
+Mind the stop rule: with 2 or more faillock rows, wait before the `sudo`.
+
+13. In terminal 1:
+
+    ```sh
+    pkcheck --revoke-temp
+    sudo rm -f /usr/share/polkit-1/actions/org.archmaid.keepcheck.k7q2.policy
+    rm -r "$d"
+    pkaction --action-id org.archmaid.keepcheck.k7q2; echo "rc=$?"
+    ls /usr/share/polkit-1/actions | grep -c keepcheck
+    ```
+
+    `pkaction` must fail ("No action with action id …", non-zero rc) and the
+    `grep -c` must print `0`. (If `$d` is gone because the terminal was
+    closed, find it with `ls -d /tmp/tmp.*` and remove only the one holding
+    `org.archmaid.keepcheck.k7q2.policy`.) Close terminal 2.
+
+14. **faillock last:**
+
+    ```sh
+    faillock --user "$USER"
+    ```
+
+    Expected: 0 rows. Every correct password resets the count. Write down
+    what it shows.
+
+Checklist:
+
+- [ ] `/usr/share/polkit-1/actions/org.archmaid.keepcheck.k7q2.policy` removed; `pkaction` doesn't know the id
+- [ ] scratch directory `$d` removed
+- [ ] `pkcheck --revoke-temp` run in the graphical session (and on tty3, if Part B ran)
+- [ ] logged out of tty3, back on tty2
+- [ ] terminal 2 closed
+- [ ] `faillock --user "$USER"` shows 0 rows (or the count is written down below)
+
+## Results (fill in)
+
+Date: ______  polkit `pkcheck --version`: ______  faillock rows at step 1: ___ / at step 14: ___
+
+| Case | Attempts (answers) | Prompts seen | faillock rows after | Exit code(s) | Notes (banner action id, pid, `--list-temp` subject) |
+|---|---|---|---|---|---|
+| G0 baseline | 0 | 0 | | | expected 2 |
+| G1 pkexec | 1 (right) | | | | banner id: |
+| G2 same shell | 0 | 0 | | | |
+| G3 new process (`sh -c`) | 0 | 0 | | | |
+| G4 new terminal | 0 | 0 | | | |
+| G5 `--list-temp` | 0 | 0 | | | subject: |
+| T0 tty3 baseline | 0 | 0 | | | minutes since G1: |
+| T1 pkexec | 1 (right) | | | | banner id: |
+| T2 same shell | 0 | 0 | | | |
+| T3 new process (`sh -c`) | 0 | 0 | | | |
+| T4 `pkexec --disable-internal-agent` from a new process | 0 | | | | |
+| T5 `--list-temp` | 0 | 0 | | | subject: |
+
+**Answer:** in the graphical session, `auth_admin_keep` is scoped to
+☐ the session ☐ the requesting process. On tty3: ☐ the session ☐ the
+requesting process ☐ not run.
+
+Send the filled-in table back; it goes into `docs/polkit-live-test.md` and
+closes (or rewords) the HANDOVER open item.

@@ -481,7 +481,8 @@ to:
   `docs/polkit-live-test.md`) showed keep scoped to the requesting process when
   there is no login session; re-check on tty3 or from the GUI, where polkit may
   scope it to the session. The docs assume the wider (session) scope, which is
-  the safe assumption.
+  the safe assumption. The owner's step-by-step check, with a throwaway
+  action and a results table: `docs/polkit-keep-session-check.md`.
 
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.
