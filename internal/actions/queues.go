@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"github.com/Enzord758/archmaid/internal/logstore"
@@ -56,7 +57,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 		// the removal acts on must be the one its confirm showed. The probe
 		// puts the removal step right after itself when it finds any (see
 		// findOrphans), so building this queue runs nothing.
-		orphanProbeStep(),
+		orphanProbeStep(env),
 		{
 			ID:    steps.IDYayCache,
 			Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned",
@@ -129,13 +130,18 @@ func userCacheSteps(Env) []steps.Step {
 
 // orphanProbeStep is Full Cleanup's orphan check: an in-process step that runs
 // after the update and, if it finds orphans, puts their removal right after
-// itself (see findOrphans). It only reads, so it runs in a dry run too.
-func orphanProbeStep() steps.Step {
+// itself (see findOrphans; under polkit, findOrphansPolkit). It only reads,
+// so it runs in a dry run too.
+func orphanProbeStep(env Env) steps.Step {
+	run := findOrphans
+	if env.Polkit {
+		run = findOrphansPolkit(env.PlanOrphans)
+	}
 	return steps.Step{
 		ID: steps.IDOrphansProbe, Verb: steps.VerbPlanOrphans,
 		Title: "Finding orphaned packages…", LogLabel: "Orphaned packages checked",
 		Category: logstore.Orphans,
-		Run:      findOrphans,
+		Run:      run,
 	}
 }
 
@@ -157,27 +163,74 @@ func findOrphans(ctx context.Context, _ steps.Env) steps.Result {
 	if err != nil {
 		return steps.Result{Output: "Couldn't preview the orphan removal: " + err.Error(), Err: err}
 	}
+	st := orphanRemoval(orphans, cascade)
+	st.Argv = append([]string{"sudo", "pacman", "-Rns", "--noconfirm", "--"}, orphans...)
+	return steps.Result{Output: orphanSummary(orphans, cascade), InsertNext: &st}
+}
+
+// errNoPlanner fails the polkit probe when the front end handed in no
+// Env.PlanOrphans.
+var errNoPlanner = errors.New("no plan-orphans runner for the root helper")
+
+// findOrphansPolkit is the orphan probe under polkit. There the removal runs
+// as the root helper's remove-orphans, which takes nothing but a plan hash,
+// so the probe asks the helper for the plan (plan-orphans: as the user,
+// read-only, never through pkexec) instead of running pacman itself. The
+// removal's Items and Cascade, which its confirm lists, are the plan's
+// Direct and Cascade, and its Plan carries the hash committing to them; the
+// helper removes nothing unless the plan, recomputed as root, still has that
+// hash. A failed plan fails the probe and inserts nothing.
+func findOrphansPolkit(plan func(context.Context) (steps.OrphanPlan, error)) func(context.Context, steps.Env) steps.Result {
+	return func(ctx context.Context, _ steps.Env) steps.Result {
+		if plan == nil {
+			return steps.Result{Output: "Couldn't plan the orphan removal: " + errNoPlanner.Error(), Err: errNoPlanner}
+		}
+		p, err := plan(ctx)
+		if err != nil {
+			return steps.Result{Output: "Couldn't plan the orphan removal: " + err.Error(), Err: err}
+		}
+		if len(p.Direct) == 0 {
+			return steps.Result{Output: "No orphaned packages."}
+		}
+		direct, cascade := slices.Clone(p.Direct), slices.Clone(p.Cascade)
+		st := orphanRemoval(direct, cascade)
+		// What the helper runs as root, without sudo. It is shown, never
+		// started: the helper gets only the hash (helperclient.Argv).
+		st.Argv = append([]string{"pacman", "-Rns", "--noconfirm", "--"}, direct...)
+		st.Plan = &steps.OrphanPlan{Hash: p.Hash, Direct: slices.Clone(direct), Cascade: slices.Clone(cascade)}
+		return steps.Result{Output: orphanSummary(direct, cascade), InsertNext: &st}
+	}
+}
+
+// orphanRemoval is the removal step for orphans and their cascade, all but
+// its Argv: Items are the orphans, Cascade everything -Rns takes with them,
+// and the confirm gives both counts.
+func orphanRemoval(orphans, cascade []string) steps.Step {
 	msg := fmt.Sprintf("Remove %d orphaned package(s)?", len(orphans))
 	if total := len(cascade); total > len(orphans) {
 		msg = fmt.Sprintf("Remove %d orphaned package(s) — %d total once dependencies cascade?",
 			len(orphans), total)
 	}
-	out := fmt.Sprintf("%d orphaned package(s): %s\npacman -Rns would remove %d package(s)",
-		len(orphans), strings.Join(orphans, " "), len(cascade))
-	if len(cascade) > 0 {
-		out += ":\n  " + strings.Join(cascade, "\n  ")
-	}
-	return steps.Result{Output: out, InsertNext: &steps.Step{
+	return steps.Step{
 		ID: steps.IDOrphansRemove, Verb: steps.VerbRemoveOrphans,
 		Title: "Removing orphaned packages…", LogLabel: "Orphaned packages removed",
-		Argv:      append([]string{"sudo", "pacman", "-Rns", "--noconfirm", "--"}, orphans...),
 		NeedsPriv: true, Optional: true,
 		Confirm:   msg,
 		Items:     orphans,
 		Cascade:   cascade,
 		Category:  logstore.Orphans,
 		AlwaysLog: true,
-	}}
+	}
+}
+
+// orphanSummary is the probe's output: the orphans, then the cascade.
+func orphanSummary(orphans, cascade []string) string {
+	out := fmt.Sprintf("%d orphaned package(s): %s\npacman -Rns would remove %d package(s)",
+		len(orphans), strings.Join(orphans, " "), len(cascade))
+	if len(cascade) > 0 {
+		out += ":\n  " + strings.Join(cascade, "\n  ")
+	}
+	return out
 }
 
 // orphanPackages lists packages installed as dependencies that nothing needs

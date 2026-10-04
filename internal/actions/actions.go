@@ -38,8 +38,9 @@ type Action struct {
 //
 // The zero value is not usable: AuditStep, AuditReport, Downloads and
 // DeleteDownloads are required (an action calls them unchecked, and a nil
-// one panics on the goroutine that runs it, mid-action). A front end checks
-// its Env once with Validate when it starts. DryRun, LookPath and
+// one panics on the goroutine that runs it, mid-action), and so is
+// PlanOrphans under Polkit (a nil one fails the orphan probe closed). A
+// front end checks its Env once with Validate when it starts. DryRun, LookPath and
 // RepairWorkers are optional: their zero values mean a real run,
 // exec.LookPath and DefaultRepairWorkers.
 type Env struct {
@@ -49,6 +50,13 @@ type Env struct {
 	// root then hands the work to a helper step instead of running sudo
 	// (Repair's recheck). It changes nothing under sudo.
 	Polkit bool
+	// PlanOrphans (required under Polkit) runs the root helper's read-only
+	// plan-orphans as the user, never through pkexec, and returns its plan
+	// (internal/helperclient's PlanOrphans; that package imports this one,
+	// so it is handed in). Full Cleanup's orphan probe builds the removal
+	// from it under polkit; nil there fails the probe and removes nothing.
+	// Unused under sudo.
+	PlanOrphans func(ctx context.Context) (steps.OrphanPlan, error)
 	// LookPath finds a program on PATH; nil means exec.LookPath. Full
 	// Cleanup asks it for hyprpm.
 	LookPath func(file string) (string, error)
@@ -84,6 +92,7 @@ func (e Env) Validate() error {
 		{"AuditReport", e.AuditReport != nil},
 		{"Downloads", e.Downloads != nil},
 		{"DeleteDownloads", e.DeleteDownloads != nil},
+		{"PlanOrphans (under Polkit)", !e.Polkit || e.PlanOrphans != nil},
 	} {
 		if !f.set {
 			missing = append(missing, f.name)
