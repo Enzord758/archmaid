@@ -388,12 +388,6 @@ func TestAskpassPromptTextClipped(t *testing.T) {
 	if n := len([]rune(got)); n != 48 || !strings.HasSuffix(got, "…") {
 		t.Fatalf("prompt = %q (%d runes), want 48 ending in …", got, n)
 	}
-	if got := clipPath("/home/u/.cache/yay/some-package/src/build/bin/helper", 20); got != "…rc/build/bin/helper" {
-		t.Fatalf("clipPath = %q", got)
-	}
-	if got := clipPath("/usr/bin/yay", 20); got != "/usr/bin/yay" {
-		t.Fatalf("clipPath shortened a short path: %q", got)
-	}
 }
 
 // TestAskpassServerReportsPeer: over a real socket the server records the

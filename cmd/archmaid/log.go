@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
 // dryRun is set by --dryrun: mutating commands are logged instead of executed.
@@ -143,7 +145,7 @@ func appendLog(cat logCategory, kind, label, body string) {
 	f.Chmod(logFileMode) // a file from an older version may still be 0644
 	// Plain text only: a log must not replay escapes in whatever terminal
 	// views it later (topgrade's colours, or anything an AUR build printed).
-	label, body = Sanitize(label, SanitizePlain), Sanitize(body, SanitizePlain)
+	label, body = sanitize.String(label, sanitize.Plain), sanitize.String(body, sanitize.Plain)
 	ts := time.Now().Format("2006-01-02 15:04:05")
 	if body == "" {
 		fmt.Fprintf(f, "[%s] %s: %s\n", ts, kind, label)
@@ -158,5 +160,5 @@ func readLog(cat logCategory) string {
 	if err != nil || len(b) == 0 {
 		return statusStyle.Render("Log is empty.")
 	}
-	return Sanitize(string(b), SanitizePlain) // logs from older versions hold raw escapes
+	return sanitize.String(string(b), sanitize.Plain) // logs from older versions hold raw escapes
 }

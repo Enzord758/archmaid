@@ -29,8 +29,13 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `log.go` | log categories, per-run directories, `pruneLogs` |
 | `askpass.go` | `SUDO_ASKPASS` helper + socket server |
 | `overlay.go` | ANSI-aware popup compositor |
-| `sanitize.go` | `Sanitize`: the one filter for untrusted text (command output, logs) |
 | `status.go`, `theme.go` | the status line (native: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
+
+### `internal/` (UI-free: nothing here may import charmbracelet; `check.sh` enforces it)
+
+| Package | Owns |
+|---|---|
+| `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
 
 ## Decisions and landmines
 
@@ -151,12 +156,12 @@ comments and `git log`; this is the "read before you touch it" list.
   state-dir root (the AUR snapshot) are ignored by `pruneLogs`. Only `appendLog`
   creates a run directory (viewing logs must not, or it evicts a real run), and
   logs are private: directories 0700, files 0600.
-- **Untrusted text goes through `Sanitize`.** Command output (topgrade, yay, AUR
+- **Untrusted text goes through `sanitize.String`.** Command output (topgrade, yay, AUR
   build scripts) can carry escapes that retitle the terminal, write the
   clipboard (OSC 52) or redraw what the user reads. Streamed output keeps only
-  SGR colours (`SanitizeKeepSGR`); logs are plain text, both when written and
-  when an older log is read back (`SanitizePlain`); AUR names and maintainers
-  go through it too (`aurField`: plain, one line, capped). It also drops
+  SGR colours (`sanitize.KeepSGR`); logs are plain text, both when written and
+  when an older log is read back (`sanitize.Plain`); AUR names and maintainers
+  go through it too (`sanitize.Field`: plain, one line, capped). It also drops
   Unicode format characters (bidi overrides, zero-width). New paths that show foreign
   text should use it rather than a second filter.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -423,29 +423,5 @@ func orUnknown(s string) string {
 // lets whoever runs sudo set it), so stripped of escapes and control
 // characters, kept to one line and clipped.
 func askpassPromptText(prompt string) string {
-	return clipRunes(oneLine(prompt), 48)
-}
-
-// oneLine is untrusted text made safe to show on one line: sanitized, with
-// every run of whitespace (newlines included) collapsed to one space.
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(Sanitize(s, SanitizePlain)), " ")
-}
-
-// clipRunes shortens s to at most n runes, marking a cut with "…".
-func clipRunes(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	return string([]rune(s)[:n-1]) + "…"
-}
-
-// clipPath shortens a path to at most n runes, keeping its tail (the binary's
-// name) and marking the cut with "…".
-func clipPath(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return "…" + string(r[len(r)-n+1:])
+	return sanitize.Clip(sanitize.OneLine(prompt), 48)
 }

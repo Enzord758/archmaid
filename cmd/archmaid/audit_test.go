@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -321,8 +322,8 @@ func TestAURField(t *testing.T) {
 		"\x1b[1m" + strings.Repeat("y", 64): strings.Repeat("y", 64), // escapes don't count toward the cap
 	}
 	for in, want := range cases {
-		if got := aurField(in); got != want {
-			t.Errorf("aurField(%q) = %q, want %q", in, got, want)
+		if got := sanitize.Field(in, aurFieldMax); got != want {
+			t.Errorf("Field(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

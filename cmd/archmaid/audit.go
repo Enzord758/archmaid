@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -87,26 +88,7 @@ type auditFinding struct {
 // line renders the finding. name stays raw in the struct (it keys the
 // snapshot); it is only sanitized here, for display.
 func (f auditFinding) line(width int) string {
-	return fmt.Sprintf("%-*s  %s", width, aurField(f.name), strings.Join(f.flags, " · "))
-}
-
-// aurField makes a package name or maintainer safe to put on screen, in a
-// popup or in a log: Sanitize (plain) drops escape sequences, controls and
-// format characters, and the value is kept to one line of at most aurFieldMax
-// runes plus "…". Line breaks and tabs are removed before Sanitize sees them,
-// so a CR can't make the value read as just its tail ("mallory\ralice" shows
-// both names, not "alice").
-func aurField(s string) string {
-	s = Sanitize(strings.Map(func(r rune) rune {
-		if r == '\r' || r == '\n' || r == '\t' {
-			return -1
-		}
-		return r
-	}, s), SanitizePlain)
-	if utf8.RuneCountInString(s) <= aurFieldMax {
-		return s
-	}
-	return string([]rune(s)[:aurFieldMax]) + "…"
+	return fmt.Sprintf("%-*s  %s", width, sanitize.Field(f.name, aurFieldMax), strings.Join(f.flags, " · "))
 }
 
 // foreignPackages lists installed packages that aren't in any sync repo
@@ -202,12 +184,12 @@ func classify(name string, ai *aurInfo, prev snapEntry, hadPrev bool, now time.T
 	switch {
 	case hadPrev && prev.maintainer == "" && cur != "":
 		f.high, f.maintainerChanged = true, true
-		f.flags = append(f.flags, fmt.Sprintf("adopted by %s (was orphaned)", aurField(cur)))
+		f.flags = append(f.flags, fmt.Sprintf("adopted by %s (was orphaned)", sanitize.Field(cur, aurFieldMax)))
 	case hadPrev && prev.maintainer != "" && cur == "":
-		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", aurField(prev.maintainer)))
+		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", sanitize.Field(prev.maintainer, aurFieldMax)))
 	case hadPrev && prev.maintainer != cur:
 		f.high, f.maintainerChanged = true, true
-		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", aurField(prev.maintainer), aurField(cur)))
+		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", sanitize.Field(prev.maintainer, aurFieldMax), sanitize.Field(cur, aurFieldMax)))
 	case cur == "":
 		f.flags = append(f.flags, "orphaned")
 	}
@@ -276,7 +258,7 @@ func coFlag(names []string, what string) string {
 func nameList(names []string, limit int) string {
 	shown := make([]string, 0, min(len(names), limit))
 	for _, n := range names[:min(len(names), limit)] {
-		shown = append(shown, aurField(n))
+		shown = append(shown, sanitize.Field(n, aurFieldMax))
 	}
 	s := strings.Join(shown, ", ")
 	if len(names) > limit {
@@ -833,7 +815,7 @@ func gateReason(findings []auditFinding) string {
 		parts = append(parts, packageNames(changed)+" changed maintainer")
 	}
 	if len(coPkgs) == 1 {
-		parts = append(parts, aurField(co.name)+": "+coFlag(co.coAdded, "added"))
+		parts = append(parts, sanitize.Field(co.name, aurFieldMax)+": "+coFlag(co.coAdded, "added"))
 	} else {
 		parts = append(parts, packageNames(coPkgs)+" added co-maintainers")
 	}
@@ -845,7 +827,7 @@ func gateReason(findings []auditFinding) string {
 func packageNames(raw []string) string {
 	var names []string
 	for _, n := range raw {
-		names = append(names, aurField(n))
+		names = append(names, sanitize.Field(n, aurFieldMax))
 	}
 	switch len(names) {
 	case 0:
@@ -936,7 +918,7 @@ func baselineNote(state baselineState) string {
 func nameWidth(findings []auditFinding) int {
 	w := 0
 	for _, f := range findings {
-		w = max(w, utf8.RuneCountInString(aurField(f.name)))
+		w = max(w, utf8.RuneCountInString(sanitize.Field(f.name, aurFieldMax)))
 	}
 	return min(w, 28)
 }

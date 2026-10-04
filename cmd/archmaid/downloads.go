@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -238,7 +239,7 @@ func discoverDownloads() tea.Cmd {
 		notice := func(s string) tea.Msg { return discoveryMsg{kind: "downloads", notice: s} }
 		dir, err := resolveDownloadsDir()
 		if err != nil {
-			return notice(Sanitize(err.Error(), SanitizePlain))
+			return notice(sanitize.String(err.Error(), sanitize.Plain))
 		}
 		shown := displayPath(dir)
 		root, err := os.OpenRoot(dir)
@@ -280,7 +281,7 @@ func downloadsConfirm(shown string, names []string) string {
 			fmt.Fprintf(&b, "\n  …and %d more", len(names)-i)
 			break
 		}
-		b.WriteString("\n  " + displayName(n))
+		b.WriteString("\n  " + sanitize.QuoteName(n, 60))
 	}
 	return b.String()
 }
@@ -534,11 +535,11 @@ func deleteOldDownloadsNow(ctx context.Context, dir string, id dirID, names []st
 			downloadsEntryHook(name)
 		}
 		if ctx.Err() != nil {
-			fmt.Fprintf(&out, "stopped: aborted before %s\n", displayName(name))
+			fmt.Fprintf(&out, "stopped: aborted before %s\n", sanitize.QuoteName(name, 60))
 			errs = append(errs, ctx.Err())
 			break
 		}
-		shownName := displayName(name)
+		shownName := sanitize.QuoteName(name, 60)
 		switch {
 		case !entryIsOld(root.FS(), name, cutoff, b):
 			kept++
@@ -676,20 +677,6 @@ func pathErrCause(err error) string {
 	return err.Error()
 }
 
-// displayName renders an entry name on one line: a name with control
-// characters (a newline would forge extra list lines; escapes could restyle
-// the popup) or invalid UTF-8 is shown quoted with escapes, and a long one is
-// cut to fit the popup.
-func displayName(name string) string {
-	if Sanitize(name, SanitizePlain) != name || strings.ContainsAny(name, "\n\t") {
-		name = strconv.Quote(name)
-	}
-	if r := []rune(name); len(r) > 60 {
-		name = string(r[:59]) + "…"
-	}
-	return name
-}
-
 // displayPath shows a resolved path the way the user thinks of it: ~/… when
 // it's inside $HOME, sanitized since it comes from the environment.
 func displayPath(p string) string {
@@ -697,5 +684,5 @@ func displayPath(p string) string {
 		rel, _ := filepath.Rel(home, p)
 		p = "~/" + rel
 	}
-	return Sanitize(p, SanitizePlain)
+	return sanitize.String(p, sanitize.Plain)
 }

@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
 // ── view ─────────────────────────────────────────────────────────────────────
@@ -135,7 +137,7 @@ func (m model) viewAskpassFrom() string {
 	f := m.askpassFrom
 	lines := []string{
 		statusStyle.Render("step    ") + f.step,
-		statusStyle.Render("caller  ") + fmt.Sprintf("%s (pid %d)", clipPath(oneLine(orUnknown(f.callerExe)), 40), f.callerPid),
+		statusStyle.Render("caller  ") + fmt.Sprintf("%s (pid %d)", sanitize.ClipTail(sanitize.OneLine(orUnknown(f.callerExe)), 40), f.callerPid),
 	}
 	if f.prompt != "" {
 		lines = append(lines, statusStyle.Render("prompt  ")+fmt.Sprintf("%q", f.prompt))

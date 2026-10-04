@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -301,7 +302,7 @@ func (m model) runningSudoStep() (string, bool) {
 // pane (and so to its log). It may quote names read from /proc, so it is
 // sanitized like any foreign text.
 func (m *model) noteOutput(line string) {
-	m.buf.WriteString(oneLine(line) + "\n")
+	m.buf.WriteString(sanitize.OneLine(line) + "\n")
 	m.output.SetContent(m.buf.String())
 	m.output.GotoBottom()
 }
@@ -824,7 +825,7 @@ func (m model) handleStream(msg streamBatchMsg) (tea.Model, tea.Cmd) {
 	if len(msg.lines) > 0 {
 		clean := make([]string, len(msg.lines)) // msg.lines stays raw
 		for i, l := range msg.lines {
-			clean[i] = Sanitize(l, SanitizeKeepSGR) // colours only
+			clean[i] = sanitize.String(l, sanitize.KeepSGR) // colours only
 		}
 		m.appendOutput(clean)
 	}
@@ -843,7 +844,7 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 	}
 	m.dropAuditFetch() // consumed (if this was the audit)
 	if msg.output != "" {
-		out := Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR)
+		out := sanitize.String(strings.TrimRight(msg.output, "\n"), sanitize.KeepSGR)
 		m.appendOutput(strings.Split(out, "\n"))
 		m.output.GotoTop() // a report reads top-down; its worst findings come first
 	}

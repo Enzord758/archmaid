@@ -1,4 +1,7 @@
-package main
+// Package sanitize is the one filter for untrusted text (command output, AUR
+// fields, sudo prompts, logs), plus the small helpers that put such text on one
+// line. It must stay UI-free: nothing here may import charmbracelet.
+package sanitize
 
 import (
 	"strconv"
@@ -13,24 +16,24 @@ import (
 // fields and sudo's prompt are untrusted: an escape sequence in them can retitle
 // the terminal, rewrite the clipboard (OSC 52), hide text or move the cursor
 // over what the user is reading, and a raw escape in a log file plays back in
-// whatever terminal later views it. Sanitize is the one place that decides what
+// whatever terminal later views it. This package is the one place that decides what
 // survives, for every such path: streamed output, logs (written and read back),
 // and anything else that shows text archmaid didn't write itself.
 
-// SanitizeMode selects what Sanitize keeps.
-type SanitizeMode int
+// Mode selects what String keeps.
+type Mode int
 
 const (
-	// SanitizeKeepSGR keeps SGR sequences (ESC [ … m: colour and text style)
+	// KeepSGR keeps SGR sequences (ESC [ … m: colour and text style)
 	// so streamed output keeps its colours in the output pane.
-	SanitizeKeepSGR SanitizeMode = iota
-	// SanitizePlain removes every escape sequence: for logs, which must read
+	KeepSGR Mode = iota
+	// Plain removes every escape sequence: for logs, which must read
 	// as plain text anywhere.
-	SanitizePlain
+	Plain
 )
 
-// Sanitize returns s with every control character removed except tab and
-// newline, and every escape sequence removed except, in SanitizeKeepSGR, SGR.
+// String returns s with every control character removed except tab and
+// newline, and every escape sequence removed except, in KeepSGR, SGR.
 // That covers C0 and C1 controls, DEL, CSI, OSC, DCS/SOS/PM/APC strings and
 // two-byte escapes. Unicode format characters (category Cf: bidi overrides and
 // isolates, zero-width spaces and joiners, the BOM, tag characters) go too, so
@@ -38,7 +41,7 @@ const (
 // U+FFFD. A carriage return (a progress bar redrawing its line) behaves like
 // the terminal: text after it replaces the line so far, so "50%\r100%" reads "100%", while a trailing CR or CRLF just
 // ends the line. Text that needs no change is returned without copying.
-func Sanitize(s string, mode SanitizeMode) string {
+func String(s string, mode Mode) string {
 	if clean(s) {
 		return s
 	}
@@ -69,7 +72,7 @@ func Sanitize(s string, mode SanitizeMode) string {
 			i++
 		case c == 0x1b:
 			end, sgr := escapeEnd(s, i)
-			if sgr && mode == SanitizeKeepSGR {
+			if sgr && mode == KeepSGR {
 				if seq := withoutConceal(s[i:end]); seq != "" {
 					emit(seq)
 				}
