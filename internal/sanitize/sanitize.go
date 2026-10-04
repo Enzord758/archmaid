@@ -20,16 +20,18 @@ import (
 // survives, for every such path: streamed output, logs (written and read back),
 // and anything else that shows text archmaid didn't write itself.
 
-// Mode selects what String keeps.
+// Mode selects what String keeps. The zero value is Plain, the strict one:
+// keeping colours is something a caller asks for (KeepSGR), never what it
+// gets by leaving a Mode unset.
 type Mode int
 
 const (
-	// KeepSGR keeps SGR sequences (ESC [ … m: colour and text style)
-	// so streamed output keeps its colours in the output pane.
-	KeepSGR Mode = iota
 	// Plain removes every escape sequence: for logs, which must read
 	// as plain text anywhere.
-	Plain
+	Plain Mode = iota
+	// KeepSGR keeps SGR sequences (ESC [ … m: colour and text style)
+	// so streamed output keeps its colours in the output pane.
+	KeepSGR
 )
 
 // String returns s with every control character removed except tab and

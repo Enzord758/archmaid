@@ -45,6 +45,9 @@ func (s *Store) lastRunPath() string {
 // old or the new record, never a torn one), 0600 in a 0700 directory. V is set
 // to 1. Times are encoded as RFC3339.
 func (s *Store) WriteLastRun(r RunRecord) error {
+	if s.err != nil {
+		return s.err
+	}
 	r.V = 1
 	b, err := json.Marshal(r)
 	if err != nil {
@@ -85,6 +88,9 @@ func (s *Store) WriteLastRun(r RunRecord) error {
 // none has been written yet.
 func (s *Store) ReadLastRun() (RunRecord, error) {
 	var r RunRecord
+	if s.err != nil {
+		return r, s.err
+	}
 	b, err := os.ReadFile(s.lastRunPath())
 	if err != nil {
 		return r, err

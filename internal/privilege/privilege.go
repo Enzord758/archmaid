@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
 // Privileged is a way to run steps as root.
@@ -138,7 +139,15 @@ func (s Sudo) Env(needsPriv bool) []string {
 // user's shell startup files run (`su -c true` still had zsh read
 // ~/.zshenv). On failure, detail is a lockout notice from su's stderr, if
 // there was one.
+//
+// A password with a line break is refused (ErrLineBreak) before su runs: su
+// and sudo each read one line, so either would check something other than
+// what was typed. This guards Sudo.Authenticate and Request.Answer alike,
+// whether or not the frontend checked first.
 func CheckPassword(ctx context.Context, pw string) (detail string, err error) {
+	if strings.ContainsAny(pw, "\r\n") {
+		return "", ErrLineBreak
+	}
 	self, err := user.Current()
 	if err != nil {
 		return "", err
@@ -153,12 +162,17 @@ func CheckPassword(ctx context.Context, pw string) (detail string, err error) {
 	return "", nil
 }
 
+// lockoutMax caps a lockout notice, in runes.
+const lockoutMax = 160
+
 // lockoutNotice extracts a pam_faillock lockout message from PAM stderr, if
 // present, so the UI can say "account locked" rather than "wrong password".
+// It is shown verbatim, so it is made safe to: sanitized onto one line
+// (escapes and controls dropped) and clipped to lockoutMax runes.
 func lockoutNotice(stderr string) string {
 	for _, line := range strings.Split(stderr, "\n") {
 		if strings.Contains(strings.ToLower(line), "locked") {
-			return strings.TrimSpace(line)
+			return sanitize.Clip(sanitize.OneLine(line), lockoutMax)
 		}
 	}
 	return ""

@@ -56,6 +56,32 @@ charmbracelet, except `internal/tui`):
 Each of these was learned the hard way. The reasoning lives in the code
 comments and `git log`; this is the "read before you touch it" list.
 
+- **`internal/` APIs are safe by default.** A caller (the GUI) that forgets an
+  option or a check gets the strict behaviour, never the permissive one; keep
+  it that way, each guarantee has a regression test:
+  - `downloads.Resolve` always guards the process's own `$HOME` and passwd
+    home; `Options.Home`/`PasswdHome` only add homes to guard, and `--downloads`
+    is refused when no home is known at all.
+  - `audit.Result.Commit` is nil unless `audit.Run` completed: a failed,
+    cancelled, abandoned (`Fetch.Cancel`, an aborted `Wait`) or hand-built
+    Result can't rewrite the snapshot, and a save of no packages is refused.
+  - `privilege.Request.Answer` refuses a request that `Request.Verify` hasn't
+    passed (`ErrUnverified`). Only a `Server` builds a Request; other packages'
+    tests use `NewTestRequest`, which panics outside a test binary.
+  - `proc.Runner.Start` and `proc.Query` refuse a sudo whose first argument
+    isn't `-n` or `-A` (`ErrSudoMayPrompt`), and a sudo with a nil `Env` runs
+    without an inherited `SUDO_ASKPASS`.
+  - `privilege.CheckPassword` (so `Authenticate` and `Answer`) refuses a
+    password with `\r` or `\n`; su's lockout notice is sanitized and clipped.
+  - `sanitize.Mode`'s zero value is `Plain`; colours need `KeepSGR`.
+  - `logstore` writes only the four known categories (`Category.Valid`), and a
+    store without an absolute state dir (unset/relative `$HOME`, relative
+    `Dir`) refuses every read and write (`ErrNoStateDir`), never
+    `./.local/state`.
+  - The AUR's error text and `audit.ShortErr` go through
+    `sanitize.OneLine`/`Clip` (cut by runes, never mid-character).
+  - `proc.Read` reports an unparsable euid as -1, never 0 (root).
+
 - **Steps run as plain children — never add `Setsid`.** sudo tickets are keyed to
   the tty *and* session. Per-child `Setsid` gave every internal sudo its own
   ticket (repeated popups during topgrade); a shared-pty attempt froze topgrade.

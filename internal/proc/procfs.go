@@ -15,7 +15,7 @@ type Info struct {
 	Session int    // session id: field 6
 	Start   uint64 // start time: field 22, in clock ticks since boot
 	Comm    string // field 2: the executed file's name
-	EUID    int    // effective uid, from /proc/<pid>/status (-1 if absent)
+	EUID    int    // effective uid, from /proc/<pid>/status (-1 if absent or unparsable, never a guessed 0)
 	Exe     string // /proc/<pid>/exe, or "" when we may not read it
 }
 
@@ -23,7 +23,12 @@ type Info struct {
 // ptrace — another user's, or a setuid one like sudo — is unreadable; Exe is
 // then left empty rather than failing the lookup.
 func Read(pid int) (Info, error) {
-	dir := "/proc/" + strconv.Itoa(pid)
+	return readAt("/proc/"+strconv.Itoa(pid), pid)
+}
+
+// readAt is Read of the /proc/<pid> directory dir: a seam, so tests can
+// hand it a fake one.
+func readAt(dir string, pid int) (Info, error) {
 	stat, err := os.ReadFile(dir + "/stat")
 	if err != nil {
 		return Info{}, err
@@ -54,7 +59,12 @@ func Read(pid int) (Info, error) {
 	for _, line := range strings.Split(string(status), "\n") {
 		if rest, ok := strings.CutPrefix(line, "Uid:"); ok {
 			if ids := strings.Fields(rest); len(ids) >= 2 { // real, effective, …
-				info.EUID, _ = strconv.Atoi(ids[1])
+				// An unparsable euid is unknown (-1), never 0: Atoi's
+				// zero on failure would read as root, which is exactly
+				// what the askpass check trusts (isSudo).
+				if euid, err := strconv.Atoi(ids[1]); err == nil && euid >= 0 {
+					info.EUID = euid
+				}
 			}
 		}
 	}

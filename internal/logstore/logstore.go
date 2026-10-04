@@ -54,6 +54,26 @@ func (c Category) Label() string {
 	return string(c)
 }
 
+// Valid reports whether c is one of the four categories. The set is fixed
+// here, not read from Categories (an exported var a caller could append to):
+// a category names a file, so "../x" must never become one.
+func (c Category) Valid() bool {
+	switch c {
+	case Topgrade, Orphans, Cleanup, Audit:
+		return true
+	}
+	return false
+}
+
+// ErrUnknownCategory refuses a category that isn't Valid.
+var ErrUnknownCategory = errors.New("logstore: unknown log category")
+
+// ErrNoStateDir means the store has nowhere safe to write: Options.Dir was
+// relative, or it was empty and the home folder is unset or relative. Such a
+// store refuses every read and write rather than use a path relative to
+// whatever the working directory happens to be.
+var ErrNoStateDir = errors.New("logstore: no absolute state directory (home folder unset or relative)")
+
 // KeepRuns is how many run directories the startup prune keeps; older ones are
 // removed entirely. The dryrun directory is exempt: it is a single reused
 // slot, not a growing history.
@@ -73,8 +93,10 @@ const (
 
 // Options configures a Store.
 type Options struct {
-	// Dir is the state directory. Empty means ~/.local/state/archmaid, a
-	// user-writable location that needs no root.
+	// Dir is the state directory, an absolute path. Empty means
+	// ~/.local/state/archmaid, a user-writable location that needs no root.
+	// A relative Dir, or an empty one with no absolute home folder, gives a
+	// store that refuses everything (ErrNoStateDir).
 	Dir string
 	// DryRun sends every entry to the single reused "dryrun" run directory.
 	DryRun bool
@@ -85,12 +107,16 @@ type Options struct {
 
 // Store writes and reads one run's logs.
 type Store struct {
-	root string
+	root string // absolute; "" when err is set
 	run  string // run directory name
 	now  func() time.Time
+	err  error // ErrNoStateDir: the store refuses everything
 }
 
-// New returns a Store for Options. It creates nothing on disk.
+// New returns a Store for Options. It creates nothing on disk. Without an
+// absolute state directory (see Options.Dir) the store is unusable: every
+// write and read returns ErrNoStateDir, Prune does nothing, and Root, RunDir
+// and Path are "" — never a path relative to the working directory.
 func New(o Options) *Store {
 	now := o.Now
 	if now == nil {
@@ -98,35 +124,64 @@ func New(o Options) *Store {
 	}
 	root := o.Dir
 	if root == "" {
-		home, _ := os.UserHomeDir()
-		root = filepath.Join(home, ".local", "state", "archmaid")
+		if home, err := os.UserHomeDir(); err == nil && filepath.IsAbs(home) {
+			root = filepath.Join(home, ".local", "state", "archmaid")
+		}
+	}
+	var err error
+	if !filepath.IsAbs(root) {
+		root, err = "", ErrNoStateDir
 	}
 	run := now().Format("20060102-1504")
 	if o.DryRun {
 		run = "dryrun"
 	}
-	return &Store{root: root, run: run, now: now}
+	return &Store{root: root, run: run, now: now, err: err}
 }
 
-// Root is the state directory.
+// Root is the state directory ("" for a store without one).
 func (s *Store) Root() string { return s.root }
 
 // RunDir is the directory this run's entries land under: <root>/dryrun (reused
-// and appended across dry runs) or <root>/<run timestamp>.
-func (s *Store) RunDir() string { return filepath.Join(s.root, s.run) }
+// and appended across dry runs) or <root>/<run timestamp>. "" for a store
+// without a state directory.
+func (s *Store) RunDir() string {
+	if s.err != nil {
+		return ""
+	}
+	return filepath.Join(s.root, s.run)
+}
 
 // Path is the file cat logs to for this run: <RunDir>/<category>.log. It
 // creates nothing: reading a log must not leave an empty run directory behind,
 // which would take one of Prune's KeepRuns slots from a real run. Append
-// creates the directory when there is something to write.
+// creates the directory when there is something to write. It is "" for a
+// category that isn't Valid, and for a store without a state directory.
 func (s *Store) Path(cat Category) string {
+	if s.check(cat) != nil {
+		return ""
+	}
 	return filepath.Join(s.RunDir(), string(cat)+".log")
+}
+
+// check is the error reading or writing cat's log gets, or nil.
+func (s *Store) check(cat Category) error {
+	if s.err != nil {
+		return s.err
+	}
+	if !cat.Valid() {
+		return fmt.Errorf("%w: %q", ErrUnknownCategory, string(cat))
+	}
+	return nil
 }
 
 // Prune deletes all but the keep most recent run directories. A no-op if the
 // root doesn't exist yet. The dryrun directory and anything that isn't a run
 // directory (stray files, a user's own subdirectories) are left alone.
 func (s *Store) Prune(keep int) {
+	if s.err != nil {
+		return
+	}
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
 		return
@@ -152,6 +207,9 @@ func (s *Store) Prune(keep int) {
 // whatever terminal views it later (topgrade's colours, or anything an AUR
 // build printed).
 func (s *Store) Append(cat Category, kind, label, body string) error {
+	if err := s.check(cat); err != nil {
+		return err
+	}
 	path := s.Path(cat)
 	run := filepath.Dir(path)
 	if err := os.MkdirAll(run, dirMode); err != nil {
@@ -180,6 +238,9 @@ func (s *Store) Append(cat Category, kind, label, body string) error {
 // hold raw escapes). ErrEmpty means there is nothing to show: no file, or an
 // empty one; any other error is a failed read.
 func (s *Store) Read(cat Category) (string, error) {
+	if err := s.check(cat); err != nil {
+		return "", err
+	}
 	b, err := os.ReadFile(s.Path(cat))
 	if errors.Is(err, os.ErrNotExist) || (err == nil && len(b) == 0) {
 		return "", ErrEmpty

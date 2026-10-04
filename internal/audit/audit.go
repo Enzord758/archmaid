@@ -29,6 +29,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Enzord758/archmaid/internal/sanitize"
 )
@@ -235,7 +236,8 @@ func fetch(ctx context.Context, rpcURL string, pkgs []string) (map[string]Info, 
 			return nil, fmt.Errorf("unreadable AUR response: %w", err)
 		}
 		if body.Type == "error" {
-			return nil, fmt.Errorf("AUR error: %s", body.Error)
+			// Untrusted text from the network: one line, no escapes, capped.
+			return nil, fmt.Errorf("AUR error: %s", sanitize.Clip(sanitize.OneLine(body.Error), errorMax))
 		}
 		for _, r := range body.Results {
 			if requested[r.Name] { // ignore anything this chunk didn't ask about
@@ -397,9 +399,17 @@ func ShortErr(err error, deadline time.Duration) string {
 	if errors.As(err, &ue) {
 		err = ue.Err
 	}
-	s := err.Error()
-	if len(s) > 70 {
-		s = s[:67] + "…"
+	// Sanitized (an error can carry AUR or server text) and cut by runes, so
+	// a multi-byte character is never split into invalid UTF-8.
+	s := sanitize.OneLine(err.Error())
+	if utf8.RuneCountInString(s) > shortErrMax {
+		s = sanitize.Clip(s, shortErrMax-2) // 67 runes and "…", as before
 	}
 	return s
 }
+
+// shortErrMax is the longest ShortErr leaves an error, in runes.
+const shortErrMax = 70
+
+// errorMax caps the AUR's own error message in a fetch error, in runes.
+const errorMax = 200
