@@ -34,11 +34,12 @@ type harness struct {
 	now time.Time
 	evs []Event // every event so far, in order
 	out Output  // the last call's
+	c   *enginetest.Checker
 }
 
 func newHarness(t *testing.T, opts Options, menu ...actions.Action) *harness {
 	t.Helper()
-	h := &harness{t: t, now: t0}
+	h := &harness{t: t, now: t0, c: enginetest.NewChecker(t)}
 	opts.Now = func() time.Time { return h.now }
 	h.s = New(opts)
 	SetMenu(h.s, menu)
@@ -47,9 +48,13 @@ func newHarness(t *testing.T, opts Options, menu ...actions.Action) *harness {
 
 func (h *harness) wait(d time.Duration) { h.now = h.now.Add(d) }
 
+// do records the Output of a call, holding its events to the contract as
+// they come (a test that ends its action also checks the whole stream).
 func (h *harness) do(o Output) Output {
+	h.t.Helper()
 	h.out = o
 	h.evs = append(h.evs, o.Events...)
+	h.c.Check(o.Events)
 	return o
 }
 
