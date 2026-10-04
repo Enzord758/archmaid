@@ -17,6 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/audit"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // The audit itself (classification, the RPC, the snapshot format and its
@@ -59,7 +60,7 @@ func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEn
 func runAudit(now time.Time) discoveryMsg { return menuAudit(now, currentAuditConfig()) }
 
 // runAuditStep is the audit step's run against the current settings.
-func runAuditStep(ctx context.Context) stepResult { return auditStep().run(ctx) }
+func runAuditStep(ctx context.Context) steps.Result { return auditStep().Run(ctx, steps.Env{}) }
 
 // shimPacmanForeign installs a fake `pacman` that answers `-Qqm` with out.
 func shimPacmanForeign(t *testing.T, out string) {
@@ -139,10 +140,10 @@ func TestAuditReportCarriesNoAURControlBytes(t *testing.T) {
 	saveBaseline([]string{"victim"}, map[string]aurInfo{"victim": {Name: "victim", Maintainer: strp("bob")}}, nil)
 
 	r := runAuditStep(context.Background())
-	if r.confirmNext == "" || !strings.Contains(r.output, "bob → mallory\n") {
-		t.Fatalf("confirm=%q output:\n%s", r.confirmNext, r.output)
+	if r.ConfirmNext == "" || !strings.Contains(r.Output, "bob → mallory\n") {
+		t.Fatalf("confirm=%q output:\n%s", r.ConfirmNext, r.Output)
 	}
-	for name, s := range map[string]string{"output": r.output, "confirm": r.confirmNext, "report": runAudit(auditNow).report} {
+	for name, s := range map[string]string{"output": r.Output, "confirm": r.ConfirmNext, "report": runAudit(auditNow).report} {
 		if strings.ContainsAny(s, "\x07") || strings.Contains(s, "]52;c;cGF5bG9hZA==\x07") || strings.Contains(s, "\x1b]") {
 			t.Errorf("%s still carries the escape: %q", name, s)
 		}
@@ -150,7 +151,7 @@ func TestAuditReportCarriesNoAURControlBytes(t *testing.T) {
 	if log, _ := os.ReadFile(logPath(logCategoryAudit)); strings.Contains(string(log), "\x1b]") {
 		t.Errorf("audit.log carries the escape: %q", log)
 	}
-	if err := r.commit(); err != nil {
+	if err := r.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != evil {
@@ -170,11 +171,11 @@ func TestCorruptSnapshotFailsClosed(t *testing.T) {
 	os.WriteFile(baselinePath(), []byte("{garbage"), 0o600)
 
 	r := runAuditStep(context.Background())
-	if r.err != nil || !strings.Contains(r.confirmNext, "snapshot is unreadable") {
-		t.Fatalf("err=%v confirmNext=%q, want the unreadable-snapshot gate", r.err, r.confirmNext)
+	if r.Err != nil || !strings.Contains(r.ConfirmNext, "snapshot is unreadable") {
+		t.Fatalf("err=%v confirmNext=%q, want the unreadable-snapshot gate", r.Err, r.ConfirmNext)
 	}
-	if !strings.Contains(r.output, "[HIGH] maintainer snapshot") || !strings.Contains(r.output, "1 high, 0 glance, 1 clean") {
-		t.Fatalf("output:\n%s", r.output)
+	if !strings.Contains(r.Output, "[HIGH] maintainer snapshot") || !strings.Contains(r.Output, "1 high, 0 glance, 1 clean") {
+		t.Fatalf("output:\n%s", r.Output)
 	}
 	if menu := runAudit(auditNow); menu.commit == nil {
 		t.Fatal("the menu audit should offer `a` to replace the corrupt snapshot")
@@ -183,7 +184,7 @@ func TestCorruptSnapshotFailsClosed(t *testing.T) {
 		t.Fatalf("an unanswered audit must leave the corrupt snapshot alone, got %q", b)
 	}
 
-	if err := r.commit(); err != nil { // the gate is accepted
+	if err := r.Commit(); err != nil { // the gate is accepted
 		t.Fatal(err)
 	}
 	if got, state := loadBaseline(); state != audit.BaselineOK || got["steady"].Maintainer != "alice" {
@@ -375,28 +376,28 @@ func coOf(t *testing.T, pkg string) []string {
 func TestCoMaintainerAddedGatesUpdate(t *testing.T) {
 	coFixture(t)
 	r := runAuditStep(context.Background())
-	if r.confirmNext != "Since the last audit: victim: co-maintainer mallory added. Update anyway?" {
-		t.Fatalf("confirmNext = %q", r.confirmNext)
+	if r.ConfirmNext != "Since the last audit: victim: co-maintainer mallory added. Update anyway?" {
+		t.Fatalf("confirmNext = %q", r.ConfirmNext)
 	}
 	for _, want := range []string{"[HIGH] victim  co-maintainer mallory added", "[warn] steady  co-maintainer carol removed", "1 high, 1 glance, 0 clean"} {
-		if !strings.Contains(r.output, want) {
-			t.Fatalf("output lacks %q:\n%s", want, r.output)
+		if !strings.Contains(r.Output, want) {
+			t.Fatalf("output lacks %q:\n%s", want, r.Output)
 		}
 	}
 	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob"}) {
 		t.Fatalf("the audit alone must not record the change, victim co = %q", co)
 	}
-	if again := runAuditStep(context.Background()); again.confirmNext == "" {
+	if again := runAuditStep(context.Background()); again.ConfirmNext == "" {
 		t.Fatal("an unanswered gate must gate again")
 	}
-	if err := r.commit(); err != nil {
+	if err := r.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob", "mallory"}) {
 		t.Fatalf("accepting should record the co-maintainers, victim co = %q", co)
 	}
-	if after := runAuditStep(context.Background()); after.confirmNext != "" {
-		t.Fatalf("an accepted co-maintainer must not gate again: %q", after.confirmNext)
+	if after := runAuditStep(context.Background()); after.ConfirmNext != "" {
+		t.Fatalf("an accepted co-maintainer must not gate again: %q", after.ConfirmNext)
 	}
 }
 
@@ -415,10 +416,10 @@ func TestOldFormatSnapshotIsACoMaintainerBaseline(t *testing.T) {
 	os.WriteFile(baselinePath(), []byte(`{"steady": "alice", "victim": "alice"}`), 0o600)
 
 	r := runAuditStep(context.Background())
-	if r.err != nil || r.confirmNext != "" || !strings.Contains(r.output, "0 high, 0 glance, 2 clean") {
-		t.Fatalf("err=%v confirmNext=%q, want no gate:\n%s", r.err, r.confirmNext, r.output)
+	if r.Err != nil || r.ConfirmNext != "" || !strings.Contains(r.Output, "0 high, 0 glance, 2 clean") {
+		t.Fatalf("err=%v confirmNext=%q, want no gate:\n%s", r.Err, r.ConfirmNext, r.Output)
 	}
-	if err := r.commit(); err != nil { // nothing gates: handleStepResult commits at once
+	if err := r.Commit(); err != nil { // nothing gates: handleStepResult commits at once
 		t.Fatal(err)
 	}
 	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob"}) {
@@ -426,14 +427,14 @@ func TestOldFormatSnapshotIsACoMaintainerBaseline(t *testing.T) {
 	}
 
 	db["victim"] = aurInfo{Name: "victim", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10, CoMaintainers: []string{"bob", "mallory"}}
-	if r := runAuditStep(context.Background()); !strings.Contains(r.confirmNext, "victim: co-maintainer mallory added") {
-		t.Fatalf("confirmNext = %q, want the added co-maintainer to gate once recorded", r.confirmNext)
+	if r := runAuditStep(context.Background()); !strings.Contains(r.ConfirmNext, "victim: co-maintainer mallory added") {
+		t.Fatalf("confirmNext = %q, want the added co-maintainer to gate once recorded", r.ConfirmNext)
 	}
 
 	t.Run("maintainer change in an old-format snapshot still gates", func(t *testing.T) {
 		os.WriteFile(baselinePath(), []byte(`{"steady": "alice", "victim": "bob"}`), 0o600)
-		if r := runAuditStep(context.Background()); r.confirmNext != "victim changed maintainer since the last audit. Update anyway?" {
-			t.Fatalf("confirmNext = %q", r.confirmNext)
+		if r := runAuditStep(context.Background()); r.ConfirmNext != "victim changed maintainer since the last audit. Update anyway?" {
+			t.Fatalf("confirmNext = %q", r.ConfirmNext)
 		}
 	})
 	t.Run("the menu audit records them right away", func(t *testing.T) {

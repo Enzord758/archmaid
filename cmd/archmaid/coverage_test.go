@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -102,11 +103,11 @@ func TestChecklistRendersAllStatuses(t *testing.T) {
 	m := fixedModel()
 	m.spinner.Spinner = spinner.Spinner{Frames: []string{"*"}, FPS: time.Second}
 	m.queue = []stepState{
-		{step: step{title: "run", logLabel: "run"}, status: statusRunning},
-		{step: step{title: "ok", logLabel: "did ok"}, status: statusOK},
-		{step: step{title: "boom", logLabel: "boom"}, status: statusFailed},
-		{step: step{title: "skip", logLabel: "skip"}, status: statusSkipped},
-		{step: step{title: "pend", logLabel: "pend"}, status: statusPending},
+		{step: steps.Step{Title: "run", LogLabel: "run"}, status: steps.Running},
+		{step: steps.Step{Title: "ok", LogLabel: "did ok"}, status: steps.OK},
+		{step: steps.Step{Title: "boom", LogLabel: "boom"}, status: steps.Failed},
+		{step: steps.Step{Title: "skip", LogLabel: "skip"}, status: steps.Skipped},
+		{step: steps.Step{Title: "pend", LogLabel: "pend"}, status: steps.Pending},
 	}
 
 	out := m.checklist()

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -18,7 +19,7 @@ import (
 func queueOf(n int) []stepState {
 	q := make([]stepState, n)
 	for i := range q {
-		q[i] = stepState{step: step{title: "step"}, status: statusPending}
+		q[i] = stepState{step: steps.Step{Title: "step"}, status: steps.Pending}
 	}
 	return q
 }
@@ -64,7 +65,7 @@ func TestViewRunningNeverExceedsTerminalHeight(t *testing.T) {
 	m.screen = screenRunning
 	m.queue = queueOf(9)
 	m.current = 0
-	m.queue[0].status = statusRunning
+	m.queue[0].status = steps.Running
 	m.resizeOutput()
 
 	out := m.View()

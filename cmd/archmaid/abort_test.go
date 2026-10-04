@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── abort flow: ctrl+c while a step runs ────────────────────────────────────────
@@ -19,7 +20,7 @@ import (
 func TestAbortConfirmShownNotQuit(t *testing.T) {
 	m := fixedModel()
 	m.screen = screenRunning
-	m.queue = []stepState{{step: step{title: "big update"}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{Title: "big update"}, status: steps.Running}}
 	m.current = 0
 
 	next, cmd := m.Update(key("ctrl+c"))
@@ -40,7 +41,7 @@ func TestAbortConfirmShownNotQuit(t *testing.T) {
 func startSleep(t *testing.T) (*proc.Child, chan proc.Msg, chan struct{}) {
 	t.Helper()
 	ch, quit := make(chan proc.Msg, proc.BatchMax), make(chan struct{})
-	child := runStep(step{command: "sleep", args: []string{"30"}}, ch, quit)
+	child := runStep(steps.Step{Argv: []string{"sleep", "30"}}, ch, quit)
 	if child == nil {
 		t.Fatal("sleep did not start")
 	}
@@ -123,7 +124,7 @@ func TestAbortDoesNotLeakGoroutines(t *testing.T) {
 	base := runtime.NumGoroutine()
 	for i := 0; i < 5; i++ {
 		m := fixedModel()
-		m.queue = []stepState{{step: step{title: "spam", logLabel: "spam", command: "yes"}}}
+		m.queue = []stepState{{step: steps.Step{Title: "spam", LogLabel: "spam", Argv: []string{"yes"}}}}
 		m.current = -1
 		m.screen = screenRunning
 		pump := m.advance() // launches `yes`, which floods the stream
@@ -156,7 +157,7 @@ func TestAbortDoesNotLeakGoroutines(t *testing.T) {
 func TestLateOutputDroppedAfterAbort(t *testing.T) {
 	m := fixedModel()
 	m.screen = screenAbortConfirm
-	m.queue = []stepState{{step: step{title: "x", logLabel: "x"}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{Title: "x", LogLabel: "x"}, status: steps.Running}}
 	m.current = 0
 	m.stepSeq = 1
 	m = update(m, key("y")) // abort back to the menu
@@ -200,11 +201,11 @@ func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
 	defer func() { dryRun = false }()
 	useLogDir(t, t.TempDir())
 
-	stepA := step{title: "Step A…", logLabel: "Step A", command: "echo", args: []string{"from-A"}}
-	stepB := step{title: "Step B…", logLabel: "Step B", command: "echo", args: []string{"from-B"}}
+	stepA := steps.Step{Title: "Step A…", LogLabel: "Step A", Argv: []string{"echo", "from-A"}}
+	stepB := steps.Step{Title: "Step B…", LogLabel: "Step B", Argv: []string{"echo", "from-B"}}
 
 	m := fixedModel()
-	m.pending = []step{stepA}
+	m.pending = []steps.Step{stepA}
 	pumpA := m.beginPending()
 	seqA := m.stepSeq
 
@@ -222,7 +223,7 @@ func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
 		t.Fatalf("abort should return to the menu, got screen=%d", m.screen)
 	}
 
-	m.pending = []step{stepB}
+	m.pending = []steps.Step{stepB}
 	pumpB := m.beginPending()
 	if m.screen != screenRunning || m.stepSeq == seqA {
 		t.Fatalf("B should be running under a new seq: screen=%d seq=%d (A's %d)", m.screen, m.stepSeq, seqA)
@@ -237,7 +238,7 @@ func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
 		if strings.Contains(m.buf.String(), "from-A") {
 			t.Fatalf("A's late line landed in B's pane:\n%s", m.buf.String())
 		}
-		if m.screen != screenRunning || m.current != 0 || m.queue[0].status != statusRunning || m.errs != 0 {
+		if m.screen != screenRunning || m.current != 0 || m.queue[0].status != steps.Running || m.errs != 0 {
 			t.Fatalf("stale %#v changed B: screen=%d current=%d status=%d errs=%d",
 				late, m.screen, m.current, m.queue[0].status, m.errs)
 		}
@@ -253,7 +254,7 @@ func TestStaleStreamAfterAbortAndRestart(t *testing.T) {
 	if !strings.Contains(m.buf.String(), "from-B") {
 		t.Fatalf("B's line not applied:\n%s", m.buf.String())
 	}
-	if m.screen != screenSummary || m.queue[0].status != statusOK {
+	if m.screen != screenSummary || m.queue[0].status != steps.OK {
 		t.Fatalf("B's done should finish it: screen=%d status=%d", m.screen, m.queue[0].status)
 	}
 	data, err := os.ReadFile(logPath(logCategoryCleanup))

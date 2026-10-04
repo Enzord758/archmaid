@@ -19,93 +19,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/proc"
-)
-
-// step is one unit of work. A menu action expands into a queue of these; the
-// running screen executes them in order and renders a live checklist.
-type step struct {
-	title    string   // shown in the checklist and spinner ("Cleaning package cache…")
-	logLabel string   // written to the log file on failure ("Old package cache cleaned")
-	command  string   // e.g. "sudo"
-	args     []string // e.g. {"paccache", "-r"}
-
-	// confirm, if set, is asked before the step runs. optional decides what a
-	// "no" means: skip just this step (optional) vs. abort the whole queue.
-	confirm  string
-	optional bool
-	// onAccept, if set, runs when confirm is answered yes, before the step
-	// launches (the audit's snapshot commit; see stepResult.commit).
-	onAccept func() error
-
-	// needsSudo steps are grouped so we can prime `sudo -v` once up front
-	// (see primeSudo) instead of prompting mid-run behind a spinner. They are
-	// also the only steps whose child gets SUDO_ASKPASS (see stepSpec).
-	needsSudo bool
-
-	// category buckets this step's log entries (see logPath); zero value
-	// resolves to logCategoryCleanup via stepCategory.
-	category logCategory
-	// alwaysLog logs this step's outcome even on success in a real run
-	// (normally only failures are logged), and a SKIP entry when its confirm
-	// is declined — for steps whose outcome must stay on record: anything that
-	// removes or overwrites something, the system upgrade, and the AUR audit.
-	// Without it, what happened is only traceable through pacman's own log.
-	alwaysLog bool
-
-	// run, if set, makes this an in-process step: instead of exec'ing
-	// command/args, launch runs run() off the UI thread as a tea.Cmd and its
-	// result finishes the step (see handleStepResult). In-process steps run
-	// even in a dry run, so run must be read-only apart from state it gates on
-	// dryRun itself. There's no child to signal: an abort cancels ctx, so run
-	// must return promptly once it's done, and its late result is dropped.
-	run func(ctx context.Context) stepResult
-	// aurAudit marks the AUR audit step (auditStep), whose lookup activate
-	// starts early as an auditFetch; launch then runs that fetch's run.
-	aurAudit bool
-}
-
-// stepResult is what an in-process step returns. output is shown in the
-// output pane and logged like a command's output; err fails the step.
-// confirmNext, if set, puts a confirm in front of the *next* step and makes
-// it optional, so declining skips just that step (the audit uses this to
-// gate topgrade on a high-severity finding). commit, if set, is deferred work
-// that must wait for that answer: it becomes the next step's onAccept, so it
-// runs only if the confirm is accepted and is dropped on "no" or an abort.
-// Without a confirmNext it runs as soon as the result arrives. (The audit's
-// snapshot save: see audit.Result.Commit.) insertNext, if set, is a step to run
-// right after this one, inserted into the queue when the result arrives (the
-// orphan probe's removal: see findOrphans); it carries its own confirm. Both
-// are ignored on a result with err.
-type stepResult struct {
-	output      string
-	err         error
-	confirmNext string
-	commit      func() error
-	insertNext  *step
-}
-
-// stepCategory is s.category, defaulting to logCategoryCleanup when unset.
-func stepCategory(s step) logCategory {
-	if s.category == "" {
-		return logCategoryCleanup
-	}
-	return s.category
-}
-
-type stepStatus int
-
-const (
-	statusPending stepStatus = iota
-	statusRunning
-	statusOK
-	statusFailed
-	statusSkipped
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // stepState tracks a step's live status for the checklist view.
 type stepState struct {
-	step   step
-	status stepStatus
+	step   steps.Step
+	status steps.Status
 }
 
 // ── streaming ────────────────────────────────────────────────────────────────
@@ -148,15 +68,15 @@ func procOptions() proc.Options {
 // proc.Runner.Start), returning the running child so the caller can stop it
 // on abort (nil in a dry run or if the command never starts). Closing quit
 // releases its goroutines once nobody reads ch; nil never fires.
-func runStep(s step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
+func runStep(s steps.Step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
 	return proc.New(procOptions()).Start(stepSpec(s), ch, quit)
 }
 
 // stepSpec is the command a step runs: sudo gets -A or -n, and only
-// needsSudo steps see SUDO_ASKPASS (privilege.Sudo.Command). A dry run
+// NeedsPriv steps see SUDO_ASKPASS (privilege.Sudo.Command). A dry run
 // reports the step's own command line, without the sudo flag.
-func stepSpec(s step) proc.Spec {
-	return privileged().Command(append([]string{s.command}, s.args...), s.needsSudo)
+func stepSpec(s steps.Step) proc.Spec {
+	return privileged().Command(s.Argv, s.NeedsPriv)
 }
 
 // waitForStream is the pump: proc.Next as a tea.Cmd, its batch stamped with
@@ -181,17 +101,17 @@ func waitForStream(ch <-chan proc.Msg, quit <-chan struct{}, seq int) tea.Cmd {
 // bits become per-step confirm prompts instead of the bash script's inline
 // `gum confirm` calls, so the model can drive them uniformly.
 
-func fullCleanupSteps() []step {
-	steps := []step{
+func fullCleanupSteps() []steps.Step {
+	queue := []steps.Step{
 		// The AUR audit runs first, directly in front of topgrade, so a
 		// maintainer change can gate the update before yay builds anything
 		// (see auditStep). Read-only; one network call.
 		auditStep(),
 		// Then topgrade: update the system, then clean up the result. It's
 		// also non-destructive and abortable, so it doubles as a soft buffer
-		// before the destructive steps begin. needsSudo so credentials are
+		// before the destructive steps begin. NeedsPriv so credentials are
 		// primed + kept alive — topgrade shells out to sudo pacman itself.
-		// alwaysLog: it changes more than any other step (a full system
+		// AlwaysLog: it changes more than any other step (a full system
 		// upgrade), so its output is kept even when it succeeds.
 		//
 		// hyprpm is excluded and run as the LAST step instead: hyprpm drops the
@@ -199,20 +119,23 @@ func fullCleanupSteps() []step {
 		// the primed credentials mid-queue and force a re-prompt for every
 		// later sudo step.
 		{
-			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-			command: "topgrade", args: []string{"-y", "--disable", "hyprpm"}, needsSudo: true,
-			category: logCategoryTopgrade, alwaysLog: true,
+			ID:    steps.IDTopgrade,
+			Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
+			Argv: []string{"topgrade", "-y", "--disable", "hyprpm"}, NeedsPriv: true,
+			Category: logCategoryTopgrade, AlwaysLog: true,
 		},
 		{
-			title: "Cleaning package cache…", logLabel: "Old package cache cleaned",
-			command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true,
+			ID: steps.IDPaccache, Verb: steps.VerbPaccache,
+			Title: "Cleaning package cache…", LogLabel: "Old package cache cleaned",
+			Argv: []string{"sudo", "paccache", "-r"}, NeedsPriv: true,
 		},
 		{
-			title: "Deleting entire package cache…", logLabel: "Entire package cache removed",
-			command: "sudo", args: []string{"paccache", "-rk0"}, needsSudo: true,
-			confirm:   "Delete ENTIRE package cache? (can't reinstall without internet)",
-			optional:  true,
-			alwaysLog: true,
+			ID: steps.IDPaccacheWipe, Verb: steps.VerbPaccacheWipe,
+			Title: "Deleting entire package cache…", LogLabel: "Entire package cache removed",
+			Argv: []string{"sudo", "paccache", "-rk0"}, NeedsPriv: true,
+			Confirm:   "Delete ENTIRE package cache? (can't reinstall without internet)",
+			Optional:  true,
+			AlwaysLog: true,
 		},
 		// Orphans are looked for here, after the update, not when the queue
 		// is built: an upgrade can orphan packages of its own, and the list
@@ -221,8 +144,9 @@ func fullCleanupSteps() []step {
 		// findOrphans), so building this queue runs nothing.
 		orphanProbeStep(),
 		{
-			title: "Cleaning AUR cache…", logLabel: "AUR cache cleaned",
-			command: "yay", args: []string{"-Sc", "--noconfirm"},
+			ID:    steps.IDYayCache,
+			Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned",
+			Argv: []string{"yay", "-Sc", "--noconfirm"},
 		},
 		// Temp files are aged out by the system's own tmpfiles.d rules (on
 		// Arch: /tmp after 10 days, /var/tmp after 30), not a hand-rolled
@@ -231,55 +155,61 @@ func fullCleanupSteps() []step {
 		// `rm -rf` of anything two days old pulled those out from under live
 		// programs.
 		{
-			title: "Cleaning old temp files…", logLabel: "Temp files cleaned per tmpfiles.d rules",
-			command: "sudo", args: []string{"systemd-tmpfiles", "--clean"}, needsSudo: true,
-			alwaysLog: true,
+			ID: steps.IDTmpfiles, Verb: steps.VerbCleanTmp,
+			Title: "Cleaning old temp files…", LogLabel: "Temp files cleaned per tmpfiles.d rules",
+			Argv: []string{"sudo", "systemd-tmpfiles", "--clean"}, NeedsPriv: true,
+			AlwaysLog: true,
 		},
 		{
-			title: "Vacuuming logs…", logLabel: "Old logs removed",
-			command: "sudo", args: []string{"journalctl", "--vacuum-time=2weeks"}, needsSudo: true,
-			alwaysLog: true,
+			ID: steps.IDJournal, Verb: steps.VerbVacuumJournal,
+			Title: "Vacuuming logs…", LogLabel: "Old logs removed",
+			Argv: []string{"sudo", "journalctl", "--vacuum-time=2weeks"}, NeedsPriv: true,
+			AlwaysLog: true,
 		},
 		{
-			title: "Checking package integrity…", logLabel: "Package integrity check completed",
-			command: "sudo", args: []string{"pacman", "-Qkq"}, needsSudo: true,
+			ID: steps.IDIntegrity, Verb: steps.VerbCheckFiles,
+			Title: "Checking package integrity…", LogLabel: "Package integrity check completed",
+			Argv: []string{"sudo", "pacman", "-Qkq"}, NeedsPriv: true,
 		},
 	}
 
 	// Hyprland plugins go last: hyprpm drops the sudo ticket on exit, so after
 	// this step nothing must need sudo anymore (see the topgrade note above).
 	if _, err := exec.LookPath("hyprpm"); err == nil {
-		steps = append(steps, step{
-			title: "Updating Hyprland plugins…", logLabel: "Hyprland plugins updated",
-			command: "hyprpm", args: []string{"update"},
+		queue = append(queue, steps.Step{
+			ID:    steps.IDHyprpm,
+			Title: "Updating Hyprland plugins…", LogLabel: "Hyprland plugins updated",
+			Argv: []string{"hyprpm", "update"},
 		})
 	}
 
-	return steps
+	return queue
 }
 
-func topgradeSteps() []step {
-	return []step{
+func topgradeSteps() []steps.Step {
+	return []steps.Step{
 		// The same AUR audit gate as Full Cleanup: topgrade runs yay, so a
 		// maintainer change must be able to stop the update (see auditStep).
 		auditStep(),
-		// needsSudo: topgrade shells out to sudo internally, so prime +
+		// NeedsPriv: topgrade shells out to sudo internally, so prime +
 		// keep-alive credentials (otherwise its sudo prompt lands raw on the
 		// terminal).
 		{
-			title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-			command: "topgrade", args: []string{"-y"}, needsSudo: true,
-			category: logCategoryTopgrade, alwaysLog: true,
+			ID:    steps.IDTopgrade,
+			Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
+			Argv: []string{"topgrade", "-y"}, NeedsPriv: true,
+			Category: logCategoryTopgrade, AlwaysLog: true,
 		},
 	}
 }
 
-func clearUserCacheSteps() []step {
-	return []step{{
-		title: "Cleaning user cache…", logLabel: "User cache cleared",
-		command: "bash", args: []string{"-c", "rm -rf \"$HOME/.cache/\"*"},
-		confirm:   "Clear all user cache?",
-		alwaysLog: true,
+func clearUserCacheSteps() []steps.Step {
+	return []steps.Step{{
+		ID:    steps.IDUserCache,
+		Title: "Cleaning user cache…", LogLabel: "User cache cleared",
+		Argv:      []string{"bash", "-c", "rm -rf \"$HOME/.cache/\"*"},
+		Confirm:   "Clear all user cache?",
+		AlwaysLog: true,
 	}}
 }
 
@@ -357,8 +287,8 @@ func refreshSudo() tea.Cmd {
 // multi-select, or a notice when there's nothing to do.
 
 type discoveryMsg struct {
-	kind     string // "repair" | "downloads" | "services" | "audit"
-	pending  []step // steps to run (repair, downloads)
+	kind     string       // "repair" | "downloads" | "services" | "audit"
+	pending  []steps.Step // steps to run (repair, downloads)
 	services []string
 	report   string // rendered AUR-audit report (audit)
 	notice   string // set when there's nothing to do
@@ -416,11 +346,12 @@ func discoverRepair(candidates []string) tea.Cmd {
 		if len(pkgs) == 0 {
 			return discoveryMsg{kind: "repair", notice: "No broken packages found."}
 		}
-		return discoveryMsg{kind: "repair", pending: []step{{
-			title: "Reinstalling packages…", logLabel: "Package repair completed",
-			command: "sudo", args: append([]string{"pacman", "-S", "--noconfirm", "--"}, pkgs...),
-			needsSudo: true, optional: true, alwaysLog: true,
-			confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
+		return discoveryMsg{kind: "repair", pending: []steps.Step{{
+			ID: steps.IDRepair, Verb: steps.VerbRepair,
+			Title: "Reinstalling packages…", LogLabel: "Package repair completed",
+			Argv:      append([]string{"sudo", "pacman", "-S", "--noconfirm", "--"}, pkgs...),
+			NeedsPriv: true, Optional: true, AlwaysLog: true,
+			Confirm: fmt.Sprintf("Reinstall %d broken package(s)?", len(pkgs)),
 		}}}
 	}
 }
@@ -523,11 +454,12 @@ func parseBrokenPackages(out string) []string {
 // orphanProbeStep is Full Cleanup's orphan check: an in-process step that runs
 // after the update and, if it finds orphans, puts their removal right after
 // itself (see findOrphans). It only reads, so it runs in a dry run too.
-func orphanProbeStep() step {
-	return step{
-		title: "Finding orphaned packages…", logLabel: "Orphaned packages checked",
-		category: logCategoryOrphans,
-		run:      findOrphans,
+func orphanProbeStep() steps.Step {
+	return steps.Step{
+		ID: steps.IDOrphansProbe, Verb: steps.VerbPlanOrphans,
+		Title: "Finding orphaned packages…", LogLabel: "Orphaned packages checked",
+		Category: logCategoryOrphans,
+		Run:      func(ctx context.Context, _ steps.Env) steps.Result { return findOrphans(ctx) },
 	}
 }
 
@@ -537,17 +469,17 @@ func orphanProbeStep() step {
 // with exactly these names and a confirm that shows both counts; with none,
 // nothing follows. A failing query fails the step and inserts nothing: no
 // removal is offered without its preview.
-func findOrphans(ctx context.Context) stepResult {
+func findOrphans(ctx context.Context) steps.Result {
 	orphans, err := orphanPackages(ctx)
 	if err != nil {
-		return stepResult{output: "Couldn't list orphaned packages: " + err.Error(), err: err}
+		return steps.Result{Output: "Couldn't list orphaned packages: " + err.Error(), Err: err}
 	}
 	if len(orphans) == 0 {
-		return stepResult{output: "No orphaned packages."}
+		return steps.Result{Output: "No orphaned packages."}
 	}
 	cascade, err := orphanRemovalPreview(ctx, orphans)
 	if err != nil {
-		return stepResult{output: "Couldn't preview the orphan removal: " + err.Error(), err: err}
+		return steps.Result{Output: "Couldn't preview the orphan removal: " + err.Error(), Err: err}
 	}
 	msg := fmt.Sprintf("Remove %d orphaned package(s)?", len(orphans))
 	if total := len(cascade); total > len(orphans) {
@@ -559,13 +491,14 @@ func findOrphans(ctx context.Context) stepResult {
 	if len(cascade) > 0 {
 		out += ":\n  " + strings.Join(cascade, "\n  ")
 	}
-	return stepResult{output: out, insertNext: &step{
-		title: "Removing orphaned packages…", logLabel: "Orphaned packages removed",
-		command: "sudo", args: append([]string{"pacman", "-Rns", "--noconfirm", "--"}, orphans...),
-		needsSudo: true, optional: true,
-		confirm:   msg,
-		category:  logCategoryOrphans,
-		alwaysLog: true,
+	return steps.Result{Output: out, InsertNext: &steps.Step{
+		ID: steps.IDOrphansRemove, Verb: steps.VerbRemoveOrphans,
+		Title: "Removing orphaned packages…", LogLabel: "Orphaned packages removed",
+		Argv:      append([]string{"sudo", "pacman", "-Rns", "--noconfirm", "--"}, orphans...),
+		NeedsPriv: true, Optional: true,
+		Confirm:   msg,
+		Category:  logCategoryOrphans,
+		AlwaysLog: true,
 	}}
 }
 

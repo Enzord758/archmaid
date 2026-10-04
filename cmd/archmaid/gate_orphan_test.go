@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -112,7 +113,7 @@ func TestNoGateForUngatedAction(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	m := initialModel()
-	m.pending = []step{{title: "fix", logLabel: "fix", command: "sudo", needsSudo: true}}
+	m.pending = []steps.Step{{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true}}
 	got := update(m, sudoCachedMsg{cached: true})
 	if got.screen != screenRunning {
 		t.Fatalf("ungated action should run immediately, got screen=%d", got.screen)
@@ -148,7 +149,7 @@ func TestStaleGateClearedByActivate(t *testing.T) {
 func TestGateUncachedShowsPasswordNotGate(t *testing.T) {
 	m := initialModel()
 	m.gate = "Proceed with full cleanup?"
-	m.pending = []step{{title: "x", logLabel: "x", command: "sudo", needsSudo: true}}
+	m.pending = []steps.Step{{Title: "x", LogLabel: "x", Argv: []string{"sudo"}, NeedsPriv: true}}
 
 	got := update(m, sudoCachedMsg{cached: false})
 	if got.screen != screenPassword {
@@ -180,9 +181,9 @@ func shimPacman(t *testing.T, qdtqOutput string) {
 }
 
 // findStep returns the index of the step whose title contains sub, or -1.
-func findStep(steps []step, sub string) int {
-	for i, s := range steps {
-		if strings.Contains(s.title, sub) {
+func findStep(list []steps.Step, sub string) int {
+	for i, s := range list {
+		if strings.Contains(s.Title, sub) {
 			return i
 		}
 	}
@@ -194,12 +195,12 @@ func findStep(steps []step, sub string) int {
 // orphans.
 func TestFullCleanupAuditThenTopgrade(t *testing.T) {
 	shimPacman(t, "")
-	steps := fullCleanupSteps()
-	if len(steps) < 2 || steps[0].run == nil || steps[0].category != logCategoryAudit {
-		t.Fatalf("first step = %+v, want the in-process AUR audit", steps[0])
+	list := fullCleanupSteps()
+	if len(list) < 2 || list[0].Run == nil || list[0].Category != logCategoryAudit {
+		t.Fatalf("first step = %+v, want the in-process AUR audit", list[0])
 	}
-	if !strings.Contains(steps[1].title, "topgrade") {
-		t.Fatalf("second step = %+v, want topgrade (the audit must sit directly in front of it)", steps[1])
+	if !strings.Contains(list[1].Title, "topgrade") {
+		t.Fatalf("second step = %+v, want topgrade (the audit must sit directly in front of it)", list[1])
 	}
 }
 
@@ -208,27 +209,27 @@ func TestFullCleanupAuditThenTopgrade(t *testing.T) {
 // where the removal used to sit — and the built queue holds no removal step.
 func TestOrphanProbeAfterUpdate(t *testing.T) {
 	installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba\nlibb", ""), "hyprpm": nil})
-	steps := fullCleanupSteps()
-	probe := findStep(steps, "Finding orphaned")
+	list := fullCleanupSteps()
+	probe := findStep(list, "Finding orphaned")
 	if probe == -1 {
-		t.Fatalf("no orphan probe in %d-step queue", len(steps))
+		t.Fatalf("no orphan probe in %d-step queue", len(list))
 	}
-	s := steps[probe]
-	if s.run == nil || s.needsSudo || s.confirm != "" || s.category != logCategoryOrphans {
+	s := list[probe]
+	if s.Run == nil || s.NeedsPriv || s.Confirm != "" || s.Category != logCategoryOrphans {
 		t.Fatalf("probe = %+v, want an in-process, sudo-less, unconfirmed orphans step", s)
 	}
 	for _, before := range []string{"topgrade", "Cleaning package cache", "Deleting entire package cache"} {
-		if i := findStep(steps, before); i == -1 || i > probe {
+		if i := findStep(list, before); i == -1 || i > probe {
 			t.Fatalf("step %q at %d, want it before the probe at %d", before, i, probe)
 		}
 	}
-	if i := findStep(steps, "AUR cache"); i != probe+1 {
+	if i := findStep(list, "AUR cache"); i != probe+1 {
 		t.Fatalf("AUR cache step at %d, want directly after the probe (%d)", i, probe+1)
 	}
-	if i := findStep(steps, "Removing orphaned"); i != -1 {
+	if i := findStep(list, "Removing orphaned"); i != -1 {
 		t.Fatalf("removal step at %d in the built queue: it must come from the probe", i)
 	}
-	if last := steps[len(steps)-1]; last.command != "hyprpm" {
+	if last := list[len(list)-1]; last.Command() != "hyprpm" {
 		t.Fatalf("last step = %+v, want hyprpm", last)
 	}
 }
@@ -269,23 +270,23 @@ func TestActivateFullCleanupRunsNoPacman(t *testing.T) {
 func TestFindOrphansInsertsRemoval(t *testing.T) {
 	shimLog := installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba-1\nlibb-1\nlibc-1\nlibd-1", "")})
 	r := findOrphans(context.Background())
-	if r.err != nil || r.insertNext == nil {
+	if r.Err != nil || r.InsertNext == nil {
 		t.Fatalf("result = %+v, want a removal step to insert", r)
 	}
-	s := *r.insertNext
-	if s.command != "sudo" || !s.needsSudo || !s.optional || !s.alwaysLog || s.category != logCategoryOrphans {
+	s := *r.InsertNext
+	if s.Command() != "sudo" || !s.NeedsPriv || !s.Optional || !s.AlwaysLog || s.Category != logCategoryOrphans {
 		t.Fatalf("removal step = %+v, want an optional, always-logged sudo orphans step", s)
 	}
-	if got := strings.Join(s.args, " "); got != "pacman -Rns --noconfirm -- liba libb" {
+	if got := strings.Join(s.Args(), " "); got != "pacman -Rns --noconfirm -- liba libb" {
 		t.Fatalf("args = %q, want exactly the names the probe found", got)
 	}
 	want := "Remove 2 orphaned package(s) — 4 total once dependencies cascade?"
-	if s.confirm != want {
-		t.Fatalf("confirm = %q, want %q", s.confirm, want)
+	if s.Confirm != want {
+		t.Fatalf("confirm = %q, want %q", s.Confirm, want)
 	}
 	for _, line := range []string{"2 orphaned package(s): liba libb", "pacman -Rns would remove 4 package(s):", "  libd-1"} {
-		if !strings.Contains(r.output, line) {
-			t.Fatalf("output lacks %q:\n%s", line, r.output)
+		if !strings.Contains(r.Output, line) {
+			t.Fatalf("output lacks %q:\n%s", line, r.Output)
 		}
 	}
 	b, _ := os.ReadFile(shimLog)
@@ -299,7 +300,7 @@ func TestFindOrphansInsertsRemoval(t *testing.T) {
 func TestFindOrphansNoCascadeKeepsPlainCount(t *testing.T) {
 	installShims(t, Shims{"pacman": pacmanRules("liba\nlibb", "liba-1\nlibb-1", "")})
 	r := findOrphans(context.Background())
-	if r.insertNext == nil || r.insertNext.confirm != "Remove 2 orphaned package(s)?" {
+	if r.InsertNext == nil || r.InsertNext.Confirm != "Remove 2 orphaned package(s)?" {
 		t.Fatalf("result = %+v, want the plain-count confirm", r)
 	}
 }
@@ -309,7 +310,7 @@ func TestFindOrphansNoCascadeKeepsPlainCount(t *testing.T) {
 func TestFindOrphansNone(t *testing.T) {
 	shimLog := installShims(t, Shims{"pacman": pacmanRules("", "", "")})
 	r := findOrphans(context.Background())
-	if r.err != nil || r.insertNext != nil || r.output != "No orphaned packages." {
+	if r.Err != nil || r.InsertNext != nil || r.Output != "No orphaned packages." {
 		t.Fatalf("result = %+v, want a clean 'none'", r)
 	}
 	if b, _ := os.ReadFile(shimLog); string(b) != "pacman -Qdtq\n" {
@@ -329,11 +330,11 @@ func TestFindOrphansProbeFails(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			installShims(t, Shims{"pacman": rules})
 			r := findOrphans(context.Background())
-			if r.err == nil || r.insertNext != nil {
+			if r.Err == nil || r.InsertNext != nil {
 				t.Fatalf("result = %+v, want a failure with nothing to insert", r)
 			}
-			if !strings.HasPrefix(r.output, "Couldn't ") {
-				t.Fatalf("output = %q, want the reason", r.output)
+			if !strings.HasPrefix(r.Output, "Couldn't ") {
+				t.Fatalf("output = %q, want the reason", r.Output)
 			}
 		})
 	}
@@ -344,9 +345,9 @@ func TestFindOrphansProbeFails(t *testing.T) {
 func orphanProbeModel(t *testing.T) (model, tea.Cmd) {
 	t.Helper()
 	m := initialModel()
-	m.pending = []step{orphanProbeStep(), {title: "after", logLabel: "after", command: "true"}}
+	m.pending = []steps.Step{orphanProbeStep(), {Title: "after", LogLabel: "after", Argv: []string{"true"}}}
 	cmd := m.startQueue()
-	if m.current != 0 || m.queue[0].status != statusRunning || cmd == nil {
+	if m.current != 0 || m.queue[0].status != steps.Running || cmd == nil {
 		t.Fatalf("the probe should be running, got current=%d", m.current)
 	}
 	return m, cmd
@@ -361,11 +362,11 @@ func TestOrphanProbeInsertsConfirmedRemoval(t *testing.T) {
 	m, cmd := orphanProbeModel(t)
 
 	m = update(m, cmd())
-	if len(m.queue) != 3 || m.queue[0].status != statusOK {
+	if len(m.queue) != 3 || m.queue[0].status != steps.OK {
 		t.Fatalf("queue = %d steps, probe status %d; want the removal inserted after an ok probe", len(m.queue), m.queue[0].status)
 	}
-	if m.queue[1].step.title != "Removing orphaned packages…" || m.queue[2].step.title != "after" {
-		t.Fatalf("queue order = %q, %q, want the removal before the rest", m.queue[1].step.title, m.queue[2].step.title)
+	if m.queue[1].step.Title != "Removing orphaned packages…" || m.queue[2].step.Title != "after" {
+		t.Fatalf("queue order = %q, %q, want the removal before the rest", m.queue[1].step.Title, m.queue[2].step.Title)
 	}
 	want := "Remove 2 orphaned package(s) — 3 total once dependencies cascade?"
 	if m.screen != screenConfirm || m.confirmMsg != want || m.confirmYes {
@@ -373,7 +374,7 @@ func TestOrphanProbeInsertsConfirmedRemoval(t *testing.T) {
 	}
 
 	m = update(m, key("n"))
-	if m.queue[1].status != statusSkipped || m.skipped != 1 || m.current != 2 {
+	if m.queue[1].status != steps.Skipped || m.skipped != 1 || m.current != 2 {
 		t.Fatalf("declined removal: status=%d skipped=%d current=%d, want skipped and moved on", m.queue[1].status, m.skipped, m.current)
 	}
 	data, _ := os.ReadFile(logPath(logCategoryOrphans))
@@ -391,8 +392,8 @@ func TestOrphanProbeNoneInsertsNothing(t *testing.T) {
 	m, cmd := orphanProbeModel(t)
 
 	m = update(m, cmd())
-	if len(m.queue) != 2 || m.queue[0].status != statusOK || m.current != 1 ||
-		m.queue[1].status != statusRunning || m.screen != screenRunning {
+	if len(m.queue) != 2 || m.queue[0].status != steps.OK || m.current != 1 ||
+		m.queue[1].status != steps.Running || m.screen != screenRunning {
 		t.Fatalf("queue=%d probe=%d current=%d screen=%d, want the next step running",
 			len(m.queue), m.queue[0].status, m.current, m.screen)
 	}
@@ -407,7 +408,7 @@ func TestOrphanProbeFailureInsertsNothing(t *testing.T) {
 	m, cmd := orphanProbeModel(t)
 
 	m = update(m, cmd())
-	if len(m.queue) != 2 || m.queue[0].status != statusFailed || m.errs != 1 || m.current != 1 {
+	if len(m.queue) != 2 || m.queue[0].status != steps.Failed || m.errs != 1 || m.current != 1 {
 		t.Fatalf("queue=%d probe=%d errs=%d current=%d, want a failed probe and no insert",
 			len(m.queue), m.queue[0].status, m.errs, m.current)
 	}
@@ -447,8 +448,8 @@ func TestAbortDuringOrphanProbe(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the probe kept running after the abort: ctx didn't kill pacman")
 	}
-	if r := late.(stepResultMsg); r.err == nil {
-		t.Fatalf("aborted probe returned %+v, want an error", r.stepResult)
+	if r := late.(stepResultMsg); r.Err == nil {
+		t.Fatalf("aborted probe returned %+v, want an error", r.Result)
 	}
 	m = update(m, late)
 	if len(m.queue) != 2 || m.screen != screenMenu {
@@ -463,16 +464,16 @@ func TestAbortDuringOrphanProbe(t *testing.T) {
 func TestTempCleanupDefersToTmpfiles(t *testing.T) {
 	shimExclusivePath(t)
 
-	steps := fullCleanupSteps()
-	i := findStep(steps, "temp files")
+	list := fullCleanupSteps()
+	i := findStep(list, "temp files")
 	if i == -1 {
-		t.Fatalf("no temp-file step in %d-step queue", len(steps))
+		t.Fatalf("no temp-file step in %d-step queue", len(list))
 	}
-	s := steps[i]
-	if s.command != "sudo" || strings.Join(s.args, " ") != "systemd-tmpfiles --clean" {
-		t.Fatalf("temp step runs %s %v, want sudo systemd-tmpfiles --clean", s.command, s.args)
+	s := list[i]
+	if s.Command() != "sudo" || strings.Join(s.Args(), " ") != "systemd-tmpfiles --clean" {
+		t.Fatalf("temp step runs %s %v, want sudo systemd-tmpfiles --clean", s.Command(), s.Args())
 	}
-	if !s.needsSudo || !s.alwaysLog {
-		t.Fatalf("temp step needsSudo=%v alwaysLog=%v, want both", s.needsSudo, s.alwaysLog)
+	if !s.NeedsPriv || !s.AlwaysLog {
+		t.Fatalf("temp step needsSudo=%v alwaysLog=%v, want both", s.NeedsPriv, s.AlwaysLog)
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // useLogDir points the log dir at dir for one test.
@@ -43,8 +45,8 @@ func TestLogsAreSanitized(t *testing.T) {
 
 	m := fixedModel()
 	m.screen = screenRunning
-	m.queue = []stepState{{step: step{title: "up", logLabel: "Topgrade completed",
-		category: logCategoryTopgrade, alwaysLog: true}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{Title: "up", LogLabel: "Topgrade completed",
+		Category: logCategoryTopgrade, AlwaysLog: true}, status: steps.Running}}
 	m.current = 0
 	for _, line := range []string{"\x1b[1m:: \x1b[0mupgrading", "10%\r100%", "\x1b]52;c;ZXZpbA==\x07done"} {
 		next, _ := m.handleStream(streamBatchMsg{lines: []string{line}})

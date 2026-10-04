@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/audit"
@@ -115,7 +116,7 @@ func TestFullCleanupHitsTheAUROnce(t *testing.T) {
 		Answer{"password", "", "correct"},
 		Answer{"confirm", "ENTIRE package cache", "no"},
 	)
-	if got := d.Transcript(); d.m.queue[0].status != statusOK {
+	if got := d.Transcript(); d.m.queue[0].status != steps.OK {
 		t.Fatalf("audit step status=%d\n%s", d.m.queue[0].status, got)
 	}
 	if n := requests.Load(); n != 1 {
@@ -212,7 +213,7 @@ func TestAbortCancelsPrefetchedAudit(t *testing.T) {
 		if d := time.Since(start); d > cancelSlack {
 			t.Fatalf("audit step returned %s after the abort, want within %s", d, cancelSlack)
 		}
-		if got := update(m, msg); got.queue[0].status != statusRunning || got.errs != 0 {
+		if got := update(m, msg); got.queue[0].status != steps.Running || got.errs != 0 {
 			t.Fatalf("late result applied: status=%d errs=%d", got.queue[0].status, got.errs)
 		}
 	case <-time.After(5 * time.Second):

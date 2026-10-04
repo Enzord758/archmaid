@@ -12,6 +12,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── screens ──────────────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ const maxSudoAttempts = 3
 type menuItem struct {
 	label string
 	id    string
-	steps func() []step
+	steps func() []steps.Step
 	// gate, if set, is a confirm shown before a steps-action runs *only when
 	// sudo is already cached* — otherwise the sudo password prompt is the gate.
 	gate string
@@ -139,7 +140,7 @@ type model struct {
 	auditFetch *auditFetch
 
 	// confirm-modal state
-	pending    []step // queue waiting on a confirm
+	pending    []steps.Step // queue waiting on a confirm
 	confirmMsg string
 	confirmYes bool
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/audit"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── every audit setting is read on the model's goroutine ─────────────────────
@@ -70,12 +71,12 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	step := auditStep()
 	fetchDone := fetch.Done()
 	menuDone := make(chan discoveryMsg, 1)
-	stepDone := make(chan stepResult, 1)
+	stepDone := make(chan steps.Result, 1)
 	go func() { menuDone <- menu().(discoveryMsg) }()
-	go func() { stepDone <- step.run(context.Background()) }()
+	go func() { stepDone <- step.Run(context.Background(), steps.Env{}) }()
 
 	var msg discoveryMsg
-	var sr stepResult
+	var sr steps.Result
 	gotMenu, gotStep, gotFetch, arrivals, released := false, false, false, 0, false
 	deadline := time.Now().Add(10 * time.Second)
 	for i := 0; !(gotMenu && gotStep && gotFetch); i++ {
@@ -109,8 +110,8 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	if msg.notice != "" || !strings.Contains(msg.report, "1 foreign package") {
 		t.Fatalf("menu audit: notice=%q report=%q", msg.notice, msg.report)
 	}
-	if sr.err != nil || !strings.Contains(sr.output, "1 foreign package(s) checked") {
-		t.Fatalf("audit step: err=%v output=%q", sr.err, sr.output)
+	if sr.Err != nil || !strings.Contains(sr.Output, "1 foreign package(s) checked") {
+		t.Fatalf("audit step: err=%v output=%q", sr.Err, sr.Output)
 	}
 	if res, err := fetch.Wait(context.Background()); err != nil || res.Total != 1 {
 		t.Fatalf("prefetch: err=%v total=%d", err, res.Total)
@@ -144,7 +145,7 @@ func TestAuditCommitWritesTheSnapshotItRead(t *testing.T) {
 			if path == "menu" {
 				commit = runAudit(auditNow).commit
 			} else {
-				commit = auditStep().run(context.Background()).commit
+				commit = auditStep().Run(context.Background(), steps.Env{}).Commit
 			}
 			if commit == nil {
 				t.Fatal("a maintainer change should leave a commit to run")

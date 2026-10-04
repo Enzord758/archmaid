@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -324,7 +325,7 @@ type tuiTarget struct {
 	err     error      // the first fault; reported once pending is empty
 
 	queue0  *stepState // &queue[0] of the planned queue, to spot a new one
-	seen    []stepStatus
+	seen    []steps.Status
 	flags   []tt.Step // the plan as last reported
 	aborted bool      // an abort answer fired
 }
@@ -466,7 +467,7 @@ func (tg *tuiTarget) Reply(a tt.Answer) error {
 // line is deterministic.
 func (tg *tuiTarget) abort() error {
 	i := tg.m.current
-	if i < 0 || i >= len(tg.m.queue) || tg.m.queue[i].status != statusRunning {
+	if i < 0 || i >= len(tg.m.queue) || tg.m.queue[i].status != steps.Running {
 		return fmt.Errorf("abort with no running step (current %d)", i)
 	}
 	if tg.m.proc != nil {
@@ -499,7 +500,7 @@ func (tg *tuiTarget) update(msg tea.Msg) []tea.Cmd {
 	}
 	cur, seq, wasScreen := tg.m.current, tg.m.stepSeq, tg.m.screen
 	inserted := -1 // a step this Update put into the queue
-	var curStatus stepStatus
+	var curStatus steps.Status
 	if cur >= 0 && cur < len(tg.m.queue) {
 		curStatus = tg.m.queue[cur].status
 	}
@@ -535,12 +536,12 @@ func (tg *tuiTarget) update(msg tea.Msg) []tea.Cmd {
 		}
 	case stepResultMsg:
 		accepted := cur >= 0 && cur < len(tg.m.queue) && tg.m.queue[cur].status != curStatus
-		if accepted && msg.output != "" {
-			for _, l := range strings.Split(strings.TrimRight(msg.output, "\n"), "\n") {
+		if accepted && msg.Output != "" {
+			for _, l := range strings.Split(strings.TrimRight(msg.Output, "\n"), "\n") {
 				tg.push(tt.OutputLine{Index: cur, Text: l})
 			}
 		}
-		if accepted && msg.err == nil && msg.insertNext != nil {
+		if accepted && msg.Err == nil && msg.InsertNext != nil {
 			inserted = cur + 1
 		}
 	}
@@ -568,12 +569,12 @@ func (tg *tuiTarget) observe(inserted int) {
 		// The same queue, one step longer (it may have moved in memory):
 		// shift the bookkeeping behind the insertion point, not a new plan.
 		tg.queue0 = &q[0]
-		tg.seen = slices.Insert(tg.seen, inserted, statusPending)
+		tg.seen = slices.Insert(tg.seen, inserted, steps.Pending)
 		tg.flags = slices.Insert(tg.flags, inserted, planStep(q[inserted].step))
 	}
 	if len(q) > 0 && &q[0] != tg.queue0 {
 		tg.queue0 = &q[0]
-		tg.seen = make([]stepStatus, len(q))
+		tg.seen = make([]steps.Status, len(q))
 		tg.flags = make([]tt.Step, len(q))
 		for i, s := range q {
 			tg.flags[i] = planStep(s.step)
@@ -584,7 +585,7 @@ func (tg *tuiTarget) observe(inserted int) {
 		if i == inserted { // in place: after the step that inserted it finished
 			tg.push(tt.StepInserted{Index: i, Step: tg.flags[i]})
 		}
-		if st := q[i].status; st != tg.seen[i] && st >= statusOK {
+		if st := q[i].status; st != tg.seen[i] && st >= steps.OK {
 			tg.seen[i] = st
 			tg.push(tt.StepDone{Index: i, Status: planStatus(st)})
 		}
@@ -600,7 +601,7 @@ func (tg *tuiTarget) observe(inserted int) {
 	for i := range tg.seen {
 		if st := q[i].status; st != tg.seen[i] {
 			tg.seen[i] = st
-			if st != statusRunning {
+			if st != steps.Running {
 				tg.fail("step %d went back to %s — teach the recorder", i+1, planStatus(st))
 				continue
 			}
@@ -630,29 +631,30 @@ func (tg *tuiTarget) Outcome() (tt.Outcome, error) {
 }
 
 // planStep is what a transcript records of a step.
-func planStep(s step) tt.Step {
-	p := tt.Step{Title: s.title, InProc: s.run != nil, Sudo: s.needsSudo, Confirm: s.confirm != "",
-		Optional: s.optional, AlwaysLog: s.alwaysLog, Category: string(stepCategory(s))}
+func planStep(s steps.Step) tt.Step {
+	p := tt.Step{Title: s.Title, InProc: s.Run != nil, Sudo: s.NeedsPriv, Confirm: s.Confirm != "",
+		Optional: s.Optional, AlwaysLog: s.AlwaysLog, Category: string(s.LogCategory())}
 	if !p.InProc {
-		p.Argv = append([]string{s.command}, s.args...)
+		p.Argv = append([]string(nil), s.Argv...)
 	}
 	return p
 }
 
-func planStatus(s stepStatus) tt.Status {
+// planStatus is how the checklist draws s: every "didn't run" state is a skip.
+func planStatus(s steps.Status) tt.Status {
 	switch s {
-	case statusPending:
+	case steps.Pending:
 		return tt.Pending
-	case statusRunning:
+	case steps.Running:
 		return tt.Running
-	case statusOK:
+	case steps.OK:
 		return tt.OK
-	case statusFailed:
+	case steps.Failed:
 		return tt.Failed
-	case statusSkipped:
+	case steps.Skipped, steps.AuthRefused, steps.Aborted:
 		return tt.Skipped
 	}
-	panic(fmt.Sprintf("unknown stepStatus %d", s))
+	panic(fmt.Sprintf("unknown steps.Status %d", s))
 }
 
 // checkGolden compares got with testdata/transcripts/<name>.golden, or

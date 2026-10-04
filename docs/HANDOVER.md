@@ -24,7 +24,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
 | `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
-| `tasks.go` | `step`, `runStep`/`stepSpec` (a step's command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, the sudo probe/auth/keep-alive as `tea.Cmd`s over `privilege.Sudo` (`checkSudoCached`, `authSudo`, `refreshSudo`), discovery commands, `editConfig` |
+| `tasks.go` | `runStep`/`stepSpec` (a `steps.Step`'s command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, the sudo probe/auth/keep-alive as `tea.Cmd`s over `privilege.Sudo` (`checkSudoCached`, `authSudo`, `refreshSudo`), discovery commands, `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
 | `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`discoverAURAudit`/`menuAudit`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the model's prefetch (`auditFetch`, wrapping `audit.Fetch`), and the styled `renderAudit` |
 | `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process), thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering. `logs()`/`appendLog` are for the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
@@ -48,6 +48,7 @@ charmbracelet, except `internal/tui`):
 |---|---|
 | `internal/privilege` | getting root without prompting on the tty. `Privileged` (`Probe`, `Authenticate`, `Refresh`, `Command`) and its one implementation `Sudo{Wrapper}`: `sudo -n -v` probe and keep-alive, two-stage `Authenticate` (`CheckPassword` = `su -s /usr/bin/true <user>`, then `sudo -S -v`; lockout notices), `Command` (sudo gets `-A` or `-n`; `Env` strips `SUDO_ASKPASS` and gives the wrapper only to privileged steps). Askpass: `Listen(runtimeDir, exe, ServerOptions)` → `*Server` (`Requests`, `Wrapper`, `Close`; private 0700 dir, shell-quoted wrapper, per-client read deadline and `MaxPrompt` cap, `SO_PEERCRED` + start time per client), `*Request` (`Prompt`, `Peer`, `Answer(pw)` — su-checked before anything is written — and `Cancel`), `Verify(peer, stepPid, stepStart, VerifyOptions)` → `Requester`, `RunClient(sock, prompt)` (the `--askpass` helper) |
 | `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace}`, its combined output streamed as `Msg`s on one ordered channel, the dry-run echo, `ErrWaitDelay` → success on a clean exit), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
+| `internal/steps` | what a unit of work is: `Step` (stable `ID`, the root helper's `Verb` where one exists, `Argv` or an in-process `Run(ctx, Env) Result`, `Confirm`/`Optional`/`OnAccept`, `NeedsPriv`, `AlwaysLog`, log `Category`, `Prefetch`), `Result` (`Output`, `Err`, `ConfirmNext`, `Commit`, `InsertNext`; `Check` forbids gating and inserting at once), `Status` (`Pending` … `AuthRefused` — privilege not granted, one status whatever the reason, since pkexec exits 127 for every refusal — and `Aborted`) |
 
 ## Decisions and landmines
 
@@ -87,7 +88,7 @@ comments and `git log`; this is the "read before you touch it" list.
   `sudo -n -v` is only the cache probe and the 60 s keep-alive
   (`Sudo.Probe`, `Sudo.Refresh`).
 - **`SUDO_ASKPASS` goes only to steps that use sudo.** It is never set in
-  archmaid's own environment: `privilege.Sudo.Command`/`Env` give it to `needsSudo` steps (sudo
+  archmaid's own environment: `privilege.Sudo.Command`/`Env` give it to `NeedsPriv` steps (sudo
   steps and topgrade) and strips it from every other child, including a value
   inherited from the user's shell. The socket and wrapper live in a private
   0700 directory under `XDG_RUNTIME_DIR`. Without that variable askpass stays
@@ -101,7 +102,7 @@ comments and `git log`; this is the "read before you touch it" list.
   below is the control there; full closure comes with the P6 repo/AUR split.
 - **An askpass request is answered only from the running sudo step.** The
   server records each client's pid/uid (`SO_PEERCRED`) and start time;
-  `handleAskpass` hangs up unless a `needsSudo` step is running, and
+  `handleAskpass` hangs up unless a `NeedsPriv` step is running, and
   `privilege.Verify` requires: our uid; the same start time as at accept (pid
   not reused); `/proc/<pid>/exe` = `os.Executable()` (the wrapper execs us);
   a parent that is sudo; and a parent chain that reaches the step's child,
@@ -150,7 +151,7 @@ comments and `git log`; this is the "read before you touch it" list.
   (`findOrphans`) runs `pacman -Qdtq` once topgrade is done — an upgrade
   orphans packages of its own, and the list `-Rns --noconfirm` acts on must be
   the one the confirm showed — and, if there are any, inserts the removal right
-  behind itself (`stepResult.insertNext`), with exactly those names. No
+  behind itself (`steps.Result.InsertNext`), with exactly those names. No
   orphans: a line saying so, no confirm. A failed query fails the probe and
   inserts nothing. Don't move the query back into `fullCleanupSteps`: it ran
   synchronously in `Update` (a 130–200 ms freeze) and went stale over
@@ -162,7 +163,7 @@ comments and `git log`; this is the "read before you touch it" list.
   with `--print`; no root needed) and lists it in its output, under the
   confirm. Without the preview there's no removal: a failed `--print` fails the
   probe.
-- **Logging policy.** Ordinary steps log only failures. `alwaysLog` steps log
+- **Logging policy.** Ordinary steps log only failures. `AlwaysLog` steps log
   success too, and a `SKIP … (declined)` entry when their confirm is declined:
   anything that removes or overwrites something, topgrade (the step that changes
   the most), and the AUR audit. That keeps what those steps did auditable from
@@ -214,7 +215,7 @@ comments and `git log`; this is the "read before you touch it" list.
   Any other entry shape (null, a number, no `maintainer`) is corrupt.
 - **Saving the snapshot is the acknowledgement, so it happens only on accept.**
   `audit.Run` never writes; callers run `Result.Commit`. The audit step hands it to
-  topgrade's gate as `step.onAccept`: "yes" saves (logged `ACCEPT`), "no" or an
+  topgrade's gate as `Step.OnAccept`: "yes" saves (logged `ACCEPT`), "no" or an
   abort drops it, so the same change gates the next run too. With nothing high
   it saves at once. The menu audit saves everything *except* the high findings
   straight away; `a` on the report accepts those. Don't move the save back
@@ -253,7 +254,7 @@ comments and `git log`; this is the "read before you touch it" list.
   switching it to another runner touches only the glue.
 - **Full Cleanup and Run topgrade open with the audit, directly in front of
   topgrade** (one `auditStep`, gated identically). It runs
-  as an in-process step (`step.run`, a `tea.Cmd` — not a shell command, so
+  as an in-process step (`Step.Run`, run as a `tea.Cmd` — not a shell command, so
   there's nothing to signal: an abort cancels the step's `ctx`, which ends the
   pacman query and the RPC at once, and `stepSeq` drops the late result). The
   whole audit has one deadline, `auditDeadline` (20 s for the query and every
@@ -269,8 +270,9 @@ comments and `git log`; this is the "read before you touch it" list.
   passwords don't, because the queue still runs and the audit step (no sudo)
   still reports from it. A
   high-severity finding (adoption, maintainer change, added co-maintainer) uses
-  `stepResult.confirmNext` to put a named confirm in front of topgrade and make it
-  optional, so "no" skips only the update and the cleanup carries on. An
+  `Result.ConfirmNext` to put a named confirm in front of topgrade and make it
+  optional (a result may not also set `InsertNext`: `Result.Check` fails the
+  step rather than let the confirm land on an inserted step), so "no" skips only the update and the cleanup carries on. An
   unreachable AUR fails the audit step but never gates. In-process steps run even
   in a dry run, so they must be read-only apart from what they gate on `dryRun`
   themselves.
@@ -331,7 +333,7 @@ comments and `git log`; this is the "read before you touch it" list.
   with one `SetContent`, or drops it if the seq is stale. A slow producer gets
   one-line batches; a flood gets full ones, so the UI catches up by itself. The
   full output still accumulates in `m.buf` (what `finishStep` logs, so
-  `alwaysLog` steps keep everything); the viewport gets only the newest
+  `AlwaysLog` steps keep everything); the viewport gets only the newest
   `maxVisibleLines` (2000) from `m.tail`. One update per line with the whole
   buffer re-split each time was quadratic: 5k lines cost ~1 s of CPU and
   ~1.8 GB of allocations, 20k lines ~5 s (`BenchmarkStreamView*`, now ~5 ms

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -350,8 +351,8 @@ func TestRepairRechecksOnlyCandidatesAsRoot(t *testing.T) {
 		t.Fatalf("a cached ticket should go straight to the recheck, got screen=%d", m.screen)
 	}
 	dm := msg.(discoveryMsg)
-	if len(dm.pending) != 1 || !slices.Contains(dm.pending[0].args, "bad") ||
-		slices.Contains(dm.pending[0].args, "amd-ucode") || slices.Contains(dm.pending[0].args, "nfs-utils") {
+	if len(dm.pending) != 1 || !slices.Contains(dm.pending[0].Args(), "bad") ||
+		slices.Contains(dm.pending[0].Args(), "amd-ucode") || slices.Contains(dm.pending[0].Args(), "nfs-utils") {
 		t.Fatalf("want a reinstall of just bad, got %+v", dm.pending)
 	}
 	m = update(m, msg)
@@ -438,8 +439,8 @@ func TestRepairAuthGiveUpShowsNotice(t *testing.T) {
 // probing again.
 func TestRepairDiscoveryDoesNotReprobeSudo(t *testing.T) {
 	m := repairModel(t)
-	next, _ := m.Update(discoveryMsg{kind: "repair", pending: []step{
-		{title: "fix", logLabel: "fix", command: "sudo", needsSudo: true},
+	next, _ := m.Update(discoveryMsg{kind: "repair", pending: []steps.Step{
+		{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true},
 	}})
 	m = next.(model)
 	if m.screen != screenRunning {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/audit"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── Full Cleanup's AUR audit step + topgrade alwaysLog ────────────────────────
@@ -20,21 +21,21 @@ import (
 
 // harmlessTopgrade has topgrade's logging shape but runs `true`, so a test that
 // gets the gating wrong can't start a real system update.
-func harmlessTopgrade() step {
-	return step{
-		title: "Updating system with topgrade…", logLabel: "Topgrade completed",
-		command: "true", category: logCategoryTopgrade, alwaysLog: true,
+func harmlessTopgrade() steps.Step {
+	return steps.Step{
+		Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
+		Argv: []string{"true"}, Category: logCategoryTopgrade, AlwaysLog: true,
 	}
 }
 
 // startAudit builds a model running [audit, next...], executes the audit's
 // Cmd synchronously, and feeds the result back through Update.
-func startAudit(t *testing.T, next ...step) model {
+func startAudit(t *testing.T, next ...steps.Step) model {
 	t.Helper()
 	m := initialModel()
-	m.pending = append([]step{auditStep()}, next...)
+	m.pending = append([]steps.Step{auditStep()}, next...)
 	cmd := m.startQueue()
-	if m.queue[0].status != statusRunning || cmd == nil {
+	if m.queue[0].status != steps.Running || cmd == nil {
 		t.Fatalf("audit step should be running with a Cmd, status=%d", m.queue[0].status)
 	}
 	msg, ok := cmd().(stepResultMsg)
@@ -63,13 +64,13 @@ func takeoverFixture(t *testing.T) {
 func TestFullCleanupAuditStepShape(t *testing.T) {
 	shimPacman(t, "")
 	s := fullCleanupSteps()[0]
-	if s.run == nil || s.command != "" {
+	if s.Run == nil || s.Command() != "" {
 		t.Fatalf("audit step must be in-process, got %+v", s)
 	}
-	if s.category != logCategoryAudit || !s.alwaysLog {
-		t.Fatalf("audit step must log every outcome to audit.log, got category=%q alwaysLog=%v", s.category, s.alwaysLog)
+	if s.Category != logCategoryAudit || !s.AlwaysLog {
+		t.Fatalf("audit step must log every outcome to audit.log, got category=%q alwaysLog=%v", s.Category, s.AlwaysLog)
 	}
-	if s.needsSudo || s.confirm != "" {
+	if s.NeedsPriv || s.Confirm != "" {
 		t.Fatalf("audit step needs no sudo and no confirm, got %+v", s)
 	}
 }
@@ -78,9 +79,9 @@ func TestTopgradeStepsAlwaysLog(t *testing.T) {
 	shimPacman(t, "")
 	full := fullCleanupSteps()
 	i := findStep(full, "topgrade")
-	for name, s := range map[string]step{"standalone": standaloneTopgrade(), "Full Cleanup": full[i]} {
-		if !s.alwaysLog || s.category != logCategoryTopgrade {
-			t.Errorf("%s topgrade: alwaysLog=%v category=%q, want true/topgrade", name, s.alwaysLog, s.category)
+	for name, s := range map[string]steps.Step{"standalone": standaloneTopgrade(), "Full Cleanup": full[i]} {
+		if !s.AlwaysLog || s.Category != logCategoryTopgrade {
+			t.Errorf("%s topgrade: alwaysLog=%v category=%q, want true/topgrade", name, s.AlwaysLog, s.Category)
 		}
 	}
 }
@@ -90,16 +91,16 @@ func TestRunAuditStepResults(t *testing.T) {
 	t.Run("high finding gates the next step", func(t *testing.T) {
 		takeoverFixture(t)
 		r := runAuditStep(context.Background())
-		if r.err != nil {
-			t.Fatalf("err = %v", r.err)
+		if r.Err != nil {
+			t.Fatalf("err = %v", r.Err)
 		}
-		if r.confirmNext != "victim changed maintainer since the last audit. Update anyway?" {
-			t.Fatalf("confirmNext = %q", r.confirmNext)
+		if r.ConfirmNext != "victim changed maintainer since the last audit. Update anyway?" {
+			t.Fatalf("confirmNext = %q", r.ConfirmNext)
 		}
-		if !strings.Contains(r.output, "[HIGH] victim") || !strings.Contains(r.output, "bob → mallory") {
-			t.Fatalf("output:\n%s", r.output)
+		if !strings.Contains(r.Output, "[HIGH] victim") || !strings.Contains(r.Output, "bob → mallory") {
+			t.Fatalf("output:\n%s", r.Output)
 		}
-		if strings.Contains(r.output, "\x1b[") {
+		if strings.Contains(r.Output, "\x1b[") {
 			t.Fatal("step output is logged, so it must be plain text (no ANSI)")
 		}
 	})
@@ -108,18 +109,18 @@ func TestRunAuditStepResults(t *testing.T) {
 		shimPacmanForeign(t, "steady\n")
 		fakeAUR(t, map[string]aurInfo{"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10}})
 		r := runAuditStep(context.Background())
-		if r.err != nil || r.confirmNext != "" {
-			t.Fatalf("err=%v confirmNext=%q, want neither", r.err, r.confirmNext)
+		if r.Err != nil || r.ConfirmNext != "" {
+			t.Fatalf("err=%v confirmNext=%q, want neither", r.Err, r.ConfirmNext)
 		}
-		if !strings.Contains(r.output, "First audit") {
-			t.Fatalf("first audit should say it saved the baseline:\n%s", r.output)
+		if !strings.Contains(r.Output, "First audit") {
+			t.Fatalf("first audit should say it saved the baseline:\n%s", r.Output)
 		}
 	})
 	t.Run("no foreign packages is a clean pass", func(t *testing.T) {
 		auditEnv(t)
 		shimPacmanForeign(t, "")
 		r := runAuditStep(context.Background())
-		if r.err != nil || r.confirmNext != "" || !strings.Contains(r.output, "nothing to audit") {
+		if r.Err != nil || r.ConfirmNext != "" || !strings.Contains(r.Output, "nothing to audit") {
 			t.Fatalf("got %+v", r)
 		}
 	})
@@ -127,7 +128,7 @@ func TestRunAuditStepResults(t *testing.T) {
 		auditEnv(t)
 		shimPacmanForeign(t, "something\n") // aurRPCURL stays TestMain's closed port
 		r := runAuditStep(context.Background())
-		if r.err == nil || r.confirmNext != "" || !strings.Contains(r.output, "Couldn't reach the AUR") {
+		if r.Err == nil || r.ConfirmNext != "" || !strings.Contains(r.Output, "Couldn't reach the AUR") {
 			t.Fatalf("got %+v", r)
 		}
 	})
@@ -137,10 +138,10 @@ func TestRunAuditStepResults(t *testing.T) {
 // front of topgrade; the report is in the output pane and on record.
 func TestAuditHighFindingGatesTopgrade(t *testing.T) {
 	takeoverFixture(t)
-	got := startAudit(t, harmlessTopgrade(), step{title: "after", logLabel: "after", command: "true"})
+	got := startAudit(t, harmlessTopgrade(), steps.Step{Title: "after", LogLabel: "after", Argv: []string{"true"}})
 
-	if got.queue[0].status != statusOK {
-		t.Fatalf("audit status = %d, want statusOK", got.queue[0].status)
+	if got.queue[0].status != steps.OK {
+		t.Fatalf("audit status = %d, want steps.OK", got.queue[0].status)
 	}
 	if got.screen != screenConfirm || got.bg != screenRunning {
 		t.Fatalf("expected the gate confirm over the running screen, got screen=%d bg=%d", got.screen, got.bg)
@@ -148,10 +149,10 @@ func TestAuditHighFindingGatesTopgrade(t *testing.T) {
 	if !strings.Contains(got.confirmMsg, "changed maintainer") || got.confirmYes {
 		t.Fatalf("confirm = %q (yes=%v), want the maintainer warning defaulting to No", got.confirmMsg, got.confirmYes)
 	}
-	if next := got.queue[1].step; !next.optional || next.confirm == "" {
+	if next := got.queue[1].step; !next.Optional || next.Confirm == "" {
 		t.Fatalf("topgrade should now be an optional, confirmed step, got %+v", next)
 	}
-	if got.queue[1].status != statusPending {
+	if got.queue[1].status != steps.Pending {
 		t.Fatal("topgrade must not have started before the confirm is answered")
 	}
 	if !strings.Contains(got.buf.String(), "[HIGH] victim") {
@@ -170,8 +171,8 @@ func TestDecliningGatedTopgradeSkipsOnlyTheUpdate(t *testing.T) {
 	gated := startAudit(t, harmlessTopgrade())
 
 	got := update(gated, key("n"))
-	if got.queue[1].status != statusSkipped {
-		t.Fatalf("topgrade status = %d, want statusSkipped", got.queue[1].status)
+	if got.queue[1].status != steps.Skipped {
+		t.Fatalf("topgrade status = %d, want steps.Skipped", got.queue[1].status)
 	}
 	if got.aborted {
 		t.Fatal("declining the update must not abort the rest of the cleanup")
@@ -192,13 +193,13 @@ func TestAuditFailureDoesNotGate(t *testing.T) {
 	shimPacmanForeign(t, "something\n")
 	got := startAudit(t, harmlessTopgrade())
 
-	if got.queue[0].status != statusFailed || got.errs != 1 {
+	if got.queue[0].status != steps.Failed || got.errs != 1 {
 		t.Fatalf("audit status=%d errs=%d, want failed/1", got.queue[0].status, got.errs)
 	}
-	if got.queue[1].step.confirm != "" {
-		t.Fatalf("a failed audit must not gate topgrade, confirm=%q", got.queue[1].step.confirm)
+	if got.queue[1].step.Confirm != "" {
+		t.Fatalf("a failed audit must not gate topgrade, confirm=%q", got.queue[1].step.Confirm)
 	}
-	if got.queue[1].status != statusRunning {
+	if got.queue[1].status != steps.Running {
 		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
 	}
 	log, _ := os.ReadFile(logPath(logCategoryAudit))
@@ -212,18 +213,18 @@ func TestAuditFailureDoesNotGate(t *testing.T) {
 func TestStaleStepResultIsDropped(t *testing.T) {
 	m := initialModel()
 	m.screen = screenRunning
-	m.queue = []stepState{{step: auditStep(), status: statusRunning}}
+	m.queue = []stepState{{step: auditStep(), status: steps.Running}}
 	m.current = 0
 	m.stepSeq = 2
 
-	stale := stepResultMsg{seq: 1, stepResult: stepResult{err: errors.New("old run")}}
-	if got := update(m, stale); got.queue[0].status != statusRunning || got.errs != 0 {
+	stale := stepResultMsg{seq: 1, Result: steps.Result{Err: errors.New("old run")}}
+	if got := update(m, stale); got.queue[0].status != steps.Running || got.errs != 0 {
 		t.Fatalf("stale result applied: status=%d errs=%d", got.queue[0].status, got.errs)
 	}
 
 	m.screen = screenMenu // aborted
-	late := stepResultMsg{seq: 2, stepResult: stepResult{err: errors.New("late")}}
-	if got := update(m, late); got.queue[0].status != statusRunning || got.errs != 0 {
+	late := stepResultMsg{seq: 2, Result: steps.Result{Err: errors.New("late")}}
+	if got := update(m, late); got.queue[0].status != steps.Running || got.errs != 0 {
 		t.Fatalf("late result after abort applied: status=%d errs=%d", got.queue[0].status, got.errs)
 	}
 }
@@ -237,7 +238,7 @@ func TestAuditStepRunsInDryRunAndLogsOnce(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	got := startAudit(t)
-	if got.queue[0].status != statusOK || got.screen != screenSummary {
+	if got.queue[0].status != steps.OK || got.screen != screenSummary {
 		t.Fatalf("status=%d screen=%d", got.queue[0].status, got.screen)
 	}
 	after, _ := os.ReadFile(baselinePath())
@@ -264,7 +265,7 @@ func TestAuditStepDoesNotSaveByItself(t *testing.T) {
 	shimPacmanForeign(t, "steady\n")
 	fakeAUR(t, map[string]aurInfo{"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10}})
 
-	if r := runAuditStep(context.Background()); r.commit == nil {
+	if r := runAuditStep(context.Background()); r.Commit == nil {
 		t.Fatal("a real run's audit should hand back a snapshot commit")
 	}
 	if _, state := loadBaseline(); state != audit.BaselineMissing {
@@ -296,7 +297,7 @@ func TestDecliningGateKeepsTheAlarm(t *testing.T) {
 func TestAcceptingGateRecordsTheChange(t *testing.T) {
 	takeoverFixture(t)
 	got := update(startAudit(t, harmlessTopgrade()), key("y"))
-	if got.queue[1].status != statusRunning {
+	if got.queue[1].status != steps.Running {
 		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
 	}
 	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "mallory" {
@@ -307,8 +308,8 @@ func TestAcceptingGateRecordsTheChange(t *testing.T) {
 	}
 
 	again := startAudit(t, harmlessTopgrade())
-	if again.queue[1].step.confirm != "" || again.queue[1].status != statusRunning {
-		t.Fatalf("an accepted change must not gate again, confirm=%q status=%d", again.queue[1].step.confirm, again.queue[1].status)
+	if again.queue[1].step.Confirm != "" || again.queue[1].status != steps.Running {
+		t.Fatalf("an accepted change must not gate again, confirm=%q status=%d", again.queue[1].step.Confirm, again.queue[1].status)
 	}
 }
 

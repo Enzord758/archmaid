@@ -35,13 +35,13 @@ func shimExclusivePath(t *testing.T, names ...string) {
 func TestFullCleanupDisablesHyprpmInTopgrade(t *testing.T) {
 	shimExclusivePath(t, "hyprpm")
 
-	steps := fullCleanupSteps()
-	i := findStep(steps, "topgrade")
+	list := fullCleanupSteps()
+	i := findStep(list, "topgrade")
 	if i == -1 {
-		t.Fatalf("no topgrade step in %d-step queue", len(steps))
+		t.Fatalf("no topgrade step in %d-step queue", len(list))
 	}
-	tg := steps[i]
-	args := strings.Join(tg.args, " ")
+	tg := list[i]
+	args := strings.Join(tg.Args(), " ")
 	if !strings.Contains(args, "--disable hyprpm") {
 		t.Fatalf("topgrade args = %q, want --disable hyprpm", args)
 	}
@@ -52,12 +52,12 @@ func TestFullCleanupDisablesHyprpmInTopgrade(t *testing.T) {
 func TestHyprpmStepLastWhenInstalled(t *testing.T) {
 	shimExclusivePath(t, "hyprpm")
 
-	steps := fullCleanupSteps()
-	last := steps[len(steps)-1]
-	if last.command != "hyprpm" || len(last.args) != 1 || last.args[0] != "update" {
+	list := fullCleanupSteps()
+	last := list[len(list)-1]
+	if last.Command() != "hyprpm" || len(last.Args()) != 1 || last.Args()[0] != "update" {
 		t.Fatalf("last step = %+v, want hyprpm update", last)
 	}
-	if last.needsSudo {
+	if last.NeedsPriv {
 		t.Fatal("hyprpm step must not be needsSudo (it elevates internally)")
 	}
 }
@@ -67,14 +67,14 @@ func TestHyprpmStepLastWhenInstalled(t *testing.T) {
 func TestHyprpmStepOmittedWhenNotInstalled(t *testing.T) {
 	shimExclusivePath(t) // pacman only — no hyprpm
 
-	steps := fullCleanupSteps()
-	for _, s := range steps {
-		if s.command == "hyprpm" {
+	list := fullCleanupSteps()
+	for _, s := range list {
+		if s.Command() == "hyprpm" {
 			t.Fatalf("hyprpm step present despite hyprpm not installed: %+v", s)
 		}
 	}
-	last := steps[len(steps)-1]
-	if !strings.Contains(last.title, "integrity") {
+	last := list[len(list)-1]
+	if !strings.Contains(last.Title, "integrity") {
 		t.Fatalf("last step = %+v, want the integrity check", last)
 	}
 }
@@ -84,7 +84,7 @@ func TestHyprpmStepOmittedWhenNotInstalled(t *testing.T) {
 // is harmless there.
 func TestStandaloneTopgradeKeepsHyprpm(t *testing.T) {
 	tg := standaloneTopgrade()
-	if strings.Contains(strings.Join(tg.args, " "), "--disable") {
-		t.Fatalf("standalone topgrade args = %v, want no --disable", tg.args)
+	if strings.Contains(strings.Join(tg.Args(), " "), "--disable") {
+		t.Fatalf("standalone topgrade args = %v, want no --disable", tg.Args())
 	}
 }

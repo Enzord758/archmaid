@@ -54,7 +54,7 @@ func wantHigh(t *testing.T, s audit.State, reasons ...string) {
 func TestAuditStateStepTakeoverDeclineThenAccept(t *testing.T) {
 	stateTakeoverFixture(t)
 	r := runAuditStep(context.Background())
-	if r.confirmNext == "" || r.commit == nil {
+	if r.ConfirmNext == "" || r.Commit == nil {
 		t.Fatalf("the takeover should gate: %+v", r)
 	}
 	// Declined: the commit never runs and the finding stays listed.
@@ -67,7 +67,7 @@ func TestAuditStateStepTakeoverDeclineThenAccept(t *testing.T) {
 	runAuditStep(context.Background())
 	wantHigh(t, readState(t), "maintainer bob → mallory")
 	// Accepted: cleared.
-	if err := r.commit(); err != nil {
+	if err := r.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	wantHigh(t, readState(t))

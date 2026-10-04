@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // The log itself lives in internal/logstore; this file is the TUI's seam to it.
@@ -130,7 +131,7 @@ var logCategoryLabels = logstore.Categories
 func (m *model) queueOutcome(declined bool) string {
 	ran := false
 	for _, q := range m.queue {
-		if q.status == statusOK || q.status == statusFailed {
+		if q.status == steps.OK || q.status == steps.Failed {
 			ran = true
 		}
 	}
@@ -156,7 +157,8 @@ func (m *model) recordRun(outcome string) {
 	m.runDone = true
 	skipped := 0
 	for _, q := range m.queue {
-		if q.status == statusSkipped {
+		switch q.status {
+		case steps.Skipped, steps.AuthRefused, steps.Aborted:
 			skipped++
 		}
 	}

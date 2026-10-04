@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // key builds a KeyMsg from a string the same way handleKey matches on it.
@@ -70,7 +71,7 @@ func TestDryRunLogsEveryStep(t *testing.T) {
 
 	m := initialModel()
 	m.screen = screenRunning
-	m.queue = []stepState{{step: step{logLabel: "Test step"}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{LogLabel: "Test step"}, status: steps.Running}}
 	m.current = 0
 	m.buf.WriteString("[dry-run] would run: echo hi\n")
 
@@ -121,17 +122,17 @@ func TestDryRunFullCleanupExecutesNothing(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	for _, s := range fullCleanupSteps() {
-		if s.run != nil {
+		if s.Run != nil {
 			continue // in-process (the AUR audit): read-only by contract, covered in fullcleanup_audit_test.go
 		}
 		ch := make(chan proc.Msg, 8)
 		runStep(s, ch, nil)
 		lines, err := drainStep(ch)
 		if err != nil {
-			t.Fatalf("dry-run step %q errored: %v", s.title, err)
+			t.Fatalf("dry-run step %q errored: %v", s.Title, err)
 		}
 		if len(lines) != 1 || !strings.Contains(lines[0], "would run") {
-			t.Fatalf("step %q: expected exactly one 'would run' line, got %v", s.title, lines)
+			t.Fatalf("step %q: expected exactly one 'would run' line, got %v", s.Title, lines)
 		}
 	}
 }
@@ -154,7 +155,7 @@ func TestCheckSudoCachedDryRunNeverProbes(t *testing.T) {
 // running queue without visiting the password screen.
 func TestSudoCachedSkipsPrompt(t *testing.T) {
 	m := initialModel()
-	m.pending = []step{{title: "x", logLabel: "x", command: "true", needsSudo: true}}
+	m.pending = []steps.Step{{Title: "x", LogLabel: "x", Argv: []string{"true"}, NeedsPriv: true}}
 
 	got := update(m, sudoCachedMsg{cached: true})
 	if got.screen != screenRunning {
@@ -201,7 +202,7 @@ func TestSudoThreeStrikesSkipsAndLogs(t *testing.T) {
 	defer func() { logDir = oldLogDir }()
 
 	m := initialModel()
-	m.pending = []step{{title: "root job", logLabel: "needs root", needsSudo: true, command: "true"}}
+	m.pending = []steps.Step{{Title: "root job", LogLabel: "needs root", NeedsPriv: true, Argv: []string{"true"}}}
 
 	got := m
 	for i := 0; i < maxSudoAttempts; i++ {
@@ -213,8 +214,8 @@ func TestSudoThreeStrikesSkipsAndLogs(t *testing.T) {
 	if got.screen != screenSummary {
 		t.Fatalf("queue should have run to the summary, got screen=%d", got.screen)
 	}
-	if got.queue[0].status != statusSkipped {
-		t.Fatalf("sudo step status = %d, want statusSkipped", got.queue[0].status)
+	if got.queue[0].status != steps.AuthRefused {
+		t.Fatalf("sudo step status = %d, want steps.AuthRefused", got.queue[0].status)
 	}
 	if got.errs != 0 {
 		t.Fatalf("errs = %d, want 0 (a skip is not a failure)", got.errs)
@@ -234,8 +235,8 @@ func TestSudoThreeStrikesSkipsAndLogs(t *testing.T) {
 // on the confirm screen before running.
 func TestConfirmStepShowsModal(t *testing.T) {
 	m := initialModel()
-	m.pending = []step{{title: "risky", logLabel: "risky", command: "true",
-		confirm: "Are you sure?", optional: true}}
+	m.pending = []steps.Step{{Title: "risky", LogLabel: "risky", Argv: []string{"true"},
+		Confirm: "Are you sure?", Optional: true}}
 
 	got := update(m, sudoCachedMsg{cached: true}) // no sudo needed, but this drives startQueue
 	// startQueue → advance → confirm screen
@@ -252,8 +253,8 @@ func TestConfirmStepShowsModal(t *testing.T) {
 func TestConfirmOptionalNoSkips(t *testing.T) {
 	m := initialModel()
 	m.queue = []stepState{
-		{step: step{title: "opt", confirm: "?", optional: true}, status: statusPending},
-		{step: step{title: "next", command: "true"}, status: statusPending},
+		{step: steps.Step{Title: "opt", Confirm: "?", Optional: true}, status: steps.Pending},
+		{step: steps.Step{Title: "next", Argv: []string{"true"}}, status: steps.Pending},
 	}
 	m.current = 0
 	m.screen = screenConfirm
@@ -261,7 +262,7 @@ func TestConfirmOptionalNoSkips(t *testing.T) {
 
 	next, _ := m.resolveConfirm()
 	got := next.(model)
-	if got.queue[0].status != statusSkipped {
+	if got.queue[0].status != steps.Skipped {
 		t.Fatalf("optional step should be skipped, status=%d", got.queue[0].status)
 	}
 	if got.current != 1 {
@@ -275,8 +276,8 @@ func TestConfirmOptionalNoSkips(t *testing.T) {
 func TestConfirmNonOptionalNoAborts(t *testing.T) {
 	m := initialModel()
 	m.queue = []stepState{
-		{step: step{title: "must", confirm: "?", optional: false}, status: statusPending},
-		{step: step{title: "next"}, status: statusPending},
+		{step: steps.Step{Title: "must", Confirm: "?", Optional: false}, status: steps.Pending},
+		{step: steps.Step{Title: "next"}, status: steps.Pending},
 	}
 	m.current = 0
 	m.screen = screenConfirm
@@ -290,7 +291,7 @@ func TestConfirmNonOptionalNoAborts(t *testing.T) {
 	if !got.aborted {
 		t.Fatal("aborted flag should be set")
 	}
-	if got.queue[0].status != statusSkipped || got.queue[1].status != statusSkipped {
+	if got.queue[0].status != steps.Skipped || got.queue[1].status != steps.Skipped {
 		t.Fatalf("aborted steps should be skipped, got %d and %d",
 			got.queue[0].status, got.queue[1].status)
 	}
@@ -306,7 +307,7 @@ func TestConfirmYesLaunches(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	m := initialModel()
-	m.queue = []stepState{{step: step{title: "go", logLabel: "go", command: "true", confirm: "?"}, status: statusPending}}
+	m.queue = []stepState{{step: steps.Step{Title: "go", LogLabel: "go", Argv: []string{"true"}, Confirm: "?"}, status: steps.Pending}}
 	m.current = 0
 	m.screen = screenConfirm
 	m.confirmYes = true
@@ -316,8 +317,8 @@ func TestConfirmYesLaunches(t *testing.T) {
 	if got.screen != screenRunning {
 		t.Fatalf("yes should launch (screenRunning), got screen=%d", got.screen)
 	}
-	if got.queue[0].status != statusRunning {
-		t.Fatalf("launched step status=%d, want statusRunning", got.queue[0].status)
+	if got.queue[0].status != steps.Running {
+		t.Fatalf("launched step status=%d, want steps.Running", got.queue[0].status)
 	}
 }
 
@@ -334,7 +335,7 @@ func TestStreamFailurePropagates(t *testing.T) {
 	defer func() { logDir = oldLogDir }()
 
 	ch := make(chan proc.Msg, 16)
-	runStep(step{command: "bash", args: []string{"-c", "echo boom; exit 3"}}, ch, nil)
+	runStep(steps.Step{Argv: []string{"bash", "-c", "echo boom; exit 3"}}, ch, nil)
 	lines, err := drainStep(ch)
 	if err == nil {
 		t.Fatal("failing command should report a non-nil error")
@@ -345,14 +346,14 @@ func TestStreamFailurePropagates(t *testing.T) {
 
 	m := initialModel()
 	m.screen = screenRunning
-	m.queue = []stepState{{step: step{title: "boom", logLabel: "Boom step"}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{Title: "boom", LogLabel: "Boom step"}, status: steps.Running}}
 	m.current = 0
 	m.buf.WriteString(strings.Join(lines, "\n") + "\n")
 
 	next, _ := m.handleStream(streamBatchMsg{done: true, err: err})
 	got := next.(model)
-	if got.queue[0].status != statusFailed {
-		t.Fatalf("status = %d, want statusFailed", got.queue[0].status)
+	if got.queue[0].status != steps.Failed {
+		t.Fatalf("status = %d, want steps.Failed", got.queue[0].status)
 	}
 	if got.errs != 1 {
 		t.Fatalf("errs = %d, want 1", got.errs)
@@ -372,8 +373,8 @@ func TestDiscoveryPendingRunsQueue(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	m := initialModel()
-	got := update(m, discoveryMsg{kind: "downloads", pending: []step{
-		{title: "del", logLabel: "del", command: "true"},
+	got := update(m, discoveryMsg{kind: "downloads", pending: []steps.Step{
+		{Title: "del", LogLabel: "del", Argv: []string{"true"}},
 	}})
 	if got.screen != screenRunning {
 		t.Fatalf("pending discovery should start running, got screen=%d", got.screen)
@@ -387,8 +388,8 @@ func TestDiscoveryPendingSudoProbes(t *testing.T) {
 	defer func() { dryRun = false }()
 
 	m := initialModel()
-	next, cmd := m.Update(discoveryMsg{kind: "downloads", pending: []step{
-		{title: "fix", logLabel: "fix", command: "sudo", needsSudo: true},
+	next, cmd := m.Update(discoveryMsg{kind: "downloads", pending: []steps.Step{
+		{Title: "fix", LogLabel: "fix", Argv: []string{"sudo"}, NeedsPriv: true},
 	}})
 	if cmd == nil {
 		t.Fatal("expected a sudo-probe command")
@@ -462,16 +463,16 @@ func TestServicesEnterBuildsDisableStep(t *testing.T) {
 		t.Fatalf("expected one disable step, got %d", len(m.pending))
 	}
 	s := m.pending[0]
-	if s.command != "sudo" || !s.needsSudo {
+	if s.Command() != "sudo" || !s.NeedsPriv {
 		t.Fatalf("disable step should be a sudo step, got %+v", s)
 	}
-	joined := strings.Join(s.args, " ")
+	joined := strings.Join(s.Args(), " ")
 	if !strings.HasPrefix(joined, "systemctl disable --now ") {
-		t.Fatalf("args = %v, want systemctl disable --now …", s.args)
+		t.Fatalf("args = %v, want systemctl disable --now …", s.Args())
 	}
 	if !strings.Contains(joined, "a.service") || !strings.Contains(joined, "c.service") ||
 		strings.Contains(joined, "b.service") {
-		t.Fatalf("selected services wrong, args = %v", s.args)
+		t.Fatalf("selected services wrong, args = %v", s.Args())
 	}
 }
 
@@ -513,8 +514,8 @@ func TestNonEmptyLinesTrimsAndDropsBlanks(t *testing.T) {
 // TestStepCategoryDefaultsToCleanup: a step with no category set (the common
 // case) buckets into "cleanup", not an empty/zero category.
 func TestStepCategoryDefaultsToCleanup(t *testing.T) {
-	if got := stepCategory(step{}); got != logCategoryCleanup {
-		t.Fatalf("stepCategory(zero step) = %q, want %q", got, logCategoryCleanup)
+	if got := (steps.Step{}).LogCategory(); got != logCategoryCleanup {
+		t.Fatalf("zero Step.LogCategory() = %q, want %q", got, logCategoryCleanup)
 	}
 }
 
@@ -530,8 +531,8 @@ func TestFailureLogsToItsStepCategory(t *testing.T) {
 	m := initialModel()
 	m.screen = screenRunning
 	m.queue = []stepState{{
-		step:   step{title: "update", logLabel: "Topgrade completed", category: logCategoryTopgrade},
-		status: statusRunning,
+		step:   steps.Step{Title: "update", LogLabel: "Topgrade completed", Category: logCategoryTopgrade},
+		status: steps.Running,
 	}}
 	m.current = 0
 	m.buf.WriteString("boom\n")
@@ -562,19 +563,19 @@ func TestAlwaysLogStepLogsOnSuccess(t *testing.T) {
 	m := initialModel()
 	m.screen = screenRunning
 	m.queue = []stepState{{
-		step: step{
-			title: "remove orphans", logLabel: "Orphaned packages removed",
-			category: logCategoryOrphans, alwaysLog: true,
+		step: steps.Step{
+			Title: "remove orphans", LogLabel: "Orphaned packages removed",
+			Category: logCategoryOrphans, AlwaysLog: true,
 		},
-		status: statusRunning,
+		status: steps.Running,
 	}}
 	m.current = 0
 	m.buf.WriteString("removing liba libb\n")
 
 	next, _ := m.handleStream(streamBatchMsg{done: true})
 	got := next.(model)
-	if got.queue[0].status != statusOK {
-		t.Fatalf("status = %d, want statusOK", got.queue[0].status)
+	if got.queue[0].status != steps.OK {
+		t.Fatalf("status = %d, want steps.OK", got.queue[0].status)
 	}
 
 	data, err := os.ReadFile(logPath(logCategoryOrphans))
@@ -598,7 +599,7 @@ func TestOrdinaryStepStaysSilentOnSuccess(t *testing.T) {
 
 	m := initialModel()
 	m.screen = screenRunning
-	m.queue = []stepState{{step: step{title: "cache", logLabel: "Cache cleaned"}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{Title: "cache", LogLabel: "Cache cleaned"}, status: steps.Running}}
 	m.current = 0
 	m.buf.WriteString("ok\n")
 

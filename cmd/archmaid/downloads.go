@@ -13,6 +13,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── "Delete old downloads": the step glue ────────────────────────────────────
@@ -70,11 +71,12 @@ func discoverDownloads() tea.Cmd {
 		if len(plan.Names) == 0 {
 			return notice("Nothing older than 30 days in " + plan.Shown + ".")
 		}
-		return discoveryMsg{kind: "downloads", pending: []step{{
-			title: "Deleting old downloads…", logLabel: "Old downloads deleted",
-			run:      deleteOldDownloads(plan, store),
-			optional: true, alwaysLog: true,
-			confirm: plan.Confirm(),
+		return discoveryMsg{kind: "downloads", pending: []steps.Step{{
+			ID:    steps.IDDownloads,
+			Title: "Deleting old downloads…", LogLabel: "Old downloads deleted",
+			Run:      deleteOldDownloads(plan, store),
+			Optional: true, AlwaysLog: true,
+			Confirm: plan.Confirm(),
 		}}}
 	}
 }
@@ -89,18 +91,18 @@ func discoverDownloads() tea.Cmd {
 // (called only when the result is taken) disarms. Either way cleanup.log gets
 // one entry naming exactly what was deleted, in store: both run off the
 // model's goroutine, so they must not look the store up themselves (logs).
-func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context.Context) stepResult {
-	return func(ctx context.Context) stepResult {
+func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context.Context, steps.Env) steps.Result {
+	return func(ctx context.Context, _ steps.Env) steps.Result {
 		downloadsRunning.Add(1)
 		defer downloadsRunning.Done()
 		opt := downloadsOptions()
 		r, err := downloads.Delete(ctx, plan, opt)
-		res := stepResult{output: r.Output, err: err}
+		res := steps.Result{Output: r.Output, Err: err}
 		if opt.DryRun {
 			return res // nothing deleted; finishStep logs the DRYRUN entry
 		}
 		if ctx.Err() != nil {
-			logAbortedDownloads(store, res.output)
+			logAbortedDownloads(store, res.Output)
 			return res
 		}
 		if ctx.Done() == nil {
@@ -109,9 +111,9 @@ func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context
 		downloadsRunning.Add(1) // until the AfterFunc has run or been disarmed
 		stop := context.AfterFunc(ctx, func() {
 			defer downloadsRunning.Done()
-			logAbortedDownloads(store, res.output)
+			logAbortedDownloads(store, res.Output)
 		})
-		res.commit = func() error {
+		res.Commit = func() error {
 			if stop() {
 				downloadsRunning.Done()
 			}

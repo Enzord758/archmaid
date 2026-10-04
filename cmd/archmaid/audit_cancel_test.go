@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── aborting the audit step ───────────────────────────────────────────────────
@@ -70,7 +72,7 @@ func TestAbortCancelsAuditStep(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		m := initialModel()
-		m.pending = []step{auditStep(), harmlessTopgrade()}
+		m.pending = []steps.Step{auditStep(), harmlessTopgrade()}
 		cmd := m.startQueue()
 		result := make(chan stepResultMsg, 1)
 		go func() { result <- cmd().(stepResultMsg) }()
@@ -87,7 +89,7 @@ func TestAbortCancelsAuditStep(t *testing.T) {
 				t.Fatalf("audit step returned %s after the abort, want within %s", d, cancelSlack)
 			}
 			got := update(m, msg)
-			if got.screen != screenMenu || got.queue[0].status != statusRunning || got.errs != 0 {
+			if got.screen != screenMenu || got.queue[0].status != steps.Running || got.errs != 0 {
 				t.Fatalf("late audit result applied: screen=%d status=%d errs=%d",
 					got.screen, got.queue[0].status, got.errs)
 			}

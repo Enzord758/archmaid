@@ -10,6 +10,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // Who may have the password. Anything that inherited SUDO_ASKPASS can connect
@@ -82,11 +83,11 @@ func sudoStepRunning(t *testing.T, m model) model {
 	t.Helper()
 	fakeProcs(t, askpassTree(t))
 	if len(m.queue) == 0 {
-		m.queue = []stepState{{step: step{title: "Updating system with topgrade…", command: "topgrade"}}}
+		m.queue = []stepState{{step: steps.Step{Title: "Updating system with topgrade…", Argv: []string{"topgrade"}}}}
 		m.current = 0
 	}
-	m.queue[m.current].step.needsSudo = true
-	m.queue[m.current].status = statusRunning
+	m.queue[m.current].step.NeedsPriv = true
+	m.queue[m.current].status = steps.Running
 	m.proc = &proc.Child{Pid: fakeStepPid, Start: 100}
 	return m
 }
@@ -131,12 +132,12 @@ func TestAskpassIdleSocketHungUp(t *testing.T) {
 		},
 		"step without sudo": func(t *testing.T) model {
 			m := running(t)
-			m.queue[0].step.needsSudo = false
+			m.queue[0].step.NeedsPriv = false
 			return m
 		},
 		"step finished": func(t *testing.T) model {
 			m := running(t)
-			m.queue[0].status = statusOK
+			m.queue[0].status = steps.OK
 			return m
 		},
 		"aborted": func(t *testing.T) model {

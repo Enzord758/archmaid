@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Enzord758/archmaid/internal/sanitize"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── view ─────────────────────────────────────────────────────────────────────
@@ -175,7 +176,7 @@ func (m model) viewRunning() string {
 func (m model) viewAbortConfirm() string {
 	title := ""
 	if m.current >= 0 && m.current < len(m.queue) {
-		title = m.queue[m.current].step.title
+		title = m.queue[m.current].step.Title
 	}
 	body := stepFailStyle.Render("⚠ Abort the running step?") + "\n" +
 		statusStyle.Render(title) + "\n\n" +
@@ -189,16 +190,16 @@ func (m model) checklist() string {
 	for _, st := range m.queue {
 		var glyph, text string
 		switch st.status {
-		case statusPending:
-			glyph, text = stepPendingStyle.Render("○"), stepPendingStyle.Render(st.step.title)
-		case statusRunning:
-			glyph, text = m.spinner.View(), stepRunStyle.Render(st.step.title)
-		case statusOK:
-			glyph, text = stepOKStyle.Render("✔"), itemStyle.Render(st.step.logLabel)
-		case statusFailed:
-			glyph, text = stepFailStyle.Render("✖"), stepFailStyle.Render(st.step.title+" failed")
-		case statusSkipped:
-			glyph, text = stepSkipStyle.Render("–"), stepSkipStyle.Render(st.step.title+" (skipped)")
+		case steps.Pending:
+			glyph, text = stepPendingStyle.Render("○"), stepPendingStyle.Render(st.step.Title)
+		case steps.Running:
+			glyph, text = m.spinner.View(), stepRunStyle.Render(st.step.Title)
+		case steps.OK:
+			glyph, text = stepOKStyle.Render("✔"), itemStyle.Render(st.step.LogLabel)
+		case steps.Failed:
+			glyph, text = stepFailStyle.Render("✖"), stepFailStyle.Render(st.step.Title+" failed")
+		case steps.Skipped, steps.AuthRefused, steps.Aborted:
+			glyph, text = stepSkipStyle.Render("–"), stepSkipStyle.Render(st.step.Title+" (skipped)")
 		}
 		b.WriteString(glyph + " " + text + "\n")
 	}

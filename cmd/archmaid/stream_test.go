@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // pumpAll runs a step's pump to its done the way the runtime would, starting
@@ -31,10 +32,10 @@ func pumpAll(t *testing.T, m model, first tea.Cmd) []streamBatchMsg {
 
 // streamingModel is a model sized like a terminal with one step running and
 // its channel ready to be filled; feed it with the returned pump.
-func streamingModel(s step, chanCap int) (model, tea.Cmd) {
+func streamingModel(s steps.Step, chanCap int) (model, tea.Cmd) {
 	m := update(fixedModel(), tea.WindowSizeMsg{Width: 120, Height: 40})
 	m.screen = screenRunning
-	m.queue = []stepState{{step: s, status: statusRunning}}
+	m.queue = []stepState{{step: s, status: steps.Running}}
 	m.current = 0
 	m.resizeOutput()
 	m.stepSeq = 1
@@ -80,7 +81,7 @@ func TestStreamPumpReleasedByAbort(t *testing.T) {
 // are — even once the tail starts dropping old lines, the line they were
 // reading stays on top — and scrolling back down resumes following.
 func TestScrollUpNotYankedDuringStream(t *testing.T) {
-	m, _ := streamingModel(step{title: "x", logLabel: "x"}, 1)
+	m, _ := streamingModel(steps.Step{Title: "x", LogLabel: "x"}, 1)
 	feed := func(lines []string) {
 		t.Helper()
 		next, cmd := m.Update(streamBatchMsg{seq: m.stepSeq, lines: lines})
@@ -132,8 +133,8 @@ func TestScrollUpNotYankedDuringStream(t *testing.T) {
 func TestStreamAlwaysLogKeepsFullOutput(t *testing.T) {
 	useLogDir(t, t.TempDir())
 	const n = 20000
-	m, pump := streamingModel(step{title: "Updating…", logLabel: "Updated",
-		category: logCategoryTopgrade, alwaysLog: true}, n+1)
+	m, pump := streamingModel(steps.Step{Title: "Updating…", LogLabel: "Updated",
+		Category: logCategoryTopgrade, AlwaysLog: true}, n+1)
 	lines := numbered(n)
 	for _, l := range lines {
 		m.stream <- proc.Msg{Line: l}
@@ -141,13 +142,13 @@ func TestStreamAlwaysLogKeepsFullOutput(t *testing.T) {
 	m.stream <- proc.Msg{Done: true}
 
 	updates := 0
-	for m.queue[0].status == statusRunning {
+	for m.queue[0].status == steps.Running {
 		next, cmd := m.Update(pump())
 		m = next.(model)
 		pump = cmd
 		updates++
 	}
-	if m.queue[0].status != statusOK {
+	if m.queue[0].status != steps.OK {
 		t.Fatalf("step status = %d, want OK", m.queue[0].status)
 	}
 	if want := (n + proc.BatchMax - 1) / proc.BatchMax; updates != want {
@@ -183,14 +184,14 @@ func benchStream(b *testing.B, n int) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		m, pump := streamingModel(step{title: "Streaming…", logLabel: "Streamed"}, n+1)
+		m, pump := streamingModel(steps.Step{Title: "Streaming…", LogLabel: "Streamed"}, n+1)
 		for _, l := range lines {
 			m.stream <- proc.Msg{Line: l}
 		}
 		m.stream <- proc.Msg{Done: true}
 		b.StartTimer()
 
-		for m.queue[0].status == statusRunning {
+		for m.queue[0].status == steps.Running {
 			next, cmd := m.Update(pump())
 			m = next.(model)
 			_ = m.View()

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 
@@ -33,16 +34,16 @@ func viewGolden(t *testing.T, m model) {
 }
 
 // goldenQueue builds a checklist from titled steps with the given statuses.
-func goldenQueue(statuses ...stepStatus) []stepState {
-	steps := []step{
-		{title: "Auditing AUR packages…", logLabel: "AUR audit"},
-		{title: "Cleaning package cache…", logLabel: "Old package cache cleaned"},
-		{title: "Removing orphaned packages…", logLabel: "Orphaned packages removed"},
-		{title: "Vacuuming logs…", logLabel: "Old logs removed"},
+func goldenQueue(statuses ...steps.Status) []stepState {
+	list := []steps.Step{
+		{Title: "Auditing AUR packages…", LogLabel: "AUR audit"},
+		{Title: "Cleaning package cache…", LogLabel: "Old package cache cleaned"},
+		{Title: "Removing orphaned packages…", LogLabel: "Orphaned packages removed"},
+		{Title: "Vacuuming logs…", LogLabel: "Old logs removed"},
 	}
 	q := make([]stepState, len(statuses))
 	for i, st := range statuses {
-		q[i] = stepState{step: steps[i], status: st}
+		q[i] = stepState{step: list[i], status: st}
 	}
 	return q
 }
@@ -56,10 +57,10 @@ func TestSummaryGolden(t *testing.T) {
 		skipped int
 		aborted bool
 	}{
-		{name: "ok", queue: goldenQueue(statusOK, statusOK, statusOK, statusOK)},
-		{name: "issues", queue: goldenQueue(statusOK, statusFailed, statusSkipped, statusOK), errs: 1, skipped: 1},
-		{name: "skipped", queue: goldenQueue(statusOK, statusSkipped, statusSkipped, statusOK), skipped: 2},
-		{name: "aborted", queue: goldenQueue(statusOK, statusOK, statusSkipped, statusSkipped), skipped: 2, aborted: true},
+		{name: "ok", queue: goldenQueue(steps.OK, steps.OK, steps.OK, steps.OK)},
+		{name: "issues", queue: goldenQueue(steps.OK, steps.Failed, steps.Skipped, steps.OK), errs: 1, skipped: 1},
+		{name: "skipped", queue: goldenQueue(steps.OK, steps.Skipped, steps.Skipped, steps.OK), skipped: 2},
+		{name: "aborted", queue: goldenQueue(steps.OK, steps.OK, steps.Skipped, steps.Skipped), skipped: 2, aborted: true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -106,7 +107,7 @@ func TestPasswordErrorGolden(t *testing.T) {
 // and no spinner frame is drawn.
 func TestConfirmOverRunningGolden(t *testing.T) {
 	m := sizedModel()
-	m.queue = goldenQueue(statusOK, statusOK, statusPending, statusPending)
+	m.queue = goldenQueue(steps.OK, steps.OK, steps.Pending, steps.Pending)
 	m.current = 2
 	m.output.SetContent("==> finished: Old package cache cleaned")
 	m.bg = screenRunning
@@ -121,7 +122,7 @@ func TestConfirmOverRunningGolden(t *testing.T) {
 // The spinner is on its initial frame since no tick is delivered.
 func TestAskpassGolden(t *testing.T) {
 	m := sizedModel()
-	m.queue = goldenQueue(statusOK, statusRunning, statusPending, statusPending)
+	m.queue = goldenQueue(steps.OK, steps.Running, steps.Pending, steps.Pending)
 	m.current = 1
 	m.output.SetContent(":: Synchronizing package databases...")
 	m = sudoStepRunning(t, m)

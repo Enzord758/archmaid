@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── sudo -A on every sudo step ────────────────────────────────────────────────
@@ -40,7 +41,7 @@ func TestSudoStepGetsDashA(t *testing.T) {
 	withAskpassWrapper(t, "/wrapper")
 
 	ch := make(chan proc.Msg, 8)
-	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch, nil)
+	runStep(steps.Step{Argv: []string{"sudo", "paccache", "-r"}, NeedsPriv: true}, ch, nil)
 	lines, err := drainStep(ch)
 	if err != nil {
 		t.Fatalf("shimmed sudo should exit 0, got %v", err)
@@ -59,7 +60,7 @@ func TestSudoStepWithoutAskpassGetsDashN(t *testing.T) {
 	withAskpassWrapper(t, "")
 
 	ch := make(chan proc.Msg, 8)
-	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch, nil)
+	runStep(steps.Step{Argv: []string{"sudo", "paccache", "-r"}, NeedsPriv: true}, ch, nil)
 	lines, err := drainStep(ch)
 	if err != nil {
 		t.Fatalf("shimmed sudo should exit 0, got %v", err)
@@ -74,7 +75,7 @@ func TestNonSudoStepUnchanged(t *testing.T) {
 	shimEchoArgs(t, "topgrade")
 
 	ch := make(chan proc.Msg, 8)
-	runStep(step{command: "topgrade", args: []string{"-y"}}, ch, nil)
+	runStep(steps.Step{Argv: []string{"topgrade", "-y"}}, ch, nil)
 	lines, err := drainStep(ch)
 	if err != nil {
 		t.Fatalf("shimmed topgrade should exit 0, got %v", err)
@@ -88,12 +89,12 @@ func TestNonSudoStepUnchanged(t *testing.T) {
 // standalone action and Full Cleanup's first step must be marked needsSudo to
 // get priming + keep-alive.
 func TestTopgradeStepsNeedSudo(t *testing.T) {
-	if s := standaloneTopgrade(); !s.needsSudo {
+	if s := standaloneTopgrade(); !s.NeedsPriv {
 		t.Fatal("standalone topgrade step must be needsSudo")
 	}
 	shimPacman(t, "")
-	steps := fullCleanupSteps()
-	if i := findStep(steps, "topgrade"); i == -1 || !steps[i].needsSudo {
+	list := fullCleanupSteps()
+	if i := findStep(list, "topgrade"); i == -1 || !list[i].NeedsPriv {
 		t.Fatal("Full Cleanup's topgrade step must be needsSudo")
 	}
 }
@@ -104,8 +105,8 @@ func TestTopgradeStepsNeedSudo(t *testing.T) {
 // the queue before anything would exec.
 func sudoQueueModel() model {
 	m := initialModel()
-	m.pending = []step{{title: "root job", logLabel: "root job",
-		command: "sudo", args: []string{"true"}, needsSudo: true, confirm: "go?"}}
+	m.pending = []steps.Step{{Title: "root job", LogLabel: "root job",
+		Argv: []string{"sudo", "true"}, NeedsPriv: true, Confirm: "go?"}}
 	return m
 }
 
@@ -164,7 +165,7 @@ func TestKeepAliveClearedOnSummary(t *testing.T) {
 	m := initialModel()
 	m.screen = screenRunning
 	m.sudoAlive = true
-	m.queue = []stepState{{step: step{title: "x", logLabel: "x"}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{Title: "x", LogLabel: "x"}, status: steps.Running}}
 	m.current = 0
 
 	next, _ := m.handleStream(streamBatchMsg{done: true})
@@ -183,7 +184,7 @@ func TestKeepAliveClearedOnConfirmAbort(t *testing.T) {
 	m := initialModel()
 	m.screen = screenConfirm
 	m.sudoAlive = true
-	m.queue = []stepState{{step: step{title: "x", confirm: "?"}, status: statusPending}}
+	m.queue = []stepState{{step: steps.Step{Title: "x", Confirm: "?"}, status: steps.Pending}}
 	m.current = 0
 	m.confirmYes = false
 

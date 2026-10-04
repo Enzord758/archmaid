@@ -15,6 +15,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // The TUI's side of askpass: the session's server wired up for runStep and
@@ -62,7 +63,7 @@ func TestAskpassServerWiring(t *testing.T) {
 	if got := os.Getenv("SUDO_ASKPASS"); got != "/from/the/users/shell" {
 		t.Fatalf("SUDO_ASKPASS = %q: the server must not touch archmaid's own environment", got)
 	}
-	if spec := stepSpec(step{command: "sudo", args: []string{"true"}, needsSudo: true}); spec.Args[0] != "-A" {
+	if spec := stepSpec(steps.Step{Argv: []string{"sudo", "true"}, NeedsPriv: true}); spec.Args[0] != "-A" {
 		t.Fatalf("sudo step args = %v with askpass wired, want -A first", spec.Args)
 	}
 	stopAskpassServer(s)
@@ -103,17 +104,17 @@ func TestStepChildSeesAskpassEnv(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	for _, c := range []struct {
-		s    step
+		s    steps.Step
 		want string
 	}{
-		{step{command: "topgrade", needsSudo: true}, "[/wrapper]"},
-		{step{command: "yay"}, "[]"},
+		{steps.Step{Argv: []string{"topgrade"}, NeedsPriv: true}, "[/wrapper]"},
+		{steps.Step{Argv: []string{"yay"}}, "[]"},
 	} {
 		ch := make(chan proc.Msg, 8)
 		runStep(c.s, ch, nil)
 		lines, err := drainStep(ch)
 		if err != nil || len(lines) != 1 || lines[0] != c.want {
-			t.Fatalf("%s saw SUDO_ASKPASS %v (err %v), want %s", c.s.command, lines, err, c.want)
+			t.Fatalf("%s saw SUDO_ASKPASS %v (err %v), want %s", c.s.Command(), lines, err, c.want)
 		}
 	}
 }

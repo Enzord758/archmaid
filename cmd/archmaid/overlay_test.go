@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -66,7 +67,7 @@ func TestAbortPopupFloatsOverRunningScreen(t *testing.T) {
 	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 30}) // tall bg so bg shows around the popup
 	m.screen = screenRunning
 	m.queue = []stepState{
-		{step: step{title: "updating the system", logLabel: "u"}, status: statusRunning},
+		{step: steps.Step{Title: "updating the system", LogLabel: "u"}, status: steps.Running},
 	}
 	m.current = 0
 

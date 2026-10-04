@@ -8,15 +8,16 @@ import (
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // lastRunModel is a model mid-queue for action id, with the given step statuses.
-func lastRunModel(id string, statuses ...stepStatus) model {
+func lastRunModel(id string, statuses ...steps.Status) model {
 	m := fixedModel()
 	m.runAction = id
 	m.screen = screenRunning
 	for _, s := range statuses {
-		m.queue = append(m.queue, stepState{step: step{title: "s", logLabel: "s"}, status: s})
+		m.queue = append(m.queue, stepState{step: steps.Step{Title: "s", LogLabel: "s"}, status: s})
 	}
 	m.current = len(m.queue) - 1
 	return m
@@ -34,7 +35,7 @@ func readLastRun(t *testing.T) logstore.RunRecord {
 func TestLastRunOK(t *testing.T) {
 	dir := t.TempDir()
 	useLogDir(t, dir)
-	m := lastRunModel("usercache", statusOK, statusOK)
+	m := lastRunModel("usercache", steps.OK, steps.OK)
 	m.advance() // queue exhausted → summary
 	if m.screen != screenSummary {
 		t.Fatalf("screen = %d, want summary", m.screen)
@@ -50,7 +51,7 @@ func TestLastRunOK(t *testing.T) {
 
 func TestLastRunFailedAndSkipped(t *testing.T) {
 	useLogDir(t, t.TempDir())
-	m := lastRunModel("fullcleanup", statusOK, statusFailed, statusSkipped)
+	m := lastRunModel("fullcleanup", steps.OK, steps.Failed, steps.Skipped)
 	m.errs = 1
 	m.advance()
 	r := readLastRun(t)
@@ -61,7 +62,7 @@ func TestLastRunFailedAndSkipped(t *testing.T) {
 
 func TestLastRunNothingRanIsCancelled(t *testing.T) {
 	useLogDir(t, t.TempDir())
-	m := lastRunModel("fullcleanup", statusSkipped, statusSkipped) // sudo gave up
+	m := lastRunModel("fullcleanup", steps.AuthRefused, steps.AuthRefused) // sudo gave up
 	m.advance()
 	if r := readLastRun(t); r.Outcome != "cancelled" || r.StepsSkipped != 2 {
 		t.Fatalf("record = %+v", r)
@@ -70,7 +71,7 @@ func TestLastRunNothingRanIsCancelled(t *testing.T) {
 
 func TestLastRunAborted(t *testing.T) {
 	useLogDir(t, t.TempDir())
-	m := lastRunModel("topgrade", statusRunning)
+	m := lastRunModel("topgrade", steps.Running)
 	m.screen = screenAbortConfirm
 	m = update(m, key("y"))
 	if m.screen != screenMenu {
@@ -83,7 +84,7 @@ func TestLastRunAborted(t *testing.T) {
 
 func TestLastRunDeclinedRequiredStep(t *testing.T) {
 	useLogDir(t, t.TempDir())
-	m := lastRunModel("fullcleanup", statusOK, statusPending)
+	m := lastRunModel("fullcleanup", steps.OK, steps.Pending)
 	m.current = 1
 	m.screen = screenConfirm
 	m.confirmYes = false
@@ -119,7 +120,7 @@ func TestLastRunDryRunLeavesRealRecordAlone(t *testing.T) {
 	}
 	dryRun = true
 	defer func() { dryRun = false }()
-	m := lastRunModel("usercache", statusOK)
+	m := lastRunModel("usercache", steps.OK)
 	m.advance()
 
 	raw, err := os.ReadFile(filepath.Join(dir, "last-run.json"))
@@ -137,7 +138,7 @@ func TestLastRunDryRunLeavesRealRecordAlone(t *testing.T) {
 
 func TestLastRunWrittenOncePerRun(t *testing.T) {
 	useLogDir(t, t.TempDir())
-	m := lastRunModel("usercache", statusOK)
+	m := lastRunModel("usercache", steps.OK)
 	m.advance()
 	first := readLastRun(t)
 	// Further end-of-run signals for the same run must not rewrite it.

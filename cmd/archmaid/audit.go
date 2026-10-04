@@ -12,6 +12,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // ── AUR audit: the tea glue ──────────────────────────────────────────────────
@@ -101,28 +102,29 @@ func menuAudit(now time.Time, cfg audit.Config) discoveryMsg {
 // cleanup still runs. The audit can't *hold back* a single package; that's the
 // yay cooldown hook's job (see HANDOVER.md).
 //
-// alwaysLog: the step's own log entry is the audit record, so unlike the menu
+// AlwaysLog: the step's own log entry is the audit record, so unlike the menu
 // action it doesn't call LogSummary. It never needs sudo. An abort cancels the
 // step's ctx, which ends the lookup at once; the late result is then dropped by
 // stepSeq like any other.
 //
-// aurAudit marks it for activate, which starts the lookup as an auditFetch
+// Its Prefetch has activate start the lookup as an auditFetch
 // the moment the action is chosen, so it runs while the password prompt is
 // open; launch then awaits that instead of calling run.
 //
 // Without a prefetch, run audits the config captured here, when the queue is
 // built on the model's goroutine (the moment a prefetch would capture it),
 // not when run executes in its Cmd.
-func auditStep() step {
+func auditStep() steps.Step {
 	cfg := currentAuditConfig()
-	return step{
-		title: "Auditing AUR packages…", logLabel: "AUR audit",
-		category: logCategoryAudit, alwaysLog: true,
-		run: func(ctx context.Context) stepResult {
+	return steps.Step{
+		ID:    steps.IDAURAudit,
+		Title: "Auditing AUR packages…", LogLabel: "AUR audit",
+		Category: logCategoryAudit, AlwaysLog: true,
+		Run: func(ctx context.Context, _ steps.Env) steps.Result {
 			res, err := audit.Run(ctx, cfg, time.Now())
 			return auditStepResult(cfg, res, err)
 		},
-		aurAudit: true,
+		Prefetch: steps.PrefetchAURAudit,
 	}
 }
 
@@ -145,29 +147,29 @@ func startAuditFetch() *auditFetch {
 // run is the audit step's run when the lookup was prefetched: it waits for
 // the fetch rather than starting another. An abort cancels both ctx and the
 // fetch, so it returns at once either way.
-func (f *auditFetch) run(ctx context.Context) stepResult {
+func (f *auditFetch) run(ctx context.Context) steps.Result {
 	res, err := f.Wait(ctx)
 	return auditStepResult(f.cfg, res, err)
 }
 
 // auditStepResult turns an audit into the step's result: the plain-text
 // report, a gate on topgrade for a high finding, and the snapshot commit.
-func auditStepResult(cfg audit.Config, res audit.Result, err error) stepResult {
+func auditStepResult(cfg audit.Config, res audit.Result, err error) steps.Result {
 	switch {
 	case errors.Is(err, audit.ErrNoForeign):
-		return stepResult{output: "No foreign (AUR or locally built) packages installed — nothing to audit."}
+		return steps.Result{Output: "No foreign (AUR or locally built) packages installed — nothing to audit."}
 	case err != nil:
-		return stepResult{output: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline), err: err}
+		return steps.Result{Output: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline), Err: err}
 	}
-	r := stepResult{output: res.Text()}
+	r := steps.Result{Output: res.Text()}
 	if why := res.GateReason(); why != "" {
 		// Name the packages: the popup covers the report that explains it.
-		r.confirmNext = why + " Update anyway?"
+		r.ConfirmNext = why + " Update anyway?"
 	}
 	// Run by handleStepResult right away when nothing gates, otherwise only if
 	// the gated update is accepted: declining leaves the snapshot as it was,
 	// so the same change gates the next run too.
-	r.commit = res.Commit(false, r.confirmNext != "")
+	r.Commit = res.Commit(false, r.ConfirmNext != "")
 	return r
 }
 

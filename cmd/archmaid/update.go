@@ -9,6 +9,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
+	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -295,10 +296,10 @@ func (m model) runningSudoStep() (string, bool) {
 		return "", false
 	}
 	st := m.queue[m.current]
-	if st.status != statusRunning || !st.step.needsSudo {
+	if st.status != steps.Running || !st.step.NeedsPriv {
 		return "", false
 	}
-	return st.step.title, true
+	return st.step.Title, true
 }
 
 // noteOutput adds one of archmaid's own lines to the running step's output
@@ -534,10 +535,11 @@ func (m *model) confirmServices() tea.Cmd {
 		m.screen = screenMenu
 		return nil
 	}
-	m.pending = []step{{
-		title: "Disabling services…", logLabel: "Services disabled",
-		command: "sudo", args: append([]string{"systemctl", "disable", "--now", "--"}, sel...),
-		needsSudo: true, alwaysLog: true,
+	m.pending = []steps.Step{{
+		ID: steps.IDDisableUnits, Verb: steps.VerbDisableUnit,
+		Title: "Disabling services…", LogLabel: "Services disabled",
+		Argv:      append([]string{"sudo", "systemctl", "disable", "--now", "--"}, sel...),
+		NeedsPriv: true, AlwaysLog: true,
 	}}
 	return m.beginPending()
 }
@@ -582,7 +584,7 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	m.gate = item.gate
 	m.pending = item.steps()
 	for _, s := range m.pending {
-		if s.aurAudit {
+		if s.Prefetch == steps.PrefetchAURAudit {
 			// Start the audit now, so its lookup runs while the password
 			// prompt (or the gate) is up; the step awaits it.
 			m.auditFetch = startAuditFetch()
@@ -628,7 +630,7 @@ func (m *model) resetRun() {
 func (m *model) beginPending() tea.Cmd {
 	m.resetRun()
 	for _, s := range m.pending {
-		if s.needsSudo {
+		if s.NeedsPriv {
 			return checkSudoCached()
 		}
 	}
@@ -641,7 +643,7 @@ func (m *model) beginPending() tea.Cmd {
 func (m *model) startQueue() tea.Cmd {
 	m.queue = make([]stepState, len(m.pending))
 	for i, s := range m.pending {
-		m.queue[i] = stepState{step: s, status: statusPending}
+		m.queue[i] = stepState{step: s, status: steps.Pending}
 	}
 	m.pending = nil
 	m.current = -1
@@ -659,7 +661,7 @@ func (m *model) startQueue() tea.Cmd {
 
 func queueNeedsSudo(q []stepState) bool {
 	for _, s := range q {
-		if s.step.needsSudo {
+		if s.step.NeedsPriv {
 			return true
 		}
 	}
@@ -680,16 +682,16 @@ func (m *model) advance() tea.Cmd {
 	s := m.queue[m.current].step
 	// Sudo auth was abandoned after too many wrong passwords: skip any step
 	// that needs it, note it in the log, and move on.
-	if s.needsSudo && m.sudoUnavailable {
-		m.queue[m.current].status = statusSkipped
-		appendLog(stepCategory(s), "SKIP", s.logLabel+" (sudo authentication failed)", "")
+	if s.NeedsPriv && m.sudoUnavailable {
+		m.queue[m.current].status = steps.AuthRefused
+		appendLog(s.LogCategory(), "SKIP", s.LogLabel+" (sudo authentication failed)", "")
 		m.skipped++ // a skip is not a failure — tallied separately
 		return m.advance()
 	}
-	if s.confirm != "" {
+	if s.Confirm != "" {
 		m.bg = screenRunning
 		m.screen = screenConfirm
-		m.confirmMsg = s.confirm
+		m.confirmMsg = s.Confirm
 		m.confirmYes = false
 		return nil
 	}
@@ -697,22 +699,24 @@ func (m *model) advance() tea.Cmd {
 }
 
 func (m *model) launch() tea.Cmd {
-	m.queue[m.current].status = statusRunning
+	m.queue[m.current].status = steps.Running
 	m.resetOutput()
 	m.stepSeq++
 	s := m.queue[m.current].step
-	if s.run != nil {
+	if s.Run != nil {
 		// In-process step: no child to signal, just a Cmd whose result
 		// finishes the step. seq ties the result to this launch; ctx is
 		// what an abort cancels.
 		m.proc = nil
 		ctx, cancel := context.WithCancel(context.Background())
 		m.stepCancel = cancel
-		seq, run := m.stepSeq, s.run
-		if s.aurAudit && m.auditFetch != nil {
-			run = m.auditFetch.run // already under way: await it, don't refetch
+		seq, run := m.stepSeq, s.Run
+		if s.Prefetch == steps.PrefetchAURAudit && m.auditFetch != nil {
+			fetch := m.auditFetch // already under way: await it, don't refetch
+			run = func(ctx context.Context, _ steps.Env) steps.Result { return fetch.run(ctx) }
 		}
-		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run(ctx)} }
+		env := steps.Env{DryRun: dryRun}
+		return func() tea.Msg { return stepResultMsg{seq: seq, Result: run(ctx, env)} }
 	}
 	m.stream = make(chan proc.Msg, proc.BatchMax)
 	m.quit = make(chan struct{})
@@ -721,10 +725,10 @@ func (m *model) launch() tea.Cmd {
 	return waitForStream(m.stream, m.quit, m.stepSeq)
 }
 
-// stepResultMsg is an in-process step's result (see step.run).
+// stepResultMsg is an in-process step's result (see steps.Step.Run).
 type stepResultMsg struct {
 	seq int
-	stepResult
+	steps.Result
 }
 
 // sigkillGrace is how long a child gets to honour SIGINT before it's forcibly
@@ -775,11 +779,11 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 	m.screen = screenRunning
 	s := &m.queue[m.current]
 	if !m.confirmYes {
-		if s.step.optional {
-			s.status = statusSkipped
+		if s.step.Optional {
+			s.status = steps.Skipped
 			m.skipped++
-			if s.step.alwaysLog { // a declined step's outcome stays on record too
-				appendLog(stepCategory(s.step), "SKIP", s.step.logLabel+" (declined)", "")
+			if s.step.AlwaysLog { // a declined step's outcome stays on record too
+				appendLog(s.step.LogCategory(), "SKIP", s.step.LogLabel+" (declined)", "")
 			}
 			cmd := m.advance()
 			return m, cmd
@@ -787,7 +791,7 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 		// non-optional "no" aborts: mark the declined step and everything
 		// after it as skipped so the summary shows what didn't run.
 		for i := m.current; i < len(m.queue); i++ {
-			m.queue[i].status = statusSkipped
+			m.queue[i].status = steps.Skipped
 			m.skipped++
 		}
 		m.aborted = true
@@ -797,8 +801,8 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 		m.recordRun(m.queueOutcome(true))
 		return m, nil
 	}
-	if s.step.onAccept != nil {
-		s.step.onAccept() // a failure is logged by the callee and doesn't block the step
+	if s.step.OnAccept != nil {
+		s.step.OnAccept() // a failure is logged by the callee and doesn't block the step
 	}
 	cmd := m.launch()
 	return m, cmd
@@ -839,24 +843,29 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.dropAuditFetch() // consumed (if this was the audit)
-	if msg.output != "" {
-		out := sanitize.String(strings.TrimRight(msg.output, "\n"), sanitize.KeepSGR)
+	if err := msg.Check(); err != nil {
+		// A confirm meant for the step after this one would land on the
+		// inserted step instead: refuse the result rather than guess.
+		msg.Result = steps.Result{Output: msg.Output + "\narchmaid: " + err.Error(), Err: err}
+	}
+	if msg.Output != "" {
+		out := sanitize.String(strings.TrimRight(msg.Output, "\n"), sanitize.KeepSGR)
 		m.appendOutput(strings.Split(out, "\n"))
 		m.output.GotoTop() // a report reads top-down; its worst findings come first
 	}
-	if msg.err == nil && msg.insertNext != nil {
+	if msg.Err == nil && msg.InsertNext != nil {
 		// A step found more work (the orphan probe's removal): it runs next,
 		// behind its own confirm, which advance asks as for any other step.
-		m.queue = slices.Insert(m.queue, m.current+1, stepState{step: *msg.insertNext, status: statusPending})
+		m.queue = slices.Insert(m.queue, m.current+1, stepState{step: *msg.InsertNext, status: steps.Pending})
 		m.resizeOutput() // one more checklist row
 	}
-	if msg.confirmNext != "" && m.current+1 < len(m.queue) {
+	if msg.ConfirmNext != "" && m.current+1 < len(m.queue) {
 		next := &m.queue[m.current+1].step
-		next.confirm = msg.confirmNext
-		next.optional = true // declining skips just that step, not the queue
-		next.onAccept = msg.commit
-	} else if msg.confirmNext == "" && msg.commit != nil {
-		msg.commit()
+		next.Confirm = msg.ConfirmNext
+		next.Optional = true // declining skips just that step, not the queue
+		next.OnAccept = msg.Commit
+	} else if msg.ConfirmNext == "" && msg.Commit != nil {
+		msg.Commit()
 	}
 	// Only now release the step's ctx: until commit has run, a cancelled ctx
 	// means an abort to the step (deleteOldDownloads logs its own outcome
@@ -865,25 +874,25 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		m.stepCancel()
 		m.stepCancel = nil
 	}
-	return m.finishStep(msg.err)
+	return m.finishStep(msg.Err)
 }
 
 // finishStep records the active step's outcome (status, tallies, log entry)
 // and moves on to the next one.
 func (m model) finishStep(err error) (tea.Model, tea.Cmd) {
 	s := &m.queue[m.current]
-	cat := stepCategory(s.step)
+	cat := s.step.LogCategory()
 	if err != nil {
-		s.status = statusFailed
+		s.status = steps.Failed
 		m.errs++
-		appendLog(cat, "FAIL", s.step.logLabel, m.buf.String())
+		appendLog(cat, "FAIL", s.step.LogLabel, m.buf.String())
 	} else {
-		s.status = statusOK
+		s.status = steps.OK
 		switch {
 		case dryRun: // a dry run logs every action, not just failures
-			appendLog(cat, "DRYRUN", s.step.logLabel, m.buf.String())
-		case s.step.alwaysLog: // destructive steps log their outcome even on success
-			appendLog(cat, "OK", s.step.logLabel, m.buf.String())
+			appendLog(cat, "DRYRUN", s.step.LogLabel, m.buf.String())
+		case s.step.AlwaysLog: // destructive steps log their outcome even on success
+			appendLog(cat, "OK", s.step.LogLabel, m.buf.String())
 		}
 	}
 	cmd := m.advance()

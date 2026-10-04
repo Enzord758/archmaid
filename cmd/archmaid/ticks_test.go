@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/steps"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -32,7 +33,7 @@ func runCmdQuick(t *testing.T, cmd tea.Cmd) tea.Msg {
 func TestStatusLoopDoesNotMultiply(t *testing.T) {
 	m := fixedModel()
 	m.screen = screenRunning
-	m.queue = []stepState{{step: step{title: "x", logLabel: "x"}, status: statusRunning}}
+	m.queue = []stepState{{step: steps.Step{Title: "x", LogLabel: "x"}, status: steps.Running}}
 	m.current = 0
 	next, cmd := m.handleStream(streamBatchMsg{done: true}) // last step → summary
 	if next.(model).screen != screenSummary {
