@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
@@ -329,6 +331,40 @@ type tuiTarget struct {
 	seen    []steps.Status
 	flags   []tt.Step // the plan as last reported
 	aborted bool      // an abort answer fired
+
+	confirms []confirmInfo   // each confirm as it was answered (sessionTarget compares)
+	gated    map[string]bool // steps a result's ConfirmNext put a confirm on, by ID
+}
+
+// confirmInfo is what the open confirm says past its text, from the model:
+// the gate, or the current step's confirm (its kind as the engine names
+// it: the audit gate where a result's ConfirmNext put it there).
+func (tg *tuiTarget) confirmInfo() confirmInfo {
+	m := tg.m
+	if m.gateActive {
+		return confirmInfo{Kind: engine.ConfirmGate, Default: m.confirmYes}
+	}
+	if m.current < 0 || m.current >= len(m.queue) {
+		tg.fail("a confirm with no gate and no current step — teach the recorder")
+		return confirmInfo{}
+	}
+	s := m.queue[m.current].step
+	c := confirmInfo{Kind: engine.ConfirmStep, Step: s.ID, Default: m.confirmYes,
+		Destructive: destructiveSteps[s.ID], Commits: s.OnAccept != nil}
+	switch {
+	case tg.gated[s.ID]:
+		c.Kind = engine.ConfirmAuditGate
+	case s.ID == steps.IDOrphansRemove:
+		c.Kind = engine.ConfirmOrphans
+	case s.ID == steps.IDDownloads:
+		c.Kind = engine.ConfirmDownloads
+	}
+	if c.Kind == engine.ConfirmOrphans {
+		c.Direct, c.Cascade = quoted(s.Items), quoted(s.Cascade)
+	} else {
+		c.Items = quoted(s.Items)
+	}
+	return c
 }
 
 // newTUITarget starts a target on a fresh model at 100×40 with the status
@@ -435,6 +471,7 @@ func (tg *tuiTarget) Reply(a tt.Answer) error {
 	var keys []tea.Msg
 	switch a.Kind {
 	case "confirm":
+		tg.confirms = append(tg.confirms, tg.confirmInfo())
 		keys = []tea.Msg{key(a.Reply[:1])}
 	case "password":
 		pw := "not-the-password"
@@ -546,20 +583,34 @@ func (tg *tuiTarget) update(msg tea.Msg) []tea.Cmd {
 		// One out line per streamed line, however the pump batched them.
 		// Dropped late output doesn't count (a batch ending in done may have
 		// launched the next step, which resets buf, so judge by seq).
+		// The lines as the TUI shows them: sanitized one by one.
 		if msg.seq == seq {
 			for _, l := range msg.lines {
-				tg.push(tt.OutputLine{Index: cur, Text: l})
+				tg.push(tt.OutputLine{Index: cur, Text: sanitize.String(l, sanitize.KeepSGR)})
 			}
 		}
 	case stepResultMsg:
 		accepted := cur >= 0 && cur < len(tg.m.queue) && tg.m.queue[cur].status != curStatus
-		if accepted && msg.Output != "" {
-			for _, l := range strings.Split(strings.TrimRight(msg.Output, "\n"), "\n") {
+		// The output as handleStepResult shows it: a refused result with
+		// the refusal behind it, sanitized whole, then split.
+		res := msg.Result
+		if err := res.Check(); err != nil {
+			res = steps.Result{Output: res.Output + "\narchmaid: " + err.Error(), Err: err, ConfirmNext: res.ConfirmNext}
+		}
+		if accepted && res.Output != "" {
+			out := sanitize.String(strings.TrimRight(res.Output, "\n"), sanitize.KeepSGR)
+			for _, l := range strings.Split(out, "\n") {
 				tg.push(tt.OutputLine{Index: cur, Text: l})
 			}
 		}
-		if accepted && msg.Err == nil && msg.InsertNext != nil {
+		if accepted && res.Err == nil && res.InsertNext != nil {
 			inserted = cur + 1
+		}
+		if accepted && res.ConfirmNext != "" && cur+1 < len(tg.m.queue) {
+			if tg.gated == nil {
+				tg.gated = map[string]bool{}
+			}
+			tg.gated[tg.m.queue[cur+1].step.ID] = true
 		}
 	}
 	tg.observe(inserted)

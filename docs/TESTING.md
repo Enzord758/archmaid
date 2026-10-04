@@ -493,8 +493,10 @@ that checks the model afterwards (`d.m`).
 **sessionTarget (P4).** Scenarios take the target as a constructor,
 `newTarget func(t, shimLog) tt.Target`, and `replay(t, mk, skip)` runs them all
 against their goldens; `TestTranscript` is `replay` with `newTUITarget`, and
-`TestTranscriptSession` (`transcript_session_test.go`) is `replay` with
-`newSessionTarget` — the same scenarios and the same goldens, no copies.
+`TestTranscriptSession` (`transcript_session_test.go`) runs the same
+scenarios with `newSessionTarget` against the same goldens, no copies, each
+after a reference run of the scenario through the TUI (subtest `tui`) for
+what the golden doesn't hold (see below).
 `sessionTarget` drives an `engine.Session` and carries out its Effects the way
 a Driver would, on the test goroutine, against the same shims, log store and
 fake AUR: `WriteLog`, `WriteLastRun`, `RunHook` and the audit prefetch (awaited,
@@ -512,14 +514,29 @@ back through `Handle`. It maps:
 | `Notice` | `Notice` |
 | `Finished` | the `Outcome` (`Outcome.String`, `Errs`, `Skipped`) |
 | `LogWritten` | not recorded itself: the log entries come from disk (`effects`), and each one the Session reports must be among them, in order within its category (entries written in one go come ordered by file) |
-| `AuthWaiting`, `AuthResolved`, `FaillockState`, `PromptClosed` | nothing; `Authenticate` runs `privileged().Authenticate` against the shims, `ReadFaillock` is answered with a fixed count, never the real tally |
+| `PromptClosed` | the open prompt, if it is that one, is gone (not to be answered) |
+| `AuthWaiting`, `AuthResolved`, `FaillockState` | nothing; `Authenticate` runs `privileged().Authenticate` against the shims, `ReadFaillock` is answered with a fixed count, never the real tally |
 
 `Exec`, `LogWritten` and `SnapshotChanged` come from `effects`, called where
 `tuiTarget` calls it: execs after each piece of work (a step child's with its
 first output or exit, never from the Output that launched it), logs and the
 snapshot after finished steps and plan changes, before started steps. Each
-Output's events are buffered in the **Format** order above, and every run is
-also held to the engine's ordering contract (`enginetest.CheckContract`).
+Output's events are buffered in the **Format** order above. So that this
+bucketing can't hide an order bug, each Output is also held, as it comes, to
+the engine's ordering contract (an `enginetest.Checker` fed Output by Output,
+reporting the Output that broke it) and to that order itself (`tuiOrder`: no
+event after one its transcript records behind it, save a further `StepDone`
+after a `LogWritten`, steps settled together). Past the golden, each scenario
+is compared with its TUI reference run: every confirm, in the order answered,
+by `Kind`, `Step`, `Items`, `Direct`, `Cascade`, `Default`, `Destructive` and
+`Commits` (the TUI's from its model: the gate, or the current step — the
+audit gate where a result's `ConfirmNext` put it — with its `Items`/`Cascade`
+quoted as the engine quotes them, `OnAccept` for `Commits` and the harness's
+`destructiveSteps`), and last-run.json: the record the Session's
+`WriteLastRun` carried (at most once) against the one the TUI left, times and
+version aside, and against what the file reads back. `tuiTarget` records
+output as the TUI shows it: streamed lines sanitized one by one, an
+in-process result (with a refusal behind it) sanitized whole, then split.
 
 What the Session can't do yet is skipped by name with the reason
 (`sessionSkips`), never silently, and a skip naming no scenario fails the

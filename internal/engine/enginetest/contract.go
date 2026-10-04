@@ -65,18 +65,24 @@ func (c *Checker) Done() {
 }
 
 // Check holds the next events of the stream to the contract; event
-// numbers in its reports count from the start of the stream.
-func (c *Checker) Check(evs []engine.Event) {
-	t := c.t
-	t.Helper()
+// numbers in its reports count from the start of the stream. It reports
+// whether evs broke nothing.
+func (c *Checker) Check(evs []engine.Event) (ok bool) {
+	c.t.Helper()
+	ok = true
+	errorf := func(format string, a ...any) {
+		c.t.Helper()
+		c.t.Errorf(format, a...)
+		ok = false
+	}
 	at := func(i int, id string, idx int) {
 		if !c.queued {
-			t.Errorf("event %d names step %s before QueueStarted", i, id)
+			errorf("event %d names step %s before QueueStarted", i, id)
 		} else if idx < 0 || idx >= len(c.plan) || c.plan[idx] != id {
-			t.Errorf("event %d: step %s is not at index %d of %v", i, id, idx, c.plan)
+			errorf("event %d: step %s is not at index %d of %v", i, id, idx, c.plan)
 		}
 		if c.settled[id] {
-			t.Errorf("event %d names step %s after it ended", i, id)
+			errorf("event %d names step %s after it ended", i, id)
 		}
 	}
 	// replan checks a plan change at idx (where a StepInserted inserts, the
@@ -85,20 +91,20 @@ func (c *Checker) Check(evs []engine.Event) {
 	// is in range.
 	replan := func(i int, what string, idx int) bool {
 		if !c.queued {
-			t.Errorf("event %d: %s before QueueStarted", i, what)
+			errorf("event %d: %s before QueueStarted", i, what)
 		}
 		if c.running != "" {
-			t.Errorf("event %d: %s while %s runs (a result's plan change comes after its StepDone)", i, what, c.running)
+			errorf("event %d: %s while %s runs (a result's plan change comes after its StepDone)", i, what, c.running)
 		}
 		if c.asking != "" {
-			t.Errorf("event %d: %s while %s's confirm is open (it comes before the next step's events)", i, what, c.asking)
+			errorf("event %d: %s while %s's confirm is open (it comes before the next step's events)", i, what, c.asking)
 		}
 		if idx < 0 || idx > len(c.plan) {
-			t.Errorf("event %d: %s at %d of %d steps", i, what, idx, len(c.plan))
+			errorf("event %d: %s at %d of %d steps", i, what, idx, len(c.plan))
 			return false
 		}
 		if j := slices.IndexFunc(c.plan[idx:], func(id string) bool { return c.started[id] || c.settled[id] }); j >= 0 {
-			t.Errorf("event %d: %s at %d, at or before %s, which already ran or ended", i, what, idx, c.plan[idx+j])
+			errorf("event %d: %s at %d, at or before %s, which already ran or ended", i, what, idx, c.plan[idx+j])
 		}
 		return true
 	}
@@ -108,13 +114,13 @@ func (c *Checker) Check(evs []engine.Event) {
 		switch ev.(type) {
 		case engine.AuthResolved:
 			if !c.waiting {
-				t.Errorf("event %d: AuthResolved with no AuthWaiting open", i)
+				errorf("event %d: AuthResolved with no AuthWaiting open", i)
 			}
 			c.waiting = false
 		case engine.AuthWaiting, engine.QueueStarted, engine.StepStarted, engine.NeedsConfirm,
 			engine.NeedsPassword, engine.NeedsSelection, engine.OutputReport, engine.Finished:
 			if c.waiting {
-				t.Errorf("event %d (%T) before the open AuthWaiting's AuthResolved", i, ev)
+				errorf("event %d (%T) before the open AuthWaiting's AuthResolved", i, ev)
 			}
 			_, c.waiting = ev.(engine.AuthWaiting)
 		}
@@ -128,13 +134,13 @@ func (c *Checker) Check(evs []engine.Event) {
 				c.plan, c.queued, c.running, c.asking, c.waiting, c.finished = nil, false, "", "", false, false
 				c.settled, c.started = map[string]bool{}, map[string]bool{}
 			default:
-				t.Errorf("event %d (%T) after Finished", i, ev)
+				errorf("event %d (%T) after Finished", i, ev)
 				continue
 			}
 		}
 		if id := promptID(ev); id != 0 {
 			if c.prompts[id] {
-				t.Errorf("event %d reuses prompt ID %d", i, id)
+				errorf("event %d reuses prompt ID %d", i, id)
 			}
 			c.prompts[id] = true
 		}
@@ -149,13 +155,13 @@ func (c *Checker) Check(evs []engine.Event) {
 				break // the gate in front of the whole queue
 			}
 			if !c.queued || !slices.Contains(c.plan, ev.Step) {
-				t.Errorf("event %d: confirm for step %s, which isn't in the plan %v", i, ev.Step, c.plan)
+				errorf("event %d: confirm for step %s, which isn't in the plan %v", i, ev.Step, c.plan)
 			}
 			if c.started[ev.Step] || c.settled[ev.Step] {
-				t.Errorf("event %d: confirm for step %s, which already ran or ended", i, ev.Step)
+				errorf("event %d: confirm for step %s, which already ran or ended", i, ev.Step)
 			}
 			if c.running != "" {
-				t.Errorf("event %d: confirm for step %s while %s runs", i, ev.Step, c.running)
+				errorf("event %d: confirm for step %s while %s runs", i, ev.Step, c.running)
 			}
 			c.asking = ev.Step
 		case engine.StepInserted:
@@ -165,31 +171,31 @@ func (c *Checker) Check(evs []engine.Event) {
 		case engine.PlanChanged:
 			if replan(i, "PlanChanged "+ev.Step.ID, ev.Index) &&
 				(ev.Index == len(c.plan) || c.plan[ev.Index] != ev.Step.ID) {
-				t.Errorf("event %d: PlanChanged names step %s, not at index %d of %v", i, ev.Step.ID, ev.Index, c.plan)
+				errorf("event %d: PlanChanged names step %s, not at index %d of %v", i, ev.Step.ID, ev.Index, c.plan)
 			}
 		case engine.StepStarted:
 			at(i, ev.ID, ev.Index)
 			if c.running != "" {
-				t.Errorf("event %d starts %s while %s runs", i, ev.ID, c.running)
+				errorf("event %d starts %s while %s runs", i, ev.ID, c.running)
 			}
 			if c.asking != "" && c.asking != ev.ID {
-				t.Errorf("event %d starts %s while %s's confirm is open", i, ev.ID, c.asking)
+				errorf("event %d starts %s while %s's confirm is open", i, ev.ID, c.asking)
 			}
 			c.running, c.started[ev.ID], c.asking = ev.ID, true, ""
 		case engine.OutputChunk:
 			at(i, ev.ID, ev.Index)
 			if c.running != ev.ID {
-				t.Errorf("event %d: output for %s, which isn't running", i, ev.ID)
+				errorf("event %d: output for %s, which isn't running", i, ev.ID)
 			}
 		case engine.StepDone:
 			at(i, ev.ID, ev.Index)
 			switch {
 			case ev.Status == steps.Aborted || ev.Status == steps.Running || ev.Status == steps.Pending:
-				t.Errorf("event %d: StepDone with status %d", i, ev.Status)
+				errorf("event %d: StepDone with status %d", i, ev.Status)
 			case c.started[ev.ID] && c.running != ev.ID:
-				t.Errorf("event %d: %s done but not running", i, ev.ID)
+				errorf("event %d: %s done but not running", i, ev.ID)
 			case !c.started[ev.ID] && ev.Status != steps.Skipped && ev.Status != steps.AuthRefused:
-				t.Errorf("event %d: %s settled without running, status %d", i, ev.ID, ev.Status)
+				errorf("event %d: %s settled without running, status %d", i, ev.ID, ev.Status)
 			}
 			c.settled[ev.ID] = true
 			if c.running == ev.ID {
@@ -201,7 +207,7 @@ func (c *Checker) Check(evs []engine.Event) {
 		case engine.Aborted:
 			at(i, ev.ID, ev.Index)
 			if c.running != ev.ID {
-				t.Errorf("event %d: aborted %s, which isn't running", i, ev.ID)
+				errorf("event %d: aborted %s, which isn't running", i, ev.ID)
 			}
 			c.settled[ev.ID], c.running = true, ""
 		case engine.Finished:
@@ -209,12 +215,13 @@ func (c *Checker) Check(evs []engine.Event) {
 			if ev.Outcome == engine.OutcomeCompleted {
 				for _, id := range c.plan {
 					if !c.settled[id] {
-						t.Errorf("completed with step %s never settled", id)
+						errorf("completed with step %s never settled", id)
 					}
 				}
 			}
 		}
 	}
+	return ok
 }
 
 // promptID is the prompt ev opens, or 0.

@@ -7,9 +7,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -18,6 +21,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/enginetest"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -50,7 +54,132 @@ func TestTranscriptSession(t *testing.T) {
 			t.Errorf("sessionSkips names %q, which is no scenario", name)
 		}
 	}
-	replay(t, func(t *testing.T, shimLog string) tt.Target { return newSessionTarget(t, shimLog) }, sessionSkips)
+	for _, sc := range transcriptScenarios {
+		t.Run(sc.name, func(t *testing.T) {
+			if why, ok := sessionSkips[sc.name]; ok {
+				t.Skip(why)
+			}
+			if *updateTranscripts {
+				t.Skip("-update-transcripts records through the TUI (TestTranscript) only")
+			}
+			// What the golden doesn't hold, the TUI's own run of the
+			// scenario says: its confirms past their text, its last-run.json.
+			var ref tuiReference
+			if !t.Run("tui", func(t *testing.T) { ref = recordTUIReference(t, sc) }) {
+				t.Fatal("the TUI's reference run failed")
+			}
+			var tg *sessionTarget
+			got := sc.run(t, func(t *testing.T, shimLog string) tt.Target {
+				tg = newSessionTarget(t, shimLog)
+				return tg
+			}).Transcript()
+			checkGolden(t, sc.name, got)
+			tg.compare(t, ref)
+		})
+	}
+}
+
+// tuiReference is what the TUI's run of a scenario showed that its golden
+// doesn't record.
+type tuiReference struct {
+	confirms []confirmInfo
+	lastRun  *logstore.RunRecord // last-run.json as the TUI left it, nil if none
+}
+
+// recordTUIReference runs sc through the TUI and keeps what it asked and
+// recorded.
+func recordTUIReference(t *testing.T, sc transcriptScenario) tuiReference {
+	var tg *tuiTarget
+	sc.run(t, func(t *testing.T, shimLog string) tt.Target {
+		tg = newTUITarget(t, shimLog)
+		return tg
+	})
+	ref := tuiReference{confirms: tg.confirms}
+	r, err := logs().ReadLastRun()
+	switch {
+	case err == nil:
+		ref.lastRun = &r
+	case !errors.Is(err, os.ErrNotExist):
+		t.Fatal(err)
+	}
+	return ref
+}
+
+// confirmInfo is what a confirm prompt says past its text (which the
+// goldens hold): an engine.NeedsConfirm's fields, or what the TUI's model
+// had up when it asked.
+type confirmInfo struct {
+	Kind                          engine.ConfirmKind
+	Step                          string
+	Items, Direct, Cascade        []string
+	Default, Destructive, Commits bool
+}
+
+// destructiveSteps are the steps whose confirm guards something archmaid
+// can't bring back (NeedsConfirm.Destructive). The TUI has no such flag;
+// this is the harness's own list.
+var destructiveSteps = map[string]bool{
+	steps.IDPaccacheWipe:  true,
+	steps.IDOrphansRemove: true,
+	steps.IDUserCache:     true,
+	steps.IDDownloads:     true,
+}
+
+// quoted is a confirm's list as NeedsConfirm carries it: one safe line
+// each, nil for none.
+func quoted(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = sanitize.QuoteName(it, 200)
+	}
+	return out
+}
+
+// sessionConfirm is what the Session's confirm said.
+func sessionConfirm(nc engine.NeedsConfirm) confirmInfo {
+	return confirmInfo{Kind: nc.Kind, Step: nc.Step, Items: nc.Items, Direct: nc.Direct, Cascade: nc.Cascade,
+		Default: nc.Default, Destructive: nc.Destructive, Commits: nc.Commits}
+}
+
+// compare holds what the session target saw, past the transcript, to the
+// TUI's run of the same scenario: every confirm (in the order answered)
+// and the last-run record, which the Session's WriteLastRun carries and
+// the TUI writes itself.
+func (tg *sessionTarget) compare(t *testing.T, ref tuiReference) {
+	t.Helper()
+	if len(tg.confirms) != len(ref.confirms) {
+		t.Errorf("the session asked %d confirms, the TUI %d", len(tg.confirms), len(ref.confirms))
+	}
+	for i := range min(len(tg.confirms), len(ref.confirms)) {
+		if got, want := tg.confirms[i], ref.confirms[i]; !reflect.DeepEqual(got, want) {
+			t.Errorf("confirm %d:\nsession %+v\nTUI     %+v", i+1, got, want)
+		}
+	}
+	norm := func(r logstore.RunRecord) logstore.RunRecord {
+		r.V, r.Started, r.Finished = 0, time.Time{}, time.Time{}
+		return r
+	}
+	switch {
+	case len(tg.lastRuns) > 1:
+		t.Errorf("the session wrote last-run.json %d times: %+v", len(tg.lastRuns), tg.lastRuns)
+	case (len(tg.lastRuns) == 1) != (ref.lastRun != nil):
+		t.Errorf("last-run.json: the session wrote %+v, the TUI left %+v", tg.lastRuns, ref.lastRun)
+	case ref.lastRun != nil:
+		got := tg.lastRuns[0]
+		if norm(got) != norm(*ref.lastRun) {
+			t.Errorf("last-run.json:\nsession %+v\nTUI     %+v", norm(got), norm(*ref.lastRun))
+		}
+		if got.Started.IsZero() || got.Finished.Before(got.Started) {
+			t.Errorf("the session's last run went from %v to %v", got.Started, got.Finished)
+		}
+		// and what the effect carried is what the file got
+		if r, err := logs().ReadLastRun(); err != nil || norm(r) != norm(got) {
+			t.Errorf("last-run.json reads back %+v (%v), the session wrote %+v", r, err, got)
+		}
+	}
 }
 
 // sessionTarget runs an action on an engine.Session and carries out its
@@ -76,8 +205,13 @@ type sessionTarget struct {
 	work    []func() []engine.Input
 	pending []tt.Event
 	err     error
-	evs     []engine.Event // every engine event, for the contract check
-	flags   []tt.Step      // the plan as last recorded
+	flags   []tt.Step // the plan as last recorded
+
+	contract *enginetest.Checker // every Output's events, as they come
+	outputs  int                 // Outputs applied so far
+	confirms []confirmInfo       // each confirm as it was answered
+	lastRuns []logstore.RunRecord
+	ask      engine.NeedsConfirm // the open confirm, when prompt is one
 
 	prompt   tt.Event // the open prompt as the recorder sees it, or nil
 	promptID engine.PromptID
@@ -115,6 +249,7 @@ func newSessionTarget(t *testing.T, shimLog string) *sessionTarget {
 		fetches:  map[string]*auditFetch{},
 		children: map[uint64]*sessionChild{},
 		release:  map[uint64]context.CancelCauseFunc{},
+		contract: enginetest.NewChecker(t),
 	}
 	t.Cleanup(func() {
 		for _, f := range tg.fetches {
@@ -129,7 +264,7 @@ func newSessionTarget(t *testing.T, shimLog string) *sessionTarget {
 			cancel(nil)
 		}
 		if !t.Failed() && !t.Skipped() {
-			enginetest.CheckContract(t, tg.evs)
+			tg.contract.Done()
 		}
 	})
 	return tg
@@ -204,6 +339,7 @@ func (tg *sessionTarget) Reply(a tt.Answer) error {
 		if _, ok := tg.prompt.(tt.NeedsConfirm); !ok {
 			return fmt.Errorf("confirm reply with %T open", tg.prompt)
 		}
+		tg.confirms = append(tg.confirms, sessionConfirm(tg.ask))
 		tg.prompt, tg.promptID = nil, 0
 		tg.apply(tg.s.Confirm(id, a.Reply == "yes"))
 		return nil
@@ -231,9 +367,19 @@ func (tg *sessionTarget) Outcome() (tt.Outcome, error) {
 }
 
 // apply carries out an Output: its Effects in order, then its Events,
-// buffered in the transcript's order.
+// buffered in the transcript's order. The events are held to the engine's
+// contract as they come, and to the TUI's order within one Update
+// (tuiOrder): the transcript records one Output's events in that order,
+// whatever order they came in, so an Output that broke it would pass the
+// golden unseen.
 func (tg *sessionTarget) apply(o engine.Output) {
-	tg.evs = append(tg.evs, o.Events...)
+	tg.outputs++
+	if !tg.contract.Check(o.Events) {
+		tg.fail("output %d breaks the engine's contract (see above): %s", tg.outputs, eventKinds(o.Events))
+	}
+	if err := tuiOrder(o.Events); err != nil {
+		tg.fail("output %d: %v: %s", tg.outputs, err, eventKinds(o.Events))
+	}
 	launched := false
 	var hooks []engine.Input
 	for _, e := range o.Effects {
@@ -289,12 +435,19 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			tail = append(tail, tt.Notice{Text: ev.Text})
 		case engine.NeedsConfirm:
 			tg.open(ev.ID, tt.NeedsConfirm{Text: ev.Msg})
+			tg.ask = ev
+		case engine.PromptClosed:
+			// The engine closed it (an askpass request withdrawn): it is no
+			// longer there to answer.
+			if ev.ID == tg.promptID {
+				tg.prompt, tg.promptID = nil, 0
+			}
 		case engine.NeedsPassword:
 			tg.open(ev.ID, tt.NeedsPassword{})
 		case engine.Finished:
 			tg.fin = &ev
 		case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting, engine.AuthResolved,
-			engine.FaillockState, engine.PromptClosed: // no transcript line
+			engine.FaillockState: // no transcript line
 		default:
 			tg.fail("event %T (%+v): teach the session target", ev, ev)
 		}
@@ -314,6 +467,63 @@ func (tg *sessionTarget) apply(o engine.Output) {
 	for _, h := range hooks {
 		tg.apply(tg.s.Handle(h))
 	}
+}
+
+// tuiRank is where an event of one Output lands in its transcript (apply's
+// buckets: tuiTarget.observe's order within one Update), or -1 for an
+// event with no transcript line.
+func tuiRank(ev engine.Event) int {
+	switch ev.(type) {
+	case engine.QueueStarted:
+		return 0
+	case engine.OutputChunk:
+		return 1
+	case engine.StepDone, engine.StepInserted:
+		return 2
+	case engine.PlanChanged:
+		return 3
+	case engine.LogWritten:
+		return 4
+	case engine.StepStarted:
+		return 5
+	case engine.Notice:
+		return 6
+	case engine.NeedsConfirm, engine.NeedsPassword, engine.NeedsSelection, engine.OutputReport, engine.Finished:
+		return 7 // what the action now waits on, or its end
+	}
+	return -1
+}
+
+// tuiOrder reports an event that comes after one its transcript records
+// behind it. One exception: a StepDone after a LogWritten, a further step
+// settled in the same Output (steps skipped behind a refused password).
+// The TUI lists such steps' lines first and their log entries after, which
+// says nothing about the order they happened in; the engine settles and
+// logs them one at a time, which doc.go allows.
+func tuiOrder(evs []engine.Event) error {
+	top, at := -1, -1
+	for i, ev := range evs {
+		r := tuiRank(ev)
+		if r < 0 {
+			continue
+		}
+		_, done := ev.(engine.StepDone)
+		_, logged := evs[max(at, 0)].(engine.LogWritten)
+		if r < top && !(done && logged) {
+			return fmt.Errorf("event %d (%T) comes after %T, out of the TUI's order", i, ev, evs[at])
+		}
+		top, at = r, i
+	}
+	return nil
+}
+
+// eventKinds lists evs' types, for a failure message.
+func eventKinds(evs []engine.Event) string {
+	kinds := make([]string, len(evs))
+	for i, ev := range evs {
+		kinds[i] = strings.TrimPrefix(fmt.Sprintf("%T", ev), "engine.")
+	}
+	return strings.Join(kinds, " ")
 }
 
 // contains reports whether, in each log category, sub's entries are a
@@ -379,6 +589,7 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 	case engine.WriteLog:
 		_ = logs().Append(e.Category, e.Kind, e.Label, e.Body)
 	case engine.WriteLastRun:
+		tg.lastRuns = append(tg.lastRuns, e.Record)
 		_ = logs().WriteLastRun(e.Record)
 	case engine.KeepAlive: // the refresh is a tick; the transcripts drop ticks
 	case engine.StartPrefetch:
