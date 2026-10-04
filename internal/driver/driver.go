@@ -26,7 +26,8 @@
 // # Closing
 //
 // Close stops the run (the Session's Abort, once E5 has it), stops every
-// child (SIGINT, SIGKILL after the grace) and waits for it to be reaped,
+// child (SIGINT, SIGKILL after the grace; with its process group under
+// Deps.Detach) and waits for it to be reaped,
 // cancels every in-process step, discovery and prefetch and waits for
 // them, hangs up open askpass requests, stops the ticker, the keep-alive
 // and the publisher, and then closes Events. Nothing the Driver started
@@ -70,6 +71,12 @@ type Deps struct {
 	// (proc.Options). Zero means 5 s and 2 s, the TUI's. A dry run is each
 	// step's own (StartStep's Env), not set here.
 	KillGrace, WaitDelay time.Duration
+	// Detach starts every step's child in a session of its own, without a
+	// controlling terminal, and stops it with its process group
+	// (proc.Options.Detach): sudo under it can then only ask through
+	// Askpass. The GUI sets it; the TUI must not (its steps share its
+	// session for the sudo ticket, see internal/proc).
+	Detach bool
 
 	// Askpass delivers the askpass Server's requests ((*privilege.Server).
 	// Requests); nil means no askpass. The Driver verifies each against the
@@ -159,6 +166,7 @@ type Driver struct {
 	// Owned by the loop.
 	local     []msg // Inputs the loop made itself (HookDone)
 	children  map[uint64]*proc.Child
+	stopped   []*proc.Child                      // Deps.Detach: children stopped, their groups to await at teardown
 	lastChild uint64                             // the newest child still running
 	cancels   map[uint64]context.CancelCauseFunc // in-process steps, discoveries, helper steps
 	prefetch  map[string]Prefetch                // running prefetches
@@ -529,7 +537,7 @@ func (d *Driver) teardown(asked bool) {
 	close(d.stop)
 	d.cancel()
 	for seq, c := range d.children {
-		c.Stop() // its pump runs on to the done: the child is reaped
+		d.stopChild(c) // its pump runs on to the done: the child is reaped
 		delete(d.children, seq)
 	}
 	for seq, cancel := range d.cancels {
@@ -545,6 +553,11 @@ func (d *Driver) teardown(asked bool) {
 	}
 	d.setKeepAlive(false)
 	d.wg.Wait()
+	// A detached child's group outlives the child until its Stop has
+	// SIGKILLed what is left of it, at most KillGrace after the Stop.
+	for _, c := range d.stopped {
+		<-c.GroupStopped()
+	}
 	// Every poster has returned; what they queued and the loop never took
 	// is dropped, and an askpass request among it hung up on.
 	for {

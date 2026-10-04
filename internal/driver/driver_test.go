@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -407,6 +409,62 @@ func TestCloseMidStep(t *testing.T) {
 	if rec, err := r.log.ReadLastRun(); err != nil || rec.Outcome != logstore.OutcomeAborted {
 		t.Fatalf("last run %+v (%v), want aborted", rec, err)
 	}
+}
+
+// Under Deps.Detach (the GUI's) a step's child leads a session of its own,
+// with no controlling terminal; Close stops its whole process group —
+// what the child left running too, though it ignores SIGINT — before it
+// returns, and the run is recorded as aborted.
+func TestCloseDetached(t *testing.T) {
+	script := "(trap '' INT; exec sleep 30) >/dev/null 2>&1 & echo $$; echo $!; sleep 30"
+	r := newRig(t, engine.Options{}, Deps{Detach: true}, action("c", shStep("sleep", script)))
+	r.d.Send(engine.Start{Action: "c"})
+	var pids []int
+	for len(pids) < 2 {
+		ev, _ := r.next()
+		if c, ok := ev.(engine.OutputChunk); ok {
+			for _, l := range c.Lines {
+				n, err := strconv.Atoi(l)
+				if err != nil {
+					t.Fatalf("pid line %q", l)
+				}
+				pids = append(pids, n)
+			}
+		}
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	child, err := proc.Read(pids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Session != pids[0] || child.Pgrp != pids[0] {
+		t.Fatalf("child %d: session %d, group %d; want it to lead its own", pids[0], child.Session, child.Pgrp)
+	}
+	r.d.Close()
+	// Close has sent the leftover its SIGKILL; only the delivery may lag.
+	deadline := time.Now().Add(time.Second)
+	for _, pid := range pids {
+		for !gone(pid, 0) && !zombie(pid) && time.Now().Before(deadline) {
+			time.Sleep(2 * time.Millisecond)
+		}
+		if !gone(pid, 0) && !zombie(pid) {
+			t.Errorf("pid %d outlived Close", pid)
+		}
+	}
+	if rec, err := r.log.ReadLastRun(); err != nil || rec.Outcome != logstore.OutcomeAborted {
+		t.Fatalf("last run %+v (%v), want aborted", rec, err)
+	}
+}
+
+// zombie: pid has exited and waits to be reaped by its new parent.
+func zombie(pid int) bool {
+	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return true // gone meanwhile
+	}
+	s := string(b)
+	f := strings.Fields(s[strings.LastIndexByte(s, ')')+1:])
+	return len(f) > 0 && f[0] == "Z"
 }
 
 // Close mid in-process step cancels its ctx plainly (an abort), and waits

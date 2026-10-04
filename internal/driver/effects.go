@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -36,7 +37,7 @@ func (d *Driver) effect(e engine.Effect) {
 		d.startStep(e)
 	case engine.Stop:
 		if c := d.children[e.Seq]; c != nil {
-			c.Stop() // SIGINT, SIGKILL after KillGrace; its pump reaps it
+			d.stopChild(c) // SIGINT, SIGKILL after KillGrace; its pump reaps it
 		}
 		d.release(e.Seq, nil) // plain context.Canceled: an abort
 	case engine.RunHook:
@@ -144,13 +145,22 @@ func (d *Driver) startStep(e engine.StartStep) {
 		return
 	}
 	ch := make(chan proc.Msg, proc.BatchMax)
-	opts := proc.Options{DryRun: e.Env.DryRun, WaitDelay: d.cfg.WaitDelay, KillGrace: d.cfg.KillGrace}
+	opts := proc.Options{DryRun: e.Env.DryRun, WaitDelay: d.cfg.WaitDelay, KillGrace: d.cfg.KillGrace, Detach: d.cfg.Detach}
 	c := proc.New(opts).Start(d.cfg.Priv.Command(st.Argv, st.NeedsPriv), ch, nil)
 	if c != nil {
 		d.children[e.Seq] = c
 		d.lastChild = e.Seq
 	}
 	d.goRun(func() { d.pump(e.Seq, ch) })
+}
+
+// stopChild stops c (proc.Child.Stop); a detached one is kept so teardown
+// waits for its whole group (Deps.Detach).
+func (d *Driver) stopChild(c *proc.Child) {
+	c.Stop()
+	if d.cfg.Detach && !slices.Contains(d.stopped, c) {
+		d.stopped = append(d.stopped, c)
+	}
 }
 
 // runStep runs an in-process step, turning a panic into a failed result.
