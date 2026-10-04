@@ -12,7 +12,7 @@ set -euo pipefail
 
 # Coverage floors, in percent of statements. Raise them when coverage rises;
 # never lower one to make a change pass.
-MIN_TOTAL=89.1   # the TUI package (cmd/archmaid), measured after the askpass tests + view goldens
+MIN_TOTAL=89.1   # cmd/archmaid + internal/... (the TUI is internal/tui since P5), measured after the askpass tests + view goldens
 MIN_ASKPASS=90   # internal/privilege/askpass.go: it carries the sudo password (95.0% after the move)
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -45,11 +45,11 @@ trap finish EXIT
 echo "==> state-guard self-test"
 scripts/state-guard-selftest.sh
 
-TUI=./cmd/archmaid
+TUI=./cmd/archmaid # the binary's main; the TUI itself is internal/tui (P5)
 
-# Coverage is measured over the TUI and the packages it is being split into
-# (internal/, from P2 on), so moving code out of cmd/archmaid moves its
-# statements without changing the total. ./internal/... is only named once it
+# Coverage is measured over the binary and the packages it was split into
+# (internal/, from P2 on; internal/tui from P5), so moving code out of
+# cmd/archmaid moves its statements without changing the total. ./internal/... is only named once it
 # has packages: an empty pattern fails `go test`.
 COVERPKG="$TUI"
 COVERTESTS=("$TUI")
@@ -86,11 +86,22 @@ echo "==> layering"
 if compgen -G 'internal/*/*.go' >/dev/null; then
 	for pkg in $(go list ./internal/... | grep -v '/internal/tui'); do
 		if go list -deps "$pkg" | grep -q '^github.com/charmbracelet/'; then
-			echo "FAIL: $pkg imports github.com/charmbracelet/* (only internal/tui and cmd/archmaid may)"
+			echo "FAIL: $pkg imports github.com/charmbracelet/* (only internal/tui may)"
 			exit 1
 		fi
 	done
 fi
+# The commands are thin mains: cmd/archmaid reaches Bubble Tea only through
+# internal/tui (tui.Run), so no package under cmd/ may import charmbracelet
+# itself, in its code or its tests. (Its deps include it through
+# internal/tui, so this checks direct imports.)
+for pkg in $(go list ./cmd/...); do
+	if go list -f '{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' "$pkg" |
+		grep -q '^github.com/charmbracelet/'; then
+		echo "FAIL: $pkg imports github.com/charmbracelet/* directly (only internal/tui may)"
+		exit 1
+	fi
+done
 # Test-only code stays out of the binaries: no main package may link the
 # testing package (privilege/privtest and testenv are for _test.go files).
 for pkg in $(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./cmd/...); do

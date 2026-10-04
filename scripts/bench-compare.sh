@@ -27,7 +27,6 @@ BENCHSTAT_TOOLCHAIN=auto  # local Go, or the newer one benchstat requires
 BENCH='StreamView|SystemStatus|ActivateFullCleanup|ViewRunning'
 MAX_SLOWDOWN_PCT=25
 COUNT="${BENCH_COUNT:-6}"
-PKG=./cmd/archmaid
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 ROOT="$PWD"
@@ -51,20 +50,27 @@ if [[ "$base" == "$(git rev-parse HEAD)" && -z "$(git status --porcelain)" ]]; t
 fi
 
 git worktree add --detach "$work/base" "$base" >/dev/null
+# The benchmarks live in the TUI's package: internal/tui from P5 on,
+# cmd/archmaid in a base from before the move.
+pkgdir() {
+	if [[ -d "$1/internal/tui" ]]; then echo internal/tui; else echo cmd/archmaid; fi
+}
+oldpkg="$(pkgdir "$work/base")"
+newpkg="$(pkgdir "$ROOT")"
 # Compile both test binaries first (so a build error shows before any timing,
 # and neither side pays for compilation while measured), then alternate the
 # runs: a slow stretch on a shared runner hits both sides alike.
-(cd "$work/base" && go test -c -o "$work/old.test" "$PKG")
-go test -c -o "$work/new.test" "$PKG"
+(cd "$work/base" && go test -c -o "$work/old.test" "./$oldpkg")
+go test -c -o "$work/new.test" "./$newpkg"
 
 : >"$out/old.txt"
 : >"$out/new.txt"
 echo "==> $COUNT interleaved rounds of -bench '$BENCH'"
 for ((i = 1; i <= COUNT; i++)); do
 	for side in old new; do
-		dir="$work/base"
-		[[ $side == new ]] && dir="$ROOT"
-		(cd "$dir/cmd/archmaid" && "$work/$side.test" -test.run '^$' -test.bench "$BENCH" -test.benchmem -test.benchtime=300ms) >>"$out/$side.txt"
+		dir="$work/base/$oldpkg"
+		[[ $side == new ]] && dir="$ROOT/$newpkg"
+		(cd "$dir" && "$work/$side.test" -test.run '^$' -test.bench "$BENCH" -test.benchmem -test.benchtime=300ms) >>"$out/$side.txt"
 	done
 done
 
