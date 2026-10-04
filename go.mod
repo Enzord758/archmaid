@@ -1,8 +1,7 @@
-module github.com/Enzord758/archmaid/tui
+module github.com/Enzord758/archmaid
 
 go 1.25
 
-// Run `go mod tidy` to populate the indirect dependency graph and go.sum.
 require (
 	github.com/charmbracelet/bubbles v0.20.0
 	github.com/charmbracelet/bubbletea v1.3.5

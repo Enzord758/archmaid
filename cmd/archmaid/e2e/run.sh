@@ -11,11 +11,11 @@
 # shim was invoked.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."   # cmd/archmaid module root
+cd "$(dirname "$0")/.."   # cmd/archmaid: the tapes run from here (they use ./archmaid, e2e/...)
 E2E="$PWD/e2e"
 
 # Build with the real HOME so the Go build cache is reused.
-go build -o archmaid .
+go build -trimpath -o archmaid .
 
 SHIMMED=(sudo pacman systemctl topgrade yay paccache journalctl hyprpm systemd-tmpfiles su)
 MUTATING=(sudo topgrade yay paccache journalctl hyprpm systemd-tmpfiles su)

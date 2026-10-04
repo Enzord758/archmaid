@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The gate every commit must pass: race-enabled tests (run three times to shake
 # out flakes), go vet, gofmt, and coverage floors. Run from anywhere; it works
-# in the cmd/archmaid/ module. Leaves no files behind.
+# from the repo root: one Go module covers ./cmd/archmaid and
+# ./cmd/archmaid-helper. Leaves no files behind.
 #
 # Usage:
 #   scripts/check.sh
@@ -11,13 +12,15 @@ set -euo pipefail
 
 # Coverage floors, in percent of statements. Raise them when coverage rises;
 # never lower one to make a change pass.
-MIN_TOTAL=89.1   # whole package, measured after the askpass tests + view goldens
+MIN_TOTAL=89.1   # the TUI package (cmd/archmaid), measured after the askpass tests + view goldens
 MIN_ASKPASS=80   # askpass.go: it carries the sudo password
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../cmd/archmaid"
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-echo "==> go test -race -count=3"
-go test -race -count=3 ./...
+TUI=./cmd/archmaid
+
+echo "==> go test -race -count=3 (TUI and helper)"
+go test -race -count=3 ./cmd/archmaid ./cmd/archmaid-helper/...
 
 echo "==> go vet"
 go vet ./...
@@ -33,7 +36,7 @@ fi
 echo "==> coverage"
 PROFILE="$(mktemp)"
 trap 'rm -f "$PROFILE"' EXIT
-if ! out="$(go test -count=1 -coverprofile="$PROFILE" ./... 2>&1)"; then
+if ! out="$(go test -count=1 -coverprofile="$PROFILE" "$TUI" 2>&1)"; then
 	echo "$out"
 	exit 1
 fi

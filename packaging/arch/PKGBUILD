@@ -14,8 +14,6 @@
 #   - pick a license (the repo has none yet), then set license=() and install it
 #   - for a release: _fragment='tag=vX.Y.Z' (or 'commit=<sha>'), drop the -git
 #     suffix and pkgver(), and replace SKIP with a real checksum
-#   - a later phase moves the Go module to the repo root; drop the per-dir
-#     builds below for a single `go build ./cmd/...` then
 #   - the GUI (P6b) adds its binary and gotk4 deps here
 
 pkgname=archmaid-git
@@ -55,25 +53,23 @@ _goenv() {
 
 prepare() {
   _goenv
-  cd "$_pkgname/cmd/archmaid"
+  cd "$_pkgname"
   go mod download -x
-  # The helper is stdlib-only: nothing to download for it.
 }
 
 build() {
   _goenv
   mkdir -p "$srcdir/build"
-  cd "$srcdir/$_pkgname/cmd/archmaid"
-  go build -o "$srcdir/build/archmaid" .
-  cd "$srcdir/$_pkgname/cmd/archmaid-helper"
-  go build -o "$srcdir/build/archmaid-helper" .
+  cd "$srcdir/$_pkgname"
+  go build -o "$srcdir/build/archmaid" ./cmd/archmaid
+  go build -o "$srcdir/build/archmaid-helper" ./cmd/archmaid-helper
 }
 
 check() {
   _goenv
   # The helper's tests never run pacman/systemctl or need root (fake runner).
-  cd "$srcdir/$_pkgname/cmd/archmaid-helper"
-  go test ./...
+  cd "$srcdir/$_pkgname"
+  go test ./cmd/archmaid-helper/...
   # The TUI's suite needs a real terminal size and shims; run its gate in CI.
 }
 

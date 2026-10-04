@@ -11,8 +11,8 @@ concurrency:
 # Module and e2e paths: update them
 # here (and in the Makefile variables) in this one spot.
 env:
-  GO_MOD_FILE: cmd/archmaid/go.mod
-  GO_SUM_FILE: cmd/archmaid/go.sum
+  GO_MOD_FILE: go.mod
+  GO_SUM_FILE: go.sum
   E2E_DIR: cmd/archmaid/e2e
 
 jobs:
