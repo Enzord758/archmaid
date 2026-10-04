@@ -416,7 +416,25 @@ func (m model) engineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 	switch m.screen {
 	case screenPassword:
 		if m.authInFlight {
-			return m, nil, true // a password is being checked: ignore input
+			// A password is being checked: ignore input, except ctrl+c. A
+			// check whose worker panicked never resolves (the Driver
+			// reports it and the Session waits), so ctrl+c must still get
+			// out: an askpass prompt hangs up on sudo like esc, back to
+			// the running step; the up-front password aborts the action,
+			// which the Session always honours (Finished: the menu).
+			if msg.String() != "ctrl+c" {
+				return m, nil, true
+			}
+			m.authInFlight = false
+			if e.askpass != 0 {
+				m.send(engine.CancelPrompt{Prompt: e.askpass})
+				m.closeEngineAskpass()
+				return m, nil, true
+			}
+			m.password.Reset()
+			m.pwErr = ""
+			m.send(engine.Abort{})
+			return m, nil, true
 		}
 		switch msg.String() {
 		case "esc", "ctrl+c":
