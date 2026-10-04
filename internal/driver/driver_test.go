@@ -220,6 +220,101 @@ func TestBackpressureDropsOnlyOutput(t *testing.T) {
 	}
 }
 
+// Past MaxLines, a consumer that reads nothing until the end loses lines
+// from its Events, counted in Dropped, but never from the log: the step's
+// log entry holds every line it printed, in order. The log is a scratch
+// Store under t.TempDir().
+func TestBackpressureKeepsTheWholeLog(t *testing.T) {
+	const n, maxLines = 500, 100
+	dir := t.TempDir()
+	store := logstore.New(logstore.Options{Dir: dir})
+	r := newRig(t, engine.Options{}, Deps{Log: store, MaxLines: maxLines},
+		action("flood", shStep("seq", "seq 1 "+strconv.Itoa(n)), shStep("after", "echo after")))
+	if !r.d.Send(engine.Start{Action: "flood"}) {
+		t.Fatal("Send = false")
+	}
+	// last-run.json is written before Finished is published: once it is
+	// there, every event is queued and none was read.
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := r.log.ReadLastRun(); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run never finished")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	var evs []engine.Event
+	for {
+		ev, ok := r.next()
+		if !ok {
+			t.Fatal("Events closed")
+		}
+		evs = append(evs, ev)
+		if _, ok := ev.(engine.Finished); ok {
+			break
+		}
+	}
+
+	// The events: seq's lines with gaps exactly as wide as Dropped says.
+	delivered, dropped := 0, 0
+	next := 1
+	for _, ev := range evs {
+		c, ok := ev.(engine.OutputChunk)
+		if !ok || c.ID != "seq" {
+			continue
+		}
+		dropped += c.Dropped
+		next += c.Dropped
+		for _, l := range c.Lines {
+			if l != strconv.Itoa(next) {
+				t.Fatalf("line %q where %d was due", l, next)
+			}
+			next++
+			delivered++
+		}
+	}
+	if next != n+1 || delivered+dropped != n || dropped == 0 || delivered > maxLines {
+		t.Fatalf("%d lines delivered, %d dropped (next %d); want %d in all, some dropped, at most %d delivered",
+			delivered, dropped, next, n, maxLines)
+	}
+	t.Logf("%d of seq's lines delivered, %d dropped", delivered, dropped)
+	if got, _ := lines(evs); len(got) == 0 || got[len(got)-1] != "after" {
+		t.Fatalf("the next step's output after the drops: %q", got[max(len(got)-3, 0):])
+	}
+
+	// The log: every line of seq, in order, in its entry.
+	if p := store.Path(logstore.Cleanup); !strings.HasPrefix(p, dir+string(os.PathSeparator)) {
+		t.Fatalf("log at %s, outside the scratch dir %s", p, dir)
+	}
+	log, err := r.log.Read(logstore.Cleanup)
+	if err != nil {
+		t.Fatalf("read the log: %v", err)
+	}
+	const open, end = "] OK: seq\n--- seq output ---\n", "--- end output ---\n"
+	i := strings.Index(log, open)
+	if i < 0 {
+		t.Fatalf("no OK entry for seq in the log:\n%.300s", log)
+	}
+	body, _, found := strings.Cut(log[i+len(open):], end)
+	if !found {
+		t.Fatal("seq's log entry has no end")
+	}
+	var want strings.Builder
+	for k := 1; k <= n; k++ {
+		want.WriteString(strconv.Itoa(k) + "\n")
+	}
+	if body != want.String() {
+		got := strings.Split(strings.TrimSuffix(body, "\n"), "\n")
+		t.Fatalf("seq's log entry holds %d lines (first %q, last %q), want 1..%d",
+			len(got), got[0], got[len(got)-1], n)
+	}
+	if !strings.Contains(log, "] OK: after\n--- after output ---\nafter\n"+end) {
+		t.Fatalf("no entry for the step after the flood:\n%s", log[max(len(log)-300, 0):])
+	}
+}
+
 // Abort stops a child with SIGINT; one that ignores SIGINT is SIGKILLed
 // after the grace. Either is reaped. Children run in archmaid's own
 // session and process group (TestNoSetsid's rule).
