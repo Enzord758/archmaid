@@ -38,7 +38,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 |---|---|
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
 | `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories`; `WriteLastRun`/`ReadLastRun` for `last-run.json` (`RunRecord`, see state files below) |
-| `internal/audit` | the AUR audit itself: `Run(ctx, Config, now) (Result, error)` with `Config{RPCURL, SnapshotPath, Deadline, DryRun, Foreign, Log}`; `Result` (`Total`, `Findings`, `Baseline`; `Text()` plain report, `GateReason()`, `Commit(holdHigh, accepting)`, `LogSummary()`, `Note()`, `High()`/`Clean()`); `Prefetch(Config) *Fetch` with `Wait(ctx)`/`Cancel()`/`Done()`; the RPC (chunked POST, 8 MiB cap, unrequested names dropped), classification, the snapshot (`Entry`, `LoadSnapshot`, `WriteSnapshot`: atomic 0600 + flock, old-format compatible), `ErrNoForeign`, `ErrSnapshotLocked`, `ShortErr`. No UI, no globals: everything comes in through `Config` |
+| `internal/audit` | the AUR audit itself: `Run(ctx, Config, now) (Result, error)` with `Config{RPCURL, SnapshotPath, StatePath, Deadline, DryRun, Foreign, Log}`; `Result` (`Total`, `Findings`, `Baseline`; `Text()` plain report, `GateReason()`, `Commit(holdHigh, accepting)`, `LogSummary()`, `Note()`, `High()`/`Clean()`); `Prefetch(Config) *Fetch` with `Wait(ctx)`/`Cancel()`/`Done()`; the RPC (chunked POST, 8 MiB cap, unrequested names dropped), classification, the snapshot (`Entry`, `LoadSnapshot`, `WriteSnapshot`: atomic 0600 + flock, old-format compatible), `State`/`WriteState`/`ReadState` (audit-state.json), `ErrNoForeign`, `ErrSnapshotLocked`, `ShortErr`. No UI, no globals: everything comes in through `Config` |
 | `internal/sysstat` | `Paths`/`DefaultPaths`, `Read(Paths) Status`, `Status.Line()`, the df/du/free-style size formatters; no UI imports |
 
 Shared packages under `internal/` are UI-free (the gate fails any that imports
@@ -225,6 +225,21 @@ comments and `git log`; this is the "read before you touch it" list.
   Reading it as missing would silently re-baseline over a takeover. Writes are
   atomic (0600 temp + fsync + rename + dir fsync) under a non-blocking flock on
   `aur-maintainers.lock`; a held lock skips the save (logged `WARN`).
+- **`audit-state.json` (state-dir root, beside the snapshot) lists the
+  unacknowledged high findings** for the DMS widget
+  (`audit.State{V, Checked, Packages, High[{Pkg, Reason}], SnapshotPresent,
+  SnapshotReadable}`; atomic 0600 write, `audit.WriteState`/`ReadState`). Path:
+  `Config.StatePath`, built in `currentAuditConfig` like the rest. `Run` writes
+  it when an audit completes (highs = still held back; "nothing to audit" too,
+  which clears stale ones); `Commit` rewrites it after the snapshot save:
+  highs cleared when accepting (gate "yes", `a`), kept on a held commit
+  (`holdHigh`); a declined gate never runs the commit, so they stay. A failed
+  or cancelled audit (AUR unreachable) leaves the file exactly as it was,
+  `Checked` included: it means "last completed audit", and bumping it would
+  make old highs look freshly verified. **A dry run never reads or writes it**
+  (it skips the real file rather than using a `dryrun/` slot, because this file
+  is "current truth" for the widget, not a per-run log). A state write failure
+  is a logged `WARN`, never an audit failure.
 - **Every audit setting is read on the model's goroutine.** An audit runs off
   it (the menu action's Cmd, the step's run, the prefetch), so
   `internal/audit` reads nothing global: `currentAuditConfig` builds its

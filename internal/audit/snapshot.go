@@ -139,7 +139,8 @@ func LoadSnapshot(path string) (map[string]Entry, Baseline) {
 func snapshotFinding() Finding {
 	return Finding{
 		Name: "maintainer snapshot", High: true,
-		Flags: []string{"unreadable: maintainer changes can't be checked, re-verify maintainers by hand"},
+		Flags:  []string{"unreadable: maintainer changes can't be checked, re-verify maintainers by hand"},
+		Reason: "snapshot unreadable",
 	}
 }
 

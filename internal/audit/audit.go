@@ -67,6 +67,10 @@ type Config struct {
 	// SnapshotPath is the maintainer snapshot: read by Run, and the file
 	// Result.Commit writes. Its directory also holds the lock file.
 	SnapshotPath string
+	// StatePath is audit-state.json (StateFile): the unacknowledged high
+	// findings, written when an audit completes and again when a commit
+	// accepts them. Empty disables it; a dry run never writes it.
+	StatePath string
 	// Deadline bounds the whole audit: the Foreign query and every RPC chunk
 	// together, not each request on its own. Zero means DefaultDeadline.
 	Deadline time.Duration
@@ -120,6 +124,10 @@ type Finding struct {
 
 	MaintainerChanged bool
 	CoAdded           []string // raw names, sorted
+
+	// Reason is the short, sanitized why-it's-high ("maintainer alice →
+	// mallory", "co-maintainer bob added") for audit-state.json; "" unless High.
+	Reason string
 }
 
 // Line renders the finding, its name padded to width (see NameWidth).
@@ -156,6 +164,10 @@ func Run(ctx context.Context, cfg Config, now time.Time) (Result, error) {
 		return failed, err
 	}
 	if len(pkgs) == 0 {
+		// A completed audit with nothing to flag: any earlier highs are moot.
+		_, state := LoadSnapshot(cfg.SnapshotPath)
+		failed.Baseline, failed.checked = state, now
+		_ = failed.writeState(failed.state())
 		return failed, ErrNoForeign
 	}
 	info, err := fetch(ctx, cfg.RPCURL, pkgs)
@@ -167,7 +179,11 @@ func Run(ctx context.Context, cfg Config, now time.Time) (Result, error) {
 	if state == BaselineCorrupt {
 		findings = append([]Finding{snapshotFinding()}, findings...)
 	}
-	return Result{Total: len(pkgs), Findings: findings, Baseline: state, pkgs: pkgs, info: info, prev: prev, cfg: cfg}, nil
+	res := Result{Total: len(pkgs), Findings: findings, Baseline: state, pkgs: pkgs, info: info, prev: prev, cfg: cfg, checked: now}
+	// Record the highs that are still unacknowledged. An audit that failed
+	// (unreachable AUR, cancelled) returned above and leaves the file alone.
+	_ = res.writeState(res.state())
+	return res, nil
 }
 
 // fetch looks the packages up on the AUR RPC (POST, chunked so a large
@@ -237,6 +253,7 @@ func fetch(ctx context.Context, rpcURL string, pkgs []string) (map[string]Info, 
 // way a package's first audit is for all of them.
 func classify(name string, ai *Info, prev Entry, hadPrev bool, now time.Time) Finding {
 	f := Finding{Name: name}
+	var reasons []string
 	if ai == nil {
 		f.Flags = append(f.Flags, "not on the AUR (removed, renamed, or a local build)")
 		return f
@@ -250,11 +267,13 @@ func classify(name string, ai *Info, prev Entry, hadPrev bool, now time.Time) Fi
 	case hadPrev && prev.Maintainer == "" && cur != "":
 		f.High, f.MaintainerChanged = true, true
 		f.Flags = append(f.Flags, fmt.Sprintf("adopted by %s (was orphaned)", sanitize.Field(cur, FieldMax)))
+		reasons = append(reasons, "adopted by "+sanitize.Field(cur, FieldMax))
 	case hadPrev && prev.Maintainer != "" && cur == "":
 		f.Flags = append(f.Flags, fmt.Sprintf("orphaned (was %s)", sanitize.Field(prev.Maintainer, FieldMax)))
 	case hadPrev && prev.Maintainer != cur:
 		f.High, f.MaintainerChanged = true, true
 		f.Flags = append(f.Flags, fmt.Sprintf("maintainer changed: %s → %s", sanitize.Field(prev.Maintainer, FieldMax), sanitize.Field(cur, FieldMax)))
+		reasons = append(reasons, fmt.Sprintf("maintainer %s → %s", sanitize.Field(prev.Maintainer, FieldMax), sanitize.Field(cur, FieldMax)))
 	case cur == "":
 		f.Flags = append(f.Flags, "orphaned")
 	}
@@ -263,6 +282,7 @@ func classify(name string, ai *Info, prev Entry, hadPrev bool, now time.Time) Fi
 		if len(added) > 0 {
 			f.High, f.CoAdded = true, added
 			f.Flags = append(f.Flags, coFlag(added, "added"))
+			reasons = append(reasons, coFlag(added, "added"))
 		}
 		if len(removed) > 0 {
 			f.Flags = append(f.Flags, coFlag(removed, "removed"))
@@ -277,6 +297,7 @@ func classify(name string, ai *Info, prev Entry, hadPrev bool, now time.Time) Fi
 	if ai.NumVotes == 0 {
 		f.Flags = append(f.Flags, "0 votes")
 	}
+	f.Reason = strings.Join(reasons, "; ")
 	return f
 }
 

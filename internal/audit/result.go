@@ -3,6 +3,7 @@ package audit
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -18,6 +19,8 @@ type Result struct {
 	pkgs []string
 	info map[string]Info
 	prev map[string]Entry
+	// checked is when the audit ran (for audit-state.json).
+	checked time.Time
 
 	// cfg is what the audit ran with, set even when it failed: Commit writes
 	// the snapshot it read and logs where it logged.
@@ -95,6 +98,9 @@ func (r Result) Commit(holdHigh, accepting bool) func() error {
 			r.cfg.log("WARN", "AUR snapshot not saved: "+err.Error(), "")
 			return err
 		}
+		// Rewrite audit-state.json to match: held highs stay listed, accepted
+		// ones are cleared. (A failed write is logged by writeState.)
+		_ = r.writeState(r.stateAfterCommit(holdHigh))
 		if accepting {
 			r.cfg.log("ACCEPT", "AUR maintainer changes accepted; snapshot updated", "")
 		}

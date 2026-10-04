@@ -51,6 +51,7 @@ func currentAuditConfig() audit.Config {
 	return audit.Config{
 		RPCURL:       aurRPCURL,
 		SnapshotPath: filepath.Join(store.Root(), audit.SnapshotFile),
+		StatePath:    filepath.Join(store.Root(), audit.StateFile),
 		Deadline:     auditDeadline,
 		DryRun:       dryRun,
 		Foreign:      foreignPackages,

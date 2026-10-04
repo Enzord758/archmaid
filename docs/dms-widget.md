@@ -147,10 +147,28 @@ user timer does and writes the cache).
   only. `status --json` maps `last_run.time` = `finished`, `steps_failed`, `dry_run`, and
   `outcome` straight through (`unknown` when the file is absent; `dryrun` is never
   reported from the real file). Absent file = "no record yet", not an error.
-- AUR: `aur-maintainers.json` gives snapshot presence/age/count today. "Unacknowledged
-  high findings" is **not persisted**: P7a adds `audit-state.json` written when an
-  audit finishes (findings + whether the snapshot was accepted). Corrupt snapshot
-  counts as one high finding (matches `snapshotFinding`).
+- AUR: `audit-state.json` (state-dir root, **implemented**) is the source for
+  `aur.high*` and the snapshot flags; the snapshot's age comes from the mtime of
+  `aur-maintainers.json`. Real fields (`internal/audit.State`, 0600, atomic):
+
+  ```json
+  {
+    "v": 1,
+    "checked": "2026-10-04T17:48:40+02:00",   // last COMPLETED audit
+    "packages": 27,                            // foreign packages checked
+    "high": [ {"pkg": "foo", "reason": "maintainer alice → mallory"} ],
+    "snapshot_present": true,
+    "snapshot_readable": true
+  }
+  ```
+
+  `high` is every unacknowledged high finding (count it for "N AUR warnings");
+  reasons are sanitized and short ("maintainer a → b", "adopted by x",
+  "co-maintainer bob added", "snapshot unreadable" for a corrupt snapshot).
+  Written when an audit completes, rewritten empty once the findings are
+  accepted (gate "yes" or `a`); a declined gate leaves them. A failed audit
+  (AUR unreachable) leaves the file untouched, and a dry run never touches it.
+  A missing file means unknown, not zero.
 - updates: `updates-cache.json` (count + time), written by the TUI/GUI after its
   status refresh; the CLI only reads it.
 - helper: `os.Stat` of the fixed helper path.
