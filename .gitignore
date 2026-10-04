@@ -1,2 +1,8 @@
 # harness worktrees / local session state
 .claude/
+
+# A go.work joining the root and gui/ modules is fine for local gopls, but
+# isn't committed: it would pin a toolchain line and fold the GUI's
+# requirements into the root build's version selection.
+go.work
+go.work.sum
