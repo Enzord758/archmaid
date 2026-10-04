@@ -74,8 +74,8 @@ var ErrUnknownCategory = errors.New("logstore: unknown log category")
 // whatever the working directory happens to be.
 var ErrNoStateDir = errors.New("logstore: no absolute state directory (home folder unset or relative)")
 
-// KeepRuns is how many run directories the startup prune keeps; older ones are
-// removed entirely. The dryrun directory is exempt: it is a single reused
+// KeepRuns is how many run directories a real run keeps (Options.KeepRuns);
+// older ones are removed entirely. The dryrun directory is exempt: it is a single reused
 // slot, not a growing history.
 const KeepRuns = 5
 
@@ -103,6 +103,12 @@ type Options struct {
 	// Now is the clock; nil means time.Now. It names the run directory
 	// (YYYYMMDD-HHMM, read once by New) and stamps each entry.
 	Now func() time.Time
+	// KeepRuns, when positive, rotates the run history: the Append that
+	// creates this run's directory then prunes to the KeepRuns newest (this
+	// run included). Zero never prunes. A dry-run store never prunes: its
+	// entries go to the dryrun slot, and a dry run must leave the real
+	// history exactly as it found it.
+	KeepRuns int
 }
 
 // Store writes and reads one run's logs.
@@ -110,6 +116,7 @@ type Store struct {
 	root string // absolute; "" when err is set
 	run  string // run directory name
 	now  func() time.Time
+	keep int   // prune to this many runs when Append creates the run dir; 0: never
 	err  error // ErrNoStateDir: the store refuses everything
 }
 
@@ -133,10 +140,11 @@ func New(o Options) *Store {
 		root, err = "", ErrNoStateDir
 	}
 	run := now().Format("20060102-1504")
+	keep := max(o.KeepRuns, 0)
 	if o.DryRun {
-		run = "dryrun"
+		run, keep = "dryrun", 0
 	}
-	return &Store{root: root, run: run, now: now, err: err}
+	return &Store{root: root, run: run, now: now, keep: keep, err: err}
 }
 
 // Root is the state directory ("" for a store without one).
@@ -176,8 +184,12 @@ func (s *Store) check(cat Category) error {
 }
 
 // Prune deletes all but the keep most recent run directories. A no-op if the
-// root doesn't exist yet. The dryrun directory and anything that isn't a run
-// directory (stray files, a user's own subdirectories) are left alone.
+// root doesn't exist yet. The dryrun directory, this store's own run directory
+// (even if a clock set back makes it sort oldest) and anything that isn't a
+// run directory (stray files, a user's own subdirectories) are left alone.
+//
+// Nothing in archmaid calls Prune at startup: deleting history is a real
+// run's business, so it happens from Append (see Options.KeepRuns).
 func (s *Store) Prune(keep int) {
 	if s.err != nil {
 		return
@@ -197,6 +209,9 @@ func (s *Store) Prune(keep int) {
 	}
 	sort.Strings(runs) // the stamp format sorts lexicographically = chronologically
 	for _, name := range runs[:len(runs)-keep] {
+		if name == s.run {
+			continue
+		}
 		os.RemoveAll(filepath.Join(s.root, name))
 	}
 }
@@ -212,8 +227,12 @@ func (s *Store) Append(cat Category, kind, label, body string) error {
 	}
 	path := s.Path(cat)
 	run := filepath.Dir(path)
+	_, statErr := os.Stat(run)
 	if err := os.MkdirAll(run, dirMode); err != nil {
 		return err
+	}
+	if s.keep > 0 && errors.Is(statErr, os.ErrNotExist) {
+		s.Prune(s.keep) // this run has started writing: rotate the history
 	}
 	os.Chmod(s.root, dirMode) // MkdirAll leaves existing dirs as they were
 	os.Chmod(run, dirMode)

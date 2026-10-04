@@ -215,3 +215,97 @@ func TestPruneNoopUnderLimit(t *testing.T) {
 	}
 	newStore(t, filepath.Join(root, "missing")).Prune(KeepRuns)
 }
+
+// seedRuns creates n run directories under root, oldest first, dated well
+// before newStore's clock, each holding a log, and returns their names.
+func seedRuns(t *testing.T, root string, n int) []string {
+	t.Helper()
+	var runs []string
+	for i := range n {
+		r := time.Date(2020, 1, 1+i, 9, 0, 0, 0, time.UTC).Format("20060102-1504")
+		if err := os.MkdirAll(filepath.Join(root, r), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, r, "cleanup.log"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runs = append(runs, r)
+	}
+	return runs
+}
+
+// runDirs lists root's run directories, sorted.
+func runDirs(t *testing.T, root string) []string {
+	t.Helper()
+	ents, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, e := range ents {
+		if e.IsDir() && runDirPattern.MatchString(e.Name()) {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
+// TestAppendRotatesWhenTheRunStarts: a store with KeepRuns prunes when its
+// first Append creates the run directory, keeping KeepRuns runs including the
+// new one, and does nothing before that or on later Appends.
+func TestAppendRotatesWhenTheRunStarts(t *testing.T) {
+	root := t.TempDir()
+	old := seedRuns(t, root, KeepRuns+1)
+	s := New(Options{Dir: root, KeepRuns: KeepRuns,
+		Now: func() time.Time { return time.Date(2026, 9, 28, 0, 58, 0, 0, time.UTC) }})
+	if _, err := s.Read(Cleanup); !errors.Is(err, ErrEmpty) {
+		t.Fatalf("Read: %v", err)
+	}
+	if got := runDirs(t, root); len(got) != KeepRuns+1 {
+		t.Fatalf("New or Read pruned: %v", got)
+	}
+	if err := s.Append(Cleanup, "OK", "first", ""); err != nil {
+		t.Fatal(err)
+	}
+	want := append(append([]string{}, old[2:]...), "20260928-0058")
+	if got := runDirs(t, root); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("after the first Append: %v, want %v", got, want)
+	}
+	// A run dir appearing later (another archmaid) is not this run's to rotate.
+	extra := seedRuns(t, root, 1) // re-creates 20200101-0900
+	if err := s.Append(Cleanup, "OK", "second", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, extra[0])); err != nil {
+		t.Fatalf("a later Append pruned: %v", err)
+	}
+}
+
+// TestDryRunStoreNeverPrunes: a dry run leaves the real history alone, even
+// with KeepRuns set and more runs than that on disk.
+func TestDryRunStoreNeverPrunes(t *testing.T) {
+	root := t.TempDir()
+	seedRuns(t, root, KeepRuns+1)
+	s := New(Options{Dir: root, DryRun: true, KeepRuns: KeepRuns})
+	if err := s.Append(Cleanup, "DRYRUN", "would", ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := runDirs(t, root); len(got) != KeepRuns+1 {
+		t.Fatalf("a dry run pruned the history: %v", got)
+	}
+}
+
+// TestPruneSparesOwnRun: a clock set back makes this run sort oldest; Prune
+// still never deletes the directory it is writing to.
+func TestPruneSparesOwnRun(t *testing.T) {
+	root := t.TempDir()
+	seedRuns(t, root, KeepRuns+1)
+	s := New(Options{Dir: root, KeepRuns: KeepRuns,
+		Now: func() time.Time { return time.Date(2019, 1, 1, 0, 0, 0, 0, time.UTC) }})
+	if err := s.Append(Cleanup, "OK", "x", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(s.RunDir()); err != nil {
+		t.Fatalf("own run dir pruned: %v", err)
+	}
+}
