@@ -35,6 +35,18 @@ set at the top of the script: `MIN_TOTAL` for the whole package and
 coverage is computed from the profile itself. When coverage rises, raise the
 floor in the same commit; never lower one to make a change pass.
 
+## Make targets
+
+A root `Makefile` wraps everything CI runs; paths live in variables at its top.
+
+| Target | Runs |
+|---|---|
+| `make gate` | `scripts/check.sh` (TUI module) |
+| `make helper-test` | `go test -race`, `go vet`, `gofmt -l` in `cmd/archmaid-helper` (its own module) |
+| `make e2e` | `bash tui/e2e/run.sh` (needs vhs, ttyd, ffmpeg) |
+| `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (opt-in perf guard; a no-op extra until check.sh reads it) |
+| `make all` | `gate` + `helper-test` — run before pushing |
+
 ## Running
 
 ```sh
