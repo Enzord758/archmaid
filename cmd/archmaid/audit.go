@@ -74,11 +74,7 @@ func (o auditOutcome) discovery() actions.Discovery {
 	if o.notice != "" {
 		return actions.Notice{Text: o.notice}
 	}
-	r := actions.Report{Text: o.report}
-	if o.commit != nil {
-		r.Audit = o.commit
-	}
-	return r
+	return actions.Report{Text: o.report, Accept: o.commit}
 }
 
 // menuAudit is the menu action's audit (actions.Env.AuditReport, with the

@@ -7,8 +7,10 @@ package actions
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -32,6 +34,13 @@ type Action struct {
 }
 
 // Env is what the actions need from the front end that runs them.
+//
+// The zero value is not usable: AuditStep, AuditReport, Downloads and
+// DeleteDownloads are required (an action calls them unchecked, and a nil
+// one panics on the goroutine that runs it, mid-action). A front end checks
+// its Env once with Validate when it starts. DryRun, LookPath and
+// RepairWorkers are optional: their zero values mean a real run,
+// exec.LookPath and DefaultRepairWorkers.
 type Env struct {
 	DryRun bool
 	// LookPath finds a program on PATH; nil means exec.LookPath. Full
@@ -42,16 +51,42 @@ type Env struct {
 	RepairWorkers int
 
 	// The AUR audit lives with the front end for now, so it is handed in:
-	// AuditStep is the in-process audit step that opens Full Cleanup and Run
-	// topgrade, AuditReport the menu's audit (a Notice or a Report).
+	// AuditStep (required) is the in-process audit step that opens Full
+	// Cleanup and Run topgrade, called when their queue is built;
+	// AuditReport (required) the menu's audit (a Notice or a Report), called
+	// by its Discover, off the front end's UI thread.
 	AuditStep   func() steps.Step
 	AuditReport func(ctx context.Context) Discovery
 
-	// Downloads is the downloads cleaner's options, read when the discovery
-	// runs; DeleteDownloads is its delete step's Run for a plan (the front
-	// end keeps the abort bookkeeping around it).
+	// Downloads (required) is the downloads cleaner's options, called when
+	// the discovery runs, off the front end's UI thread; DeleteDownloads
+	// (required) is its delete step's Run for a plan, called by that
+	// discovery (the front end keeps the abort bookkeeping around it).
 	Downloads       func() downloads.Options
 	DeleteDownloads func(downloads.Plan) func(context.Context, steps.Env) steps.Result
+}
+
+// Validate reports the required fields e leaves nil, all of them in one
+// error; nil when e is complete.
+func (e Env) Validate() error {
+	var missing []string
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{
+		{"AuditStep", e.AuditStep != nil},
+		{"AuditReport", e.AuditReport != nil},
+		{"Downloads", e.Downloads != nil},
+		{"DeleteDownloads", e.DeleteDownloads != nil},
+	} {
+		if !f.set {
+			missing = append(missing, f.name)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("actions.Env: required %s not set", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 func (e Env) lookPath(file string) (string, error) {
@@ -91,13 +126,13 @@ type NeedsSelection struct {
 	Steps func(selected []string) []steps.Step
 }
 
-// Report is a read-only report to show (the AUR audit). Audit is what the
-// front end needs to act on it: today the acceptance commit, a func() error
-// that saves the flagged changes into the snapshot, or nil when there is
-// nothing to accept.
+// Report is a read-only report to show (the AUR audit). Accept, if set,
+// accepts what the report flags (the audit's high findings: it saves them
+// into the snapshot, so the next audit no longer flags them); nil when there
+// is nothing to accept.
 type Report struct {
-	Text  string
-	Audit any
+	Text   string
+	Accept func() error
 }
 
 // NeedsRoot is a discovery that can only finish as root: the front end

@@ -33,6 +33,12 @@ func main() {
 
 	pruneLogs() // keep only the most recent logKeepRuns run directories
 
+	// A missing piece of the actions' wiring would otherwise panic mid-action.
+	if err := actionEnv().Validate(); err != nil {
+		fmt.Fprintln(os.Stderr, "archmaid:", err)
+		os.Exit(1)
+	}
+
 	srv := startAskpassServer() // nil: askpass isn't wired, sudo steps run -n
 	defer stopAskpassServer(srv)
 

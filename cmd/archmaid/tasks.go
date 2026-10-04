@@ -175,11 +175,24 @@ type editorDoneMsg struct{ err error }
 // chunking.
 var repairScanWorkers = actions.DefaultRepairWorkers
 
-// actionEnv is what the actions get from the TUI, read on the model's
-// goroutine: the run's flags and seams, and the audit and downloads glue
-// that lives in this package. The menu audit's config and the log store the
-// downloads delete records an abort in are captured here, not in the Cmds
-// that use them.
+// actionEnv is what the actions get from the TUI: the run's flags and seams,
+// and the audit and downloads glue that lives in this package. Call it on
+// the model's goroutine. What it reads when:
+//
+//   - here, on the model's goroutine: dryRun, repairScanWorkers, the menu
+//     audit's config and the log store the downloads delete records an
+//     abort in (both captured, so the Cmds that use them never look them up);
+//   - when a queue is built (activate, on the model's goroutine):
+//     auditStep, for Full Cleanup and Run topgrade;
+//   - when a discovery runs, off the model's goroutine: the menu audit
+//     (with the captured config), downloadsOptions — so --downloads,
+//     $ARCHMAID_DOWNLOADS, $HOME, dryRun and the downloads test seams are
+//     read then, not here — and DeleteDownloads, which builds the delete
+//     step's Run around the captured store;
+//   - when that delete step runs, off the model's goroutine: downloadsOptions
+//     again (deleteOldDownloads).
+//
+// main checks it with Validate at startup.
 func actionEnv() actions.Env {
 	cfg, store := currentAuditConfig(), logs()
 	return actions.Env{

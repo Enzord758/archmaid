@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/actions"
@@ -77,4 +78,34 @@ func menuItemIndex(t *testing.T, id string) int {
 	}
 	t.Fatalf("no menu action %q", id)
 	return -1
+}
+
+// TestActionEnvIsComplete: the Env the TUI hands the actions sets every
+// required field (main refuses to start otherwise).
+func TestActionEnvIsComplete(t *testing.T) {
+	if err := actionEnv().Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestReportAcceptReachesTheModel: a Report's Accept is what `a` on the
+// audit screen runs. It is typed, so a producer can't hand over a func of
+// another type that the model would silently drop (Report.Audit was an any
+// the model type-asserted, leaving `a` a no-op on a mismatch).
+func TestReportAcceptReachesTheModel(t *testing.T) {
+	accepted := 0
+	m := update(initialModel(), discoveryMsg{d: actions.Report{Text: "1 high finding",
+		Accept: func() error { accepted++; return nil }}})
+	if m.screen != screenAudit || m.auditCommit == nil {
+		t.Fatalf("screen=%d commit=%v, want the audit screen holding Accept", m.screen, m.auditCommit != nil)
+	}
+	m = update(m, key("a"))
+	if accepted != 1 || m.screen != screenNotice || !strings.Contains(m.notice, "accepted") {
+		t.Fatalf("accepted %d times, screen=%d notice=%q", accepted, m.screen, m.notice)
+	}
+	// Nothing to accept: `a` does nothing.
+	m = update(initialModel(), discoveryMsg{d: actions.Report{Text: "clean"}})
+	if m = update(m, key("a")); m.screen != screenAudit {
+		t.Fatalf("screen=%d after a with nothing to accept, want the audit screen", m.screen)
+	}
 }

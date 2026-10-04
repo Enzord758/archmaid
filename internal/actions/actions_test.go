@@ -5,8 +5,10 @@ import (
 	"errors"
 	"os/exec"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -172,6 +174,54 @@ func TestClipErr(t *testing.T) {
 	long := clipErr(errors.New(string(make([]byte, 100))))
 	if len(long) != 67+len("…") {
 		t.Fatalf("len %d", len(long))
+	}
+}
+
+// TestEnvValidate: the zero Env is refused, naming every required field; a
+// complete one passes, and each required field left out is named alone.
+func TestEnvValidate(t *testing.T) {
+	err := Env{}.Validate()
+	if err == nil {
+		t.Fatal("the zero Env validated")
+	}
+	required := []string{"AuditStep", "AuditReport", "Downloads", "DeleteDownloads"}
+	for _, f := range required {
+		if !strings.Contains(err.Error(), f) {
+			t.Errorf("%v: doesn't name %s", err, f)
+		}
+	}
+	full := func() Env {
+		e := testEnv(true)
+		e.AuditReport = func(context.Context) Discovery { return Notice{} }
+		e.Downloads = func() downloads.Options { return downloads.Options{} }
+		e.DeleteDownloads = func(downloads.Plan) func(context.Context, steps.Env) steps.Result { return nil }
+		return e
+	}
+	if err := full().Validate(); err != nil {
+		t.Fatalf("a complete Env: %v", err)
+	}
+	for _, f := range required {
+		e := full()
+		switch f {
+		case "AuditStep":
+			e.AuditStep = nil
+		case "AuditReport":
+			e.AuditReport = nil
+		case "Downloads":
+			e.Downloads = nil
+		case "DeleteDownloads":
+			e.DeleteDownloads = nil
+		}
+		err := e.Validate()
+		if err == nil || !strings.Contains(err.Error(), " "+f+" ") {
+			t.Errorf("without %s: %v, want it named", f, err)
+		}
+	}
+	// The optional ones may stay zero.
+	e := full()
+	e.LookPath, e.RepairWorkers, e.DryRun = nil, 0, false
+	if err := e.Validate(); err != nil {
+		t.Fatalf("optional fields left zero: %v", err)
 	}
 }
 

@@ -167,7 +167,7 @@ func (m model) handleDiscovery(msg discoveryMsg) (tea.Model, tea.Cmd) {
 		m.screen = screenServices
 		return m, nil
 	case actions.Report:
-		m.auditCommit, _ = d.Audit.(func() error)
+		m.auditCommit = d.Accept
 		m.screen = screenAudit
 		m.resizeOutput()
 		m.output.SetContent(d.Text)

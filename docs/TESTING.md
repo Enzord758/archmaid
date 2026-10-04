@@ -340,7 +340,7 @@ them all against their goldens; `TestTranscript` is `replay` with
 | Engine | Event |
 |---|---|
 | `QueueStarted`, `PlanChanged` (a step added / flags changed) | `QueueStarted`, `StepInserted` / `PlanChanged` (`Step` from the step's flags) |
-| `StepStarted`, `StepDone` (`SkippedAuth`/`Denied` → `Skipped`) | `StepStarted`, `StepDone` |
+| `StepStarted`, `StepDone` (`steps.OK` → `OK`, `steps.Failed` → `Failed`; `steps.Skipped`, `steps.AuthRefused` and `steps.Aborted` → `Skipped`, as `planStatus` maps them) | `StepStarted`, `StepDone` |
 | `OutputChunk` | one `OutputLine` per line, only for the current step |
 | `NeedsConfirm{Msg}`, `NeedsPassword`, `NeedsSelection` | the same; `Reply` calls `Confirm(id, yes)`, `SubmitPassword(id, pw)`, `Select(id, …)` with the prompt's ID |
 | `OutputReport{Text}`, a notice | `OutputReport`, `Notice` |
