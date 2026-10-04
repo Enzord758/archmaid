@@ -55,7 +55,7 @@ do_install() {
 
 	echo "Building archmaid…"
 	mkdir -p "$BINDIR" "$ICONDIR" "$APPDIR"
-	( cd "$SCRIPT_DIR/tui" && go build -o "$BIN" . )
+	( cd "$SCRIPT_DIR/tui" && go build -trimpath -ldflags='-s -w' -o "$BIN" . )
 	info "binary  → $BIN"
 
 	install -m 0644 "$SCRIPT_DIR/packaging/archmaid.svg" "$ICON"
