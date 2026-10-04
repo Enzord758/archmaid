@@ -60,6 +60,28 @@ machine.**
    (a `;` chain once committed broken code) and quote glob arguments
    (the shell is zsh).
 
+## The test VM: the one place real privilege is allowed
+
+`~/archmaid-vmtest` (outside this repo, see its README) installs the
+owner's machine in QEMU from `~/dotfiles/install` 01-04, under its own
+hostname `amvm-archmaid-test`, and stops before anything personal: no backup
+restore, no keys, no secrets. Inside that VM, and only there, archmaid may
+run for real: `sudo`, `pkexec`, `pacman`, `topgrade`, the GUI and live
+Full Cleanups, through `~/archmaid-vmtest/vm.sh` (ssh to 127.0.0.1:2223).
+
+- Only the lead drives the VM: there is one, and two agents in it would test
+  each other's state. A dev who needs a live check writes the steps in the
+  report; the lead runs them in the VM.
+- Everything goes through `vm.sh`. A command that would run on the host
+  itself still falls under the hard rules above, VM or not.
+- Never copy anything personal into the VM (keys, `~/.ssh`, the age key,
+  backup data, `~/.local/state/archmaid`), and never run the dotfiles
+  harness's restore step against it. If something personal gets in, stop,
+  `~/archmaid-vmtest/run.sh --purge`, and say it first (rule 7).
+- `run.sh --reset` rolls the VM back to its freshly installed `base`
+  snapshot; do it before each live run, so every run starts from the same
+  machine.
+
 ## Where things are
 
 - `docs/HANDOVER.md`: the code map, landmines and open items. Read the
