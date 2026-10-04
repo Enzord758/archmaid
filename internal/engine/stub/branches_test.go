@@ -12,11 +12,17 @@ import (
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
+// rightSecret is the password the tests send for a right one; no Event may
+// carry it.
+const rightSecret engine.Secret = "s3cret-hunter2"
+
 // reply is how a test answers the prompt that is open.
 func reply(id engine.PromptID, ev engine.Event, h how) engine.Command {
 	switch h {
 	case cancelled:
 		return engine.CancelPrompt{Prompt: id}
+	case wrong:
+		return engine.SubmitPassword{Prompt: id, Password: WrongPassword}
 	case no:
 		if _, ok := ev.(engine.NeedsSelection); ok {
 			return engine.Select{Prompt: id}
@@ -27,7 +33,7 @@ func reply(id engine.PromptID, ev engine.Event, h how) engine.Command {
 	case engine.NeedsSelection:
 		return engine.Select{Prompt: id, Picked: ev.Items[:1]}
 	case engine.NeedsPassword:
-		return engine.SubmitPassword{Prompt: id, Password: "pw"}
+		return engine.SubmitPassword{Prompt: id, Password: rightSecret}
 	}
 	return engine.Confirm{Prompt: id, Yes: true}
 }
@@ -79,7 +85,7 @@ func (p path) finished() engine.Finished {
 func (p path) String() string {
 	var s []string
 	for _, h := range p.answers {
-		s = append(s, [...]string{"yes", "no", "cancel"}[h])
+		s = append(s, [...]string{"yes", "no", "cancel", "wrong"}[h])
 	}
 	return "[" + strings.Join(s, " ") + "]"
 }
@@ -106,8 +112,18 @@ func walk(t *testing.T, action string, scripts map[string]Script) []path {
 		if last := evs[len(evs)-1]; last != (engine.PhaseChanged{Phase: engine.PhaseIdle}) {
 			t.Errorf("%s: run ends in %#v, not PhaseChanged idle", p, last)
 		}
+		var prompts []engine.Event
+		for _, ev := range evs {
+			if promptID(ev) != 0 {
+				prompts = append(prompts, ev)
+			}
+		}
 		for i := len(prefix); i < n; i++ {
-			for _, alt := range []how{no, cancelled} {
+			alts := []how{no, cancelled}
+			if _, ok := prompts[i].(engine.NeedsPassword); ok {
+				alts = append(alts, wrong)
+			}
+			for _, alt := range alts {
 				next := slices.Clone(ans[:i])
 				explore(append(next, alt))
 			}
@@ -132,6 +148,19 @@ func TestCatalogEveryBranch(t *testing.T) {
 			{engine.OutcomeCompleted, 2}: true,
 			{engine.OutcomeCancelled, 0}: true,
 		},
+		IDFullCleanupUncached: {
+			{engine.OutcomeCompleted, 0}: true,
+			{engine.OutcomeCompleted, 1}: true,
+			{engine.OutcomeCompleted, 2}: true,
+			{engine.OutcomeCompleted, 7}: true, // three wrong passwords
+			{engine.OutcomeCancelled, 0}: true,
+		},
+		IDFullCleanupAskpass: {
+			{engine.OutcomeCompleted, 0}: true,
+			{engine.OutcomeCompleted, 1}: true,
+			{engine.OutcomeCompleted, 2}: true,
+			{engine.OutcomeCancelled, 0}: true,
+		},
 		actions.IDUserCache: {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeAborted, 1}: true},
 		actions.IDServices:  {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeCancelled, 0}: true},
 		actions.IDAURAudit:  {{engine.OutcomeReport, 0}: true},
@@ -150,7 +179,7 @@ func TestCatalogEveryBranch(t *testing.T) {
 			got := map[end]bool{}
 			for _, p := range walk(t, id, cat) {
 				f := p.finished()
-				if f.Action != id {
+				if f.Action != strings.TrimSuffix(strings.TrimSuffix(id, "-uncached"), "-askpass") {
 					t.Errorf("%s: Finished.Action = %q", p, f.Action)
 				}
 				e := end{f.Outcome, f.Skipped}

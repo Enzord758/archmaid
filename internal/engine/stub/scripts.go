@@ -13,14 +13,37 @@ import (
 // its action ID, for Options.Scripts: with it a front end can show each
 // action and its declined paths. Each script's prompts carry the branches
 // its own doc describes; answering no, or cancelling, takes the same one.
+//
+// The Driver picks a script by the Start's Action, so a second Full Cleanup
+// needs a key of its own: the two ending in -uncached and -askpass are not
+// menu actions but variants of IDFullCleanup (their Finished.Action is
+// still "fullcleanup"), for a front end to Start by key when it wants to
+// show the password prompts. CatalogUncached is the other way: the same
+// Catalog with IDFullCleanup itself uncached.
 func Catalog(start time.Time) map[string]Script {
 	return map[string]Script{
 		actions.IDFullCleanup: FullCleanupBranches(start),
+		IDFullCleanupUncached: FullCleanupUncached(start),
+		IDFullCleanupAskpass:  FullCleanupAskpass(start),
 		actions.IDUserCache:   UserCache(start),
 		actions.IDServices:    Services(start),
 		actions.IDAURAudit:    AURAudit(start),
 		actions.IDRepair:      RepairNone(start),
 	}
+}
+
+// The Catalog keys of the Full Cleanup variants that ask for a password.
+const (
+	IDFullCleanupUncached = actions.IDFullCleanup + "-uncached"
+	IDFullCleanupAskpass  = actions.IDFullCleanup + "-askpass"
+)
+
+// CatalogUncached is Catalog with Full Cleanup run without a cached sudo
+// ticket (FullCleanupUncached), so its first prompt is the password.
+func CatalogUncached(start time.Time) map[string]Script {
+	c := Catalog(start)
+	c[actions.IDFullCleanup] = c[IDFullCleanupUncached]
+	return c
 }
 
 // UserCache is "Clear user cache", shaped like the clearcache transcripts:

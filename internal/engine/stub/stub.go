@@ -3,9 +3,10 @@
 // Driver lands (E6). It keeps the Driver contract — Send never blocks,
 // events arrive in order, prompts wait for their answer and ignore stale
 // IDs, Abort ends the run with Aborted and Finished. It models what an
-// answer changes only where a script says so: a Cue's OnNo and OnCancel
-// branches play instead of the rest of the script, and without them every
-// answer plays on like "yes". Passwords sent to it are dropped unread.
+// answer changes only where a script says so: a Cue's OnNo, OnCancel and
+// OnWrong branches play instead of the rest of the script, and without them
+// every answer plays on like "yes". A password is compared with
+// WrongPassword and dropped, never kept.
 //
 // Pacing comes from a Clock: the wall clock for a GUI to watch, or a
 // FakeClock that jumps ahead instead of sleeping, for tests.
@@ -37,7 +38,17 @@ type Cue struct {
 	Event    engine.Event
 	OnNo     Script
 	OnCancel Script
+	// OnWrong plays instead of the rest of the script when a password
+	// prompt is answered with the Secret WrongPassword; without it every
+	// password plays on as right.
+	OnWrong Script
 }
+
+// WrongPassword is the one Secret the stub calls wrong: it can't check a
+// real password, so a SubmitPassword carrying exactly this plays a Cue's
+// OnWrong, and any other plays on as right. The Driver compares the Secret
+// and drops it: it is never stored, logged or put in an Event.
+const WrongPassword = "wrong"
 
 // Script is a run, played from the top on every Start.
 type Script []Cue
@@ -270,6 +281,8 @@ func (d *Driver) playScript(r *run, script Script) bool {
 				if cue.OnCancel != nil {
 					branch = cue.OnCancel
 				}
+			case wrong:
+				branch = cue.OnWrong
 			}
 			if branch != nil {
 				return d.playScript(r, branch)
@@ -294,6 +307,7 @@ const (
 	yes       how = iota // a yes, a password or a pick
 	no                   // a no, or nothing picked
 	cancelled            // CancelPrompt
+	wrong                // a SubmitPassword of WrongPassword
 )
 
 // await holds the script until prompt id is answered, ignoring commands
@@ -316,6 +330,9 @@ func (d *Driver) await(id engine.PromptID) (answer, how) {
 				}
 			case engine.SubmitPassword:
 				if c.Prompt == id {
+					if string(c.Password) == WrongPassword {
+						return answered, wrong
+					}
 					return answered, yes
 				}
 			case engine.Select:

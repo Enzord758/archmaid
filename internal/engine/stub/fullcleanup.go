@@ -1,6 +1,7 @@
 package stub
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -21,6 +22,13 @@ type builder struct {
 	skipped int                  // steps declined so far
 
 	branches bool // give the prompts their OnNo branches
+	lastID   engine.PromptID
+}
+
+// id is the next prompt ID of this path of the run.
+func (b *builder) id() engine.PromptID {
+	b.lastID++
+	return b.lastID
 }
 
 // branch is a copy of b to write an answer's branch on: same moment, same
@@ -140,8 +148,50 @@ func FullCleanup(start time.Time) Script { return fullCleanup(start, false) }
 // either way the run goes on to the end.
 func FullCleanupBranches(start time.Time) Script { return fullCleanup(start, true) }
 
+// fcOpts are the variations of a Full Cleanup script.
+type fcOpts struct {
+	branches bool // the prompts' OnNo branches
+	uncached bool // the sudo ticket isn't cached: the password is asked first
+	askpass  bool // topgrade's sudo asks for the password mid-step
+}
+
+// FullCleanupUncached is Full Cleanup where the sudo probe found no ticket:
+// it opens with NeedsPassword{UpFront} carrying the gate text and
+// AttemptsLeft 3 (prompt 1), which stands in for the gate, then runs like
+// FullCleanupBranches with its confirms (IDs from 2).
+//
+// The stub can't check a password: the Secret "wrong" (WrongPassword) is
+// wrong, anything else is right.
+//   - Right: AuthWaiting{PasswordCheck}, AuthResolved{Granted}, and the run.
+//   - Wrong: AuthWaiting, AuthResolved{AttemptsLeft: 2}, and a new
+//     NeedsPassword (a new ID) whose Error is "Incorrect password — 2
+//     attempts left"; the next wrong one says 1 attempt left. The third
+//     wrong one gives up as the fullcleanup_three_wrong_passwords
+//     transcript: AuthResolved{AttemptsLeft: 0}, then the queue runs with
+//     every sudo step AuthRefused (no confirms asked, "sudo authentication
+//     failed" in their logs) and Finished{Completed, Skipped: 7}.
+//   - Cancel (or no): Finished{Cancelled}, before any step.
+func FullCleanupUncached(start time.Time) Script {
+	return fullCleanupWith(start, fcOpts{branches: true, uncached: true})
+}
+
+// FullCleanupAskpass is FullCleanupBranches where topgrade's sudo asks for
+// the password mid-step: NeedsPassword{Kind: Askpass, Step: topgrade,
+// Requester: "yay (pid 4242)", Prompt: "[sudo] password for user:"} as
+// prompt 2 (the gate is 1). Any password is right, as the stub keeps no
+// count of askpass attempts: AuthWaiting, AuthResolved{Granted} and the step
+// goes on. A cancel hangs up and the step goes on too, with no event of
+// its own, as the engine has it. Abort still withdraws the prompt.
+func FullCleanupAskpass(start time.Time) Script {
+	return fullCleanupWith(start, fcOpts{branches: true, askpass: true})
+}
+
 func fullCleanup(start time.Time, branches bool) Script {
-	b := &builder{now: start, started: start, at: map[string]time.Time{}, branches: branches}
+	return fullCleanupWith(start, fcOpts{branches: branches})
+}
+
+func fullCleanupWith(start time.Time, o fcOpts) Script {
+	b := &builder{now: start, started: start, at: map[string]time.Time{}, branches: o.branches}
 	b.plan = []engine.PlanStep{
 		{ID: steps.IDAURAudit, Title: "Auditing AUR packages…", InProc: true, AlwaysLog: true, Category: logstore.Audit},
 		{ID: steps.IDTopgrade, Title: "Updating system with topgrade…", Argv: []string{"topgrade", "-y", "--disable", "hyprpm"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Topgrade},
@@ -158,24 +208,99 @@ func fullCleanup(start time.Time, branches bool) Script {
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseProbing})
 	b.wait(60 * time.Millisecond)
 	const gate = "Proceed with full cleanup?"
-	b.emit(engine.NeedsConfirm{ID: 1, Kind: engine.ConfirmGate, Title: gate, Msg: gate,
+	cancelled := func(c *builder) { c.finish("fullcleanup", engine.OutcomeCancelled) }
+	if o.uncached {
+		// The probe found no ticket: the password prompt is the gate.
+		b.password(engine.NeedsPassword{Kind: engine.PasswordUpFront, Gate: gate, AttemptsLeft: 3},
+			func(c *builder) { fcQueue(c, o) }, fcGone, cancelled)
+		return b.script
+	}
+	b.emit(engine.NeedsConfirm{ID: b.id(), Kind: engine.ConfirmGate, Title: gate, Msg: gate,
 		Plan: append([]engine.PlanStep(nil), b.plan...), YesLabel: "Proceed"})
-	if branches {
+	if o.branches {
 		sb := b.branch()
-		sb.finish("fullcleanup", engine.OutcomeCancelled)
+		cancelled(sb)
 		b.script[len(b.script)-1].OnNo = sb.script
 	}
+	fcQueue(b, o)
+	return b.script
+}
 
+// password asks for a password (ev's ID is set here) and writes what
+// follows each answer. A right one (any Secret but WrongPassword) goes on
+// as the check's AuthWaiting and AuthResolved{Granted}, then rest writes
+// the run on. WrongPassword is wrong, when giveUp is not nil: AuthResolved
+// without a grant, and the prompt again with a new ID and its Error, until
+// the attempts are gone and giveUp writes the end. A cancel (or a no) is
+// onCancel's branch, when not nil.
+func (b *builder) password(ev engine.NeedsPassword, rest, giveUp, onCancel func(*builder)) {
+	ev.ID = b.id()
+	b.emit(ev)
+	at := len(b.script) - 1
+	if onCancel != nil {
+		cb := b.branch()
+		onCancel(cb)
+		b.script[at].OnNo = cb.script
+	}
+	if giveUp != nil {
+		wb := b.branch()
+		wb.wait(100 * time.Millisecond)
+		wb.emit(engine.AuthWaiting{Kind: engine.WaitPasswordCheck})
+		wb.wait(400 * time.Millisecond)
+		left := ev.AttemptsLeft - 1
+		wb.emit(engine.AuthResolved{AttemptsLeft: left})
+		if left > 0 {
+			s := "s"
+			if left == 1 {
+				s = ""
+			}
+			again := ev
+			again.AttemptsLeft = left
+			again.Error = fmt.Sprintf("Incorrect password — %d attempt%s left", left, s)
+			wb.password(again, rest, giveUp, onCancel)
+		} else {
+			giveUp(wb)
+		}
+		b.script[at].OnWrong = wb.script
+	}
+	b.wait(100 * time.Millisecond)
+	b.emit(engine.AuthWaiting{Kind: engine.WaitPasswordCheck})
+	b.wait(400 * time.Millisecond)
+	b.emit(engine.AuthResolved{Granted: true})
+	rest(b)
+}
+
+// fcQueue writes the run from the queue's start to its end.
+func fcQueue(b *builder, o fcOpts) {
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
 	b.emit(engine.QueueStarted{Action: "fullcleanup", Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
-
-	b.run(steps.IDAURAudit, 400*time.Millisecond,
-		"1 foreign package(s) checked against the AUR: 0 high, 0 glance, 1 clean", "", "Nothing flagged.")
-	b.log(logstore.Audit, "OK: AUR audit")
+	fcAudit(b)
 
 	b.start(steps.IDTopgrade)
 	b.wait(800 * time.Millisecond)
 	b.out(steps.IDTopgrade, ":: Synchronizing package databases...")
+	if !o.askpass {
+		fcTopgradeEnd(b)
+		return
+	}
+	// sudo, run by yay, asks through the askpass helper. Cancelling hangs
+	// up on it and the step goes on (the engine emits no PromptClosed for
+	// a cancel: the answer closed the prompt). The stub takes any password
+	// here, WrongPassword included.
+	b.password(engine.NeedsPassword{
+		Kind: engine.PasswordAskpass, Step: steps.IDTopgrade,
+		Requester: "yay (pid 4242)", Prompt: "[sudo] password for user:", AttemptsLeft: 3,
+	}, fcTopgradeEnd, nil, fcTopgradeEnd)
+}
+
+func fcAudit(b *builder) {
+	b.run(steps.IDAURAudit, 400*time.Millisecond,
+		"1 foreign package(s) checked against the AUR: 0 high, 0 glance, 1 clean", "", "Nothing flagged.")
+	b.log(logstore.Audit, "OK: AUR audit")
+}
+
+// fcTopgradeEnd writes the run from the middle of topgrade's output on.
+func fcTopgradeEnd(b *builder) {
 	b.wait(1200 * time.Millisecond)
 	b.tick(steps.IDTopgrade)
 	b.out(steps.IDTopgrade, " core is up to date", " extra is up to date", "\x1b[1;32m==>\x1b[0m Nothing to do.")
@@ -188,14 +313,41 @@ func fullCleanup(start time.Time, branches bool) Script {
 	b.run(steps.IDPaccache, 300*time.Millisecond, "==> no candidate packages found for pruning")
 
 	fcWipe(b)
-	return b.script
+}
+
+// refuse is a privileged step that never runs: sudo failed.
+func (b *builder) refuse(id string, cat logstore.Category, label string) {
+	b.skipped++
+	b.emit(engine.StepDone{ID: id, Index: b.index(id), Status: steps.AuthRefused})
+	b.log(cat, "SKIP: "+label+" (sudo authentication failed)")
+}
+
+// fcGone writes the run after three wrong passwords, as the
+// fullcleanup_three_wrong_passwords transcript has it: the queue runs, but
+// every sudo step is AuthRefused, with no confirm asked.
+func fcGone(b *builder) {
+	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
+	b.emit(engine.QueueStarted{Action: "fullcleanup", Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
+	fcAudit(b)
+	b.refuse(steps.IDTopgrade, logstore.Topgrade, "Topgrade completed")
+	b.refuse(steps.IDPaccache, logstore.Cleanup, "Old package cache cleaned")
+	b.refuse(steps.IDPaccacheWipe, logstore.Cleanup, "Entire package cache removed")
+	b.run(steps.IDOrphansProbe, 250*time.Millisecond, orphanLines...)
+	b.insertRemoval()
+	b.refuse(steps.IDOrphansRemove, logstore.Orphans, "Orphaned packages removed")
+	b.run(steps.IDYayCache, 300*time.Millisecond)
+	b.refuse(steps.IDTmpfiles, logstore.Cleanup, "Temp files cleaned per tmpfiles.d rules")
+	b.refuse(steps.IDJournal, logstore.Cleanup, "Old logs removed")
+	b.refuse(steps.IDIntegrity, logstore.Cleanup, "Package integrity check completed")
+	b.run(steps.IDHyprpm, 1200*time.Millisecond, "✔ all plugins are up to date")
+	b.finish("fullcleanup", engine.OutcomeCompleted)
 }
 
 // fcWipe writes the run from the "delete entire cache" confirm on.
 func fcWipe(b *builder) {
 	const wipe = "Delete ENTIRE package cache? (can't reinstall without internet)"
 	b.emit(engine.NeedsConfirm{
-		ID: 2, Kind: engine.ConfirmStep, Step: steps.IDPaccacheWipe,
+		ID: b.id(), Kind: engine.ConfirmStep, Step: steps.IDPaccacheWipe,
 		Title: "Delete the entire package cache?", Body: "Without it, packages can't be reinstalled offline.",
 		Destructive: true, Msg: wipe, YesLabel: "Delete",
 	})
@@ -207,17 +359,10 @@ func fcWipe(b *builder) {
 
 // fcOrphans writes the run from the orphan probe on.
 func fcOrphans(b *builder) {
-	removal := engine.PlanStep{
-		ID: steps.IDOrphansRemove, Verb: steps.VerbRemoveOrphans, Title: "Removing orphaned packages…",
-		Argv:      []string{"sudo", "pacman", "-Rns", "--noconfirm", "--", "libfoo", "libbar"},
-		NeedsPriv: true, Confirm: true, Optional: true, AlwaysLog: true, Category: logstore.Orphans,
-	}
-	b.run(steps.IDOrphansProbe, 250*time.Millisecond,
-		"2 orphaned package(s): libfoo libbar", "pacman -Rns would remove 3 package(s):", "  libfoo", "  libbar", "  libbaz")
-	b.plan = append(b.plan[:5], append([]engine.PlanStep{removal}, b.plan[5:]...)...)
-	b.emit(engine.StepInserted{Index: 5, Step: removal})
+	b.run(steps.IDOrphansProbe, 250*time.Millisecond, orphanLines...)
+	b.insertRemoval()
 	b.emit(engine.NeedsConfirm{
-		ID: 3, Kind: engine.ConfirmOrphans, Step: steps.IDOrphansRemove,
+		ID: b.id(), Kind: engine.ConfirmOrphans, Step: steps.IDOrphansRemove,
 		Title: "Remove 2 orphaned packages?", Body: "Their now-unneeded dependencies go with them: 3 packages in total.",
 		Direct: []string{"libfoo", "libbar"}, Cascade: []string{"libfoo", "libbar", "libbaz"},
 		Destructive: true, Msg: "Remove 2 orphaned package(s) — 3 total once dependencies cascade?", YesLabel: "Remove",
@@ -240,4 +385,18 @@ func fcRest(b *builder) {
 	b.run(steps.IDHyprpm, 1200*time.Millisecond, "✔ all plugins are up to date")
 
 	b.finish("fullcleanup", engine.OutcomeCompleted)
+}
+
+var orphanLines = []string{"2 orphaned package(s): libfoo libbar", "pacman -Rns would remove 3 package(s):", "  libfoo", "  libbar", "  libbaz"}
+
+// insertRemoval is the orphan probe's result: the removal step, put in
+// behind the probe.
+func (b *builder) insertRemoval() {
+	removal := engine.PlanStep{
+		ID: steps.IDOrphansRemove, Verb: steps.VerbRemoveOrphans, Title: "Removing orphaned packages…",
+		Argv:      []string{"sudo", "pacman", "-Rns", "--noconfirm", "--", "libfoo", "libbar"},
+		NeedsPriv: true, Confirm: true, Optional: true, AlwaysLog: true, Category: logstore.Orphans,
+	}
+	b.plan = append(b.plan[:5], append([]engine.PlanStep{removal}, b.plan[5:]...)...)
+	b.emit(engine.StepInserted{Index: 5, Step: removal})
 }
