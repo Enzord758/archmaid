@@ -87,10 +87,11 @@ type collector struct {
 	batches  int
 	maxLines int
 	finished chan struct{}
+	idle     chan struct{} // closed on the PhaseChanged idle that ends a script
 }
 
 func newCollector(t *testing.T, l *loop, d engine.Driver) *collector {
-	return &collector{t: t, l: l, d: d, m: NewModel(), finished: make(chan struct{})}
+	return &collector{t: t, l: l, d: d, m: NewModel(), finished: make(chan struct{}), idle: make(chan struct{})}
 }
 
 func (c *collector) apply(evs []engine.Event) {
@@ -106,6 +107,11 @@ func (c *collector) apply(evs []engine.Event) {
 	}
 	c.maxLines = max(c.maxLines, lines)
 	c.evs = append(c.evs, evs...)
+	if len(evs) > 0 {
+		if last, ok := evs[len(evs)-1].(engine.PhaseChanged); ok && last.Phase == engine.PhaseIdle {
+			close(c.idle)
+		}
+	}
 	ch := c.m.Apply(evs)
 	if ch.Opened != nil {
 		c.m.Answer(ch.Opened.ID)
@@ -154,6 +160,13 @@ func TestPumpDeliversFullCleanupInOrder(t *testing.T) {
 	p := NewPump(d, l.post, c.apply, PumpOptions{})
 	d.Send(engine.Start{Action: "fullcleanup"})
 	c.wait(t)
+	// Close stops the replay, so the stub's last event (PhaseChanged idle,
+	// sent right after Finished) must have been applied before it.
+	select {
+	case <-c.idle:
+	case <-time.After(10 * time.Second):
+		t.Fatal("no closing PhaseChanged idle within 10s")
+	}
 	d.Close()
 	<-p.Done()
 	l.do(func() {}) // let the last flush finish
