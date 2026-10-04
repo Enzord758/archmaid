@@ -1,5 +1,6 @@
 action "Full Cleanup (Recommended)"
 exec  pacman -Qdtq
+exec  pacman -Qqm
 exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> yes
 plan  9 steps
@@ -13,7 +14,6 @@ plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alway
 plan  8 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
 plan  9 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
 step  1 running
-exec  pacman -Qqm
 out   1 1 foreign package(s) checked against the AUR: 1 high, 0 glance, 0 clean
 out   1
 out   1 [HIGH] yay-bin  maintainer changed: jguer → mallory

@@ -283,6 +283,16 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 
 	next, cmd := d.m.Update(msg)
 	d.m = next.(model)
+	// An action that audits starts the lookup on its own goroutine when it's
+	// chosen (auditFetch). Let it finish here, so its pacman -Qqm lands in
+	// this Update's exec lines rather than at a racy point later.
+	if f := d.m.auditFetch; f != nil {
+		select {
+		case <-f.done:
+		case <-time.After(5 * time.Second):
+			d.t.Fatalf("the prefetched AUR audit never finished\n%s", d.dump())
+		}
+	}
 
 	// A child launched by this Update logs itself asynchronously; its line is
 	// drained with its first stream msg (or by the abort) so it never races in.

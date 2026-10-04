@@ -127,6 +127,7 @@ func TestStaleGateClearedByActivate(t *testing.T) {
 	dryRun = true
 	defer func() { dryRun = false }()
 
+	shimPacman(t, "") // choosing Run topgrade starts the audit's pacman -Qqm
 	m := initialModel()
 	m.gate = "stale gate from an earlier action"
 	m.cursor = menuIndex(t, "topgrade (system update)")

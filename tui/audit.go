@@ -117,6 +117,12 @@ func foreignPackages(ctx context.Context) []string {
 // its idle connections are closed on return, so no connection goroutine
 // outlives it.
 func fetchAURInfo(ctx context.Context, pkgs []string) (map[string]aurInfo, error) {
+	return fetchAURInfoAt(ctx, aurRPCURL, pkgs)
+}
+
+// fetchAURInfoAt is fetchAURInfo against an explicit endpoint, for callers
+// that captured it before going off the model's goroutine (see auditTarget).
+func fetchAURInfoAt(ctx context.Context, rpcURL string, pkgs []string) (map[string]aurInfo, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport}
@@ -129,7 +135,7 @@ func fetchAURInfo(ctx context.Context, pkgs []string) (map[string]aurInfo, error
 			form.Add("arg[]", p)
 			requested[p] = true
 		}
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, aurRPCURL, strings.NewReader(form.Encode()))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, strings.NewReader(form.Encode()))
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +267,12 @@ const (
 // orphaned). Only a file that doesn't exist reads as baselineMissing; any
 // other read error, invalid JSON, or a JSON null is baselineCorrupt.
 func loadBaseline() (map[string]string, baselineState) {
-	b, err := os.ReadFile(baselinePath())
+	return loadBaselineFrom(baselinePath())
+}
+
+// loadBaselineFrom is loadBaseline for an explicit snapshot path.
+func loadBaselineFrom(path string) (map[string]string, baselineState) {
+	b, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		return nil, baselineMissing
@@ -481,6 +492,21 @@ var errNoForeign = errors.New("no foreign packages installed")
 // The whole audit runs under one deadline, auditDeadline, on top of ctx; once
 // ctx is cancelled (an abort) it returns promptly with ctx's error.
 func performAudit(ctx context.Context, now time.Time) (auditResult, error) {
+	return performAuditFor(ctx, now, currentAuditTarget())
+}
+
+// auditTarget is where an audit looks: the AUR endpoint and the snapshot
+// file. It is read from the package vars on the model's goroutine, before a
+// prefetch goes off on its own, so the fetch never reads those vars while
+// something else (a test, mostly) changes them.
+type auditTarget struct{ rpcURL, snapshot string }
+
+func currentAuditTarget() auditTarget {
+	return auditTarget{rpcURL: aurRPCURL, snapshot: baselinePath()}
+}
+
+// performAuditFor is performAudit against an explicit target.
+func performAuditFor(ctx context.Context, now time.Time, t auditTarget) (auditResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, auditDeadline)
 	defer cancel()
 	pkgs := foreignPackages(ctx)
@@ -490,11 +516,11 @@ func performAudit(ctx context.Context, now time.Time) (auditResult, error) {
 	if len(pkgs) == 0 {
 		return auditResult{}, errNoForeign
 	}
-	info, err := fetchAURInfo(ctx, pkgs)
+	info, err := fetchAURInfoAt(ctx, t.rpcURL, pkgs)
 	if err != nil {
 		return auditResult{}, err
 	}
-	prev, state := loadBaseline()
+	prev, state := loadBaselineFrom(t.snapshot)
 	findings := classifyAll(pkgs, info, prev, state == baselineOK, now)
 	if state == baselineCorrupt {
 		findings = append([]auditFinding{snapshotFinding()}, findings...)
@@ -543,16 +569,63 @@ func runAudit(now time.Time) discoveryMsg {
 // action it doesn't call logAudit. It never needs sudo. An abort cancels the
 // step's ctx, which ends the lookup at once; the late result is then dropped by
 // stepSeq like any other.
+//
+// aurAudit marks it for activate, which starts the lookup as an auditFetch
+// the moment the action is chosen, so it runs while the password prompt is
+// open; launch then awaits that instead of calling runAuditStep.
 func auditStep() step {
 	return step{
 		title: "Auditing AUR packages…", logLabel: "AUR audit",
 		category: logCategoryAudit, alwaysLog: true,
-		run: runAuditStep,
+		run: runAuditStep, aurAudit: true,
 	}
 }
 
 func runAuditStep(ctx context.Context) stepResult {
 	res, err := performAudit(ctx, time.Now())
+	return auditStepResult(res, err)
+}
+
+// auditFetch is an audit started ahead of its step: performAudit on its own
+// goroutine, its result published by closing done. The model owns it
+// (model.auditFetch) and cancels it when the run is abandoned before or
+// during the step: esc on the password prompt, a declined gate, an abort.
+// It only reads; committing the snapshot is still the step's result's job
+// (see auditStepResult), so nothing is saved before the gate is answered.
+type auditFetch struct {
+	cancel context.CancelFunc
+	done   chan struct{} // closed once res and err are set
+	res    auditResult
+	err    error
+}
+
+func startAuditFetch() *auditFetch {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &auditFetch{cancel: cancel, done: make(chan struct{})}
+	target := currentAuditTarget() // read here, not on the fetch's goroutine
+	go func() {
+		defer close(f.done)
+		f.res, f.err = performAuditFor(ctx, time.Now(), target)
+	}()
+	return f
+}
+
+// run is the audit step's run when the lookup was prefetched: it waits for
+// the fetch rather than starting another. An abort cancels both ctx and the
+// fetch, so it returns at once either way.
+func (f *auditFetch) run(ctx context.Context) stepResult {
+	select {
+	case <-f.done:
+		return auditStepResult(f.res, f.err)
+	case <-ctx.Done():
+		f.cancel()
+		return auditStepResult(auditResult{}, ctx.Err())
+	}
+}
+
+// auditStepResult turns an audit into the step's result: the plain-text
+// report, a gate on topgrade for a high finding, and the snapshot commit.
+func auditStepResult(res auditResult, err error) stepResult {
 	switch {
 	case errors.Is(err, errNoForeign):
 		return stepResult{output: "No foreign (AUR or locally built) packages installed — nothing to audit."}

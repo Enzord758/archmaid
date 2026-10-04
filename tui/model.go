@@ -126,6 +126,10 @@ type model struct {
 	// stepCancel cancels the running in-process step's ctx (see launch); an
 	// abort calls it so the step returns at once. nil when none is running.
 	stepCancel context.CancelFunc
+	// auditFetch is the current action's AUR audit, started when the action
+	// was chosen so it runs behind the password prompt (see startAuditFetch).
+	// nil when the action has none or it was dropped (dropAuditFetch).
+	auditFetch *auditFetch
 
 	// confirm-modal state
 	pending    []step // queue waiting on a confirm

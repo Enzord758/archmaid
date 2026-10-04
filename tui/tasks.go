@@ -58,6 +58,9 @@ type step struct {
 	// dryRun itself. There's no child to signal: an abort cancels ctx, so run
 	// must return promptly once it's done, and its late result is dropped.
 	run func(ctx context.Context) stepResult
+	// aurAudit marks the AUR audit step (auditStep), whose lookup activate
+	// starts early as an auditFetch; launch then runs that fetch's run.
+	aurAudit bool
 }
 
 // stepResult is what an in-process step returns. output is shown in the

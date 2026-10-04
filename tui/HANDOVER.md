@@ -141,7 +141,16 @@ comments and `git log`; this is the "read before you touch it" list.
   there's nothing to signal: an abort cancels the step's `ctx`, which ends the
   pacman query and the RPC at once, and `stepSeq` drops the late result). The
   whole audit has one deadline, `auditDeadline` (20 s for the query and every
-  RPC chunk together), not a timeout per request. A
+  RPC chunk together), not a timeout per request. The lookup itself starts
+  the moment the action is chosen: `activate` starts an `auditFetch` (a
+  goroutine publishing its result on a `done` channel, owned by the model as
+  `m.auditFetch`) so it runs while the password prompt or the gate is up, and
+  the step awaits it instead of fetching again (one RPC per run). It only
+  reads: the snapshot commit still comes from the step's result, so the gate
+  semantics below are unchanged. Esc on the password prompt, a declined gate,
+  an abort and the end of the run cancel it (`dropAuditFetch`); three wrong
+  passwords don't, because the queue still runs and the audit step (no sudo)
+  still reports from it. A
   high-severity finding (adoption or maintainer change) uses
   `stepResult.confirmNext` to put a named confirm in front of topgrade and make it
   optional, so "no" skips only the update and the cleanup carries on. An

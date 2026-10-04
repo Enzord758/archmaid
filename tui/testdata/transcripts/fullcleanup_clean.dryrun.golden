@@ -1,5 +1,6 @@
 action "Full Cleanup (Recommended)"
 exec  pacman -Qdtq
+exec  pacman -Qqm
 ask   "Proceed with full cleanup?" -> yes
 plan  8 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
@@ -11,7 +12,6 @@ plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alw
 plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
 plan  8 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
 step  1 running
-exec  pacman -Qqm
 out   1 No foreign (AUR or locally built) packages installed — nothing to audit.
 step  1 ok
 log   audit DRYRUN: AUR audit

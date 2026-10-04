@@ -76,7 +76,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.screen = screenNotice
 					return m, nil
 				}
-				// give up: run the queue anyway; sudo steps get skipped+logged
+				// give up: run the queue anyway; sudo steps get skipped+logged.
+				// The audit fetch is kept: the audit step needs no sudo and
+				// still runs (and reports) from it.
 				m.sudoUnavailable = true
 				cmd := m.startQueue()
 				return m, cmd
@@ -355,6 +357,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.password.Reset()
 			m.pwErr = ""
 			m.scanAfterAuth = nil
+			m.dropAuditFetch() // the action is cancelled before it started
 			m.screen = screenMenu
 			return m, nil
 		case "enter":
@@ -530,7 +533,8 @@ func (m *model) confirmServices() tea.Cmd {
 // activate handles an Enter on the menu.
 func (m model) activate() (tea.Model, tea.Cmd) {
 	item := menu[m.cursor]
-	m.gate = "" // only steps-actions with a gate re-arm it below
+	m.gate = ""        // only steps-actions with a gate re-arm it below
+	m.dropAuditFetch() // a previous action's, should one still be around
 	switch item.id {
 	case "exit":
 		return m, tea.Quit
@@ -564,8 +568,25 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	}
 	m.gate = item.gate
 	m.pending = item.steps()
+	for _, s := range m.pending {
+		if s.aurAudit {
+			// Start the audit now, so its lookup runs while the password
+			// prompt (or the gate) is up; the step awaits it.
+			m.auditFetch = startAuditFetch()
+			break
+		}
+	}
 	cmd := m.beginPending()
 	return m, cmd
+}
+
+// dropAuditFetch cancels the prefetched audit, if any: the run was abandoned
+// before the audit step consumed it, or the step has finished with it.
+func (m *model) dropAuditFetch() {
+	if m.auditFetch != nil {
+		m.auditFetch.cancel()
+		m.auditFetch = nil
+	}
 }
 
 // startScan runs the discovery that was waiting on sudo (scanAfterAuth).
@@ -637,6 +658,7 @@ func (m *model) advance() tea.Cmd {
 	if m.current >= len(m.queue) {
 		m.screen = screenSummary
 		m.sudoAlive = false // stop the keep-alive loop
+		m.dropAuditFetch()
 		return refreshStatusNow()
 	}
 	s := m.queue[m.current].step
@@ -671,6 +693,9 @@ func (m *model) launch() tea.Cmd {
 		ctx, cancel := context.WithCancel(context.Background())
 		m.stepCancel = cancel
 		seq, run := m.stepSeq, s.run
+		if s.aurAudit && m.auditFetch != nil {
+			run = m.auditFetch.run // already under way: await it, don't refetch
+		}
 		return func() tea.Msg { return stepResultMsg{seq: seq, stepResult: run(ctx)} }
 	}
 	m.stream = make(chan streamMsg, streamBatchMax)
@@ -703,6 +728,7 @@ func (m *model) abortRunning() {
 		m.stepCancel()
 		m.stepCancel = nil
 	}
+	m.dropAuditFetch()
 	if p := m.proc; p != nil {
 		_ = p.Signal(os.Interrupt)
 		// grace read here (caller goroutine), not inside escalateKill, so the
@@ -732,6 +758,7 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 	if m.gateActive {
 		m.gateActive = false
 		if !m.confirmYes {
+			m.dropAuditFetch()
 			m.screen = screenMenu
 			return m, nil
 		}
@@ -759,6 +786,7 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 		}
 		m.aborted = true
 		m.sudoAlive = false // stop the keep-alive loop
+		m.dropAuditFetch()
 		m.screen = screenSummary
 		return m, nil
 	}
@@ -807,6 +835,7 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		m.stepCancel() // the step is done; release its ctx
 		m.stepCancel = nil
 	}
+	m.dropAuditFetch() // consumed (if this was the audit)
 	if msg.output != "" {
 		out := Sanitize(strings.TrimRight(msg.output, "\n"), SanitizeKeepSGR)
 		m.appendOutput(strings.Split(out, "\n"))

@@ -71,8 +71,9 @@ test can delete your files or need root.
    replaced by shell shims placed first on `PATH` (see Recipes).
 4. **No network.** The AUR RPC is an `httptest` server reached through the
    `aurRPCURL` var. `TestMain` sets `aurRPCURL` to a closed local port, so any
-   test that reaches the audit without `fakeAUR` (Full Cleanup and Run topgrade
-   start with it) fails fast instead of calling the real AUR.
+   test that reaches the audit without `fakeAUR` (choosing Full Cleanup or Run
+   topgrade starts it at once, see `auditFetch`) fails fast instead of calling
+   the real AUR.
 5. **Deterministic frames.** `TestMain` (in `teatest_test.go`) forces the
    lipgloss ASCII profile so goldens are plain text. Goldens compare one
    re-rendered `View()` frame with the live status line pinned by
@@ -190,7 +191,10 @@ When the queue is empty an open prompt is answered from the script
 which fires when the matching step turns running); an unscripted prompt fails
 and dumps the transcript so far, and so does an unused answer. A step child
 logs itself asynchronously, so its `exec` line is taken with its first output
-or exit, never from the `Update` that launched it.
+or exit, never from the `Update` that launched it. The AUR audit's lookup,
+started on its own goroutine when Full Cleanup or Run topgrade is chosen
+(`auditFetch`), is awaited right after that `Update`, so its `pacman -Qqm`
+lands with the action's own queries, before the sudo probe.
 
 **Shims.** `installShims(t, Shims{"pacman": {{Prefix: "-Qdtq", Out: "a\nb"}}},
 passthrough...)` writes one `#!/bin/sh` per command: it logs `<cmd> $*` to
@@ -234,6 +238,8 @@ the names.
 | `topgrade_audit_test.go` | Run topgrade's queue is [audit, topgrade], built from the same `auditStep`, and gated identically: a maintainer change puts a named confirm defaulting to No in front of topgrade; "no" skips the update (logged) and leaves the snapshot, so the next run gates again; "yes" launches it and saves the snapshot (logged `ACCEPT`); an unreachable AUR fails the audit without gating; a dry run gates but never saves. |
 | `askpass_test.go` | The `SUDO_ASKPASS` round trip over a real unix socket: the helper prints the answer and exits 0, exits 1 on an unanswered close or no socket; the server keeps its socket and 0700 wrapper in a private 0700 directory under `XDG_RUNTIME_DIR`, never sets `SUDO_ASKPASS` in our own environment, delivers prompts and `close()` removes the directory; no `XDG_RUNTIME_DIR` (or an unusable one) leaves askpass unwired, with no `/tmp` fallback; the wrapper's shell quoting survives quotes and `$(…)` in paths; a client that never sends its prompt doesn't block the next one and is hung up on at the read deadline, an oversized prompt is dropped; only `needsSudo` children see `SUDO_ASKPASS`; the real wrapper end to end; the popup checks a password with su first: a right one is written to the connection, a wrong one never is (popup stays up, attempts counted, the third cancels the request and skips later sudo steps), a line break is refused before su, input locks while su runs; cancel closes the connection unanswered. |
 | `downloads_test.go` | Which folder "Delete old downloads" cleans: the order flag → `ARCHMAID_DOWNLOADS` → `XDG_DOWNLOAD_DIR` → `~/Downloads` → `~/Download`; `$HOME` refused however it's spelled (`"$HOME/"`, a symlink to it, `$HOME` behind a symlink), as are `/` and ancestors of `$HOME`; only the flag may leave `$HOME`, and a bad flag is an error, not a fall-through; the notice names the folder; `--downloads` parsing. What gets deleted (real ctimes, with the clock moved instead): old files, folders and symlinks go — a symlink as the link, its target untouched; new files, a back-dated mtime, and a folder with anything new deep inside stay; the downloads folder itself is never a candidate; an entry changed or replaced between the confirm and the delete is kept; a folder swapped since the scan deletes nothing; a dry run only reports; the confirm lists ten names then "…and N more", unsafe names quoted; end to end through `Update` with the deletion in `cleanup.log`. |
+| `audit_cancel_test.go` | The audit's one cancellable deadline, against a fake AUR that never answers: a cancel ends the RPC within 100 ms; the deadline spans every chunk, not each request; an abort mid-audit returns at once, its late result is dropped, and no goroutine (connection, handler, pacman) is left behind. |
+| `audit_prefetch_test.go` | The audit fetched behind the password prompt: choosing Full Cleanup starts the lookup before the prompt is answered, saving nothing; a whole Full Cleanup asks the AUR exactly once; esc on the prompt, a declined gate and an abort while Run topgrade's step awaits it each cancel it promptly, with no second request and no goroutine left. |
 | `transcript_*_test.go` + `testdata/transcripts/` | Whole actions end to end against shims — see Transcripts above and the scenario names. |
 | `askpass_peer_test.go` | Who may have the password, against a fake process table: the step's own sudo (via yay, or a direct `sudo -A` step) is answered and named in the popup; refused are a wrong uid, a gone or reused helper pid, a helper that isn't archmaid, a parent that isn't sudo (a user process named sudo, a root process with another name, a readable exe elsewhere), a chain that misses the step or breaks, a reused step or ancestor pid, and a cycle. The model hangs up with no popup when no sudo step runs (menu, non-sudo step, finished, aborted) and on a second request while one is open; a refusal mid-step leaves a sanitized note in the output pane; the popup shows sudo's prompt only quoted and stripped of escapes. `readProcFS` against the real `/proc` (a root process's exe is unreadable to a user); the server reports the real `SO_PEERCRED` peer. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |

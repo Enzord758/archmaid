@@ -1,5 +1,6 @@
 action "Full Cleanup (Recommended)"
 exec  pacman -Qdtq
+exec  pacman -Qqm
 exec  pacman -Rs --print libfoo libbar
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps
@@ -14,7 +15,6 @@ plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alway
 plan  9 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
 plan  10 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
 step  1 running
-exec  pacman -Qqm
 out   1 1 foreign package(s) checked against the AUR: 0 high, 0 glance, 1 clean
 out   1
 out   1 Nothing flagged.
