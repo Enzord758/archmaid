@@ -18,17 +18,18 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 
 | File | Owns |
 |---|---|
-| `main.go` | package doc + `main()`: `--askpass` dispatch to `privilege.RunClient`, the askpass server's requests fed to the program as `askpassMsg`s, `startup` (the askpass relay and flag parsing: `parseArgs`: `--dryrun`, `--downloads`, `--help`/`-h`; anything else exits 2 — it writes and deletes nothing), `tea.NewProgram` |
+| `main.go` | package doc + `main()`: `--askpass` dispatch to `privilege.RunClient`, `startup` (the askpass relay and flag parsing: `parseArgs`: `--dryrun`, `--downloads`, `--help`/`-h`; anything else exits 2 — it writes and deletes nothing), then the engine: `engine.New` with `actionEnv()`, the Driver from `newDriver` (handed the askpass server's requests), the model on it, `forwardEvents` into `tea.NewProgram`; after the program `Close`, `driverReports.flush` to stderr and `waitForDownloads` |
+| `adapter.go` | the TUI as an engine front end (E7): `newDriver` (`driver.New` with `driverDeps`: `privileged()`, `logs()`, `sigkillGrace`, `stepWaitDelay`, the askpass requests, `startPrefetch` and `driverReports.add`; the tests' `tuiDriverDeps` is the same), `forwardEvents`, `engineState` (the Driver and the open prompts' IDs), `applyEvents` (every Event → the model's state: checklist, screen, prompt, output pane, summary), `engineKey` (a key on a prompt → a Command: confirm, password, selection, report, abort), `openAskpass` (the askpass popup over whatever shows; the bg landmine below), and `reportLog` (what the Driver reports that no Event carries, printed after the program) |
 | `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `deleteOldDownloads` (the in-process step's `Run`, abort logging), `waitForDownloads`; the discovery is `internal/actions` |
 | `internal/downloads` | the resolver (`Resolve(Options)`), `Scan(dir, now, Options) Plan`, `Plan.Confirm()`, `Delete(ctx, Plan, Options) (Result, error)`; ctime, Lstat, `os.Root`, the mountinfo boundary and the per-node re-check; no UI, no logging, no env reads |
-| `model.go` | screens, the `model` struct, `initialModel`, `Init` (the menu is `actions.Menu`) |
-| `update.go` | `Update`/`handleKey` — the single source of state transitions — plus `activate` (menu → queue or discovery), `handleDiscovery` (an `actions.Discovery` → its screen), queue, confirm and abort orchestration |
+| `model.go` | screens, the `model` struct (what the Events left it showing, plus the TUI's own menu, log viewer and pane state), `initialModel`, `Init` (the menu is `actions.Menu`) |
+| `update.go` | `Update` — the single source of state transitions: keys go to `engineKey` first, then `handleKey` (moving, toggling, typing, scrolling, the summary and the log viewer); `activate` (the TUI's own entries, otherwise `engine.Start`), `resizeOutput`, the log picker. No queue, sudo, askpass or abort logic: that is the engine's |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
-| `tasks.go` | `runStep`/`stepSpec` (a `steps.Step`'s command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the sudo probe/auth/keep-alive glue, `discoveryMsg` and `discover` (an action's `Discover` as a `tea.Cmd`), `actionEnv` (the `actions.Env` the TUI hands the actions), `editConfig` |
-| `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
-| `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`menuAudit`, handed to `internal/actions` as `Env.AuditReport` by `actionEnv`; `auditOutcome` → `actions.Notice`/`Report`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the model's prefetch (`auditFetch`, wrapping `audit.Fetch`), and the styled `renderAudit` |
-| `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process), thin `appendLog`/`readLog` wrappers (the store rotates the run history itself, see the state-dir landmine), and the "Log is empty." rendering. `logs()`/`appendLog` are for the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
-| `askpass.go` | askpass tea glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper), `askpassMsg`/`askpassResultMsg`, `answerAskpass` (`Request.Answer` off the UI thread), `verifyAskpassPeer` (`Request.Verify` for the running step), the popup's `askpassRequester`; the popup itself is `handleAskpass` in `update.go` |
+| `tasks.go` | `stepState` (a checklist row: the engine's `PlanStep` and its status), the knobs the Driver gets (`stepWaitDelay`, `sigkillGrace`), `actionEnv` (the `actions.Env` the TUI hands the Session), `editConfig` |
+| `output.go` | the running step's output pane: a capped tail for the viewport, follow-the-bottom (the full output is the engine's, which logs it) |
+| `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`menuAudit`, handed to `internal/actions` as `Env.AuditReport` by `actionEnv`; `auditOutcome` → `actions.Notice`/`Report`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the prefetch (`auditFetch`, wrapping `audit.Fetch`; a `driver.Prefetch` as it is, started by `startPrefetch` in `adapter.go`), and the styled `renderAudit` |
+| `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process; the Driver gets it as `Deps.Log` and does every write), `readLog` (the store rotates the run history itself, see the state-dir landmine), and the "Log is empty." rendering. `logs()` is for main's and the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
+| `askpass.go` | askpass glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper: the Driver's `Deps.Priv`), the popup's `askpassRequester` and `askpassPromptText`. The Driver verifies each request against the running step's child (`Request.Verify`) and answers it (`Request.Answer`); the popup is `openAskpass` in `adapter.go` |
 | `overlay.go` | ANSI-aware popup compositor |
 | `status.go`, `theme.go` | the status line's tea glue (`refreshStatus`, `refreshStatusNow`, the `tickFn` seam; the reading itself is `internal/sysstat`: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
 
@@ -166,9 +167,11 @@ comments and `git log`; this is the "read before you touch it" list.
   split), so the askpass peer checks below (F7b) are the control there. If the
   GUI later gives topgrade its own pty, that doesn't change the sudo path.
 - **An askpass request is answered only from the running sudo step.** The
-  server records each client's pid/uid (`SO_PEERCRED`) and start time;
-  `handleAskpass` hangs up unless a `NeedsPriv` step is running, and
-  `Request.Verify` requires: our uid; the same start time as at accept (pid
+  server records each client's pid/uid (`SO_PEERCRED`) and start time; the
+  Driver (`internal/driver`, `verify`) refuses a request while no step's
+  child runs and checks it against that child, the Session hangs up unless
+  the running step is a `NeedsPriv` child step, and the TUI only ever sees
+  the `NeedsPassword` that follows. `Request.Verify` requires: our uid; the same start time as at accept (pid
   not reused); `/proc/<pid>/exe` = `os.Executable()` (the wrapper execs us);
   a parent that is sudo; and a parent chain that reaches the step's child,
   matched on pid *and* the start time `proc.Runner.Start` captured (`Child.Start`) before anything
@@ -253,28 +256,31 @@ comments and `git log`; this is the "read before you touch it" list.
   success too, and a `SKIP … (declined)` entry when their confirm is declined:
   anything that removes or overwrites something, topgrade (the step that changes
   the most), and the AUR audit. That keeps what those steps did auditable from
-  archmaid's own log. An aborted in-process step's result is dropped by
-  `stepSeq`, so `finishStep` never logs it; the downloads delete therefore
+  archmaid's own log (the engine decides, `WriteLog`; the Driver writes). An
+  aborted in-process step's result is dropped by the engine, which never
+  logs it; the downloads delete therefore
   writes its own `ABORT` entry (exactly what it deleted, and where it
   stopped) when it sees the abort, or from a `context.AfterFunc` if the abort
   lands after it returned — the result's `commit` disarms that when the
-  result is taken, which is why `handleStepResult` releases the step's ctx
-  only *after* `commit`. Both writers run off the model's goroutine, so they
-  append to the store `actionEnv` captured on it, never to `logs()`
-  (which reads `logDir`/`dryRun`). `main` waits for such a run (`waitForDownloads`)
+  result is taken, which is why the Driver releases the step's ctx with
+  `steps.ErrResultTaken` only *after* the Output carrying `commit` is
+  carried out (an abort cancels it with plain `context.Canceled`). Both
+  writers run on a Driver worker, so they append to the store `actionEnv`
+  captured at startup, never to `logs()` (which reads `logDir`/`dryRun`). `main` waits for such a run (`waitForDownloads`)
   before exiting. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
   run directories are kept, `dryrun/` is a single reused slot, and files in the
-  state-dir root (the AUR snapshot, `last-run.json`) are ignored by the rotation. Only `appendLog`
-  creates a run directory (viewing logs must not, or it evicts a real run), and
+  state-dir root (the AUR snapshot, `last-run.json`) are ignored by the rotation. Only a
+  log write (`Store.Append`) creates a run directory (viewing logs must not, or it evicts a real run), and
   logs are private: directories 0700, files 0600.
 - **State files** (under `~/.local/state/archmaid/`, for the planned DMS widget, see
-  `docs/dms-widget.md`). `last-run.json` is written by `model.recordRun` (cmd/archmaid/log.go)
-  exactly once per queue, at its end: summary (`ok`/`failed` by `errs`; `incomplete` when
+  `docs/dms-widget.md`). `last-run.json` is the engine's `WriteLastRun` (the
+  record built in `internal/engine/queue.go`, written by the Driver)
+  exactly once per action, at its end: summary (`ok`/`failed` by `errs`; `incomplete` when
   nothing failed but a step was refused sudo, counted in `steps_refused`; `cancelled` if no
   step ran, e.g. sudo gave up), ctrl+c abort (`aborted`), a declined required step
   (`aborted`, or `cancelled` if nothing ran yet), a declined gate or cancelled password
-  prompt (`cancelled`). `runDone` makes it idempotent; `activate`/`resetRun` re-arm it. The
+  prompt (`cancelled`). The
   action is the menu `id` (the three static actions have ids `fullcleanup`, `usercache`,
   `topgrade` for this). A dry run writes `dryrun/last-run.json` instead and never touches
   the real one. `audit-state.json` is planned, not written yet.
@@ -350,19 +356,20 @@ comments and `git log`; this is the "read before you touch it" list.
   switching it to another runner touches only the glue.
 - **Full Cleanup and Run topgrade open with the audit, directly in front of
   topgrade** (one `auditStep`, gated identically). It runs
-  as an in-process step (`Step.Run`, run as a `tea.Cmd` — not a shell command, so
-  there's nothing to signal: an abort cancels the step's `ctx`, which ends the
-  pacman query and the RPC at once, and `stepSeq` drops the late result). The
+  as an in-process step (`Step.Run`, run on a Driver worker — not a shell
+  command, so there's nothing to signal: an abort cancels the step's `ctx`,
+  which ends the pacman query and the RPC at once, and the engine drops the
+  late result). The
   whole audit has one deadline, `auditDeadline` (20 s for the query and every
   RPC chunk together), not a timeout per request. The lookup itself starts
-  the moment the action is chosen: `activate` starts an `auditFetch`
-  (`audit.Prefetch`: a goroutine publishing its result by closing `Done()`,
-  owned by the model as `m.auditFetch`) so it runs while the password prompt
-  or the gate is up, and
-  the step awaits it instead of fetching again (one RPC per run). It only
+  the moment the action is chosen: the Session asks for `StartPrefetch`, and
+  the Driver starts an `auditFetch` through `Deps.Prefetch` (`startPrefetch` in
+  `adapter.go`; `audit.Prefetch`: a goroutine publishing its result by
+  closing `Done()`) so it runs while the password prompt or the gate is up,
+  and the step awaits it instead of fetching again (one RPC per run). It only
   reads: the snapshot commit still comes from the step's result, so the gate
   semantics below are unchanged. Esc on the password prompt, a declined gate,
-  an abort and the end of the run cancel it (`dropAuditFetch`); three wrong
+  an abort and the end of the run cancel it (`CancelPrefetch`); three wrong
   passwords don't, because the queue still runs and the audit step (no sudo)
   still reports from it. A
   high-severity finding (adoption, maintainer change, added co-maintainer) uses
@@ -421,15 +428,15 @@ comments and `git log`; this is the "read before you touch it" list.
   `mountinfoPath` are the seams for the rest.
 - **Streamed output is batched, and the pane shows only a tail.** A step's
   child writes combined stdout+stderr to one ordered channel: every line, then
-  exactly one done (`proc.Runner.Start`). The pump (`waitForStream`, over
+  exactly one done (`proc.Runner.Start`). The Driver's pump (over
   `proc.Next`) blocks for the first message,
   then takes whatever else is already buffered — up to `proc.BatchMax` (256)
-  lines, stopping at the done — and delivers it as one `streamBatchMsg`
-  stamped with the launch's `stepSeq`; `handleStream` applies the whole batch
-  with one `SetContent`, or drops it if the seq is stale. A slow producer gets
-  one-line batches; a flood gets full ones, so the UI catches up by itself. The
-  full output still accumulates in `m.buf` (what `finishStep` logs, so
-  `AlwaysLog` steps keep everything); the viewport gets only the newest
+  lines, stopping at the done — and the outbox coalesces what piles up into
+  one `OutputChunk`; the model applies the whole chunk with one `SetContent`
+  (a stale step's lines never reach it: the engine drops them). A slow
+  producer gets one-line chunks; a flood gets full ones, so the UI catches up
+  by itself. The full output is the engine's (what it logs, so `AlwaysLog`
+  steps keep everything); the viewport gets only the newest
   `maxVisibleLines` (2000) from `m.tail`. One update per line with the whole
   buffer re-split each time was quadratic: 5k lines cost ~1 s of CPU and
   ~1.8 GB of allocations, 20k lines ~5 s (`BenchmarkStreamView*`, now ~5 ms
@@ -443,17 +450,27 @@ comments and `git log`; this is the "read before you touch it" list.
 - **The engine's Session is held to the TUI's transcripts.** `sessionTarget`
   (`cmd/archmaid/transcript_session_test.go`) replays the transcript scenarios
   through an `engine.Session`, playing its Effects against the same shims, and
-  compares with the goldens the TUI records, byte for byte. A behaviour change
-  goes into both front ends, or a golden changes deliberately; never add a
-  session-only golden. What the Session can't run yet is skipped by name with
+  compares with the goldens the TUI records (through `tuiEngineTarget`, the
+  TUI's model on a `syncDriver`), byte for byte; `driverTarget` does the same
+  on the `syncDriver` alone. A behaviour change goes into the engine, or a
+  golden changes deliberately; never add a session-only golden. What the Session can't run yet is skipped by name with
   the milestone that brings it (`sessionSkips`): remove the skip in the
   commit that makes it pass. Where the TUI was fixed to fail closed (a
   refused result keeps its gate) the Session mirrors it, and it adds two
   guards of its own: hyprpm is moved last in any plan, and a result that
   would insert a root step after hyprpm ran is refused like a malformed one.
 - **`m.bg` is one field, not a stack.** A popup that overwrites it with its own
-  screen value makes `renderScreen` recurse forever; see `handleAskpass` in
-  `update.go`.
+  screen value makes `renderScreen` recurse forever; see `openAskpass` in
+  `adapter.go` (an askpass popup over the password, a confirm or a notice
+  leaves `m.bg` as it is).
+- **The TUI is an engine front end (E7b).** It runs no queue, sudo, askpass
+  or abort logic of its own: a menu entry is `engine.Start`, a key on a
+  prompt is a Command (`engineKey`), and the screen, checklist, prompt and
+  output pane come from the Events (`applyEvents`). A behaviour change goes
+  into `internal/engine` (or the Driver), never back into `update.go`. The
+  binary runs on `internal/driver` (`newDriver`); the tests run the same
+  model on `syncDriver` (pull mode) and the goldens are recorded through it
+  (`tuiEngineTarget`).
 
 ## Live-testing safely
 
