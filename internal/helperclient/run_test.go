@@ -236,22 +236,93 @@ func TestRunRefused(t *testing.T) {
 	}
 }
 
-// TestRunCancelled: the dialog is dismissed while pkexec waits (here: the
-// shim is killed by ctx before printing anything). Not granted is decided
-// by pkexec's exit only; a kill is a failure with no NotGranted, and Run
-// returns promptly.
+// TestRunCancelled: Stop while the polkit dialog is up (before any start
+// line) kills pkexec: the helper never ran, so the step is NotGranted with
+// a "stopped" error, and Run returns promptly. The second case leaves a
+// child of the shim holding stdout open (as a text agent of pkexec's
+// could); Run closes it after killGrace instead of waiting it out. Fails
+// on a client that reads the kill as a plain failure.
 func TestRunCancelled(t *testing.T) {
-	shim(t, "exec sleep 20")
-	ctx, cancel := context.WithCancel(context.Background())
-	time.AfterFunc(100*time.Millisecond, cancel)
-	var inputs []engine.Input
-	start := time.Now()
-	o := Run(ctx, seq, repairCheck, func(in engine.Input) { inputs = append(inputs, in) })
-	if d := time.Since(start); d > 10*time.Second {
-		t.Fatalf("Run took %v after the cancel", d)
+	for name, body := range map[string]string{
+		"pkexec alone":         "exec sleep 20",
+		"a child holds stdout": "sleep 6 &\nexec sleep 20",
+	} {
+		t.Run(name, func(t *testing.T) {
+			shim(t, body)
+			ctx, cancel := context.WithCancel(context.Background())
+			time.AfterFunc(100*time.Millisecond, cancel)
+			var inputs []engine.Input
+			start := time.Now()
+			o := Run(ctx, seq, repairCheck, func(in engine.Input) { inputs = append(inputs, in) })
+			if d := time.Since(start); d > 5*time.Second {
+				t.Fatalf("Run took %v after the cancel", d)
+			}
+			if !o.NotGranted || !errors.Is(o.Err, ErrNotGranted) || !strings.Contains(o.Err.Error(), "stopped") ||
+				o.Granted || o.Exit != -1 || len(inputs) != 1 {
+				t.Fatalf("outcome %+v, inputs %#v: want one NotGranted StepExited", o, inputs)
+			}
+			if ex := inputs[0].(engine.StepExited); !ex.NotGranted {
+				t.Errorf("StepExited %+v, want NotGranted", ex)
+			}
+		})
 	}
-	if o.Err == nil || o.NotGranted || o.Granted || o.Exit != -1 || len(inputs) != 1 {
-		t.Fatalf("outcome %+v, inputs %#v: want one failed StepExited", o, inputs)
+}
+
+// TestRunStoppedAfterGrant: Stop 300 ms after the start line comes too late
+// to stop a root helper, so Run must not kill it or cut its output: the
+// helper (here a shim that is killable, unlike the real one) finishes, its
+// result arrives, and the step's Err says it was stopped too late, not a
+// protocol error. Fails on a client that kills or closes the pipe on
+// cancel (the result is lost and the step reads as a crash).
+func TestRunStoppedAfterGrant(t *testing.T) {
+	done := filepath.Join(t.TempDir(), "finished")
+	shim(t, "echo '"+startCheck+"'\nsleep 1\n"+
+		`echo '{"v":1,"t":"check","checked":["big"],"broken":[]}'`+"\n"+
+		"echo '"+resultOK+"'\n: > '"+done+"'\nexit 0")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var inputs []engine.Input
+	o := Run(ctx, seq, repairCheck, func(in engine.Input) {
+		if _, ok := in.(engine.PrivilegeGranted); ok {
+			time.AfterFunc(300*time.Millisecond, cancel)
+		}
+		inputs = append(inputs, in)
+	})
+	if _, err := os.Stat(done); err != nil {
+		t.Errorf("the helper did not finish: %v", err)
+	}
+	if o.Result == nil || !o.Result.OK || o.Exit != 0 || !o.Granted || o.NotGranted {
+		t.Fatalf("outcome %+v, want the helper's ok result", o)
+	}
+	if errors.Is(o.Err, ErrProtocol) || !errors.Is(o.Err, ErrStoppedLate) ||
+		!strings.Contains(o.Err.Error(), "had already started and finished: ok (exit 0") {
+		t.Fatalf("Err %v, want ErrStoppedLate naming the result", o.Err)
+	}
+	ex := inputs[len(inputs)-1].(engine.StepExited)
+	if ex.Err != o.Err || ex.NotGranted {
+		t.Errorf("StepExited %+v", ex)
+	}
+	for _, in := range inputs {
+		if _, ok := in.(engine.HelperCheck); ok {
+			t.Error("a HelperCheck from a stopped step")
+		}
+	}
+}
+
+// TestRunStoppedAfterGrantFailed: a helper that fails after a late Stop
+// keeps its own error, wrapped.
+func TestRunStoppedAfterGrantFailed(t *testing.T) {
+	shim(t, "echo '"+startCheck+"'\nsleep 1\n"+
+		`echo '{"v":1,"t":"result","ok":false,"code":1,"child_exit":1,"skipped":[],"error":"boom"}'`+"\nexit 1")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o := Run(ctx, seq, repairCheck, func(in engine.Input) {
+		if _, ok := in.(engine.PrivilegeGranted); ok {
+			time.AfterFunc(300*time.Millisecond, cancel)
+		}
+	})
+	if o.Result == nil || o.Result.OK || !errors.Is(o.Err, ErrStoppedLate) || !strings.Contains(o.Err.Error(), "boom") {
+		t.Fatalf("outcome %+v", o)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"slices"
 	"strings"
@@ -68,26 +69,50 @@ type Outcome struct {
 //   - last, exactly one engine.StepExited{seq, Err, NotGranted}.
 //
 // It returns when the child has exited and its output is drained.
-// Cancelling ctx kills pkexec while the dialog is up; once granted, the
-// helper runs as root and can't be signalled by the user, so Run waits for
-// it (the helper never cuts a running pacman short anyway). A step Argv
-// refuses runs nothing and gets a StepExited with that error.
+//
+// Cancelling ctx (Stop) kills pkexec only while the polkit dialog is up,
+// that is before the helper's start line: the helper never ran, so the step
+// is NotGranted ("stopped during the authentication dialog"). Once the
+// start line has arrived the helper runs as root and can't be signalled by
+// the user, so Run never kills it and never closes its output: it reads to
+// EOF and waits, and the Outcome carries the helper's real Result. Err then
+// says the step was stopped too late (ErrStoppedLate, wrapping what the
+// helper did): a stopped step that went on to change the system must be
+// logged as neither a success nor a protocol error.
+//
+// A step Argv refuses runs nothing and gets a StepExited with that error.
 func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)) Outcome {
 	argv, err := Argv(st)
 	if err != nil {
 		return exited(seq, emit, Outcome{Exit: -1, Err: err})
 	}
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.WaitDelay = 5 * time.Second
-	stderr := &tail{max: stderrMax}
-	cmd.Stderr = stderr
-	stdout, err := cmd.StdoutPipe()
+	// stdout is a pipe of our own, not StdoutPipe: Wait never closes it,
+	// and only watch, before the start line, ever does.
+	pr, pw, err := os.Pipe()
 	if err != nil {
 		return exited(seq, emit, Outcome{Exit: -1, Err: fmt.Errorf("helper: %w", err)})
 	}
-	if err := cmd.Start(); err != nil {
+	defer pr.Close()
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdout = pw
+	stderr := &tail{max: stderrMax}
+	cmd.Stderr = stderr
+	// No Context, so this bounds only the stderr copy once the process has
+	// exited; its stdout has been read to EOF by then.
+	cmd.WaitDelay = stderrGrace
+	err = cmd.Start()
+	pw.Close()
+	if err != nil {
 		return exited(seq, emit, Outcome{Exit: -1, Err: fmt.Errorf("can't start %s: %w", Pkexec, err)})
 	}
+
+	g := &gate{}
+	done := make(chan struct{})
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		g.watch(ctx, done, cmd.Process, pr)
+	}()
 
 	d := newDecoder(st)
 	var batch []string
@@ -97,8 +122,9 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 			batch = nil
 		}
 	}
-	readLines(stdout, d, func(lines []string, start bool) {
+	readLines(pr, d, func(lines []string, start bool) {
 		if start {
+			g.grant()
 			emit(engine.PrivilegeGranted{Seq: seq})
 		}
 		batch = append(batch, lines...)
@@ -109,11 +135,102 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 	})
 	flush()
 	waitErr := cmd.Wait()
-	o := d.outcome(exitCode(waitErr), waitErr, stderr.String())
+	close(done)
+	<-watched
+	o := g.verdict(d.outcome(exitCode(waitErr), waitErr, stderr.String()))
 	if o.Check != nil {
 		emit(engine.HelperCheck{Seq: seq, Broken: slices.Clone(o.Check.Broken)})
 	}
 	return exited(seq, emit, o)
+}
+
+// ErrStoppedLate wraps a step's Err when Stop came after the helper's start
+// line: the root helper went on and finished its verb anyway.
+var ErrStoppedLate = errors.New("stopped, but the root helper had already started")
+
+// killGrace is how long, after pkexec was killed in the dialog, Run waits
+// for its stdout to close before closing it itself (a child of pkexec's,
+// such as a text agent, may hold it). The helper never ran then.
+const killGrace = 2 * time.Second
+
+// stderrGrace bounds the wait for stderr's EOF after the process exited.
+const stderrGrace = 2 * time.Second
+
+// gate decides whether a Stop may still kill pkexec: only before the start
+// line. grant and watch take the same lock, so a start line read before
+// the cancel always wins.
+type gate struct {
+	mu      sync.Mutex
+	granted bool // the start line was read
+	stop    bool // ctx was cancelled while the child ran
+	killed  bool // pkexec was killed before the start line
+}
+
+func (g *gate) grant() {
+	g.mu.Lock()
+	g.granted = true
+	g.mu.Unlock()
+}
+
+// watch waits for ctx or done. On a cancel before the start line it kills
+// p, then closes r if its EOF doesn't come within killGrace. After the
+// start line it only notes the stop.
+func (g *gate) watch(ctx context.Context, done <-chan struct{}, p *os.Process, r *os.File) {
+	select {
+	case <-done:
+		return
+	case <-ctx.Done():
+	}
+	g.mu.Lock()
+	g.stop = true
+	if !g.granted {
+		// The kill fails only when pkexec is gone, or has already become
+		// the root helper (whose start line is then on its way).
+		g.killed = p.Kill() == nil
+	}
+	killed := g.killed
+	g.mu.Unlock()
+	if !killed {
+		return
+	}
+	select {
+	case <-done:
+	case <-time.After(killGrace):
+		r.Close()
+	}
+}
+
+// verdict is o, the decoder's outcome, adjusted for a Stop.
+func (g *gate) verdict(o Outcome) Outcome {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	switch {
+	case g.killed && !o.Granted:
+		// pkexec died in the dialog: whatever its stream and exit say, the
+		// helper never ran.
+		return Outcome{NotGranted: true, Exit: o.Exit,
+			Err: fmt.Errorf("%w: stopped during the authentication dialog", ErrNotGranted)}
+	case g.stop && o.Granted:
+		o.Check = nil
+		if o.Err == nil {
+			o.Err = fmt.Errorf("%w and finished: %s", ErrStoppedLate, resultText(o.Result))
+		} else {
+			o.Err = fmt.Errorf("%w: %w", ErrStoppedLate, o.Err)
+		}
+	}
+	return o
+}
+
+// resultText is a successful result, for ErrStoppedLate's message.
+func resultText(r *Result) string {
+	s := fmt.Sprintf("ok (exit %d", r.Code)
+	if r.ChildExit != nil {
+		s += fmt.Sprintf(", child exit %d", *r.ChildExit)
+	}
+	if n := len(r.Skipped); n > 0 {
+		s += fmt.Sprintf(", %d skipped", n)
+	}
+	return s + ")"
 }
 
 func exited(seq uint64, emit func(engine.Input), o Outcome) Outcome {

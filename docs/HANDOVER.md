@@ -253,6 +253,16 @@ comments and `git log`; this is the "read before you touch it" list.
   with `--print`; no root needed) and lists it in its output, under the
   confirm. Without the preview there's no removal: a failed `--print` fails the
   probe.
+- **A Stop after the helper's start line can't stop it.** Once pkexec has
+  become the root helper the user can't signal it, so `helperclient.Run`
+  kills pkexec only before the start line (the dialog: NotGranted, "stopped
+  during the authentication dialog"). After it, Run never kills and never
+  closes the helper's stdout: it reads to EOF, waits, and keeps the real
+  `Result`, with `Err` wrapping `ErrStoppedLate` ("stopped, but the root
+  helper had already started and finished: …"). Don't go back to
+  `exec.CommandContext` + `WaitDelay` there: the pipe was closed 5 s after the
+  cancel, and a remove-orphans that went on to finish was logged as a
+  protocol error with its result lost.
 - **Logging policy.** Ordinary steps log only failures. `AlwaysLog` steps log
   success too, and a `SKIP … (declined)` entry when their confirm is declined:
   anything that removes or overwrites something, topgrade (the step that changes
