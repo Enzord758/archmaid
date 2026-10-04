@@ -1,15 +1,22 @@
-# DRAFT — not yet built with makepkg or published. See cmd/archmaid-helper/README.md.
+# Maintainer: TODO
 #
-# Builds the TUI (tui/) and the root helper (cmd/archmaid-helper/) from git.
+# Builds the TUI (tui/) and the root helper (cmd/archmaid-helper/) from VCS.
 # The helper is installed 0755 root:root at the fixed path its polkit policy
 # names. It is NEVER setuid: privilege comes only from pkexec.
 #
+# Local build of a checkout (only COMMITTED state is cloned):
+#   cd packaging/arch
+#   ARCHMAID_REPO="file://$(git rev-parse --show-toplevel)" \
+#   ARCHMAID_FRAGMENT="commit=$(git rev-parse HEAD)" makepkg -f
+# See packaging/arch/README.md.
+#
 # TODO before publishing:
 #   - pick a license (the repo has none yet), then set license=() and install it
-#   - switch source to a tagged release + checksum once there is one
+#   - for a release: _fragment='tag=vX.Y.Z' (or 'commit=<sha>'), drop the -git
+#     suffix and pkgver(), and replace SKIP with a real checksum
 #   - a later phase moves the Go module to the repo root; drop the per-dir
 #     builds below for a single `go build ./cmd/...` then
-#   - the GUI (P6b) adds its binary, .desktop file and gotk4 deps here
+#   - the GUI (P6b) adds its binary and gotk4 deps here
 
 pkgname=archmaid-git
 _pkgname=archmaid
@@ -25,18 +32,15 @@ optdepends=('topgrade: system/AUR update step in the TUI'
             'yay: AUR cache cleaning and updates')
 provides=("$_pkgname")
 conflicts=("$_pkgname")
-source=("$_pkgname::git+https://github.com/Enzord758/archmaid.git")
+# Upstream by default; overridable from the environment for local builds.
+_repo="${ARCHMAID_REPO:-https://github.com/Enzord758/archmaid.git}"
+_fragment="${ARCHMAID_FRAGMENT:-branch=main}"
+source=("$_pkgname::git+$_repo#$_fragment")
 sha256sums=('SKIP')
 
 pkgver() {
   cd "$_pkgname"
   printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
-}
-
-prepare() {
-  cd "$_pkgname/tui"
-  export GOPATH="$srcdir/gopath"
-  go mod download -x
 }
 
 _goenv() {
@@ -49,14 +53,20 @@ _goenv() {
   export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
 }
 
+prepare() {
+  _goenv
+  cd "$_pkgname/tui"
+  go mod download -x
+  # The helper is stdlib-only: nothing to download for it.
+}
+
 build() {
   _goenv
   mkdir -p "$srcdir/build"
   cd "$srcdir/$_pkgname/tui"
   go build -o "$srcdir/build/archmaid" .
-  # The helper is stdlib-only: no module download, no cgo.
   cd "$srcdir/$_pkgname/cmd/archmaid-helper"
-  CGO_ENABLED=0 go build -o "$srcdir/build/archmaid-helper" .
+  go build -o "$srcdir/build/archmaid-helper" .
 }
 
 check() {
@@ -75,7 +85,10 @@ package() {
   install -Dm0755 "$srcdir/build/archmaid-helper" "$pkgdir/usr/lib/archmaid/archmaid-helper"
   install -Dm0644 packaging/polkit/org.archmaid.helper.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.archmaid.helper.policy"
+  install -Dm0644 packaging/archmaid.desktop \
+    "$pkgdir/usr/share/applications/archmaid.desktop"
   install -Dm0644 packaging/archmaid.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/archmaid.svg"
   install -Dm0644 cmd/archmaid-helper/README.md "$pkgdir/usr/share/doc/$_pkgname/helper.md"
+  # TODO: install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
