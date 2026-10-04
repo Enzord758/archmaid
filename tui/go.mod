@@ -1,6 +1,6 @@
 module github.com/Enzord758/archmaid/tui
 
-go 1.24.0
+go 1.25
 
 // Run `go mod tidy` to populate the indirect dependency graph and go.sum.
 require (

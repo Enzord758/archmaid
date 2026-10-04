@@ -72,51 +72,6 @@ func TestEditConfigKeepsExistingFile(t *testing.T) {
 	}
 }
 
-// ── discoverDownloads against a real filesystem fixture ─────────────────────────
-
-// TestDiscoverDownloadsCountsAgedFiles: only files older than 30 days are
-// counted, and the count lands in the confirm string.
-func TestDiscoverDownloadsCountsAgedFiles(t *testing.T) {
-	home := isolateDownloads(t)
-	dl := filepath.Join(home, "Downloads")
-	if err := os.MkdirAll(dl, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	old := time.Now().Add(-40 * 24 * time.Hour)
-	for _, n := range []string{"a.iso", "b.zip"} {
-		p := filepath.Join(dl, n)
-		os.WriteFile(p, []byte("x"), 0o644)
-		os.Chtimes(p, old, old) // age it past the 30-day threshold
-	}
-	os.WriteFile(filepath.Join(dl, "fresh.txt"), []byte("x"), 0o644) // must NOT count
-
-	msg := discoverDownloads()().(discoveryMsg)
-	if msg.notice != "" {
-		t.Fatalf("unexpected notice: %q", msg.notice)
-	}
-	if len(msg.pending) != 1 {
-		t.Fatalf("want 1 step, got %d", len(msg.pending))
-	}
-	if !strings.Contains(msg.pending[0].confirm, "2 file") {
-		t.Fatalf("confirm should mention 2 files, got %q", msg.pending[0].confirm)
-	}
-}
-
-// TestDiscoverDownloadsEmptyShowsNotice: no aged files → a notice, no step.
-func TestDiscoverDownloadsEmptyShowsNotice(t *testing.T) {
-	home := isolateDownloads(t)
-	os.MkdirAll(filepath.Join(home, "Downloads"), 0o755)
-
-	msg := discoverDownloads()().(discoveryMsg)
-	if msg.notice == "" {
-		t.Fatal("expected a notice when nothing is old enough")
-	}
-	if len(msg.pending) != 0 {
-		t.Fatalf("expected no steps, got %d", len(msg.pending))
-	}
-}
-
 // ── password masking (rendered, not just configured) ───────────────────────────
 
 // TestPasswordInputIsMasked: typed characters render as the mask glyph, never as

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // isolateDownloads gives the test a scratch $HOME and XDG config dir, and
@@ -281,6 +283,306 @@ func TestDiscoverDownloadsNamesFolder(t *testing.T) {
 	msg = discoverDownloads()().(discoveryMsg)
 	if !strings.Contains(msg.notice, "~/Download") {
 		t.Fatalf("notice = %q, want it to name ~/Download", msg.notice)
+	}
+}
+
+// ── old-entry deletion ───────────────────────────────────────────────────────
+//
+// Age is ctime, which a test can't set. So a test builds the "old" part of
+// its fixture, takes a mark between two pauses, builds the "new" part, and
+// moves the clock (downloadsNow) to mark+30 days: the cutoff then falls on
+// the mark, after every old ctime and before every new one (the pauses
+// absorb the kernel's coarse timestamp granularity).
+
+// ctimeMark pauses, returns now, and pauses again: a point strictly between
+// the ctimes of what was made before it and what is made after.
+func ctimeMark(t *testing.T) time.Time {
+	t.Helper()
+	time.Sleep(30 * time.Millisecond)
+	mark := time.Now()
+	time.Sleep(30 * time.Millisecond)
+	return mark
+}
+
+// cutoffAt sets the downloads clock so the 30-day cutoff lands on mark.
+func cutoffAt(t *testing.T, mark time.Time) {
+	t.Helper()
+	orig := downloadsNow
+	downloadsNow = func() time.Time { return mark.Add(downloadsMaxAge) }
+	t.Cleanup(func() { downloadsNow = orig })
+}
+
+func writeFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// discoverDownloadStep runs discovery and returns its single delete step.
+func discoverDownloadStep(t *testing.T) step {
+	t.Helper()
+	msg := discoverDownloads()().(discoveryMsg)
+	if msg.notice != "" || len(msg.pending) != 1 {
+		t.Fatalf("discovery: notice=%q pending=%d, want one step", msg.notice, len(msg.pending))
+	}
+	s := msg.pending[0]
+	if s.run == nil || s.command != "" {
+		t.Fatalf("delete step must be in-process, got command=%q run=nil:%v", s.command, s.run == nil)
+	}
+	if !s.optional || !s.alwaysLog {
+		t.Fatalf("delete step optional=%v alwaysLog=%v, want both", s.optional, s.alwaysLog)
+	}
+	return s
+}
+
+// TestDeleteOldDownloads: old files, old folders and old symlinks go; new
+// files stay; a folder with anything new deep inside stays; a symlink is
+// removed as a link, never followed into its target; and the downloads folder
+// itself is never touched.
+func TestDeleteOldDownloads(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Download")
+	outside := t.TempDir()
+
+	// Old.
+	writeFile(t, filepath.Join(dl, "old.iso"), "x")
+	writeFile(t, filepath.Join(dl, "olddir", "inner", "f.txt"), "x")
+	writeFile(t, filepath.Join(dl, "busydir", "sub", "old.txt"), "x")
+	writeFile(t, filepath.Join(outside, "target", "keep.txt"), "x")
+	if err := os.Symlink(filepath.Join(outside, "target"), filepath.Join(dl, "link")); err != nil {
+		t.Fatal(err)
+	}
+	mark := ctimeMark(t)
+	// New: a fresh file, and a fresh file two levels into busydir (which
+	// leaves busydir's own ctime old — only the walk can see it).
+	writeFile(t, filepath.Join(dl, "new.txt"), "x")
+	writeFile(t, filepath.Join(dl, "busydir", "sub", "new.txt"), "x")
+	cutoffAt(t, mark)
+
+	s := discoverDownloadStep(t)
+	for _, want := range []string{"Delete 3 item(s)", "~/Download", "link", "old.iso", "olddir"} {
+		if !strings.Contains(s.confirm, want) {
+			t.Fatalf("confirm = %q, want it to contain %q", s.confirm, want)
+		}
+	}
+	for _, not := range []string{"new.txt", "busydir"} {
+		if strings.Contains(s.confirm, not) {
+			t.Fatalf("confirm = %q, must not list %q", s.confirm, not)
+		}
+	}
+
+	res := s.run()
+	if res.err != nil {
+		t.Fatalf("delete step failed: %v\n%s", res.err, res.output)
+	}
+	for _, gone := range []string{"old.iso", "olddir", "link"} {
+		if exists(filepath.Join(dl, gone)) {
+			t.Errorf("%s still exists", gone)
+		}
+	}
+	for _, kept := range []string{"new.txt", "busydir/sub/new.txt", "busydir/sub/old.txt"} {
+		if !exists(filepath.Join(dl, kept)) {
+			t.Errorf("%s was deleted", kept)
+		}
+	}
+	if !exists(filepath.Join(outside, "target", "keep.txt")) {
+		t.Fatal("the symlink's target was deleted through the link")
+	}
+	if !strings.Contains(res.output, "deleted: old.iso") {
+		t.Fatalf("output = %q, want it to report each deletion", res.output)
+	}
+}
+
+// TestDeleteOldDownloadsIgnoresMtime: a fresh download with a back-dated mtime
+// (wget, curl -R and unzip all do this) is not old — only ctime counts — and
+// an old folder with nothing old in it is reported as nothing to do, folder
+// intact.
+func TestDeleteOldDownloadsIgnoresMtime(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	mkdirs(t, dl)
+	mark := ctimeMark(t)
+	p := filepath.Join(dl, "archive.zip")
+	writeFile(t, p, "x")
+	ancient := time.Now().Add(-5 * 365 * 24 * time.Hour)
+	if err := os.Chtimes(p, ancient, ancient); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dl, ancient, ancient); err != nil {
+		t.Fatal(err)
+	}
+	cutoffAt(t, mark)
+
+	msg := discoverDownloads()().(discoveryMsg)
+	if len(msg.pending) != 0 || !strings.Contains(msg.notice, "Nothing older than 30 days in ~/Downloads") {
+		t.Fatalf("notice=%q pending=%d, want nothing to do", msg.notice, len(msg.pending))
+	}
+	if !exists(p) {
+		t.Fatal("fresh file with an old mtime was deleted")
+	}
+}
+
+// TestDeleteOldDownloadsRechecksBeforeDeleting: an entry touched or replaced
+// between the scan (the confirm) and the delete is kept; the rest still go.
+func TestDeleteOldDownloadsRechecksBeforeDeleting(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
+		writeFile(t, filepath.Join(dl, n), "x")
+	}
+	mark := ctimeMark(t)
+	cutoffAt(t, mark)
+
+	s := discoverDownloadStep(t)
+	if !strings.Contains(s.confirm, "Delete 3 item(s)") {
+		t.Fatalf("confirm = %q, want 3 items", s.confirm)
+	}
+
+	// After the confirm: a.txt is written to, b.txt is replaced.
+	f, err := os.OpenFile(filepath.Join(dl, "a.txt"), os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("more")
+	f.Close()
+	os.Remove(filepath.Join(dl, "b.txt"))
+	writeFile(t, filepath.Join(dl, "b.txt"), "new")
+
+	res := s.run()
+	if res.err != nil {
+		t.Fatalf("delete step failed: %v", res.err)
+	}
+	if !exists(filepath.Join(dl, "a.txt")) || !exists(filepath.Join(dl, "b.txt")) {
+		t.Fatalf("an entry changed since the scan was deleted:\n%s", res.output)
+	}
+	if exists(filepath.Join(dl, "c.txt")) {
+		t.Fatal("c.txt, unchanged and old, was kept")
+	}
+	if !strings.Contains(res.output, "kept (changed since the scan): a.txt") {
+		t.Fatalf("output = %q, want the kept entries reported", res.output)
+	}
+}
+
+// TestDeleteOldDownloadsFolderSwapped: if the folder was replaced between the
+// scan and the delete (say, by a symlink elsewhere), nothing is deleted.
+func TestDeleteOldDownloadsFolderSwapped(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	writeFile(t, filepath.Join(dl, "a.txt"), "x")
+	other := filepath.Join(home, "other")
+	writeFile(t, filepath.Join(other, "a.txt"), "x")
+	mark := ctimeMark(t)
+	cutoffAt(t, mark)
+
+	s := discoverDownloadStep(t)
+	if err := os.Rename(dl, filepath.Join(home, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(other, dl); err != nil {
+		t.Fatal(err)
+	}
+
+	res := s.run()
+	if res.err == nil {
+		t.Fatal("want an error when the folder changed since the scan")
+	}
+	if !exists(filepath.Join(other, "a.txt")) || !exists(filepath.Join(home, "moved", "a.txt")) {
+		t.Fatal("something was deleted after the folder changed")
+	}
+}
+
+// TestDeleteOldDownloadsDryRun: the dry run reports what it would delete and
+// deletes nothing.
+func TestDeleteOldDownloadsDryRun(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	writeFile(t, filepath.Join(dl, "a.txt"), "x")
+	writeFile(t, filepath.Join(dl, "d", "f.txt"), "x")
+	mark := ctimeMark(t)
+	cutoffAt(t, mark)
+
+	dryRun = true
+	defer func() { dryRun = false }()
+
+	res := discoverDownloadStep(t).run()
+	if res.err != nil {
+		t.Fatalf("dry run failed: %v", res.err)
+	}
+	if !exists(filepath.Join(dl, "a.txt")) || !exists(filepath.Join(dl, "d", "f.txt")) {
+		t.Fatal("a dry run deleted something")
+	}
+	if !strings.Contains(res.output, "[dry-run] would delete: a.txt") ||
+		!strings.Contains(res.output, "[dry-run] would delete: d") {
+		t.Fatalf("output = %q, want each entry reported", res.output)
+	}
+}
+
+// TestDownloadsThroughTheUI: discovery → the named confirm → "y" runs the
+// in-process delete → summary, with what was deleted on record in
+// cleanup.log.
+func TestDownloadsThroughTheUI(t *testing.T) {
+	home := isolateDownloads(t)
+	oldLog := logDir
+	logDir = t.TempDir()
+	t.Cleanup(func() { logDir = oldLog })
+	dl := filepath.Join(home, "Downloads")
+	writeFile(t, filepath.Join(dl, "old.iso"), "x")
+	cutoffAt(t, ctimeMark(t))
+
+	m := update(initialModel(), discoverDownloads()())
+	if m.screen != screenConfirm || !strings.Contains(m.confirmMsg, "old.iso") {
+		t.Fatalf("screen=%d confirm=%q, want the confirm naming old.iso", m.screen, m.confirmMsg)
+	}
+	next, cmd := m.Update(key("y"))
+	m = next.(model)
+	if cmd == nil {
+		t.Fatal("confirming should launch the delete step")
+	}
+	msg, ok := cmd().(stepResultMsg)
+	if !ok {
+		t.Fatalf("delete Cmd returned %T, want stepResultMsg", msg)
+	}
+	m = update(m, msg)
+	if m.screen != screenSummary || m.errs != 0 {
+		t.Fatalf("screen=%d errs=%d, want a clean summary", m.screen, m.errs)
+	}
+	if exists(filepath.Join(dl, "old.iso")) {
+		t.Fatal("old.iso survived")
+	}
+	log, _ := os.ReadFile(logPath(logCategoryCleanup))
+	if !strings.Contains(string(log), "OK: Old downloads deleted") || !strings.Contains(string(log), "deleted: old.iso") {
+		t.Fatalf("cleanup.log should record the deletion:\n%s", log)
+	}
+}
+
+// TestDownloadsConfirmListsEntries: the confirm names the first ten entries
+// and counts the rest; a name that could forge a line or carry an escape is
+// shown quoted.
+func TestDownloadsConfirmListsEntries(t *testing.T) {
+	var names []string
+	for i := range 13 {
+		names = append(names, fmt.Sprintf("f%02d", i))
+	}
+	got := downloadsConfirm("~/Downloads", names)
+	if !strings.Contains(got, "Delete 13 item(s) older than 30 days in ~/Downloads?") ||
+		!strings.Contains(got, "f09") || strings.Contains(got, "f10") ||
+		!strings.Contains(got, "…and 3 more") {
+		t.Fatalf("confirm = %q", got)
+	}
+
+	evil := downloadsConfirm("~/Downloads", []string{"a\nb", "x\x1b]52;c;Zm9v\x07"})
+	if strings.ContainsAny(strings.SplitN(evil, "\n\n", 2)[1], "\x1b\x07") ||
+		strings.Count(evil, "\n") != 3 {
+		t.Fatalf("unsafe name rendered raw: %q", evil)
 	}
 }
 

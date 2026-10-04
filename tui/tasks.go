@@ -536,30 +536,6 @@ func orphanRemovalTotal(orphans []string) int {
 	return len(nonEmptyLines(string(out)))
 }
 
-func discoverDownloads() tea.Cmd {
-	return func() tea.Msg {
-		dir, err := resolveDownloadsDir()
-		if err != nil {
-			return discoveryMsg{kind: "downloads", notice: Sanitize(err.Error(), SanitizePlain)}
-		}
-		shown := displayPath(dir)
-		out, _ := exec.Command("bash", "-c",
-			fmt.Sprintf(`find %q -maxdepth 1 -mtime +30 2>/dev/null | wc -l`, dir)).Output()
-		n := strings.TrimSpace(string(out))
-		if n == "" || n == "0" {
-			return discoveryMsg{kind: "downloads", notice: "No files older than 30 days in " + shown + "."}
-		}
-		return discoveryMsg{kind: "downloads", pending: []step{{
-			title: "Deleting old downloads…", logLabel: "Old downloads deleted",
-			command: "bash", args: []string{"-c",
-				fmt.Sprintf(`find %q -maxdepth 1 -mtime +30 -exec rm -rf {} +`, dir)},
-			optional:  true,
-			alwaysLog: true,
-			confirm:   fmt.Sprintf("Delete %s file(s) older than 30 days in %s?", n, shown),
-		}}}
-	}
-}
-
 // servicesPipeline reproduces the bash version: services that are enabled but
 // currently inactive, minus systemd-internal/oneshot noise.
 const servicesPipeline = `comm -12 ` +

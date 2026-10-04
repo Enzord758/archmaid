@@ -19,7 +19,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | File | Owns |
 |---|---|
 | `main.go` | package doc + `main()`: askpass dispatch, flag parsing (`parseArgs`: `--dryrun`, `--downloads`), `pruneLogs`, `tea.NewProgram` |
-| `downloads.go` | "Delete old downloads": which folder (`resolveDownloadsDir`) |
+| `downloads.go` | "Delete old downloads": which folder (`resolveDownloadsDir`), what is old (`oldDownloads`, by ctime), and the in-process delete step (`deleteOldDownloads`) |
 | `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
 | `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
@@ -116,6 +116,15 @@ comments and `git log`; this is the "read before you touch it" list.
   → `~/Download`, resolves symlinks, and refuses `$HOME`, `/` and ancestors of
   `$HOME` for every source; all but the flag must be strictly inside `$HOME`.
   Don't add a candidate that skips `checkDownloadsDir`.
+- **Old downloads are judged by ctime, in Go — never `find -mtime … rm -rf`.**
+  The old `find "$dir" -maxdepth 1` matched `$dir` itself (once its mtime aged,
+  the whole folder went), and mtime lies: wget, `curl -R` and unzip back-date
+  it. `oldDownloads` lists only the folder's entries; a directory counts only
+  if nothing under it has a new ctime; nothing is followed (Lstat, a symlink is
+  removed as the link). The delete is an in-process step that checks the
+  folder is still the scanned inode, re-checks each entry right before
+  removing it, and removes via `os.Root.RemoveAll` (hence `go 1.25`). Tests
+  can't set ctimes: they move `downloadsNow` past a mark instead.
 - **`m.bg` is one field, not a stack.** A popup that overwrites it with its own
   screen value makes `renderScreen` recurse forever; see the `askpassMsg` case in
   `update.go`.

@@ -51,8 +51,9 @@ straight over via `lipgloss`).
   gum couldn't do without redrawing everything by hand.
 - **Dynamic actions** with an async, read-only discovery pass on a spinner
   screen: repair broken packages (`pacman -Qk`), delete old downloads
-  (`find … -mtime +30`), and a **multi-select** (`screenServices`) of
-  enabled-but-inactive services to disable. "Nothing to do" routes to a notice.
+  (entries whose ctime is 30+ days old, named in the confirm, re-checked and
+  removed in-process through an `os.Root`), and a **multi-select**
+  (`screenServices`) of enabled-but-inactive services to disable. "Nothing to do" routes to a notice.
 - **AUR audit** (`audit.go`) — a read-only check of the foreign packages
   (`pacman -Qqm`) against the AUR RPC, aimed at the adopt-an-orphan-then-push
   takeover pattern. Flags: **adopted / maintainer changed** since the last audit

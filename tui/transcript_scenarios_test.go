@@ -223,23 +223,39 @@ var transcriptScenarios = []struct {
 		)
 	}},
 
-	// ── Delete old downloads (dry run only: the step is a real rm -rf) ───────
+	// ── Delete old downloads (dry run only: the step deletes for real) ───────
 
 	{"downloads_found.dryrun", func(t *testing.T) *Driver {
 		transcriptEnv(t, true)
 		dl := downloadsDir(t)
 		for _, n := range []string{"old.iso", "old.zip"} {
-			touch(t, filepath.Join(dl, n), 40)
+			writeFile(t, filepath.Join(dl, n), "x")
 		}
-		touch(t, filepath.Join(dl, "fresh.pdf"), 0)
-		touch(t, dl, 40) // a Downloads untouched for a month matches itself
-		shimLog := installShims(t, nil, "bash", "find", "wc")
+		mark := ctimeMark(t)
+		writeFile(t, filepath.Join(dl, "fresh.pdf"), "x")
+		cutoffAt(t, mark)
+		shimLog := installShims(t, nil)
+		return run(t, shimLog, "Delete old downloads", Answer{"confirm", "older than 30 days", "yes"})
+	}},
+	// Nothing in the folder changed for a month, so the folder itself is old
+	// too: it must not be a candidate (it was, under find -mtime).
+	{"downloads_old_folder.dryrun", func(t *testing.T) *Driver {
+		transcriptEnv(t, true)
+		dl := downloadsDir(t)
+		for _, n := range []string{"old.iso", "old.zip"} {
+			writeFile(t, filepath.Join(dl, n), "x")
+		}
+		cutoffAt(t, ctimeMark(t))
+		shimLog := installShims(t, nil)
 		return run(t, shimLog, "Delete old downloads", Answer{"confirm", "older than 30 days", "yes"})
 	}},
 	{"downloads_none.dryrun", func(t *testing.T) *Driver {
 		transcriptEnv(t, true)
-		touch(t, filepath.Join(downloadsDir(t), "fresh.pdf"), 0)
-		shimLog := installShims(t, nil, "bash", "find", "wc")
+		dl := downloadsDir(t)
+		mark := ctimeMark(t)
+		writeFile(t, filepath.Join(dl, "fresh.pdf"), "x")
+		cutoffAt(t, mark)
+		shimLog := installShims(t, nil)
 		return run(t, shimLog, "Delete old downloads")
 	}},
 
@@ -426,18 +442,4 @@ func downloadsDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dl
-}
-
-// touch creates path if missing and sets its mtime daysAgo days back.
-func touch(t *testing.T, path string, daysAgo int) {
-	t.Helper()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	at := time.Now().Add(-time.Duration(daysAgo) * 24 * time.Hour)
-	if err := os.Chtimes(path, at, at); err != nil {
-		t.Fatal(err)
-	}
 }

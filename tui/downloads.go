@@ -5,9 +5,15 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ── which folder is "Downloads" ──────────────────────────────────────────────
@@ -145,6 +151,230 @@ func xdgDownloadDir(home string) string {
 		return ""
 	}
 	return filepath.Clean(val)
+}
+
+// ── what is "old", and deleting it ───────────────────────────────────────────
+//
+// This used to be `find "$dir" -maxdepth 1 -mtime +30 -exec rm -rf {} +`,
+// which also matches "$dir" itself: once the folder's own mtime was a month
+// old, the whole folder went, new files included. And mtime is the wrong
+// clock — wget, curl -R and unzip stamp files with the server's/archive's old
+// mtime, so a fresh download could look years old.
+//
+// Now: only the folder's entries are candidates (os.ReadDir — never the
+// folder), age is ctime (which those tools can't set; a rename into the
+// folder bumps it too), a directory entry counts only if nothing inside it is
+// new, and symlinks are judged and removed as links, never followed.
+
+// downloadsMaxAge is how long ago an entry's ctime must be for it to go.
+const downloadsMaxAge = 30 * 24 * time.Hour
+
+// downloadsNow is the clock for the age check — a seam for tests, which can't
+// set ctimes and instead move "now".
+var downloadsNow = time.Now
+
+// downloadsConfirmList is how many entries the confirm names before
+// "…and N more".
+const downloadsConfirmList = 10
+
+// discoverDownloads resolves the folder and lists its old entries. Deleting
+// them is an in-process step that re-checks each entry first (see
+// deleteOldDownloads).
+func discoverDownloads() tea.Cmd {
+	return func() tea.Msg {
+		notice := func(s string) tea.Msg { return discoveryMsg{kind: "downloads", notice: s} }
+		dir, err := resolveDownloadsDir()
+		if err != nil {
+			return notice(Sanitize(err.Error(), SanitizePlain))
+		}
+		shown := displayPath(dir)
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			return notice("Couldn't open " + shown + ": " + pathErrCause(err))
+		}
+		defer root.Close()
+		id, err := dirIdentity(root)
+		if err != nil {
+			return notice("Couldn't read " + shown + ": " + pathErrCause(err))
+		}
+		names, err := oldDownloads(root.FS(), downloadsNow().Add(-downloadsMaxAge))
+		if err != nil {
+			return notice("Couldn't read " + shown + ": " + pathErrCause(err))
+		}
+		if len(names) == 0 {
+			return notice("Nothing older than 30 days in " + shown + ".")
+		}
+		return discoveryMsg{kind: "downloads", pending: []step{{
+			title: "Deleting old downloads…", logLabel: "Old downloads deleted",
+			run:      deleteOldDownloads(dir, id, names),
+			optional: true, alwaysLog: true,
+			confirm: downloadsConfirm(shown, names),
+		}}}
+	}
+}
+
+// downloadsConfirm asks about the entries by name: the first
+// downloadsConfirmList of them, then a count of the rest.
+func downloadsConfirm(shown string, names []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Delete %d item(s) older than 30 days in %s?\n", len(names), shown)
+	for i, n := range names {
+		if i == downloadsConfirmList {
+			fmt.Fprintf(&b, "\n  …and %d more", len(names)-i)
+			break
+		}
+		b.WriteString("\n  " + displayName(n))
+	}
+	return b.String()
+}
+
+// oldDownloads lists the entries of fsys's top level that entryIsOld judges
+// older than cutoff, sorted by name. The folder itself is never one.
+func oldDownloads(fsys fs.FS, cutoff time.Time) ([]string, error) {
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range entries {
+		if entryIsOld(fsys, e.Name(), cutoff) {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
+// errFresh stops entryIsOld's walk at the first new file.
+var errFresh = errors.New("fresh")
+
+// entryIsOld reports whether the entry's ctime is before cutoff — and, for a
+// directory, that of everything inside it, so a folder still being used
+// survives. Nothing is followed: a symlink is judged as the link itself
+// (Lstat), and the walk doesn't descend through links. Anything that can't be
+// inspected counts as new.
+func entryIsOld(fsys fs.FS, name string, cutoff time.Time) bool {
+	fi, err := fs.Lstat(fsys, name)
+	if err != nil || !changedBefore(fi, cutoff) {
+		return false
+	}
+	if !fi.IsDir() {
+		return true
+	}
+	err = fs.WalkDir(fsys, name, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == name {
+			return nil // judged above, by Lstat
+		}
+		info, err := d.Info() // an Lstat: links are not followed
+		if err != nil {
+			return err
+		}
+		if !changedBefore(info, cutoff) {
+			return errFresh
+		}
+		return nil
+	})
+	return err == nil
+}
+
+// changedBefore reports whether fi's ctime is before cutoff. Without a ctime
+// to go by, it isn't.
+func changedBefore(fi fs.FileInfo, cutoff time.Time) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return false
+	}
+	return time.Unix(st.Ctim.Unix()).Before(cutoff)
+}
+
+// dirIdentity is the folder's device and inode, so deletion can tell that the
+// folder it opens is still the one that was scanned.
+func dirIdentity(root *os.Root) ([2]uint64, error) {
+	fi, err := root.Stat(".")
+	if err != nil {
+		return [2]uint64{}, err
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return [2]uint64{}, errors.New("no inode information")
+	}
+	return [2]uint64{st.Dev, st.Ino}, nil
+}
+
+// deleteOldDownloads is the delete step's run: the confirm may have sat open
+// for a while, so right before each removal it re-checks the entry (an entry
+// touched or replaced since the scan is kept), and it removes through an
+// os.Root on the folder, so no path — however it's been swapped for a symlink
+// in the meantime — can resolve outside it. If the folder itself is no longer
+// the one scanned, nothing is deleted. In a dry run it only reports.
+func deleteOldDownloads(dir string, id [2]uint64, names []string) func() stepResult {
+	return func() stepResult {
+		shown := displayPath(dir)
+		root, err := os.OpenRoot(dir)
+		if err != nil {
+			return stepResult{err: err}
+		}
+		defer root.Close()
+		if got, err := dirIdentity(root); err != nil || got != id {
+			return stepResult{
+				output: shown + " is not the folder that was scanned anymore; nothing deleted.",
+				err:    errors.New("downloads folder changed since the scan"),
+			}
+		}
+
+		cutoff := downloadsNow().Add(-downloadsMaxAge)
+		var b strings.Builder
+		var errs []error
+		deleted, kept := 0, 0
+		for _, name := range names {
+			shownName := displayName(name)
+			switch {
+			case !entryIsOld(root.FS(), name, cutoff):
+				kept++
+				fmt.Fprintf(&b, "kept (changed since the scan): %s\n", shownName)
+			case dryRun:
+				fmt.Fprintf(&b, "[dry-run] would delete: %s\n", shownName)
+			default:
+				if err := root.RemoveAll(name); err != nil {
+					errs = append(errs, err)
+					fmt.Fprintf(&b, "couldn't delete %s: %s\n", shownName, pathErrCause(err))
+					continue
+				}
+				deleted++
+				fmt.Fprintf(&b, "deleted: %s\n", shownName)
+			}
+		}
+		if !dryRun {
+			fmt.Fprintf(&b, "\n%d deleted, %d kept, %d failed in %s\n", deleted, kept, len(errs), shown)
+		}
+		return stepResult{output: b.String(), err: errors.Join(errs...)}
+	}
+}
+
+// pathErrCause is err without the path a *fs.PathError repeats — the caller
+// already names the entry, safely.
+func pathErrCause(err error) string {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return err.Error()
+}
+
+// displayName renders an entry name on one line: a name with control
+// characters (a newline would forge extra list lines; escapes could restyle
+// the popup) or invalid UTF-8 is shown quoted with escapes, and a long one is
+// cut to fit the popup.
+func displayName(name string) string {
+	if Sanitize(name, SanitizePlain) != name || strings.ContainsAny(name, "\n\t") {
+		name = strconv.Quote(name)
+	}
+	if r := []rune(name); len(r) > 60 {
+		name = string(r[:59]) + "…"
+	}
+	return name
 }
 
 // displayPath shows a resolved path the way the user thinks of it: ~/… when
