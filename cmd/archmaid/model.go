@@ -133,7 +133,8 @@ type model struct {
 	// abort calls it so the step returns at once. nil when none is running.
 	stepCancel context.CancelFunc
 	// auditFetch is the current action's AUR audit, started when the action
-	// was chosen so it runs behind the password prompt (see startAuditFetch).
+	// was chosen so it runs behind the password prompt (see startAuditFetch
+	// and audit.Prefetch).
 	// nil when the action has none or it was dropped (dropAuditFetch).
 	auditFetch *auditFetch
 

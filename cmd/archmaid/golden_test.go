@@ -6,6 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
+
+	"github.com/Enzord758/archmaid/internal/audit"
 )
 
 // Frame goldens for the screens and popups the headless-program goldens in
@@ -148,13 +150,13 @@ func TestLogPickerGolden(t *testing.T) {
 // TestAuditReportGolden: the audit screen showing a report rendered from a
 // hand-built result (classify stamps ages from the clock, so it isn't used).
 func TestAuditReportGolden(t *testing.T) {
-	res := auditResult{
-		total:    6,
-		baseline: baselineOK,
-		findings: []auditFinding{
-			{name: "some-aur-tool", high: true, flags: []string{"maintainer changed: alice → mallory"}},
-			{name: "orphaned-thing-git", flags: []string{"orphaned", "0 votes"}},
-			{name: "fresh-pkg", flags: []string{"modified 5h ago"}},
+	res := audit.Result{
+		Total:    6,
+		Baseline: audit.BaselineOK,
+		Findings: []audit.Finding{
+			{Name: "some-aur-tool", High: true, Flags: []string{"maintainer changed: alice → mallory"}},
+			{Name: "orphaned-thing-git", Flags: []string{"orphaned", "0 votes"}},
+			{Name: "fresh-pkg", Flags: []string{"modified 5h ago"}},
 		},
 	}
 	m := update(sizedModel(), discoveryMsg{kind: "audit", report: renderAudit(res)})

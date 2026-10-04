@@ -8,6 +8,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/audit"
 )
 
 // ── the AUR audit, fetched behind the password prompt ─────────────────────────
@@ -38,7 +40,7 @@ func awaitFetch(t *testing.T, f *auditFetch, within time.Duration) {
 	t.Helper()
 	start := time.Now()
 	select {
-	case <-f.done:
+	case <-f.Done():
 		if d := time.Since(start); d > within {
 			t.Fatalf("audit fetch finished %s later, want within %s", d, within)
 		}
@@ -59,13 +61,13 @@ func TestFullCleanupFetchesAuditBehindPrompt(t *testing.T) {
 		t.Fatalf("screen = %d, want the password prompt", m.screen)
 	}
 	awaitFetch(t, m.auditFetch, 5*time.Second)
-	if m.auditFetch.err != nil || m.auditFetch.res.total != 1 {
-		t.Fatalf("fetch = %+v, %v", m.auditFetch.res, m.auditFetch.err)
+	if res, err := m.auditFetch.Wait(context.Background()); err != nil || res.Total != 1 {
+		t.Fatalf("fetch = %+v, %v", res, err)
 	}
 	if n := requests.Load(); n != 1 {
 		t.Fatalf("%d AUR requests while the prompt is open, want 1", n)
 	}
-	if _, state := loadBaseline(); state != baselineMissing {
+	if _, state := loadBaseline(); state != audit.BaselineMissing {
 		t.Fatal("the prefetch must not save the snapshot")
 	}
 	update(m, key("esc")) // leave the fetch cancelled
@@ -113,8 +115,8 @@ func TestEscOnPasswordCancelsAuditFetch(t *testing.T) {
 		t.Fatalf("esc: screen=%d fetch=%v, want the menu and no fetch", m.screen, m.auditFetch)
 	}
 	awaitFetch(t, f, cancelSlack)
-	if !errors.Is(f.err, context.Canceled) {
-		t.Fatalf("fetch err = %v, want context.Canceled", f.err)
+	if _, err := f.Wait(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("fetch err = %v, want context.Canceled", err)
 	}
 	settleGoroutines(t, base, "esc on the password prompt")
 }
@@ -138,8 +140,8 @@ func TestDeclinedGateCancelsAuditFetch(t *testing.T) {
 		t.Fatalf("declined gate: screen=%d fetch=%v", m.screen, m.auditFetch)
 	}
 	awaitFetch(t, f, cancelSlack)
-	if !errors.Is(f.err, context.Canceled) {
-		t.Fatalf("fetch err = %v, want context.Canceled", f.err)
+	if _, err := f.Wait(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("fetch err = %v, want context.Canceled", err)
 	}
 }
 
@@ -186,8 +188,8 @@ func TestAbortCancelsPrefetchedAudit(t *testing.T) {
 		t.Fatal("the audit step ran on after the abort")
 	}
 	awaitFetch(t, f, cancelSlack)
-	if !errors.Is(f.err, context.Canceled) {
-		t.Fatalf("fetch err = %v, want context.Canceled", f.err)
+	if _, err := f.Wait(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("fetch err = %v, want context.Canceled", err)
 	}
 	settleGoroutines(t, base, "an abort mid-audit")
 }

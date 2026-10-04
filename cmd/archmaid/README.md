@@ -56,7 +56,7 @@ straight over via `lipgloss`).
   (entries whose ctime is 30+ days old, named in the confirm, re-checked and
   removed in-process through an `os.Root`), and a **multi-select**
   (`screenServices`) of enabled-but-inactive services to disable: `systemctl list-units --all --state=inactive` plus one batched `is-enabled` (no `list-unit-files`, which costs ~430 ms; templates, instances and `●` not-found rows are dropped). "Nothing to do" routes to a notice.
-- **AUR audit** (`audit.go`) — a read-only check of the foreign packages
+- **AUR audit** (`internal/audit`, glue in `audit.go`) — a read-only check of the foreign packages
   (`pacman -Qqm`) against the AUR RPC, aimed at the adopt-an-orphan-then-push
   takeover pattern. Flags: **adopted / maintainer changed / co-maintainer
   added** since the last audit (high severity — a co-maintainer can push to the

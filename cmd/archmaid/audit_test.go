@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,13 +14,52 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/audit"
 )
+
+// The audit itself (classification, the RPC, the snapshot format and its
+// save, cancellation, the prefetch) is tested in internal/audit. These tests
+// drive it through the TUI: the menu action, the step that gates topgrade,
+// the report screen, and the settings the glue hands it.
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
+type (
+	aurInfo   = audit.Info
+	snapEntry = audit.Entry
+)
+
 func strp(s string) *string { return &s }
+
+// baselinePath is the snapshot the current settings point at.
+func baselinePath() string { return currentAuditConfig().SnapshotPath }
+
+// loadBaseline reads that snapshot.
+func loadBaseline() (map[string]snapEntry, audit.Baseline) {
+	return audit.LoadSnapshot(baselinePath())
+}
+
+// saveBaseline seeds that snapshot: each package's entry for what info
+// reports, else its entry in prev.
+func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEntry) error {
+	next := map[string]snapEntry{}
+	for _, n := range pkgs {
+		if ai, ok := info[n]; ok {
+			next[n] = audit.EntryFor(ai)
+		} else if p, ok := prev[n]; ok {
+			next[n] = p
+		}
+	}
+	return audit.WriteSnapshot(baselinePath(), next)
+}
+
+// runAudit is the menu action's audit against the current settings.
+func runAudit(now time.Time) discoveryMsg { return menuAudit(now, currentAuditConfig()) }
+
+// runAuditStep is the audit step's run against the current settings.
+func runAuditStep(ctx context.Context) stepResult { return auditStep().run(ctx) }
 
 // shimPacmanForeign installs a fake `pacman` that answers `-Qqm` with out.
 func shimPacmanForeign(t *testing.T, out string) {
@@ -80,196 +118,6 @@ var auditNow = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 
 func aged(h int) int64 { return auditNow.Add(-time.Duration(h) * time.Hour).Unix() }
 
-// ── classify ──────────────────────────────────────────────────────────────────
-
-func TestClassify(t *testing.T) {
-	old := aged(24 * 30)
-	cases := []struct {
-		name     string
-		ai       *aurInfo
-		prev     string
-		hadPrev  bool
-		wantHigh bool
-		want     []string // substrings, one per expected flag, in order
-	}{
-		{"clean", &aurInfo{Maintainer: strp("alice"), LastModified: old, NumVotes: 5}, "alice", true, false, nil},
-		{"unknown to the AUR", nil, "", false, false, []string{"not on the AUR"}},
-		{"adopted after being orphaned", &aurInfo{Maintainer: strp("mallory"), LastModified: old, NumVotes: 5}, "", true, true, []string{"adopted by mallory (was orphaned)"}},
-		{"maintainer changed", &aurInfo{Maintainer: strp("bob"), LastModified: old, NumVotes: 5}, "alice", true, true, []string{"maintainer changed: alice → bob"}},
-		{"newly orphaned", &aurInfo{LastModified: old, NumVotes: 5}, "alice", true, false, []string{"orphaned (was alice)"}},
-		{"orphaned, no history", &aurInfo{LastModified: old, NumVotes: 5}, "", false, false, []string{"orphaned"}},
-		{"no baseline never flags a change", &aurInfo{Maintainer: strp("bob"), LastModified: old, NumVotes: 5}, "alice", false, false, nil},
-		{"recent push", &aurInfo{Maintainer: strp("alice"), LastModified: aged(5), NumVotes: 5}, "alice", true, false, []string{"modified 5h ago"}},
-		{"just past the window is quiet", &aurInfo{Maintainer: strp("alice"), LastModified: aged(73), NumVotes: 5}, "alice", true, false, nil},
-		{"out of date", &aurInfo{Maintainer: strp("alice"), LastModified: old, NumVotes: 5, OutOfDate: new(int64)}, "alice", true, false, []string{"flagged out of date"}},
-		{"no votes", &aurInfo{Maintainer: strp("alice"), LastModified: old, NumVotes: 0}, "alice", true, false, []string{"0 votes"}},
-		{"takeover shape: adopted and pushed", &aurInfo{Maintainer: strp("mallory"), LastModified: aged(2), NumVotes: 0}, "", true, true,
-			[]string{"adopted by mallory", "modified 2h ago", "0 votes"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := classify("pkg", c.ai, snapEntry{maintainer: c.prev, hasCo: true}, c.hadPrev, auditNow)
-			if got.high != c.wantHigh {
-				t.Errorf("high = %v, want %v (flags %v)", got.high, c.wantHigh, got.flags)
-			}
-			if len(got.flags) != len(c.want) {
-				t.Fatalf("flags = %v, want %d matching %v", got.flags, len(c.want), c.want)
-			}
-			for i, w := range c.want {
-				if !strings.Contains(got.flags[i], w) {
-					t.Errorf("flag[%d] = %q, want it to contain %q", i, got.flags[i], w)
-				}
-			}
-		})
-	}
-}
-
-// TestClassifyCoMaintainers: an added co-maintainer can push like the
-// maintainer, so it is high; a removed one is a glance. An entry without a
-// co-maintainer record (an old-format snapshot) is a baseline: no flag.
-func TestClassifyCoMaintainers(t *testing.T) {
-	old := aged(24 * 30)
-	cur := func(co ...string) *aurInfo {
-		return &aurInfo{Maintainer: strp("alice"), LastModified: old, NumVotes: 5, CoMaintainers: co}
-	}
-	rec := func(co ...string) snapEntry { return snapEntry{maintainer: "alice", coMaintainers: co, hasCo: true} }
-	cases := []struct {
-		name     string
-		ai       *aurInfo
-		prev     snapEntry
-		hadPrev  bool
-		wantHigh bool
-		wantCo   []string
-		want     []string
-	}{
-		{"unchanged", cur("bob"), rec("bob"), true, false, nil, nil},
-		{"order doesn't matter", cur("carol", "bob"), rec("bob", "carol"), true, false, nil, nil},
-		{"added", cur("bob", "mallory"), rec("bob"), true, true, []string{"mallory"}, []string{"co-maintainer mallory added"}},
-		{"first one added", cur("mallory"), rec(), true, true, []string{"mallory"}, []string{"co-maintainer mallory added"}},
-		{"several added", cur("x", "w", "v", "u"), rec(), true, true, []string{"u", "v", "w", "x"}, []string{"co-maintainers u, v, w +1 more added"}},
-		{"removed", cur(), rec("bob"), true, false, nil, []string{"co-maintainer bob removed"}},
-		{"swapped", cur("mallory"), rec("bob"), true, true, []string{"mallory"}, []string{"co-maintainer mallory added", "co-maintainer bob removed"}},
-		{"old-format entry is a baseline", cur("mallory"), snapEntry{maintainer: "alice"}, true, false, nil, nil},
-		{"no baseline never flags", cur("mallory"), rec(), false, false, nil, nil},
-		{"with a maintainer change", &aurInfo{Maintainer: strp("eve"), LastModified: old, NumVotes: 5, CoMaintainers: []string{"mallory"}}, rec(), true, true,
-			[]string{"mallory"}, []string{"maintainer changed: alice → eve", "co-maintainer mallory added"}},
-		{"escapes stripped for display", cur("mal\x1b]0;x\x07lory"), rec(), true, true, []string{"mal\x1b]0;x\x07lory"}, []string{"co-maintainer mallory added"}},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			got := classify("pkg", c.ai, c.prev, c.hadPrev, auditNow)
-			if got.high != c.wantHigh || !reflect.DeepEqual(got.coAdded, c.wantCo) || !reflect.DeepEqual(got.flags, c.want) {
-				t.Fatalf("high=%v coAdded=%q flags=%q, want high=%v coAdded=%q flags=%q", got.high, got.coAdded, got.flags, c.wantHigh, c.wantCo, c.want)
-			}
-		})
-	}
-}
-
-func TestGateReasonNamesCoMaintainers(t *testing.T) {
-	changed := auditFinding{name: "victim", high: true, maintainerChanged: true}
-	co := func(pkg string, names ...string) auditFinding {
-		return auditFinding{name: pkg, high: true, coAdded: names}
-	}
-	cases := []struct {
-		in   []auditFinding
-		want string
-	}{
-		{[]auditFinding{co("foo", "bob")}, "Since the last audit: foo: co-maintainer bob added."},
-		{[]auditFinding{co("foo", "bob", "carol")}, "Since the last audit: foo: co-maintainers bob, carol added."},
-		{[]auditFinding{changed, co("foo", "bob")}, "Since the last audit: victim changed maintainer; foo: co-maintainer bob added."},
-		{[]auditFinding{co("foo", "bob"), co("bar", "eve")}, "Since the last audit: foo and bar added co-maintainers."},
-		{[]auditFinding{co("f\x1b[2Joo", "b\x1b]0;x\x07ob")}, "Since the last audit: foo: co-maintainer bob added."},
-	}
-	for _, c := range cases {
-		if got := gateReason(c.in); got != c.want {
-			t.Errorf("gateReason = %q, want %q", got, c.want)
-		}
-	}
-}
-
-func TestClassifyAllSkipsUnknownDebugCompanionAndSortsHighFirst(t *testing.T) {
-	// yay-debug: a locally built split package the AUR has never heard of —
-	// skipped even though its base (yay) isn't foreign here. foo-debug *is* on
-	// the AUR, so it is audited like any other package.
-	pkgs := []string{"aaa", "yay-debug", "foo-debug", "zzz"}
-	info := map[string]aurInfo{
-		"aaa":       {Name: "aaa", LastModified: aged(1000), NumVotes: 0, Maintainer: strp("a")},       // glance (0 votes)
-		"foo-debug": {Name: "foo-debug", LastModified: aged(1000), NumVotes: 0, Maintainer: strp("f")}, // glance (0 votes)
-		"zzz":       {Name: "zzz", LastModified: aged(1000), NumVotes: 9, Maintainer: strp("new")},     // high (changed)
-	}
-	prev := map[string]snapEntry{"aaa": {maintainer: "a"}, "foo-debug": {maintainer: "f"}, "zzz": {maintainer: "old"}}
-	got := classifyAll(pkgs, info, prev, true, auditNow)
-
-	var names []string
-	for _, f := range got {
-		names = append(names, f.name)
-	}
-	want := []string{"zzz", "aaa", "foo-debug"} // high first; yay-debug absent
-	if strings.Join(names, ",") != strings.Join(want, ",") {
-		t.Fatalf("findings = %v, want %v", names, want)
-	}
-}
-
-// ── RPC ───────────────────────────────────────────────────────────────────────
-
-func TestFetchAURInfoChunksAndPosts(t *testing.T) {
-	db := map[string]aurInfo{}
-	var pkgs []string
-	for i := 0; i < auditChunk*2+5; i++ {
-		n := fmt.Sprintf("pkg%03d", i)
-		pkgs = append(pkgs, n)
-		if i%2 == 0 { // odd ones are unknown to the AUR
-			db[n] = aurInfo{Name: n, NumVotes: i}
-		}
-	}
-	reqs, batches := fakeAUR(t, db)
-
-	got, err := fetchAURInfo(context.Background(), pkgs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reqs.Load() != 3 {
-		t.Fatalf("requests = %d, want 3 chunks for %d packages", reqs.Load(), len(pkgs))
-	}
-	if len((*batches)[0]) != auditChunk || len((*batches)[2]) != 5 {
-		t.Fatalf("chunk sizes = %d/%d/%d", len((*batches)[0]), len((*batches)[1]), len((*batches)[2]))
-	}
-	if len(got) != len(db) {
-		t.Fatalf("found %d, want %d (unknown packages must simply be absent)", len(got), len(db))
-	}
-	if _, ok := got["pkg001"]; ok {
-		t.Fatal("unknown package leaked into the result")
-	}
-}
-
-func TestFetchAURInfoErrors(t *testing.T) {
-	cases := []struct {
-		name    string
-		handler http.HandlerFunc
-		want    string
-	}{
-		{"http error", func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope", 503) }, "HTTP 503"},
-		{"rpc error", func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"type":"error","error":"Too many requests."}`))
-		}, "Too many requests."},
-		{"garbage", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`<html>`)) }, "unreadable"},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			srv := httptest.NewServer(c.handler)
-			defer srv.Close()
-			old := aurRPCURL
-			aurRPCURL = srv.URL
-			defer func() { aurRPCURL = old }()
-
-			_, err := fetchAURInfo(context.Background(), []string{"x"})
-			if err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Fatalf("err = %v, want it to contain %q", err, c.want)
-			}
-		})
-	}
-}
-
 // serveAUR points aurRPCURL at a one-off handler for the test's duration.
 func serveAUR(t *testing.T, h http.HandlerFunc) {
 	t.Helper()
@@ -278,54 +126,6 @@ func serveAUR(t *testing.T, h http.HandlerFunc) {
 	old := aurRPCURL
 	aurRPCURL = srv.URL
 	t.Cleanup(func() { aurRPCURL = old })
-}
-
-func TestFetchAURInfoCapsTheResponse(t *testing.T) {
-	serveAUR(t, func(w http.ResponseWriter, r *http.Request) {
-		// Valid JSON, but one string field alone is past the cap.
-		w.Write([]byte(`{"type":"multiinfo","results":[{"Name":"x","Description":"`))
-		w.Write([]byte(strings.Repeat("a", aurMaxResponse)))
-		w.Write([]byte(`"}]}`))
-	})
-	if _, err := fetchAURInfo(context.Background(), []string{"x"}); err == nil || !strings.Contains(err.Error(), "unreadable") {
-		t.Fatalf("err = %v, want an oversized response to be rejected", err)
-	}
-}
-
-func TestFetchAURInfoDropsUnrequestedNames(t *testing.T) {
-	serveAUR(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"type":"multiinfo","results":[{"Name":"x","NumVotes":1},{"Name":"evil","NumVotes":1}]}`))
-	})
-	got, err := fetchAURInfo(context.Background(), []string{"x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := got["evil"]; ok || len(got) != 1 {
-		t.Fatalf("got %v, want only the requested package", got)
-	}
-}
-
-func TestAURField(t *testing.T) {
-	cases := map[string]string{
-		"alice":                             "alice",
-		"mal\x1b]0;pwned\x07lory":           "mallory", // OSC title set: the whole sequence dropped
-		"bob\x1b[2J\r\n":                    "bob",
-		"mallory\ralice":                    "malloryalice", // a CR can't hide the head
-		"tab\tnew\nline":                    "tabnewline",
-		"‮yrollam":                          "yrollam", // bidi override
-		"zero​width":                        "zerowidth",
-		"c1\u009bcsi":                       "c1csi",
-		"bad\xffutf8":                       "bad�utf8",
-		"ålæsø":                             "ålæsø",
-		strings.Repeat("x", 100):            strings.Repeat("x", aurFieldMax) + "…",
-		strings.Repeat("x", 64):             strings.Repeat("x", 64),
-		"\x1b[1m" + strings.Repeat("y", 64): strings.Repeat("y", 64), // escapes don't count toward the cap
-	}
-	for in, want := range cases {
-		if got := sanitize.Field(in, aurFieldMax); got != want {
-			t.Errorf("Field(%q) = %q, want %q", in, got, want)
-		}
-	}
 }
 
 // TestAuditReportCarriesNoAURControlBytes: a maintainer name with terminal
@@ -353,145 +153,12 @@ func TestAuditReportCarriesNoAURControlBytes(t *testing.T) {
 	if err := r.commit(); err != nil {
 		t.Fatal(err)
 	}
-	if snap, _ := loadBaseline(); snap["victim"].maintainer != evil {
-		t.Fatalf("the snapshot keeps the raw value for the next comparison, got %q", snap["victim"].maintainer)
+	if snap, _ := loadBaseline(); snap["victim"].Maintainer != evil {
+		t.Fatalf("the snapshot keeps the raw value for the next comparison, got %q", snap["victim"].Maintainer)
 	}
 }
 
 // ── snapshot ──────────────────────────────────────────────────────────────────
-
-func TestBaselineRoundTripAndKeepsMissing(t *testing.T) {
-	auditEnv(t)
-	if _, state := loadBaseline(); state != baselineMissing {
-		t.Fatalf("no snapshot should exist yet, state = %d", state)
-	}
-	prev := map[string]snapEntry{
-		"gone":     {maintainer: "carol", coMaintainers: []string{"dave"}, hasCo: true},
-		"old-gone": {maintainer: "erin"}, // from an old-format snapshot
-		"kept":     {maintainer: "old"},
-	}
-	info := map[string]aurInfo{
-		"kept": {Name: "kept", Maintainer: strp("new"), CoMaintainers: []string{"zed", "amy", "zed"}},
-		"orph": {Name: "orph"},
-	}
-	if err := saveBaseline([]string{"kept", "orph", "gone", "old-gone"}, info, prev); err != nil {
-		t.Fatal(err)
-	}
-
-	got, state := loadBaseline()
-	if state != baselineOK {
-		t.Fatalf("snapshot not saved, state = %d", state)
-	}
-	want := map[string]snapEntry{
-		"kept":     {maintainer: "new", coMaintainers: []string{"amy", "zed"}, hasCo: true}, // sorted, deduplicated
-		"orph":     {maintainer: "", hasCo: true},                                           // none recorded is not "unknown"
-		"gone":     prev["gone"],                                                            // absent from the AUR: kept as it was
-		"old-gone": prev["old-gone"],                                                        // …still without a co-maintainer record
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("baseline = %+v\nwant       %+v", got, want)
-	}
-	b, _ := os.ReadFile(baselinePath())
-	for _, s := range []string{`"comaintainers": []`, `"amy",`} {
-		if !strings.Contains(string(b), s) {
-			t.Errorf("snapshot file lacks %s:\n%s", s, b)
-		}
-	}
-}
-
-// TestBaselineLoadsOldFormat: a snapshot from before co-maintainers were
-// tracked (name → maintainer) loads as OK, every entry without a co-maintainer
-// record; mixed files load too.
-func TestBaselineLoadsOldFormat(t *testing.T) {
-	auditEnv(t)
-	os.WriteFile(baselinePath(), []byte(`{"a": "alice", "o": "", "n": {"maintainer": "nina", "comaintainers": ["bob"]}, "x": {"maintainer": "xia"}}`), 0o600)
-	got, state := loadBaseline()
-	want := map[string]snapEntry{
-		"a": {maintainer: "alice"},
-		"o": {maintainer: ""},
-		"n": {maintainer: "nina", coMaintainers: []string{"bob"}, hasCo: true},
-		"x": {maintainer: "xia"}, // an object without the key is unrecorded too
-	}
-	if state != baselineOK || !reflect.DeepEqual(got, want) {
-		t.Fatalf("state = %d, baseline = %+v", state, got)
-	}
-}
-
-// TestBaselineCorruptFileIsNotMissing: an unreadable snapshot must never read
-// as "first audit" — that would silently re-baseline over a takeover.
-func TestBaselineCorruptFileIsNotMissing(t *testing.T) {
-	for name, content := range map[string]string{
-		"invalid JSON": "{not json", "JSON null": "null", "empty": "",
-		"null entry": `{"p": null}`, "number entry": `{"p": 5}`,
-		"entry without maintainer":  `{"p": {"comaintainers": []}}`,
-		"co-maintainers not a list": `{"p": {"maintainer": "a", "comaintainers": "bob"}}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			auditEnv(t)
-			os.WriteFile(baselinePath(), []byte(content), 0o600)
-			if m, state := loadBaseline(); state != baselineCorrupt || m != nil {
-				t.Fatalf("state = %d, map = %v, want baselineCorrupt and no data", state, m)
-			}
-		})
-	}
-	t.Run("unreadable", func(t *testing.T) {
-		auditEnv(t)
-		os.Mkdir(baselinePath(), 0o700) // reading a directory fails with EISDIR, not ENOENT
-		if _, state := loadBaseline(); state != baselineCorrupt {
-			t.Fatalf("state = %d, want baselineCorrupt", state)
-		}
-	})
-}
-
-// TestSaveBaselineIsAtomicAndPrivate: the snapshot is 0600 and no temp file
-// is left behind.
-func TestSaveBaselineIsAtomicAndPrivate(t *testing.T) {
-	auditEnv(t)
-	for _, m := range []string{"alice", "bob"} { // create, then replace
-		if err := saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp(m)}}, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	fi, err := os.Stat(baselinePath())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Fatalf("snapshot mode = %v, want 0600", fi.Mode().Perm())
-	}
-	if got, _ := loadBaseline(); got["p"].maintainer != "bob" {
-		t.Fatalf("snapshot = %v, want the second save", got)
-	}
-	entries, _ := os.ReadDir(filepath.Dir(baselinePath()))
-	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp-") {
-			t.Fatalf("temp file left behind: %s", e.Name())
-		}
-	}
-}
-
-// TestSaveBaselineSkipsWhenLocked: while another process holds the lock, a
-// save is skipped (errSnapshotLocked) and the snapshot is left alone.
-func TestSaveBaselineSkipsWhenLocked(t *testing.T) {
-	auditEnv(t)
-	saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp("alice")}}, nil)
-
-	unlock, err := lockBaseline(filepath.Dir(baselinePath())) // a separate fd: flock conflicts in-process too
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp("mallory")}}, nil)
-	if !errors.Is(err, errSnapshotLocked) {
-		t.Fatalf("err = %v, want errSnapshotLocked", err)
-	}
-	if got, _ := loadBaseline(); got["p"].maintainer != "alice" {
-		t.Fatalf("a locked save must not write, snapshot = %v", got)
-	}
-	unlock()
-	if err := saveBaseline([]string{"p"}, map[string]aurInfo{"p": {Name: "p", Maintainer: strp("bob")}}, nil); err != nil {
-		t.Fatalf("save after unlock: %v", err)
-	}
-}
 
 // TestCorruptSnapshotFailsClosed: an unreadable snapshot is a high finding
 // that gates the update. Neither the audit nor the menu's partial save touch
@@ -519,7 +186,7 @@ func TestCorruptSnapshotFailsClosed(t *testing.T) {
 	if err := r.commit(); err != nil { // the gate is accepted
 		t.Fatal(err)
 	}
-	if got, state := loadBaseline(); state != baselineOK || got["steady"].maintainer != "alice" {
+	if got, state := loadBaseline(); state != audit.BaselineOK || got["steady"].Maintainer != "alice" {
 		t.Fatalf("accepting should save a fresh baseline, state=%d snapshot=%v", state, got)
 	}
 	aside, _ := filepath.Glob(baselinePath() + ".corrupt-*")
@@ -550,7 +217,7 @@ func TestRunAuditFirstThenTakeover(t *testing.T) {
 	if !strings.Contains(first.report, "First audit") || !strings.Contains(first.report, "Nothing flagged") {
 		t.Fatalf("first report:\n%s", first.report)
 	}
-	if _, state := loadBaseline(); state != baselineOK {
+	if _, state := loadBaseline(); state != audit.BaselineOK {
 		t.Fatal("first audit must save the baseline")
 	}
 
@@ -638,7 +305,7 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	if msg.commit == nil || !strings.Contains(msg.report, "press a to accept") {
 		t.Fatalf("a high finding should be acceptable with a, commit=%v report:\n%s", msg.commit != nil, msg.report)
 	}
-	if snap, _ := loadBaseline(); snap["victim"].maintainer != "bob" || snap["fresh"].maintainer != "carol" {
+	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "bob" || snap["fresh"].Maintainer != "carol" {
 		t.Fatalf("snapshot = %v, want victim held at bob and fresh recorded", snap)
 	}
 
@@ -660,7 +327,7 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	if got.screen != screenNotice || got.bg != screenAudit || !strings.Contains(got.notice, "accepted") || got.auditCommit != nil {
 		t.Fatalf("screen=%d bg=%d notice=%q commit=%v", got.screen, got.bg, got.notice, got.auditCommit != nil)
 	}
-	if snap, _ := loadBaseline(); snap["victim"].maintainer != "mallory" {
+	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "mallory" {
 		t.Fatalf("snapshot = %v, want victim accepted as mallory", snap)
 	}
 	if log, _ := os.ReadFile(logPath(logCategoryAudit)); !strings.Contains(string(log), "ACCEPT: AUR maintainer changes accepted") {
@@ -696,10 +363,10 @@ func coFixture(t *testing.T) {
 func coOf(t *testing.T, pkg string) []string {
 	t.Helper()
 	snap, state := loadBaseline()
-	if state != baselineOK || !snap[pkg].hasCo {
+	if state != audit.BaselineOK || !snap[pkg].HasCo {
 		t.Fatalf("state = %d, %s = %+v, want co-maintainers recorded", state, pkg, snap[pkg])
 	}
-	return snap[pkg].coMaintainers
+	return snap[pkg].CoMaintainers
 }
 
 // TestCoMaintainerAddedGatesUpdate: an added co-maintainer gates topgrade by

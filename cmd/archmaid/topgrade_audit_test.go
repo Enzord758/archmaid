@@ -83,7 +83,7 @@ func TestTopgradeActionDeclineSkipsAndKeepsAlarm(t *testing.T) {
 	if log, _ := os.ReadFile(logPath(logCategoryTopgrade)); !strings.Contains(string(log), "SKIP: Topgrade completed (declined)") {
 		t.Fatalf("topgrade.log should record the declined update:\n%s", log)
 	}
-	if snap, _ := loadBaseline(); snap["victim"].maintainer != "bob" {
+	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "bob" {
 		t.Fatalf("declining must not record the new maintainer, snapshot = %v", snap)
 	}
 	if again := startTopgradeAction(t); again.screen != screenConfirm {
@@ -100,7 +100,7 @@ func TestTopgradeActionAcceptRunsAndCommits(t *testing.T) {
 	if got.queue[1].status != statusRunning {
 		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
 	}
-	if snap, _ := loadBaseline(); snap["victim"].maintainer != "mallory" {
+	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "mallory" {
 		t.Fatalf("accepting should record the new maintainer, snapshot = %v", snap)
 	}
 	if log, _ := os.ReadFile(logPath(logCategoryAudit)); !strings.Contains(string(log), "ACCEPT: AUR maintainer changes accepted") {
@@ -138,7 +138,7 @@ func TestTopgradeActionDryRunNeverCommits(t *testing.T) {
 		t.Fatalf("a dry run should still gate, screen=%d", gated.screen)
 	}
 	update(gated, key("y"))
-	if snap, _ := loadBaseline(); snap["victim"].maintainer != "bob" {
+	if snap, _ := loadBaseline(); snap["victim"].Maintainer != "bob" {
 		t.Fatalf("a dry run must not advance the snapshot, snapshot = %v", snap)
 	}
 }

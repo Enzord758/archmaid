@@ -72,7 +72,7 @@ type step struct {
 // that must wait for that answer: it becomes the next step's onAccept, so it
 // runs only if the confirm is accepted and is dropped on "no" or an abort.
 // Without a confirmNext it runs as soon as the result arrives. (The audit's
-// snapshot save: see saveSnapshot.) insertNext, if set, is a step to run
+// snapshot save: see audit.Result.Commit.) insertNext, if set, is a step to run
 // right after this one, inserted into the queue when the result arrives (the
 // orphan probe's removal: see findOrphans); it carries its own confirm. Both
 // are ignored on a result with err.

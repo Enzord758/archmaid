@@ -10,13 +10,15 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/audit"
 )
 
 // ── every audit setting is read on the model's goroutine ─────────────────────
 //
 // An audit runs off the model's goroutine (the menu action's Cmd, the step's
 // run, a prefetch), so it must not read logDir, aurRPCURL, auditDeadline or
-// dryRun there: it audits the auditTarget captured before it left. Under
+// dryRun there: it audits the audit.Config captured before it left. Under
 // -race these tests fail on any such read; without it, on the wrong values.
 
 // gatedAUR points aurRPCURL at a server that signals each request's arrival,
@@ -61,10 +63,11 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	snapshot := filepath.Join(origLog, "aur-maintainers.json")
 	elsewhere := []string{t.TempDir(), t.TempDir()}
 
+	store := logs()            // the store they all capture
 	menu := discoverAURAudit() // captured here, on "the model's goroutine"
 	fetch := startAuditFetch()
 	step := auditStep()
-	fetchDone := fetch.done
+	fetchDone := fetch.Done()
 	menuDone := make(chan discoveryMsg, 1)
 	stepDone := make(chan stepResult, 1)
 	go func() { menuDone <- menu().(discoveryMsg) }()
@@ -108,15 +111,15 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	if sr.err != nil || !strings.Contains(sr.output, "1 foreign package(s) checked") {
 		t.Fatalf("audit step: err=%v output=%q", sr.err, sr.output)
 	}
-	if fetch.err != nil || fetch.res.total != 1 || fetch.res.target.snapshot != snapshot {
-		t.Fatalf("prefetch: err=%v total=%d snapshot=%q", fetch.err, fetch.res.total, fetch.res.target.snapshot)
+	if res, err := fetch.Wait(context.Background()); err != nil || res.Total != 1 {
+		t.Fatalf("prefetch: err=%v total=%d", err, res.Total)
 	}
 	// The menu audit saved its baseline and logged where it started.
-	if snap, state := loadBaselineFrom(snapshot); state != baselineOK || snap["steady"].maintainer != "alice" {
+	if snap, state := audit.LoadSnapshot(snapshot); state != audit.BaselineOK || snap["steady"].Maintainer != "alice" {
 		t.Fatalf("snapshot at %s: state=%d %v", snapshot, state, snap)
 	}
-	// The menu audit captured the same store as the prefetch.
-	if log, _ := os.ReadFile(fetch.target.logs.Path(logCategoryAudit)); !strings.Contains(string(log), "AUR audit: 1 checked") {
+	// The menu audit logged to the store captured on the model's goroutine.
+	if log, _ := os.ReadFile(store.Path(logCategoryAudit)); !strings.Contains(string(log), "AUR audit: 1 checked") {
 		t.Fatalf("audit log:\n%s", log)
 	}
 	for _, d := range elsewhere {
@@ -150,7 +153,7 @@ func TestAuditCommitWritesTheSnapshotItRead(t *testing.T) {
 			if err := commit(); err != nil {
 				t.Fatal(err)
 			}
-			if snap, _ := loadBaselineFrom(snapshot); snap["victim"].maintainer != "mallory" {
+			if snap, _ := audit.LoadSnapshot(snapshot); snap["victim"].Maintainer != "mallory" {
 				t.Fatalf("snapshot the audit read = %v, want victim accepted as mallory", snap)
 			}
 			if entries, _ := os.ReadDir(moved); len(entries) != 0 {

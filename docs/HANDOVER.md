@@ -26,7 +26,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
 | `tasks.go` | `step`, `runStep`/`stepSpec` (a step's command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, the sudo probe/auth/keep-alive as `tea.Cmd`s over `privilege.Sudo` (`checkSudoCached`, `authSudo`, `refreshSudo`), discovery commands, `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
-| `audit.go` | the AUR audit: RPC lookup, classification, maintainer snapshot, report |
+| `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`discoverAURAudit`/`menuAudit`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the model's prefetch (`auditFetch`, wrapping `audit.Fetch`), and the styled `renderAudit` |
 | `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process), thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering. `logs()`/`appendLog` are for the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
 | `askpass.go` | askpass tea glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper), `askpassMsg`/`askpassResultMsg`, `answerAskpass` (`Request.Answer` off the UI thread), `verifyAskpassPeer` (`privilege.Verify` with the `readProc`/`ourUID` seams), the popup's `askpassRequester`; the popup itself is `handleAskpass` in `update.go` |
 | `overlay.go` | ANSI-aware popup compositor |
@@ -38,6 +38,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 |---|---|
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
 | `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories`; `WriteLastRun`/`ReadLastRun` for `last-run.json` (`RunRecord`, see state files below) |
+| `internal/audit` | the AUR audit itself: `Run(ctx, Config, now) (Result, error)` with `Config{RPCURL, SnapshotPath, Deadline, DryRun, Foreign, Log}`; `Result` (`Total`, `Findings`, `Baseline`; `Text()` plain report, `GateReason()`, `Commit(holdHigh, accepting)`, `LogSummary()`, `Note()`, `High()`/`Clean()`); `Prefetch(Config) *Fetch` with `Wait(ctx)`/`Cancel()`/`Done()`; the RPC (chunked POST, 8 MiB cap, unrequested names dropped), classification, the snapshot (`Entry`, `LoadSnapshot`, `WriteSnapshot`: atomic 0600 + flock, old-format compatible), `ErrNoForeign`, `ErrSnapshotLocked`, `ShortErr`. No UI, no globals: everything comes in through `Config` |
 | `internal/sysstat` | `Paths`/`DefaultPaths`, `Read(Paths) Status`, `Status.Line()`, the df/du/free-style size formatters; no UI imports |
 
 Shared packages under `internal/` are UI-free (the gate fails any that imports
@@ -206,13 +207,13 @@ comments and `git log`; this is the "read before you touch it" list.
   co-maintainer bob added"), a removed one a glance. The RPC omits
   `CoMaintainers` when there are none, so absent means none. The snapshot entry
   is `{"maintainer": …, "comaintainers": [sorted]}`; files from before this
-  hold a bare `"maintainer"` string per package, which still loads (`snapEntry`
-  with `hasCo` false). No co-maintainer record = a baseline for that field
+  hold a bare `"maintainer"` string per package, which still loads (`audit.Entry`
+  with `HasCo` false). No co-maintainer record = a baseline for that field
   (no alarm, like a first audit), recorded by the next commit. Don't make it
   alarm instead: the upgrade would gate every package with a co-maintainer.
   Any other entry shape (null, a number, no `maintainer`) is corrupt.
 - **Saving the snapshot is the acknowledgement, so it happens only on accept.**
-  `performAudit` never writes; callers run a commit. The audit step hands it to
+  `audit.Run` never writes; callers run `Result.Commit`. The audit step hands it to
   topgrade's gate as `step.onAccept`: "yes" saves (logged `ACCEPT`), "no" or an
   abort drops it, so the same change gates the next run too. With nothing high
   it saves at once. The menu audit saves everything *except* the high findings
@@ -224,6 +225,17 @@ comments and `git log`; this is the "read before you touch it" list.
   Reading it as missing would silently re-baseline over a takeover. Writes are
   atomic (0600 temp + fsync + rename + dir fsync) under a non-blocking flock on
   `aur-maintainers.lock`; a held lock skips the save (logged `WARN`).
+- **Every audit setting is read on the model's goroutine.** An audit runs off
+  it (the menu action's Cmd, the step's run, the prefetch), so
+  `internal/audit` reads nothing global: `currentAuditConfig` builds its
+  `audit.Config` — endpoint, snapshot path, deadline, dry run, the log store
+  (`Config.Log` appends to the captured `*logstore.Store`) — in
+  `discoverAURAudit`, `auditStep` (when the queue is built) and
+  `startAuditFetch`. The `Result` keeps that `Config`, so `Commit` writes the
+  snapshot the audit read and logs beside it even if `logDir` moved since.
+  Don't read `logDir`, `aurRPCURL`, `auditDeadline` or `dryRun` inside the
+  Cmd. `pacman -Qqm` is `Config.Foreign` (`foreignPackages` in the glue), so
+  switching it to another runner touches only the glue.
 - **Full Cleanup and Run topgrade open with the audit, directly in front of
   topgrade** (one `auditStep`, gated identically). It runs
   as an in-process step (`step.run`, a `tea.Cmd` — not a shell command, so
@@ -231,9 +243,10 @@ comments and `git log`; this is the "read before you touch it" list.
   pacman query and the RPC at once, and `stepSeq` drops the late result). The
   whole audit has one deadline, `auditDeadline` (20 s for the query and every
   RPC chunk together), not a timeout per request. The lookup itself starts
-  the moment the action is chosen: `activate` starts an `auditFetch` (a
-  goroutine publishing its result on a `done` channel, owned by the model as
-  `m.auditFetch`) so it runs while the password prompt or the gate is up, and
+  the moment the action is chosen: `activate` starts an `auditFetch`
+  (`audit.Prefetch`: a goroutine publishing its result by closing `Done()`,
+  owned by the model as `m.auditFetch`) so it runs while the password prompt
+  or the gate is up, and
   the step awaits it instead of fetching again (one RPC per run). It only
   reads: the snapshot commit still comes from the step's result, so the gate
   semantics below are unchanged. Esc on the password prompt, a declined gate,

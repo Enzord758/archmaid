@@ -290,7 +290,7 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 	// this Update's exec lines rather than at a racy point later.
 	if f := d.m.auditFetch; f != nil {
 		select {
-		case <-f.done:
+		case <-f.Done():
 		case <-time.After(5 * time.Second):
 			d.t.Fatalf("the prefetched AUR audit never finished\n%s", d.dump())
 		}
@@ -577,12 +577,12 @@ func (d *Driver) drainSnapshot() {
 		// name="maintainer", then +co[a,b] when there are co-maintainers, or
 		// +co? for an entry with no co-maintainer record (old format).
 		e := m[n]
-		p := fmt.Sprintf("%s=%q", n, e.maintainer)
+		p := fmt.Sprintf("%s=%q", n, e.Maintainer)
 		switch {
-		case !e.hasCo:
+		case !e.HasCo:
 			p += "+co?"
-		case len(e.coMaintainers) > 0:
-			p += "+co[" + strings.Join(e.coMaintainers, ",") + "]"
+		case len(e.CoMaintainers) > 0:
+			p += "+co[" + strings.Join(e.CoMaintainers, ",") + "]"
 		}
 		parts = append(parts, p)
 	}

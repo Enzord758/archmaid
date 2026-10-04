@@ -597,7 +597,7 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 // before the audit step consumed it, or the step has finished with it.
 func (m *model) dropAuditFetch() {
 	if m.auditFetch != nil {
-		m.auditFetch.cancel()
+		m.auditFetch.Cancel()
 		m.auditFetch = nil
 	}
 }

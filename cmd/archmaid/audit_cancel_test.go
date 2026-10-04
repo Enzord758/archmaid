@@ -1,23 +1,19 @@
 package main
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"net/http"
 	"runtime"
-	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// ── the audit's one cancellable deadline ──────────────────────────────────────
+// ── aborting the audit step ───────────────────────────────────────────────────
 //
 // The audit runs in-process, so an abort can't signal it: it has to be
 // cancelled. These tests hold the RPC open on a fake AUR that never answers
-// and check that cancelling (or the overall deadline) ends the call at once
-// and leaves nothing running behind it.
+// and check that an abort ends the step at once and leaves nothing running
+// behind it. The deadline and the cancel inside the audit itself are tested
+// in internal/audit; the helpers here are shared with the prefetch tests.
 
 // cancelSlack is how soon after a cancel the audit must have returned.
 const cancelSlack = 100 * time.Millisecond
@@ -60,74 +56,6 @@ func settleGoroutines(t *testing.T, base int, what string) {
 		buf := make([]byte, 1<<16)
 		t.Fatalf("goroutines: %d before, %d after %s (leaked %d)\n%s",
 			base, n, what, n-base, buf[:runtime.Stack(buf, true)])
-	}
-}
-
-// TestFetchAURInfoReturnsOnCancel: cancelling the ctx abandons a request the
-// AUR is sitting on, at once rather than after a timeout.
-func TestFetchAURInfoReturnsOnCancel(t *testing.T) {
-	arrived := hangingAUR(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		_, err := fetchAURInfo(ctx, []string{"x"})
-		done <- err
-	}()
-	waitArrived(t, arrived)
-
-	start := time.Now()
-	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("err = %v, want context.Canceled", err)
-		}
-		if d := time.Since(start); d > cancelSlack {
-			t.Fatalf("returned %s after the cancel, want within %s", d, cancelSlack)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("fetchAURInfo ignored the cancel")
-	}
-}
-
-// TestAuditDeadlineCoversEveryChunk: the deadline is one budget for the whole
-// audit, not a fresh timeout per request — two chunks that each fit in it
-// alone still fail together.
-func TestAuditDeadlineCoversEveryChunk(t *testing.T) {
-	auditEnv(t)
-	var pkgs []string
-	for i := range auditChunk + 1 { // two RPC chunks
-		pkgs = append(pkgs, fmt.Sprintf("pkg%d", i))
-	}
-	shimPacmanForeign(t, strings.Join(pkgs, "\n")+"\n")
-	var requests atomic.Int32
-	serveAUR(t, func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		r.ParseForm() // see hangingAUR
-		// each answer alone takes 60% of the budget
-		select {
-		case <-time.After(150 * time.Millisecond):
-			w.Write([]byte(`{"type":"multiinfo","results":[]}`))
-		case <-r.Context().Done():
-		}
-	})
-	old := auditDeadline
-	auditDeadline = 250 * time.Millisecond
-	t.Cleanup(func() { auditDeadline = old })
-
-	start := time.Now()
-	_, err := performAudit(context.Background(), auditNow)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("err = %v, want the overall deadline to have run out", err)
-	}
-	if d := time.Since(start); d > auditDeadline+cancelSlack {
-		t.Fatalf("audit took %s, want it ended by the %s deadline", d, auditDeadline)
-	}
-	if n := requests.Load(); n != 2 {
-		t.Fatalf("%d requests, want the second chunk to have been cut short", n)
-	}
-	if got := shortErr(err); got != "no answer within 250ms" {
-		t.Fatalf("shortErr = %q", got)
 	}
 }
 
