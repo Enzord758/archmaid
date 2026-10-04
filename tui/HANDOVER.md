@@ -29,7 +29,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `askpass.go` | `SUDO_ASKPASS` helper + socket server |
 | `overlay.go` | ANSI-aware popup compositor |
 | `sanitize.go` | `Sanitize`: the one filter for untrusted text (command output, logs) |
-| `status.go`, `theme.go` | the status line (native: statfs, /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
+| `status.go`, `theme.go` | the status line (native: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
 
 ## Decisions and landmines
 

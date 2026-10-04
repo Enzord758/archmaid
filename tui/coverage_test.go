@@ -129,7 +129,7 @@ func TestChecklistRendersAllStatuses(t *testing.T) {
 // regardless of the machine's actual df/free/du output.
 func TestSystemStatusFormat(t *testing.T) {
 	s := systemStatus()
-	for _, want := range []string{"Free:", "RAM free:", "Cache:"} {
+	for _, want := range []string{"Free:", "RAM avail:", "Cache:"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("status %q missing %q", s, want)
 		}

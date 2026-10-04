@@ -70,7 +70,7 @@ func TestSystemStatusSpawnsNothing(t *testing.T) {
 	}
 	t.Setenv("PATH", "")
 	got := systemStatus()
-	re := regexp.MustCompile(`^ Free: \d+(\.\d)?[KMGTP]?   RAM free: 10Gi   Cache: (\d+\.\d|\d+)[KMGT]$`)
+	re := regexp.MustCompile(`^ Free: \d+(\.\d)?[KMGTP]?   RAM avail: 21Gi   Cache: (\d+\.\d|\d+)[KMGT]$`)
 	if !re.MatchString(got) {
 		t.Fatalf("status %q does not match %v", got, re)
 	}
@@ -81,12 +81,12 @@ func TestSystemStatusFallbacks(t *testing.T) {
 	pinStatusRoots(t, "garbage\n")
 	statusCacheRoot = filepath.Join(t.TempDir(), "missing")
 	statusDiskPath = filepath.Join(t.TempDir(), "missing")
-	want := " Free: N/A   RAM free: N/A   Cache: N/A"
+	want := " Free: N/A   RAM avail: N/A   Cache: N/A"
 	if got := systemStatus(); got != want {
 		t.Fatalf("status %q, want %q", got, want)
 	}
-	if got := memFree(filepath.Join(t.TempDir(), "missing")); got != "N/A" {
-		t.Fatalf("memFree of a missing file = %q", got)
+	if got := memAvail(filepath.Join(t.TempDir(), "missing")); got != "N/A" {
+		t.Fatalf("memAvail of a missing file = %q", got)
 	}
 }
 

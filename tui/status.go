@@ -53,8 +53,8 @@ var (
 // refreshes every few seconds and the shell pipelines cost nine processes a
 // tick. The numbers and format match what those tools printed.
 func systemStatus() string {
-	return fmt.Sprintf(" Free: %s   RAM free: %s   Cache: %s",
-		diskFree(statusDiskPath), memFree(statusMeminfo), cacheSize(statusCacheRoot))
+	return fmt.Sprintf(" Free: %s   RAM avail: %s   Cache: %s",
+		diskFree(statusDiskPath), memAvail(statusMeminfo), cacheSize(statusCacheRoot))
 }
 
 // diskFree is `df -h`'s Avail column for path, or "N/A" when unreadable.
@@ -66,14 +66,15 @@ func diskFree(path string) string {
 	return humanCeil(st.Bavail * uint64(st.Frsize))
 }
 
-// memFree is `free -h`'s free column (MemFree), or "N/A" when unreadable.
-func memFree(path string) string {
+// memAvail is the kernel's MemAvailable (`free -h`'s "available" column, memory
+// usable without swapping), or "N/A" when unreadable.
+func memAvail(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return "N/A"
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		rest, ok := strings.CutPrefix(line, "MemFree:")
+		rest, ok := strings.CutPrefix(line, "MemAvailable:")
 		if !ok {
 			continue
 		}

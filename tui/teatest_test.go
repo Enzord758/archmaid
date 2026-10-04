@@ -14,7 +14,7 @@ import (
 
 // The system status line (disk/ram/cache) is live, so pin it to a constant in
 // every integration test — otherwise the golden frames would drift per machine.
-const testStatus = " Free: 100G   RAM free: 8G   Cache: 512M"
+const testStatus = " Free: 100G   RAM avail: 8G   Cache: 512M"
 
 // fixedModel returns an initial model with a deterministic status line so that
 // rendered goldens are stable across machines and runs.
