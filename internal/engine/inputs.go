@@ -78,7 +78,7 @@ type HookDone struct {
 
 // AskpassRequest is sudo asking for the password mid-run, through the
 // askpass socket. The Driver has already run the peer check
-// (privilege.Verify against the running step's child): Requester names the
+// (Request.Verify against the running step's child): Requester names the
 // verified caller, or Refused says why the peer failed the check — the
 // Session then hangs up and notes it in the step's output. Prompt is sudo's
 // prompt text, raw (the Session sanitizes it).
