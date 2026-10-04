@@ -425,12 +425,14 @@ fullcleanup_abort_topgrade golden (no topgrade log on abort) -->
 
 ```sh
 P=$(mktemp -d) && cp ~/archmaid-live/packaging/arch/PKGBUILD ~/archmaid-live/packaging/arch/archmaid.install "$P"/ && cd "$P" && \
-ARCHMAID_REPO="file://$HOME/archmaid-live" ARCHMAID_FRAGMENT="commit=$(git -C ~/archmaid-live rev-parse HEAD)" makepkg -s
+ARCHMAID_REPO="file://$HOME/archmaid" ARCHMAID_FRAGMENT="commit=$(git -C ~/archmaid-live rev-parse HEAD)" makepkg -s
 ```
 
 Run it in terminal 1, and write down `$P`. The scratch copy keeps `pkg/`
 and `src/` out of the repo. Both build files are needed, since `install=`
-names `archmaid.install`. makepkg clones the S1 commit and builds the TUI,
+names `archmaid.install`. makepkg clones `~/archmaid`, the repository the
+worktree belongs to (it carries the `refactor/p0` branch), and checks out the
+S1 commit and builds the TUI,
 the helper and the GUI. It runs `check()` (the helper's, the DMS widget's
 and the GUI view model's tests). All makedepends were installed on
 2026-10-04, so `-s` shouldn't need sudo.
