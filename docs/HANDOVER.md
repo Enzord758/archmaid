@@ -206,6 +206,14 @@ comments and `git log`; this is the "read before you touch it" list.
   in case `app.Quit` ended it. While an `AdwDialog` is up, libadwaita turns the
   window's close into closing the dialog, so the close-mid-run dialog closes
   the window from its `closed` signal, not from `response`.
+- **The GUI password's last copy (accepted risk).** `engine.Secret` is a Go
+  string (E0 is frozen), so the password typed into the GUI ends in one
+  immutable string that can't be zeroed and stays in the heap until the GC
+  reuses it. Everything before it is wiped: the entry is read as C bytes
+  (`gui/internal/ui/secret.go`), never a gotk4 Go string, then cleared, and
+  the bytes are zeroed once the `Secret` is built. The lead accepted the
+  rest: a same-uid attacker who can read the process's memory can read the
+  entry or the sudo child just as well.
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
   own final step. `TestNoPrivilegedStepAfterHyprpm` (`internal/actions`) fails
@@ -513,12 +521,8 @@ to:
 - **GUI TODOs, waiting for the real Driver (E6):** the polkit dialog →
   helper progress in the checklist (`AuthWaiting{WaitPolkit}`,
   `AuthResolved`, `FaillockState` are recorded in `runview.Model.Auth` but not
-  shown). Waiting for E0 additions: `NeedsConfirm.YesLabel` (the dialog says
-  "Yes" until then) and `NeedsConfirm.Plan` on the gate confirm (no plan shown
-  yet). The password ends in an `engine.Secret`, a Go string that can't be
-  zeroed (`gui/internal/ui/dialogs.go` notes it); a `[]byte` Secret would
-  close that. The stub plays "no" like "yes" (one path per script), so
-  declined paths aren't shown yet.
+  shown). The stub plays "no" like "yes" (one path per script), so declined
+  paths aren't shown yet.
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The

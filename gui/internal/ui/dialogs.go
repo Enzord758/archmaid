@@ -51,22 +51,20 @@ func (w *Window) answer(id engine.PromptID, cmd func() engine.Command) {
 	w.send(cmd())
 }
 
-// confirmDialog: "Yes"/"No". For a destructive step "No" is the default
-// whatever Default says, and "Yes" is red; otherwise Default picks the
-// default and "Yes" is the suggested action. Closing the dialog is "No".
-//
-// TODO(E0): NeedsConfirm.YesLabel ("Delete", "Remove 3 Packages") and
-// NeedsConfirm.Plan (the steps a gate confirm stands for) are requested
-// from the engine; until they land "Yes" is the label and the gate shows
-// no plan.
+// confirmDialog: the engine's YesLabel ("Yes" without one) and "Cancel",
+// or "Skip" for an Optional step (Model.ConfirmLabels). For a destructive
+// step the no button is the default whatever Default says, and yes is red;
+// otherwise Default picks the default and yes is the suggested action.
+// Closing the dialog is no. A gate confirm shows the plan it stands for.
 func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 	heading, body := p.Title, p.Body
 	if heading == "" {
 		heading = p.Msg
 	}
 	d := adw.NewAlertDialog(heading, body)
-	d.AddResponse("no", "No")
-	d.AddResponse("yes", "Yes")
+	yes, no := w.model.ConfirmLabels(p)
+	d.AddResponse("no", no)
+	d.AddResponse("yes", yes)
 	d.SetCloseResponse("no")
 	switch {
 	case p.Destructive:
@@ -94,6 +92,9 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 		}
 	} else if len(p.Items) > 0 {
 		box.Append(itemList("", p.Items, p.Destructive))
+	}
+	if len(p.Plan) > 0 {
+		box.Append(itemList("Steps", runview.PlanLines(p.Plan), false))
 	}
 	if box.FirstChild() != nil {
 		d.SetExtraChild(box)
@@ -189,8 +190,8 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 			// is the one Go string the password lives in: immutable, it
 			// can't be zeroed and stays in the heap until the GC reuses
 			// it. Everything before it (GTK's secure buffer, pw) is
-			// wiped. TODO(E0): a []byte Secret the Driver zeroes after
-			// use would close this.
+			// wiped. An accepted residual risk: docs/HANDOVER.md →
+			// "The GUI password's last copy".
 			cmd := engine.SubmitPassword{Prompt: p.ID, Password: engine.Secret(pw)}
 			clear(pw)
 			return cmd

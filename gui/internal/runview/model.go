@@ -67,10 +67,12 @@ func (s RowState) Icon() string {
 // Row is one checklist row: a step of the plan.
 type Row struct {
 	ID, Title string
-	NeedsPriv bool
-	State     RowState
-	Elapsed   time.Duration
-	Err       string
+	// NeedsPriv: the step needs root; Optional: "no" at its confirm skips
+	// it rather than ending the queue.
+	NeedsPriv, Optional bool
+	State               RowState
+	Elapsed             time.Duration
+	Err                 string
 }
 
 // Subtitle is the row's second line: its state and time.
@@ -127,6 +129,8 @@ type Change struct {
 	// Status: Phase, Status, Notice or the counters changed. Finished: the
 	// action ended in this batch.
 	Status, Finished bool
+	// Toasts are one-off messages to pop up (ReportAccepted's text).
+	Toasts []string
 }
 
 // Model is the Run page's state. It is not safe for concurrent use: the
@@ -235,14 +239,14 @@ func (m *Model) Apply(evs []engine.Event) Change {
 			m.Action, m.DryRun, m.Running, m.Finished, m.Notice = ev.Action, ev.DryRun, true, nil, ""
 			m.Rows = m.Rows[:0]
 			for _, s := range ev.Steps {
-				m.Rows = append(m.Rows, Row{ID: s.ID, Title: s.Title, NeedsPriv: s.NeedsPriv})
+				m.Rows = append(m.Rows, Row{ID: s.ID, Title: s.Title, NeedsPriv: s.NeedsPriv, Optional: s.Optional})
 			}
 			c.Reset, c.Inserted = true, nil
 			clear(touched)
 			c.Status = true
 		case engine.StepInserted:
 			i := min(max(ev.Index, 0), len(m.Rows))
-			m.Rows = append(m.Rows[:i], append([]Row{{ID: ev.Step.ID, Title: ev.Step.Title, NeedsPriv: ev.Step.NeedsPriv}}, m.Rows[i:]...)...)
+			m.Rows = append(m.Rows[:i], append([]Row{{ID: ev.Step.ID, Title: ev.Step.Title, NeedsPriv: ev.Step.NeedsPriv, Optional: ev.Step.Optional}}, m.Rows[i:]...)...)
 			shifted := map[int]bool{}
 			for j := range touched {
 				if j >= i {
@@ -256,7 +260,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 			}
 		case engine.PlanChanged:
 			if i := m.row(ev.Step.ID, ev.Index); i >= 0 {
-				m.Rows[i].Title, m.Rows[i].NeedsPriv = ev.Step.Title, ev.Step.NeedsPriv
+				m.Rows[i].Title, m.Rows[i].NeedsPriv, m.Rows[i].Optional = ev.Step.Title, ev.Step.NeedsPriv, ev.Step.Optional
 				touch(i)
 			}
 		case engine.StepStarted:
@@ -329,12 +333,16 @@ func (m *Model) Apply(evs []engine.Event) Change {
 			m.Notice = ev.Text
 			c.Status = true
 		case engine.ReportAccepted:
-			m.Notice = ev.Text
-			c.Status = true
+			// A toast: the report's dialog is gone and Finished follows.
+			if ev.Text != "" {
+				c.Toasts = append(c.Toasts, ev.Text)
+			}
 		case engine.Finished:
 			f := ev
 			m.Finished, m.Running, m.Prompt = &f, false, nil
 			c.Finished, c.Status, c.Opened = true, true, nil
+			// The engine sends the steps an Abort left pending no event
+			// (it counts them in NotRun); they show as not run.
 			for i := range m.Rows {
 				if m.Rows[i].State == RowPending {
 					m.Rows[i].State = RowNotRun
@@ -349,6 +357,36 @@ func (m *Model) Apply(evs []engine.Event) Change {
 	slices.Sort(c.Rows)
 	c.OutRemove, c.OutAppend = m.sync()
 	return c
+}
+
+// ConfirmLabels are a confirm's two buttons: yes is the engine's YesLabel
+// ("Delete", "Update anyway"), "Yes" when it has none; no is "Skip" for an
+// Optional step (no skips it and the queue goes on), else "Cancel".
+func (m *Model) ConfirmLabels(p engine.NeedsConfirm) (yes, no string) {
+	yes, no = p.YesLabel, "Cancel"
+	if yes == "" {
+		yes = "Yes"
+	}
+	if p.Step != "" {
+		if i := m.row(p.Step, -1); i >= 0 && m.Rows[i].Optional {
+			no = "Skip"
+		}
+	}
+	return yes, no
+}
+
+// PlanLines is a gate confirm's plan preview, one line per step: its
+// title, marked when it needs root. nil for a confirm without a plan.
+func PlanLines(plan []engine.PlanStep) []string {
+	var out []string
+	for _, s := range plan {
+		l := s.Title
+		if s.NeedsPriv {
+			l += "  (root)"
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 func doneState(s steps.Status) RowState {

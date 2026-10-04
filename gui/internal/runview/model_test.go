@@ -268,9 +268,9 @@ func TestAuthAndStatusEvents(t *testing.T) {
 	if m.Auth != nil || m.Notice != "hi" {
 		t.Errorf("auth %v notice %q", m.Auth, m.Notice)
 	}
-	m.Apply([]engine.Event{engine.ReportAccepted{ID: 1, Saved: true, Text: "accepted"}})
-	if m.Notice != "accepted" {
-		t.Errorf("notice %q after ReportAccepted", m.Notice)
+	c = m.Apply([]engine.Event{engine.ReportAccepted{ID: 1, Saved: true, Text: "accepted"}})
+	if !slices.Equal(c.Toasts, []string{"accepted"}) || m.Notice != "hi" {
+		t.Errorf("toasts %q notice %q after ReportAccepted; want a toast, the notice kept", c.Toasts, m.Notice)
 	}
 }
 
@@ -344,5 +344,53 @@ func BenchmarkApplyFlush(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		m.Apply([]engine.Event{engine.OutputChunk{ID: "s", Lines: lines}})
+	}
+}
+
+// TestConfirmLabels: YesLabel or "Yes"; "Skip" only for an Optional step.
+func TestConfirmLabels(t *testing.T) {
+	m := NewModel()
+	m.Apply([]engine.Event{engine.QueueStarted{Action: "a", Steps: []engine.PlanStep{
+		{ID: "opt", Title: "Optional", Confirm: true, Optional: true},
+		{ID: "req", Title: "Required", Confirm: true},
+	}}})
+	for _, tc := range []struct {
+		p       engine.NeedsConfirm
+		yes, no string
+	}{
+		{engine.NeedsConfirm{ID: 1}, "Yes", "Cancel"},
+		{engine.NeedsConfirm{ID: 2, YesLabel: "Proceed"}, "Proceed", "Cancel"},
+		{engine.NeedsConfirm{ID: 3, Step: "opt", YesLabel: "Delete"}, "Delete", "Skip"},
+		{engine.NeedsConfirm{ID: 4, Step: "req", YesLabel: "Remove"}, "Remove", "Cancel"},
+		{engine.NeedsConfirm{ID: 5, Step: "gone"}, "Yes", "Cancel"},
+	} {
+		if yes, no := m.ConfirmLabels(tc.p); yes != tc.yes || no != tc.no {
+			t.Errorf("prompt %d: %q/%q, want %q/%q", tc.p.ID, yes, no, tc.yes, tc.no)
+		}
+	}
+}
+
+func TestPlanLines(t *testing.T) {
+	got := PlanLines([]engine.PlanStep{{Title: "Clearing cache…"}, {Title: "Updating…", NeedsPriv: true}})
+	if want := []string{"Clearing cache…", "Updating…  (root)"}; !slices.Equal(got, want) {
+		t.Errorf("%q, want %q", got, want)
+	}
+	if PlanLines(nil) != nil {
+		t.Error("no plan should give no lines")
+	}
+}
+
+// TestNotRunCounted: Finished.NotRun reaches the model, and the steps left
+// pending show as not run.
+func TestNotRunCounted(t *testing.T) {
+	m := NewModel()
+	m.Apply([]engine.Event{
+		engine.QueueStarted{Action: "a", Steps: []engine.PlanStep{{ID: "1"}, {ID: "2"}, {ID: "3"}}},
+		engine.StepStarted{ID: "1", Index: 0},
+		engine.Aborted{ID: "1", Index: 0},
+		engine.Finished{Action: "a", Outcome: engine.OutcomeAborted, NotRun: 2},
+	})
+	if m.Finished.NotRun != 2 || m.Rows[1].State != RowNotRun || m.Rows[2].State != RowNotRun {
+		t.Errorf("not run %d rows %v", m.Finished.NotRun, m.Rows)
 	}
 }

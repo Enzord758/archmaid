@@ -74,7 +74,9 @@ type report struct {
 	Frames           []time.Duration
 	DriverCloses     int32
 	Sent             []string // the prompt answers the Driver got
-	Leaked           string   // goleak's verdict after Run returned, "" if clean
+	Buttons          []string // each confirm's "id yes/no" button labels
+	Toasts           []string
+	Leaked           string // goleak's verdict after Run returned, "" if clean
 	Errors           []string
 }
 
@@ -181,6 +183,9 @@ func runChild(scenario, path string) int {
 					}
 					// Answer the way a user would: type, tick, then press.
 					resp := "yes"
+					if p.Confirm != nil {
+						rep.Buttons = append(rep.Buttons, fmt.Sprintf("%d %s/%s", id, d.ResponseLabel("yes"), d.ResponseLabel("no")))
+					}
 					switch {
 					case p.Password != nil:
 						w.pwEntry.SetText("hunter2")
@@ -228,6 +233,7 @@ func runChild(scenario, path string) int {
 					rep.LastLine = out[len(out)-1]
 				}
 				rep.Pump = w.pump.Stats()
+				rep.Toasts = w.toasted
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
@@ -366,6 +372,9 @@ func TestGUIFullCleanup(t *testing.T) {
 	if want := []string{"confirm 1 true", "confirm 2 true", "confirm 3 true"}; !slices.Equal(rep.Sent, want) {
 		t.Errorf("sent %q, want %q", rep.Sent, want)
 	}
+	if want := []string{"1 Proceed/Cancel", "2 Delete/Skip", "3 Remove/Skip"}; !slices.Equal(rep.Buttons, want) {
+		t.Errorf("confirm buttons %q, want %q", rep.Buttons, want)
+	}
 	if rep.Outcome != "completed" || !slices.Equal(rep.Prompts, []engine.PromptID{1, 2, 3}) {
 		t.Errorf("outcome %q prompts %v; want completed after prompts 1, 2, 3", rep.Outcome, rep.Prompts)
 	}
@@ -396,6 +405,9 @@ func TestGUIAudit(t *testing.T) {
 	rep, _ := child(t, "audit")
 	if rep.Outcome != "report" || !slices.Equal(rep.Sent, []string{"confirm 1 true"}) {
 		t.Errorf("outcome %q sent %q; want report after confirm 1 true", rep.Outcome, rep.Sent)
+	}
+	if !slices.Contains(rep.Toasts, "Maintainer changes accepted: foo-bin") {
+		t.Errorf("toasts %q: ReportAccepted's text wasn't shown", rep.Toasts)
 	}
 }
 

@@ -56,6 +56,8 @@ type Window struct {
 
 	// onApply, when set, sees every applied batch's Change (the harness).
 	onApply func(runview.Change)
+	// toasted is every toast shown, for the harness.
+	toasted []string
 }
 
 type stepRow struct {
@@ -195,7 +197,10 @@ func (w *Window) send(c engine.Command) {
 	}
 }
 
-func (w *Window) toast(msg string) { w.toasts.AddToast(adw.NewToast(msg)) }
+func (w *Window) toast(msg string) {
+	w.toasted = append(w.toasted, msg)
+	w.toasts.AddToast(adw.NewToast(msg))
+}
 
 // apply is the pump's flush: fold the batch into the model and redraw
 // exactly what changed.
@@ -231,6 +236,9 @@ func (w *Window) apply(evs []engine.Event) {
 	}
 	if c.Opened != nil {
 		w.prompt(*c.Opened)
+	}
+	for _, t := range c.Toasts {
+		w.toast(t)
 	}
 	if c.Finished {
 		w.busy = false
@@ -296,6 +304,9 @@ func (w *Window) statusText() string {
 	switch {
 	case m.Finished != nil:
 		parts = append(parts, "Finished: "+m.Finished.Outcome.String())
+		if n := m.Finished.NotRun; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d not run", n))
+		}
 	case m.Busy != "":
 		parts = append(parts, m.Busy)
 	case m.Phase == engine.PhaseRunning:
