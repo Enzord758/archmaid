@@ -10,6 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/muesli/termenv"
+
+	"github.com/Enzord758/archmaid/internal/testenv"
 )
 
 // The system status line (disk/ram/cache) is live, so pin it to a constant in
@@ -52,7 +54,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	logDir = dir
-	code := m.Run()
+	// HOME and the XDG dirs are a temp dir for the whole run, and the real
+	// state dir is checked afterwards (internal/testenv).
+	code := testenv.Run(m)
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
