@@ -20,7 +20,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 
 | Verb | Root command | Input / recheck | polkit action (`allow_active`) |
 |---|---|---|---|
-| `check-files` | `pacman -Qk` | none, read-only. Exit 1 from pacman means "missing files found", which is a result, not a failure | `…check-files` (keep) |
+| `check-files [pkg…]` | `pacman -Qk`, or with names `pacman -Qk -- …` | read-only. Exit 1 from pacman means "missing files found", which is a result, not a failure. With no names it checks every package. With names (Repair's root recheck of the user scan's candidates) it takes 1–256 of them, each =~ the `repair` name pattern (so none starts with `-`), none twice, and each installed (`pacman -Qq`); anything else exits 2 before `-Qk` runs. It then emits one `check` event (`checked`, `broken`) before the result; a name without a summary line is skipped (`could not check its files`). Any pacman exit but 0/1 exits 1 with no `check` event | `…check-files` (keep) |
 | `paccache N` | `paccache -r -k N` | `N` ∈ `1`–`9` | `…paccache` (keep) |
 | `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
@@ -47,12 +47,13 @@ the session to re-run it with any argument it accepts:
 
 | Verb | Re-run without a prompt can… | Why that's acceptable |
 |---|---|---|
-| `check-files` | read every package's file list again | read-only, no input |
+| `check-files [pkg…]` | read every package's file list again, or some installed packages' | read-only; the names can only narrow the full check, and must be installed packages |
 | `clean-tmp` | apply the system's `tmpfiles.d` age rules again | no input; the same as the daily `systemd-tmpfiles-clean.timer`, and a second run finds nothing more |
 | `paccache N` | thin the cache down to `N` ≥ 1 versions per package | the only input is one digit; the newest cached version always stays, `-k 0` is the separate admin verb `paccache-wipe`, and removed packages can be fetched again from a mirror or the Arch Linux Archive |
 | `vacuum-journal D` | delete archived journal files older than `D` ≥ 1 week | the only input is one of three fixed windows. Deleted logs are gone for good, but the most recent week is never touched, so a process can't erase a trace of what it just did |
 
-Nothing in the "keep" set takes free-form input. `repair` is **admin** even
+Nothing in the "keep" set takes free-form input; `check-files`' names are
+held to installed packages. `repair` is **admin** even
 though it rechecks every name, because it takes package names and runs a pacman
 transaction: the packages' install scriptlets and pacman hooks run as root.
 (It only reinstalls a package whose repo version equals the installed one,
@@ -167,6 +168,7 @@ on stderr.
 | `progress` | `step`, `of` (1-based), `label` |
 | `line` | `stream` (`out`/`err`), `text`: one line of child output (`\n`, `\r\n` or a lone `\r` ends a line; lines over 8 KiB are split) |
 | `plan` | `targets` (orphans), `items` (`"name version"` of everything removed), `total` = `len(items)`, `hash` |
+| `check` | `check-files` with names only: `checked` (the names pacman printed a summary for), `broken` (those of them missing files); both arrays, never `null` |
 | `result` | `ok` (= `code == 0`), `code`, `child_exit` (exit status of the last root command run, `null` if none ran), `skipped` (`[{name, reason}]`, never `null`); `error` (string) when something went wrong |
 
 All text is sanitized. Whole ANSI/VT escape sequences are removed (CSI, OSC,

@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Version is reported in the start event.
@@ -38,6 +39,10 @@ var (
 
 // maxNames caps every name list (packages, units).
 const maxNames = 256
+
+// MaxNames is maxNames, exported so a front end's lists can be tied to it in
+// a test (cmd/archmaid-helper).
+const MaxNames = maxNames
 
 // Options are the helper's seams. main fills them with the real thing;
 // tests substitute fakes so nothing runs as root or executes pacman.
@@ -219,7 +224,11 @@ func noArgs(s *session, verb string, args []string) bool {
 
 // ---- argv builders (pure; the tests pin them) ------------------------------
 
-func checkFilesArgv() []string       { return []string{Pacman, "-Qk"} }
+func checkFilesArgv() []string { return []string{Pacman, "-Qk"} }
+func installedArgv() []string  { return []string{Pacman, "-Qq"} }
+func checkPackagesArgv(names []string) []string {
+	return append([]string{Pacman, "-Qk", "--"}, names...)
+}
 func paccacheArgv(k string) []string { return []string{Paccache, "-r", "-k", k} }
 func journalArgv(d string) []string  { return []string{Journalctl, "--vacuum-time=" + d} }
 func cleanTmpArgv() []string         { return []string{SystemdTmpfile, "--clean"} }
@@ -239,11 +248,108 @@ var checkFilesOK = []int{1}
 
 // ---- verbs -----------------------------------------------------------------
 
+// runCheckFiles checks every installed package's files, or with names just
+// those packages' (Repair's root recheck of its user scan's candidates).
 func runCheckFiles(s *session, args []string) int {
-	if !noArgs(s, "check-files", args) {
-		return ExitUsage
+	if len(args) == 0 {
+		return s.single("Checking package files", checkFilesArgv(), checkFilesOK...)
 	}
-	return s.single("Checking package files", checkFilesArgv(), checkFilesOK...)
+	if msg := checkNames(args); msg != "" {
+		return s.usage("%s", msg)
+	}
+	release, code := s.lock()
+	if code != ExitOK {
+		return code
+	}
+	defer release()
+	if code, msg := s.checkInstalled(args); code != ExitOK {
+		return s.finish(code, msg)
+	}
+	return s.checkPackages(args)
+}
+
+// checkNames validates check-files' package names before anything runs:
+// at most maxNames of them, each a pacman package name (which can't start
+// with '-', so none reads as an option), none named twice. It returns why
+// the list is refused, or "".
+func checkNames(args []string) string {
+	if len(args) > maxNames {
+		return fmt.Sprintf("check-files takes at most %d package names, got %d", maxNames, len(args))
+	}
+	seen := make(map[string]bool, len(args))
+	for _, a := range args {
+		if !namePattern.MatchString(a) {
+			return fmt.Sprintf("invalid package name %q", a)
+		}
+		if seen[a] {
+			return fmt.Sprintf("package %q is named twice", a)
+		}
+		seen[a] = true
+	}
+	return ""
+}
+
+// checkInstalled refuses (exit 2) a name that isn't an installed package. It
+// asks pacman (`pacman -Qq`) rather than trusting the caller.
+func (s *session) checkInstalled(names []string) (int, string) {
+	out, errOut, exit, err := s.o.Runner.Query(installedArgv())
+	if err != nil {
+		return ExitFailed, fmt.Sprintf("pacman -Qq: %v", err)
+	}
+	if exit != 0 {
+		return ExitFailed, fmt.Sprintf("pacman -Qq exited %d: %s", exit, firstLine(errOut))
+	}
+	installed := map[string]bool{}
+	for _, l := range nonEmptyLines(out) {
+		installed[l] = true
+	}
+	for _, n := range names {
+		if !installed[n] {
+			return ExitUsage, fmt.Sprintf("package %q is not installed", n)
+		}
+	}
+	return ExitOK, ""
+}
+
+// checkPackages runs `pacman -Qk -- names…`, relaying its output like any
+// step, and then reports each package's summary line in one check event:
+// checked lists the packages it read a summary for, broken those of them
+// missing files. A package without a summary is skipped ("could not check
+// its files") and is in neither list.
+func (s *session) checkPackages(names []string) int {
+	label := fmt.Sprintf("Checking %d package(s) for missing files", len(names))
+	s.em.Progress(1, 1, label)
+	var mu sync.Mutex // Stream drains stdout and stderr concurrently
+	var out strings.Builder
+	exit, err := s.o.Runner.Stream(checkPackagesArgv(names), func(stream, text string) {
+		if stream == "out" {
+			mu.Lock()
+			out.WriteString(text + "\n")
+			mu.Unlock()
+		}
+		s.em.Line(stream, text)
+	})
+	if err != nil {
+		return s.finish(ExitFailed, fmt.Sprintf("%s: %v", label, err))
+	}
+	s.childExit = &exit
+	if exit != 0 && !slices.Contains(checkFilesOK, exit) {
+		return s.finish(ExitFailed, fmt.Sprintf("%s: %s exited %d", label, Pacman, exit))
+	}
+	checked, broken := []string{}, []string{}
+	for _, n := range names {
+		missing, ok := missingFiles(out.String(), n)
+		if !ok {
+			s.skip(n, "could not check its files")
+			continue
+		}
+		checked = append(checked, n)
+		if missing > 0 {
+			broken = append(broken, n)
+		}
+	}
+	s.em.Check(checked, broken)
+	return s.finish(ExitOK, "")
 }
 
 func runPaccache(s *session, args []string) int {

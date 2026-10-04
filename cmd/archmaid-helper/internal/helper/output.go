@@ -19,6 +19,7 @@ const (
 	EventProgress = "progress"
 	EventLine     = "line"
 	EventPlan     = "plan"
+	EventCheck    = "check"
 	EventResult   = "result"
 )
 
@@ -58,6 +59,13 @@ type planEvent struct {
 	Items   []string `json:"items"`
 	Total   int      `json:"total"`
 	Hash    string   `json:"hash"`
+}
+
+type checkEvent struct {
+	V       int      `json:"v"`
+	T       string   `json:"t"`
+	Checked []string `json:"checked"`
+	Broken  []string `json:"broken"`
 }
 
 type resultEvent struct {
@@ -118,6 +126,13 @@ func (e *Emitter) Plan(p Plan) {
 		Targets: sanitizeAll(p.Targets), Items: sanitizeAll(p.Items),
 		Total: len(p.Items), Hash: p.Hash,
 	})
+}
+
+// Check reports a check-files run over named packages: checked are the
+// packages whose files were checked, broken those of them missing files.
+// Both are always arrays, never null.
+func (e *Emitter) Check(checked, broken []string) {
+	e.emit(checkEvent{V: SchemaVersion, T: EventCheck, Checked: sanitizeAll(checked), Broken: sanitizeAll(broken)})
 }
 
 // Result is the final line; exactly one is written per invocation.

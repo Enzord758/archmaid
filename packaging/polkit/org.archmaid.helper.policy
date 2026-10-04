@@ -12,7 +12,9 @@
   argument the helper accepts (keep is per action, not per argv). That is
   acceptable only for verbs with no free-form input whose effect is
   read-only or bounded:
-    check-files     read-only, no arguments
+    check-files     read-only: every package, or 1-256 distinct installed
+                    package names (pacman's name pattern, checked against
+                    pacman -Qq), which only narrows the full check
     clean-tmp       no arguments; what systemd-tmpfiles-clean.timer does daily
     paccache N      N in 1-9: the newest cached version always stays, and
                     removed packages can be fetched again
@@ -37,7 +39,7 @@
 
   <action id="org.archmaid.helper.check-files">
     <description>Check installed packages for missing files</description>
-    <message>Authentication is required to check every installed package's files</message>
+    <message>Authentication is required to check installed packages' files</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>

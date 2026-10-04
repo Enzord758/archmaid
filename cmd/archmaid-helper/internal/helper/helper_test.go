@@ -20,7 +20,8 @@ func TestVerbs(t *testing.T) {
 		argv string // the one streamed command; "" = nothing may run
 	}{
 		{"check-files", []string{"check-files"}, ExitOK, "/usr/bin/pacman -Qk"},
-		{"check-files extra arg", []string{"check-files", "x"}, ExitUsage, ""},
+		{"check-files name not installed", []string{"check-files", "x"}, ExitUsage, ""},
+		{"check-files flag", []string{"check-files", "--root=/"}, ExitUsage, ""},
 		{"paccache 3", []string{"paccache", "3"}, ExitOK, "/usr/bin/paccache -r -k 3"},
 		{"paccache 1", []string{"paccache", "1"}, ExitOK, "/usr/bin/paccache -r -k 1"},
 		{"paccache 9", []string{"paccache", "9"}, ExitOK, "/usr/bin/paccache -r -k 9"},
