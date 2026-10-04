@@ -66,11 +66,27 @@ func parseCleanupArgs(args []string) (cleanupArgs, error) {
 	return c, nil
 }
 
+// The parts of full-cleanup, named by the verb each stands for (the "part"
+// of its progress and done events). They run in this order, which is part
+// of the protocol (README.md): a client maps them back to its own steps in
+// order (internal/helperclient).
+const (
+	PartRemoveOrphans = "remove-orphans"
+	PartPaccache      = "paccache"
+	PartPaccacheWipe  = "paccache-wipe"
+	PartCleanTmp      = "clean-tmp"
+	PartVacuumJournal = "vacuum-journal"
+	PartCheckFiles    = "check-files"
+)
+
 // runFullCleanup runs the fixed cleanup sequence under one polkit dialog:
-// paccache -k N, [paccache -k 0], [remove-orphans H], journal vacuum,
-// tmpfiles clean, pacman -Qk. Steps are independent, so a failing one does
-// not stop the rest. Result: 1 if any step failed, else 3 if the orphan plan
-// had changed (orphans left alone), else 0.
+// [remove-orphans H], paccache -k N, [paccache -k 0], tmpfiles clean,
+// journal vacuum, pacman -Qk. The orphan removal goes first, right after
+// the lock check, while the plan the user confirmed is freshest. Each part
+// starts with a progress event and ends with a done event, both naming its
+// part. Parts are independent, so a failing one does not stop the rest.
+// Result: 1 if any part failed, else 3 if the orphan plan had changed
+// (orphans left alone), else 0.
 func runFullCleanup(s *session, args []string) int {
 	c, err := parseCleanupArgs(args)
 	if err != nil {
@@ -83,39 +99,43 @@ func runFullCleanup(s *session, args []string) int {
 	defer release()
 
 	type cstep struct {
+		part    string
 		label   string
 		argv    []string
 		okExits []int
-		orphans bool
 	}
-	steps := []cstep{{label: "Cleaning package cache (keep " + c.keep + ")", argv: paccacheArgv(c.keep)}}
-	if c.wipe {
-		steps = append(steps, cstep{label: "Removing every cached package", argv: paccacheArgv("0")})
-	}
+	var steps []cstep
 	if c.orphans != "" {
-		steps = append(steps, cstep{orphans: true})
+		steps = append(steps, cstep{part: PartRemoveOrphans})
+	}
+	steps = append(steps, cstep{part: PartPaccache, label: "Cleaning package cache (keep " + c.keep + ")", argv: paccacheArgv(c.keep)})
+	if c.wipe {
+		steps = append(steps, cstep{part: PartPaccacheWipe, label: "Removing every cached package", argv: paccacheArgv("0")})
 	}
 	steps = append(steps,
-		cstep{label: "Vacuuming the journal (older than " + c.journal + ")", argv: journalArgv(c.journal)},
-		cstep{label: "Cleaning temporary files", argv: cleanTmpArgv()},
-		cstep{label: "Checking package files", argv: checkFilesArgv(), okExits: checkFilesOK},
+		cstep{part: PartCleanTmp, label: "Cleaning temporary files", argv: cleanTmpArgv()},
+		cstep{part: PartVacuumJournal, label: "Vacuuming the journal (older than " + c.journal + ")", argv: journalArgv(c.journal)},
+		cstep{part: PartCheckFiles, label: "Checking package files", argv: checkFilesArgv(), okExits: checkFilesOK},
 	)
 
 	var failures []string
 	stale := false
 	for i, st := range steps {
 		n, of := i+1, len(steps)
-		if st.orphans {
-			switch code, msg := s.removeOrphans(n, of, c.orphans); code {
-			case ExitOK:
-			case ExitStale:
-				stale = true
-			default: // failed, or pacman is running
-				failures = append(failures, msg)
-			}
-			continue
+		s.part = st.part
+		code, msg := ExitOK, ""
+		if st.part == PartRemoveOrphans {
+			code, msg = s.removeOrphans(n, of, c.orphans)
+		} else if ok, m := s.step(n, of, st.label, st.argv, st.okExits...); !ok {
+			code, msg = ExitFailed, m
 		}
-		if ok, msg := s.step(n, of, st.label, st.argv, st.okExits...); !ok {
+		s.em.Done(n, of, st.part, code, msg)
+		s.part = ""
+		switch code {
+		case ExitOK:
+		case ExitStale:
+			stale = true
+		default: // failed, or pacman is running
 			failures = append(failures, msg)
 		}
 	}

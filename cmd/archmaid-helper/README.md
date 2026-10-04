@@ -131,18 +131,24 @@ is allowed.
 **full-cleanup** takes
 `full-cleanup --keep N [--wipe] [--orphans sha256:…] --journal D`. Flags take
 their value as the next argument, never `--flag=value`. Each flag may appear
-once; unknown flags and positionals exit 2. The steps always run in this order:
+once; unknown flags and positionals exit 2. The steps ("parts") always run in
+this order, each named by the verb it stands for:
 
-1. `paccache -r -k N`
-2. `paccache -r -k 0` (only with `--wipe`)
-3. remove-orphans `H` (only with `--orphans`; a stale plan is skipped and reported, not run)
-4. `journalctl --vacuum-time=D`
-5. `systemd-tmpfiles --clean`
-6. `pacman -Qk`
+1. `remove-orphans`: remove-orphans `H` (only with `--orphans`; a stale plan is skipped and reported, not run). First, right after the lock check, while the confirmed plan is freshest
+2. `paccache`: `paccache -r -k N`
+3. `paccache-wipe`: `paccache -r -k 0` (only with `--wipe`)
+4. `clean-tmp`: `systemd-tmpfiles --clean`
+5. `vacuum-journal`: `journalctl --vacuum-time=D`
+6. `check-files`: `pacman -Qk`
 
-The steps are independent, so a failing step doesn't stop the rest. Result:
-1 if any step failed, otherwise 3 if the orphan plan was stale, otherwise 0.
-The GUI therefore shows one admin dialog for the whole cleanup, not about six.
+The parts are independent, so a failing part doesn't stop the rest. Each
+part's `progress` events carry `part`, and the part ends with a `done` event
+(its own outcome), before the next part's first `progress`. Result: 1 if any
+part failed, otherwise 3 if the orphan plan was stale, otherwise 0. The GUI
+runs Full Cleanup's root steps as this one verb, so the whole cleanup shows
+one admin dialog, and maps each part back to its own checklist row
+(`internal/helperclient`). The order is part of the protocol: the client
+checks it.
 
 Every name list is preceded by `--`. Every command is run by absolute path
 (`/usr/bin/…`), never through PATH or a shell. stdin is `/dev/null`.
@@ -165,7 +171,8 @@ on stderr.
 | t | fields |
 |---|---|
 | `start` | `verb`, `version`; `dev: true` only in a devhelper build |
-| `progress` | `step`, `of` (1-based), `label` |
+| `progress` | `step`, `of` (1-based), `label`; `part` (the part's verb) only in `full-cleanup` |
+| `done` | `full-cleanup` only, ending one part: `step`, `of`, `part`, `ok` (= `code == 0`), `code` (0, 1 failed, 3 stale plan, 5 pacman running), `error` when not ok |
 | `line` | `stream` (`out`/`err`), `text`: one line of child output (`\n`, `\r\n` or a lone `\r` ends a line; lines over 8 KiB are split) |
 | `plan` | `targets` (orphans), `items` (`"name version"` of everything removed), `total` = `len(items)`, `hash` |
 | `check` | `check-files` (with or without names): `checked` (the packages pacman printed a summary for), `broken` (those of them missing files); both arrays, never `null` |

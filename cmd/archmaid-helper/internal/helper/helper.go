@@ -112,7 +112,18 @@ type session struct {
 	em        *Emitter
 	childExit *int
 	skipped   []Skip
-	pacman    bool // verb wants the pacman lock check
+	pacman    bool   // verb wants the pacman lock check
+	part      string // the combined verb's part running now (its verb), or ""
+}
+
+// progress announces step n of `of`, as a part of a combined verb while
+// one runs (s.part).
+func (s *session) progress(n, of int, label string) {
+	if s.part != "" {
+		s.em.PartProgress(n, of, s.part, label)
+		return
+	}
+	s.em.Progress(n, of, label)
 }
 
 // Run executes `archmaid-helper <args...>` and returns the exit code. It
@@ -189,7 +200,7 @@ func (s *session) skip(name, reason string) {
 // step runs one root command, streaming its output, and reports whether it
 // succeeded. okExits lists exit codes that count as success besides 0.
 func (s *session) step(n, of int, label string, argv []string, okExits ...int) (bool, string) {
-	s.em.Progress(n, of, label)
+	s.progress(n, of, label)
 	exit, err := s.o.Runner.Stream(argv, s.em.Line)
 	if err != nil {
 		return false, fmt.Sprintf("%s: %v", label, err)
@@ -429,16 +440,17 @@ func runRemoveOrphans(s *session, args []string) int {
 // message for finish.
 //
 // The recompute sits between two checks that pacman isn't running, right
-// before -Rns: the lock check at the verb's start is minutes old by now in
-// full-cleanup (paccache ran in between), and a pacman running during the
-// recompute could change the database under it. What is left needs a root
+// before -Rns: the lock check at the verb's start is not one of them (in
+// full-cleanup the removal is the first part, but it must not rely on
+// that), and a pacman running during the recompute could change the
+// database under it. What is left needs a root
 // pacman started by someone else that either runs a whole transaction
 // inside the recompute (between the checks), or starts in the moment
 // between the second check and -Rns taking pacman's lock itself
 // (docs/HANDOVER.md, landmines).
 func (s *session) removeOrphans(n, of int, want string) (int, string) {
 	busy := func(err error) (int, string) {
-		s.em.Progress(n, of, "Orphan removal skipped: pacman is running")
+		s.progress(n, of, "Orphan removal skipped: pacman is running")
 		s.skip("remove-orphans", "pacman is running")
 		return ExitBusy, err.Error() + "; orphans were not removed"
 	}
@@ -450,13 +462,13 @@ func (s *session) removeOrphans(n, of int, want string) (int, string) {
 		return ExitFailed, err.Error()
 	}
 	if p.Hash != want {
-		s.em.Progress(n, of, "Orphan removal skipped: the plan changed since confirm")
+		s.progress(n, of, "Orphan removal skipped: the plan changed since confirm")
 		s.em.Plan(p) // the current plan, so the frontend can re-confirm
 		s.skip("remove-orphans", "the orphan plan changed since it was confirmed")
 		return ExitStale, "orphan plan changed since confirm; nothing removed"
 	}
 	if len(p.Targets) == 0 {
-		s.em.Progress(n, of, "No orphaned packages")
+		s.progress(n, of, "No orphaned packages")
 		s.skip("remove-orphans", "no orphaned packages")
 		return ExitOK, ""
 	}

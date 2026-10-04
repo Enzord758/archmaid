@@ -53,23 +53,62 @@ func TestFullCleanupSequence(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	want := []string{
+		"/usr/bin/pacman -Rns --noconfirm -- a",
 		"/usr/bin/paccache -r -k 2",
 		"/usr/bin/paccache -r -k 0",
-		"/usr/bin/pacman -Rns --noconfirm -- a",
-		"/usr/bin/journalctl --vacuum-time=1month",
 		"/usr/bin/systemd-tmpfiles --clean",
+		"/usr/bin/journalctl --vacuum-time=1month",
 		"/usr/bin/pacman -Qk",
 	}
 	if got := join(f.streams); !slices.Equal(got, want) {
 		t.Errorf("sequence\n got %q\nwant %q", got, want)
 	}
-	prog := ofType(events(t, out), EventProgress)
-	if len(prog) != len(want) {
-		t.Fatalf("progress events = %d, want %d", len(prog), len(want))
+	parts := []string{PartRemoveOrphans, PartPaccache, PartPaccacheWipe, PartCleanTmp, PartVacuumJournal, PartCheckFiles}
+	evs := events(t, out)
+	prog, done := ofType(evs, EventProgress), ofType(evs, EventDone)
+	if len(prog) != len(want) || len(done) != len(want) {
+		t.Fatalf("progress events = %d, done events = %d, want %d each", len(prog), len(done), len(want))
 	}
 	for i, p := range prog {
-		if p["step"] != float64(i+1) || p["of"] != float64(len(want)) || p["label"] == "" {
+		if p["step"] != float64(i+1) || p["of"] != float64(len(want)) || p["label"] == "" || p["part"] != parts[i] {
 			t.Errorf("progress %d = %v", i, p)
+		}
+	}
+	for i, d := range done {
+		if d["step"] != float64(i+1) || d["of"] != float64(len(want)) || d["part"] != parts[i] ||
+			d["ok"] != true || d["code"] != float64(0) {
+			t.Errorf("done %d = %v", i, d)
+		}
+	}
+	// Each part's done comes before the next part's progress.
+	var order []string
+	for _, e := range evs {
+		if e["t"] == EventProgress || e["t"] == EventDone {
+			order = append(order, e["t"].(string))
+		}
+	}
+	for i := range order {
+		if wantT := []string{EventProgress, EventDone}[i%2]; order[i] != wantT {
+			t.Fatalf("event order %q: parts overlap", order)
+		}
+	}
+}
+
+// TestPlainVerbsHaveNoParts: only the combined verb tags its progress with
+// a part and sends done events; a plain verb's stream is unchanged.
+func TestPlainVerbsHaveNoParts(t *testing.T) {
+	f := newFake()
+	o, out := rootOpts(t, f)
+	if code := Run([]string{"paccache", "3"}, o); code != ExitOK {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	evs := events(t, out)
+	if len(ofType(evs, EventDone)) != 0 {
+		t.Error("a plain verb sent a done event")
+	}
+	for _, p := range ofType(evs, EventProgress) {
+		if _, ok := p["part"]; ok {
+			t.Errorf("a plain verb's progress names a part: %v", p)
 		}
 	}
 }
@@ -82,8 +121,8 @@ func TestFullCleanupWithoutOptionalSteps(t *testing.T) {
 	}
 	want := []string{
 		"/usr/bin/paccache -r -k 3",
-		"/usr/bin/journalctl --vacuum-time=2weeks",
 		"/usr/bin/systemd-tmpfiles --clean",
+		"/usr/bin/journalctl --vacuum-time=2weeks",
 		"/usr/bin/pacman -Qk",
 	}
 	if got := join(f.streams); !slices.Equal(got, want) {
@@ -109,8 +148,16 @@ func TestFullCleanupStalePlanSkipsOnlyOrphans(t *testing.T) {
 	if len(f.streams) != 4 {
 		t.Errorf("the other steps must still run, ran %q", f.streams)
 	}
-	if len(ofType(events(t, out), EventPlan)) != 1 {
+	evs := events(t, out)
+	if len(ofType(evs, EventPlan)) != 1 {
 		t.Error("the new plan is not reported")
+	}
+	// Only the orphan part is stale; the others are done and ok.
+	for _, d := range ofType(evs, EventDone) {
+		stale := d["part"] == PartRemoveOrphans
+		if stale && (d["ok"] != false || d["code"] != float64(ExitStale)) || !stale && d["ok"] != true {
+			t.Errorf("done %v", d)
+		}
 	}
 }
 
@@ -126,5 +173,13 @@ func TestFullCleanupFailureContinuesAndIsExit1(t *testing.T) {
 	}
 	if res := result(t, out); !strings.Contains(res["error"].(string), "journal") {
 		t.Errorf("error does not name the failed step: %v", res["error"])
+	}
+	// The failure is the journal part's alone.
+	for _, d := range ofType(events(t, out), EventDone) {
+		failed := d["part"] == PartVacuumJournal
+		if failed && (d["ok"] != false || d["code"] != float64(ExitFailed) || !strings.Contains(d["error"].(string), "journalctl")) ||
+			!failed && d["ok"] != true {
+			t.Errorf("done %v", d)
+		}
 	}
 }

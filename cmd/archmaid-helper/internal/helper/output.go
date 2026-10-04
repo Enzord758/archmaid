@@ -21,6 +21,8 @@ const (
 	EventPlan     = "plan"
 	EventCheck    = "check"
 	EventResult   = "result"
+	// EventDone ends one part of a combined verb (full-cleanup).
+	EventDone = "done"
 )
 
 // Skip reports one input the helper deliberately did not act on.
@@ -43,6 +45,22 @@ type progressEvent struct {
 	Step  int    `json:"step"`
 	Of    int    `json:"of"`
 	Label string `json:"label"`
+	// Part is the verb a combined verb's step stands for (full-cleanup's
+	// "paccache", "remove-orphans" …); omitted on a plain verb's progress.
+	Part string `json:"part,omitempty"`
+}
+
+// doneEvent ends part Step of a combined verb: OK, or Code (ExitFailed,
+// ExitStale, ExitBusy) with Error.
+type doneEvent struct {
+	V     int    `json:"v"`
+	T     string `json:"t"`
+	Step  int    `json:"step"`
+	Of    int    `json:"of"`
+	Part  string `json:"part"`
+	OK    bool   `json:"ok"`
+	Code  int    `json:"code"`
+	Error string `json:"error,omitempty"`
 }
 
 type lineEvent struct {
@@ -112,6 +130,19 @@ func (e *Emitter) Start(verb string, dev bool) {
 // Progress announces step `step` of `of`.
 func (e *Emitter) Progress(step, of int, label string) {
 	e.emit(progressEvent{V: SchemaVersion, T: EventProgress, Step: step, Of: of, Label: Sanitize(label)})
+}
+
+// PartProgress is Progress for a part of a combined verb: part is the verb
+// it stands for.
+func (e *Emitter) PartProgress(step, of int, part, label string) {
+	e.emit(progressEvent{V: SchemaVersion, T: EventProgress, Step: step, Of: of, Label: Sanitize(label), Part: part})
+}
+
+// Done ends part `step` of `of` of a combined verb with code (ExitOK or the
+// part's failure) and msg.
+func (e *Emitter) Done(step, of int, part string, code int, msg string) {
+	e.emit(doneEvent{V: SchemaVersion, T: EventDone, Step: step, Of: of, Part: part,
+		OK: code == ExitOK, Code: code, Error: Sanitize(msg)})
 }
 
 // Line relays one line of a child's output; stream is "out" or "err".

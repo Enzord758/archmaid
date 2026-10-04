@@ -271,10 +271,10 @@ func (h hookRunner) Stream(argv []string, line func(stream, text string)) (int, 
 
 // TestRemoveOrphansPacmanStartsDuringRecompute: a pacman that takes its
 // lock while the plan is being recomputed (after the verb's own lock
-// check) stops the removal: -Rns never runs, exit 5. In full-cleanup the
-// same pacman started during paccache (minutes before the orphans) is
-// caught by the check before the recompute; the other steps still run.
-// Fails on a helper that checks db.lck only when the verb starts.
+// check) stops the removal: -Rns never runs, exit 5. In full-cleanup, where
+// the removal is the first part, the same pacman fails just that part; the
+// other parts still run. Fails on a helper that checks db.lck only when the
+// verb starts.
 func TestRemoveOrphansPacmanStartsDuringRecompute(t *testing.T) {
 	h := PlanHash([]string{"a"}, []string{"a 1-1"})
 	for name, c := range map[string]struct {
@@ -283,7 +283,7 @@ func TestRemoveOrphansPacmanStartsDuringRecompute(t *testing.T) {
 		code    int
 	}{
 		"remove-orphans": {[]string{"remove-orphans", h}, "/usr/bin/pacman -Rs --print", ExitBusy},
-		"full-cleanup":   {[]string{"full-cleanup", "--keep", "3", "--orphans", h, "--journal", "2weeks"}, "/usr/bin/paccache -r -k 3", ExitFailed},
+		"full-cleanup":   {[]string{"full-cleanup", "--keep", "3", "--orphans", h, "--journal", "2weeks"}, "/usr/bin/pacman -Rs --print", ExitFailed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := orphanFake("a\n", "a 1-1\n")
