@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
@@ -111,6 +112,10 @@ type report struct {
 	Title, Banner, FirstStatus string
 	// Outcomes is every run's outcome, in order (real-runs runs several).
 	Outcomes []string
+	// Withdrawn is the askpass entry typed into, after the engine
+	// withdrew its dialog (engine-stops-askpass): its length, and whether
+	// the window still holds it.
+	Withdrawn string
 	// Controls is the window's state right after the engine stopped
 	// (engine-stops): busy, Stop, the menu row, open dialogs, status.
 	Controls string
@@ -193,6 +198,8 @@ func runChild(scenario, path string) int {
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
+	case "engine-stops-askpass": // ... with sudo's askpass dialog open, typed in
+		action = stub.IDFullCleanupAskpass
 	case "real-dry", "real-refused", "real-locked", "real-close": // realdriver_harness_test.go
 	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
 		action = actions.IDTopgrade
@@ -212,6 +219,9 @@ func runChild(scenario, path string) int {
 	}
 	var sentMu sync.Mutex
 	var died atomic.Bool // engine-stops: the one Driver that dies has
+	kill := make(chan struct{})
+	killDriver := sync.OnceFunc(func() { close(kill) })
+	var typed *adw.PasswordEntryRow // engine-stops-askpass: the entry typed into
 	opts.NewDriver = func(o engine.Options) engine.Driver {
 		flag := "<none>"
 		if o.Env.Downloads != nil {
@@ -228,7 +238,7 @@ func runChild(scenario, path string) int {
 			}
 			d = stub.New(script, so)
 			if strings.HasPrefix(scenario, "engine-stops") {
-				d = newDyingDriver(d, &died)
+				d = newDyingDriver(d, &died, scenario == "engine-stops-askpass", kill)
 			}
 		}
 		return countingDriver{Driver: d, closes: &closes, mu: &sentMu, sent: &rep.Sent}
@@ -312,6 +322,12 @@ func runChild(scenario, path string) int {
 					case p.Password != nil:
 						rep.PwBodies = append(rep.PwBodies, d.Body())
 						w.pwEntry.SetText(password)
+						if scenario == "engine-stops-askpass" {
+							// Typed, never answered: the engine withdraws it.
+							typed = w.pwEntry
+							killDriver()
+							return
+						}
 						resp = "ok"
 						if cancelPassword {
 							resp = "cancel"
@@ -323,10 +339,11 @@ func runChild(scenario, path string) int {
 					case p.Report != nil:
 						resp = "accept"
 					}
+					entry := w.pwEntry
 					d.Emit("response", resp)
 					d.ForceClose()
-					if p.Password != nil && w.pwEntry.TextLength() != 0 {
-						fail("the password entry wasn't wiped after the answer")
+					if p.Password != nil && (entry.TextLength() != 0 || w.pwEntry != nil) {
+						fail("the password entry wasn't wiped and forgotten after the answer")
 					}
 				})
 			}
@@ -393,7 +410,10 @@ func runChild(scenario, path string) int {
 				}
 				if strings.HasPrefix(scenario, "engine-stops") && len(rep.Outcomes) == 1 {
 					rep.Controls = fmt.Sprintf("busy=%v stop=%v menu=%v dialogs=%d status=%q",
-						w.busy, w.stopBtn.Sensitive(), w.menu[action].row.Sensitive(), len(w.dialogs), w.status.Text())
+						w.busy, w.stopBtn.Sensitive(), w.menu[actions.IDFullCleanup].row.Sensitive(), len(w.dialogs), w.status.Text())
+					if typed != nil {
+						rep.Withdrawn = fmt.Sprintf("len=%d kept=%v", typed.TextLength(), w.pwEntry != nil)
+					}
 					if scenario == "engine-stops-rerun" {
 						glib.TimeoutAdd(50, func() {
 							rep.Rows = nil

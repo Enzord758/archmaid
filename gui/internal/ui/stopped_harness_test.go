@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -12,22 +13,36 @@ import (
 // dyingDriver passes on d's events up to the second step's start, then
 // ends its own Events without a Finished, as the real Driver does when it
 // closes on its own (a Session panic). Only one Driver per child dies
-// (died), so the run after it is a normal one.
+// (died), so the run after it is a normal one. With askpass it dies
+// instead once sudo's askpass prompt is out and kill is closed (the
+// harness has typed into its dialog).
 type dyingDriver struct {
 	engine.Driver
-	out  chan engine.Event
-	done chan struct{}
+	out     chan engine.Event
+	done    chan struct{}
+	closing chan struct{}
 }
 
-func newDyingDriver(d engine.Driver, died *atomic.Bool) *dyingDriver {
-	x := &dyingDriver{Driver: d, out: make(chan engine.Event, 64), done: make(chan struct{})}
+func newDyingDriver(d engine.Driver, died *atomic.Bool, askpass bool, kill <-chan struct{}) *dyingDriver {
+	x := &dyingDriver{Driver: d, out: make(chan engine.Event, 64), done: make(chan struct{}), closing: make(chan struct{})}
 	go func() {
 		defer close(x.done)
 		defer close(x.out)
 		in := d.Events()
 		for ev := range in {
 			x.out <- ev
-			if s, ok := ev.(engine.StepStarted); ok && s.Index == 1 && died.CompareAndSwap(false, true) {
+			die := false
+			if s, ok := ev.(engine.StepStarted); ok && s.Index == 1 && !askpass {
+				die = true
+			}
+			if p, ok := ev.(engine.NeedsPassword); ok && p.Kind == engine.PasswordAskpass && askpass {
+				select {
+				case <-kill:
+					die = true
+				case <-x.closing:
+				}
+			}
+			if die && died.CompareAndSwap(false, true) {
 				go d.Close()
 				for range in { // drained until the stub's Close ends it
 				}
@@ -41,6 +56,11 @@ func newDyingDriver(d engine.Driver, died *atomic.Bool) *dyingDriver {
 func (x *dyingDriver) Events() <-chan engine.Event { return x.out }
 
 func (x *dyingDriver) Close() {
+	select {
+	case <-x.closing:
+	default:
+		close(x.closing)
+	}
 	x.Driver.Close()
 	<-x.done
 }
@@ -53,7 +73,7 @@ func (x *dyingDriver) Close() {
 // to the end.
 func TestGUIEngineStops(t *testing.T) {
 	needDisplay(t)
-	wantControls := `busy=false stop=false menu=true dialogs=0 status="` + runview.EngineStopped
+	wantControls := `busy=false stop=false menu=true dialogs=0 status="STUB · ` + runview.EngineStopped
 
 	rep, _ := child(t, "engine-stops")
 	if len(rep.Outcomes) != 1 || rep.Outcomes[0] != "stopped" || !strings.HasPrefix(rep.Controls, wantControls) {
@@ -81,6 +101,19 @@ func TestGUIEngineStops(t *testing.T) {
 	}
 	if len(rep.DriverOpts) != 3 || rep.DriverCloses != 3 {
 		t.Errorf("drivers %q, %d closed: want the window's, the dead one and a fresh one, all closed", rep.DriverOpts, rep.DriverCloses)
+	}
+
+	// sudo's askpass dialog open, a password typed, never answered: the
+	// engine stopping withdraws it, and the entry is wiped and forgotten.
+	rep, _ = child(t, "engine-stops-askpass")
+	if len(rep.Outcomes) != 1 || rep.Outcomes[0] != "stopped" || !strings.HasPrefix(rep.Controls, wantControls) {
+		t.Errorf("askpass: outcomes %q controls %s", rep.Outcomes, rep.Controls)
+	}
+	if rep.Withdrawn != "len=0 kept=false" {
+		t.Errorf("the withdrawn askpass entry: %s, want len=0 kept=false", rep.Withdrawn)
+	}
+	if !slices.Equal(rep.Sent, []string{"confirm 1 true"}) { // the gate only
+		t.Errorf("sent %q: want the gate only, the withdrawn prompt unanswered", rep.Sent)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
 // The decision dialogs: one AdwAlertDialog per open prompt, kept in
@@ -18,6 +19,10 @@ import (
 // asks the model to claim the ID first: a stale ID (withdrawn, replaced by
 // a newer prompt, already answered) is dropped there and never reaches the
 // engine.
+
+// askpassPromptMax is how much of sudo's prompt the askpass dialog shows,
+// as the TUI's popup does.
+const askpassPromptMax = 48
 
 // prompt opens the dialog for p.
 func (w *Window) prompt(p runview.Prompt) {
@@ -135,30 +140,7 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 // stands in for as its heading), or for sudo's askpass mid-step (naming
 // who asked). "Cancel" is CancelPrompt.
 func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
-	var heading, body string
-	switch p.Kind {
-	case engine.PasswordAskpass:
-		heading = "sudo Asks for Your Password"
-		body = "A running step needs root."
-		if p.Requester != "" {
-			body = "Asked by " + p.Requester + "."
-		}
-		if p.Prompt != "" {
-			body += "\n" + p.Prompt
-		}
-	default:
-		heading = "Password Required"
-		if p.Gate != "" {
-			heading = p.Gate
-		}
-		body = "Your password lets archmaid run the steps that need root."
-	}
-	if p.Error != "" {
-		body += "\n\n" + p.Error
-	}
-	if p.AttemptsLeft > 0 && p.Error != "" {
-		body += fmt.Sprintf("\n%d attempt(s) left.", p.AttemptsLeft)
-	}
+	heading, body := passwordText(p)
 	d := adw.NewAlertDialog(heading, body)
 	d.AddResponse("cancel", "Cancel")
 	d.AddResponse("ok", "Authenticate")
@@ -198,6 +180,15 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		})
 	}
 	d.ConnectResponse(respond)
+	// However it closes — answered, or withdrawn by the engine
+	// (PromptClosed, the engine stopping: ForceClose with no response) —
+	// the entry is wiped and forgotten.
+	d.ConnectClosed(func() {
+		wipeEditable(entry)
+		if w.pwEntry == entry {
+			w.pwEntry = nil
+		}
+	})
 	entry.ConnectEntryActivated(func() {
 		if entry.TextLength() == 0 {
 			return
@@ -206,6 +197,36 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		d.ForceClose()
 	})
 	return d
+}
+
+// passwordText is the password dialog's heading and body.
+func passwordText(p engine.NeedsPassword) (heading, body string) {
+	switch p.Kind {
+	case engine.PasswordAskpass:
+		heading = "sudo Asks for Your Password"
+		body = "A running step needs root."
+		if p.Requester != "" {
+			body = "Asked by " + p.Requester + "."
+		}
+		if p.Prompt != "" {
+			// sudo's prompt comes from whatever asked: one line, at most
+			// 48 runes, as the TUI shows it.
+			body += "\n" + sanitize.Clip(sanitize.OneLine(p.Prompt), askpassPromptMax)
+		}
+	default:
+		heading = "Password Required"
+		if p.Gate != "" {
+			heading = p.Gate
+		}
+		body = "Your password lets archmaid run the steps that need root."
+	}
+	if p.Error != "" {
+		body += "\n\n" + p.Error
+	}
+	if p.AttemptsLeft > 0 && p.Error != "" {
+		body += fmt.Sprintf("\n%d attempt(s) left.", p.AttemptsLeft)
+	}
+	return heading, body
 }
 
 // selectionDialog is a checkbox list; "Continue" sends the checked items

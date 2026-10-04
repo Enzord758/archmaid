@@ -42,6 +42,21 @@ func TestParseLaunch(t *testing.T) {
 	}
 }
 
+// TestPasswordTextClipsPrompt: sudo's askpass prompt comes from whatever
+// asked, so the dialog shows it on one line, clipped to 48 runes, as the
+// TUI's popup does.
+func TestPasswordTextClipsPrompt(t *testing.T) {
+	long := "[sudo] password for someone\nwith a very long prompt that goes on and on and on"
+	_, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Requester: "topgrade (pid 7)", Prompt: long})
+	want := "Asked by topgrade (pid 7).\n" + "[sudo] password for someone with a very long pr…"
+	if body != want {
+		t.Errorf("body %q, want %q", body, want)
+	}
+	if _, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Prompt: "[sudo] password: "}); body != "A running step needs root.\n[sudo] password:" {
+		t.Errorf("short prompt: body %q", body)
+	}
+}
+
 // The instance child's environment.
 const (
 	envInstance = "ARCHMAID_GUI_INSTANCE" // "real" or "stub"
