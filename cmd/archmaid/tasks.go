@@ -677,8 +677,9 @@ var execProcess = tea.ExecProcess
 func editConfig() tea.Cmd {
 	path := configPath()
 	if dryRun {
+		store := logs() // the Cmd runs off the model's goroutine (see logs)
 		return func() tea.Msg {
-			appendLog(logCategoryCleanup, "DRYRUN", "Edit topgrade config", "would open "+editorName()+" on "+path)
+			_ = store.Append(logCategoryCleanup, "DRYRUN", "Edit topgrade config", "would open "+editorName()+" on "+path)
 			return editorDoneMsg{}
 		}
 	}

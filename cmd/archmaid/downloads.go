@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/downloads"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
@@ -51,8 +52,10 @@ func downloadsOptions() downloads.Options {
 
 // discoverDownloads resolves the folder and lists its old entries. Deleting
 // them is an in-process step that re-checks each entry first (see
-// deleteOldDownloads).
+// deleteOldDownloads). The log store the step records an abort in is captured
+// here, on the model's goroutine, not in the Cmd.
 func discoverDownloads() tea.Cmd {
+	store := logs()
 	return func() tea.Msg {
 		notice := func(s string) tea.Msg { return discoveryMsg{kind: "downloads", notice: s} }
 		opt := downloadsOptions()
@@ -69,7 +72,7 @@ func discoverDownloads() tea.Cmd {
 		}
 		return discoveryMsg{kind: "downloads", pending: []step{{
 			title: "Deleting old downloads…", logLabel: "Old downloads deleted",
-			run:      deleteOldDownloads(plan),
+			run:      deleteOldDownloads(plan, store),
 			optional: true, alwaysLog: true,
 			confirm: plan.Confirm(),
 		}}}
@@ -84,8 +87,9 @@ func discoverDownloads() tea.Cmd {
 // abort, and — should the abort land after it returned but before the model
 // took its result — from a context.AfterFunc that the result's commit
 // (called only when the result is taken) disarms. Either way cleanup.log gets
-// one entry naming exactly what was deleted.
-func deleteOldDownloads(plan downloads.Plan) func(context.Context) stepResult {
+// one entry naming exactly what was deleted, in store: both run off the
+// model's goroutine, so they must not look the store up themselves (logs).
+func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context.Context) stepResult {
 	return func(ctx context.Context) stepResult {
 		downloadsRunning.Add(1)
 		defer downloadsRunning.Done()
@@ -96,7 +100,7 @@ func deleteOldDownloads(plan downloads.Plan) func(context.Context) stepResult {
 			return res // nothing deleted; finishStep logs the DRYRUN entry
 		}
 		if ctx.Err() != nil {
-			logAbortedDownloads(res.output)
+			logAbortedDownloads(store, res.output)
 			return res
 		}
 		if ctx.Done() == nil {
@@ -105,7 +109,7 @@ func deleteOldDownloads(plan downloads.Plan) func(context.Context) stepResult {
 		downloadsRunning.Add(1) // until the AfterFunc has run or been disarmed
 		stop := context.AfterFunc(ctx, func() {
 			defer downloadsRunning.Done()
-			logAbortedDownloads(res.output)
+			logAbortedDownloads(store, res.output)
 		})
 		res.commit = func() error {
 			if stop() {
@@ -137,6 +141,7 @@ func waitForDownloads(w io.Writer) {
 
 // logAbortedDownloads records an aborted real run's output — what it deleted
 // and where it stopped — in place of the entry finishStep would have written.
-func logAbortedDownloads(output string) {
-	appendLog(logCategoryCleanup, "ABORT", "Old downloads deleted (aborted)", output)
+// Like appendLog, a failed write is dropped.
+func logAbortedDownloads(store *logstore.Store, output string) {
+	_ = store.Append(logCategoryCleanup, "ABORT", "Old downloads deleted (aborted)", output)
 }

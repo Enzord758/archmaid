@@ -2,6 +2,8 @@ package main
 
 import (
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/logstore"
@@ -36,21 +38,53 @@ type logStoreKey struct {
 }
 
 var (
+	logMu       sync.Mutex // guards the three below
 	theLogStore *logstore.Store
 	theLogKey   logStoreKey
+	// logStarted names this process's run directory. It is fixed by the
+	// first store, so a store rebuilt later (a test moving logDir) keeps the
+	// same <timestamp>/ even if the minute has turned since.
+	logStarted time.Time
 )
+
+// logNow is the clock that stamps the run directory: a seam for tests.
+var logNow = time.Now
 
 // logs is the process's one log store, built from logDir and dryRun. Both are
 // plain variables (--dryrun sets one after init, tests set the other), so the
 // store is rebuilt if either has changed since it was made; in a real run that
 // never happens after startup.
+//
+// It reads logDir and dryRun, so call it on the model's goroutine (or before
+// the program starts). Work that runs off it — a Cmd, an in-process step, a
+// context.AfterFunc — takes the *logstore.Store captured where it was set up
+// instead: a Store never changes once made and is safe from any goroutine.
+// The mutex only keeps the cache itself whole.
 func logs() *logstore.Store {
+	logMu.Lock()
+	defer logMu.Unlock()
 	key := logStoreKey{logDir, dryRun}
 	if theLogStore == nil || key != theLogKey {
-		theLogStore = logstore.New(logstore.Options{Dir: logDir, DryRun: dryRun, Now: time.Now})
+		if logStarted.IsZero() {
+			logStarted = logNow()
+		}
+		theLogStore = logstore.New(logstore.Options{Dir: logDir, DryRun: dryRun, Now: runClock(logStarted)})
 		theLogKey = key
 	}
 	return theLogStore
+}
+
+// runClock is time.Now, except for its first call: logstore.New reads the
+// clock once, first, to name the run directory (see logstore.Options.Now),
+// and gets start. Every entry after that is stamped with the real time.
+func runClock(start time.Time) func() time.Time {
+	var named atomic.Bool
+	return func() time.Time {
+		if named.CompareAndSwap(false, true) {
+			return start
+		}
+		return time.Now()
+	}
 }
 
 // resolveLogDir is the log root: the override when set, otherwise
@@ -68,7 +102,8 @@ func logPath(cat logCategory) string { return logs().Path(cat) }
 func pruneLogs() { logs().Prune(logKeepRuns) }
 
 // appendLog writes a timestamped entry to cat's log (see logstore.Append). A
-// failed write is dropped: logging must never break a step.
+// failed write is dropped: logging must never break a step. Model goroutine
+// only (see logs); elsewhere, Append to a captured store.
 func appendLog(cat logCategory, kind, label, body string) {
 	_ = logs().Append(cat, kind, label, body)
 }

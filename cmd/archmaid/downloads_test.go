@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -230,6 +231,69 @@ func TestDownloadsAbortAfterTheRunIsLogged(t *testing.T) {
 	if exists(filepath.Join(dl, "a.txt")) {
 		t.Fatal("a.txt survived")
 	}
+}
+
+// TestDownloadsAbortLogsWhereItStarted: the abort record is written off the
+// model's goroutine (by the step, or by its context.AfterFunc), so it goes to
+// the store captured when the step was set up, never to one looked up from
+// logDir there. The test keeps moving logDir while the step runs; under
+// -race a lookup off the model's goroutine fails it, without -race the
+// entry lands in the wrong place.
+func TestDownloadsAbortLogsWhereItStarted(t *testing.T) {
+	t.Run("mid-deletion", func(t *testing.T) {
+		m, cmd, _ := startDownloadsDelete(t)
+		want := logPath(logCategoryCleanup)
+		reached, resume := make(chan struct{}), make(chan struct{})
+		downloadsEntryHook = func(name string) {
+			if name == "c.txt" {
+				close(reached)
+				<-resume
+			}
+		}
+		t.Cleanup(func() { downloadsEntryHook = nil })
+		msgs := make(chan tea.Msg, 1)
+		go func() { msgs <- cmd() }()
+		<-reached
+		m = abortRun(t, m) // cancels the step's ctx: it logs as it returns
+
+		orig, elsewhere := logDir, []string{t.TempDir(), t.TempDir()}
+		close(resume)
+		var msg tea.Msg
+		for i := 0; msg == nil; i++ {
+			logDir = elsewhere[i%2] // no syscalls here: they'd hide a racy read
+			select {
+			case msg = <-msgs:
+			default:
+				runtime.Gosched()
+			}
+		}
+		logDir = orig
+		update(m, msg) // stale: dropped
+
+		if log, _ := os.ReadFile(want); !strings.Contains(string(log), "ABORT: Old downloads deleted (aborted)") {
+			t.Fatalf("%s lacks the abort record:\n%s", want, log)
+		}
+		for _, d := range elsewhere {
+			if entries, _ := os.ReadDir(d); len(entries) != 0 {
+				t.Fatalf("the abort record went to %s, a log dir set after the step started", d)
+			}
+		}
+	})
+	t.Run("after the run", func(t *testing.T) {
+		m, cmd, _ := startDownloadsDelete(t)
+		want := logPath(logCategoryCleanup)
+		msg := cmd() // the whole delete runs; its AfterFunc is armed
+		logDir = t.TempDir()
+		m = abortRun(t, m) // the AfterFunc writes the record
+		waitForDownloads(io.Discard)
+		update(m, msg)
+		if log, _ := os.ReadFile(want); !strings.Contains(string(log), "ABORT: Old downloads deleted (aborted)") {
+			t.Fatalf("%s lacks the abort record:\n%s", want, log)
+		}
+		if entries, _ := os.ReadDir(logDir); len(entries) != 0 {
+			t.Fatal("the abort record went to the log dir set after the step started")
+		}
+	})
 }
 
 // TestParseArgsDownloads: --downloads takes its folder as the next argument

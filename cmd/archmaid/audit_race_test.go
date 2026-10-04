@@ -115,8 +115,7 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 	if snap, state := loadBaselineFrom(snapshot); state != baselineOK || snap["steady"].maintainer != "alice" {
 		t.Fatalf("snapshot at %s: state=%d %v", snapshot, state, snap)
 	}
-	// The menu audit captured the same store as the prefetch. (logPath would
-	// build a new one now, and a new store may stamp a new run directory.)
+	// The menu audit captured the same store as the prefetch.
 	if log, _ := os.ReadFile(fetch.target.logs.Path(logCategoryAudit)); !strings.Contains(string(log), "AUR audit: 1 checked") {
 		t.Fatalf("audit log:\n%s", log)
 	}

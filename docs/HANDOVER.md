@@ -27,7 +27,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | `tasks.go` | `step`, `runStep`/`stepSpec` (a step's command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, the sudo probe/auth/keep-alive as `tea.Cmd`s over `privilege.Sudo` (`checkSudoCached`, `authSudo`, `refreshSudo`), discovery commands, `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
 | `audit.go` | the AUR audit: RPC lookup, classification, maintainer snapshot, report |
-| `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun`, thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering |
+| `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process), thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering. `logs()`/`appendLog` are for the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
 | `askpass.go` | askpass tea glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper), `askpassMsg`/`askpassResultMsg`, `answerAskpass` (`Request.Answer` off the UI thread), `verifyAskpassPeer` (`privilege.Verify` with the `readProc`/`ourUID` seams), the popup's `askpassRequester`; the popup itself is `handleAskpass` in `update.go` |
 | `overlay.go` | ANSI-aware popup compositor |
 | `status.go`, `theme.go` | the status line's tea glue (`refreshStatus`, `refreshStatusNow`, the `tickFn` seam; the reading itself is `internal/sysstat`: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
@@ -171,7 +171,9 @@ comments and `git log`; this is the "read before you touch it" list.
   stopped) when it sees the abort, or from a `context.AfterFunc` if the abort
   lands after it returned — the result's `commit` disarms that when the
   result is taken, which is why `handleStepResult` releases the step's ctx
-  only *after* `commit`. `main` waits for such a run (`waitForDownloads`)
+  only *after* `commit`. Both writers run off the model's goroutine, so they
+  append to the store `discoverDownloads` captured on it, never to `logs()`
+  (which reads `logDir`/`dryRun`). `main` waits for such a run (`waitForDownloads`)
   before exiting. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
   run directories are kept, `dryrun/` is a single reused slot, and files in the

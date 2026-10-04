@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // useLogDir points the log dir at dir for one test.
@@ -72,5 +73,34 @@ func TestLogsAreSanitized(t *testing.T) {
 	}
 	if got := readLog(logCategoryCleanup); strings.ContainsAny(got, "\x1b\x07") || !strings.Contains(got, "ok\n") {
 		t.Fatalf("View log shows %q, want the old log as plain text", got)
+	}
+}
+
+// TestLogRunDirIsStableAcrossRebuilds: a store rebuilt because logDir moved
+// keeps the run directory name of the first one, even once the clock has
+// moved on to another minute.
+func TestLogRunDirIsStableAcrossRebuilds(t *testing.T) {
+	logMu.Lock()
+	oldStarted, oldStore, oldNow := logStarted, theLogStore, logNow
+	logStarted, theLogStore = time.Time{}, nil
+	logNow = func() time.Time { return time.Date(2001, 2, 3, 4, 5, 0, 0, time.UTC) }
+	logMu.Unlock()
+	t.Cleanup(func() {
+		logMu.Lock()
+		logStarted, theLogStore, logNow = oldStarted, oldStore, oldNow
+		logMu.Unlock()
+	})
+
+	useLogDir(t, t.TempDir())
+	first := runDirName()
+	logNow = func() time.Time { return time.Date(2001, 2, 3, 5, 6, 0, 0, time.UTC) }
+	useLogDir(t, t.TempDir())
+	if second := runDirName(); first != "20010203-0405" || second != first {
+		t.Fatalf("run dirs %q then %q, want both 20010203-0405", first, second)
+	}
+	// Entries are still stamped with the real time, not the run's start.
+	appendLog(logCategoryCleanup, "OK", "stamp", "")
+	if log, _ := os.ReadFile(logPath(logCategoryCleanup)); strings.Contains(string(log), "[2001-") {
+		t.Fatalf("entry stamped with the run's start:\n%s", log)
 	}
 }
