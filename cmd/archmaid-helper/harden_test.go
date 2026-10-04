@@ -55,35 +55,50 @@ func TestMain(m *testing.M) {
 		json.NewEncoder(os.Stdout).Encode(r)
 		os.Exit(0)
 	}
-	if os.Getenv(signalChildEnv) == "1" {
-		ignoreSignals()
-		for _, sig := range ignoredSignals {
+	switch os.Getenv(signalChildEnv) {
+	case "mask":
+		catchSignals()
+		for _, sig := range caughtSignals {
 			syscall.Kill(os.Getpid(), sig.(syscall.Signal))
 		}
-		// Still here. What does a child inherit? (cat reads its own status.)
-		out, _ := exec.Command("/usr/bin/cat", "/proc/self/status").Output()
-		for l := range strings.SplitSeq(string(out), "\n") {
+		// Still here. What does a child start with? (cat reads its own
+		// status; it runs through the real runner, like pacman would.)
+		out, _, _, _ := helper.ExecRunner{}.Query([]string{"/usr/bin/cat", "/proc/self/status"})
+		for l := range strings.SplitSeq(out, "\n") {
 			if v, ok := strings.CutPrefix(l, "SigIgn:"); ok {
 				os.Stdout.WriteString(strings.TrimSpace(v))
 			}
 		}
 		os.Exit(0)
+	case "epipe":
+		// stdout is a pipe nobody reads: the GUI died.
+		catchSignals()
+		for range 3 {
+			if _, err := os.Stdout.WriteString("x\n"); err == nil {
+				os.Stderr.WriteString("write to a closed pipe succeeded\n")
+				os.Exit(1)
+			}
+		}
+		os.Stderr.WriteString("survived")
+		os.Exit(0)
 	}
 	os.Exit(m.Run())
 }
 
-// signalChild is the re-exec'd half of TestIgnoreSignals.
+// signalChild is the re-exec'd half of the signal tests.
 const signalChildEnv = "ARCHMAID_HELPER_SIGNAL_CHILD"
 
-// TestIgnoreSignals: a terminal's Ctrl-C or hangup, a SIGTERM or a closed
-// pipe must not end the helper before its result line.
-func TestIgnoreSignals(t *testing.T) {
+// TestCatchSignals: a terminal's Ctrl-C, Ctrl-\, Ctrl-Z or hangup, a
+// SIGTERM or a closed pipe must not end or stop the helper before its result
+// line, and a child must not inherit any of them as ignored: scriptlets and
+// hooks have to be stoppable (timeout) and trap them normally.
+func TestCatchSignals(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(exe, "-test.run=^$")
-	cmd.Env = []string{signalChildEnv + "=1"}
+	cmd.Env = []string{signalChildEnv + "=mask"}
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("child did not survive its own signals: %v", err)
@@ -92,10 +107,34 @@ func TestIgnoreSignals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SigIgn %q: %v", out, err)
 	}
-	for _, sig := range ignoredSignals {
-		if n := sig.(syscall.Signal); mask&(1<<(n-1)) == 0 {
-			t.Errorf("a child of the helper does not inherit SIG_IGN for %v (SigIgn %s)", sig, out)
+	for _, sig := range caughtSignals {
+		if n := sig.(syscall.Signal); mask&(1<<(n-1)) != 0 {
+			t.Errorf("a child of the helper starts with %v ignored (SigIgn %s)", sig, out)
 		}
+	}
+}
+
+// TestCatchSignalsSurvivesClosedStdout: Go exits on EPIPE writing to stdout
+// unless SIGPIPE is handled; the helper must keep going (and keep draining
+// pacman) after the GUI went away.
+func TestCatchSignalsSurvivesClosedStdout(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	defer w.Close()
+	cmd := exec.Command(exe, "-test.run=^$")
+	cmd.Env = []string{signalChildEnv + "=epipe"}
+	cmd.Stdout = w
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil || stderr.String() != "survived" {
+		t.Fatalf("child: %v, stderr %q", err, stderr.String())
 	}
 }
 

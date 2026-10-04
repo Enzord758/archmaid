@@ -173,13 +173,19 @@ In order, before anything else:
    (eventpoll/eventfd) can't be told apart from inherited ones of the same
    kind, so those are set close-on-exec instead of closed.
 2. `SIGPIPE`, `SIGINT`, `SIGHUP`, `SIGTERM`, `SIGQUIT`, `SIGTSTP`, `SIGTTIN`
-   and `SIGTTOU` are ignored for the whole run, so the helper always finishes
-   (it is never stopped either) and writes its `result` line. If the GUI dies,
-   writes to stdout just fail and the helper keeps draining the child, so
-   pacman is never killed mid-transaction. A Ctrl-C, Ctrl-\, Ctrl-Z or a closed
-   terminal (`pkexec` from a shell) is ignored the same way. The dispositions
-   are `SIG_IGN`, so children inherit them. pacman still sets up its own
-   `SIGINT`/`SIGHUP` handling. Only root can stop the helper, with `SIGKILL`.
+   and `SIGTTOU` are caught and dropped for the whole run, so the helper always
+   finishes (it is never stopped either) and writes its `result` line. If the
+   GUI dies, writes to stdout just fail with `EPIPE` and the helper keeps
+   draining the child, so pacman is never killed mid-transaction. A Ctrl-C,
+   Ctrl-\, Ctrl-Z or a closed terminal (`pkexec` from a shell) is dropped the
+   same way. Only root can stop the helper, with `SIGKILL`. They are caught
+   (`signal.Notify`), **not** ignored: a `SIG_IGN` disposition survives exec,
+   so pacman's scriptlets and hooks would start with `SIGINT`/`SIGTERM`/`SIGHUP`
+   ignored, a hook's `timeout` couldn't stop a hung child, and a script's
+   `trap` would do nothing. A caught signal is reset to the default on exec,
+   so every child starts clean. (One corner: in the background of a terminal
+   set to `stty tostop`, the helper spins on its writes to that terminal until
+   it is brought to the foreground, instead of being stopped.)
    **Every child runs in a session of its own** (`Setsid`), so nothing the
    terminal sends to its foreground process group, and no kill of the helper's
    process group, reaches pacman. The child has no controlling terminal and

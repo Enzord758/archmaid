@@ -44,7 +44,7 @@ func getsid(pid int) int {
 // sessionChild is the helper: it sets up its signal handling the way main
 // does, runs the grandchild, and writes a result line.
 func sessionChild(dir string) {
-	ignoreSignals()
+	catchSignals()
 	exe, err := os.Executable()
 	if err != nil {
 		os.Exit(1)
