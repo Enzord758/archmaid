@@ -79,7 +79,9 @@ comments and `git log`; this is the "read before you touch it" list.
     `-A`/`--askpass` or a short-flag cluster with one of them
     (`ErrSudoMayPrompt`), also behind `env` or named in a shell's arguments;
     a sudo reached any other way (a script, a variable, `nice`…) isn't seen.
-    A sudo with a nil `Env` runs without an inherited `SUDO_ASKPASS`.
+    Any child with a nil `Env` (sudo or not) runs without an inherited
+    `SUDO_ASKPASS`, so a `sudo -A` behind `env`, a shell or topgrade never
+    reaches a helper the user's shell exported.
   - `privilege.CheckPassword` (so `Authenticate` and `Answer`) refuses a
     password with `\r` or `\n`; su's lockout notice is sanitized and clipped.
   - `sanitize.Mode`'s zero value is `Plain`; colours need `KeepSGR`.

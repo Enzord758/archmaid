@@ -28,7 +28,7 @@ type Spec struct {
 	Name string   // the program, looked up in PATH
 	Args []string // its arguments
 	// Env is the child's whole environment; nil inherits archmaid's, minus
-	// any SUDO_ASKPASS when the command is sudo (see CheckSudo).
+	// any SUDO_ASKPASS (see env).
 	Env []string
 	// Display is what a dry run reports it would run; empty means Name and
 	// Args joined by spaces.
@@ -184,11 +184,13 @@ func checkShellWords(words []string, depth int) error {
 }
 
 // env is the environment spec's child gets: Env, or for a nil Env
-// archmaid's own — without SUDO_ASKPASS when the command is sudo, so a
-// `sudo -A` never picks up a helper the user's shell exported. (An explicit
-// Env is the caller's, e.g. privilege.Sudo.Env with archmaid's own wrapper.)
+// archmaid's own without SUDO_ASKPASS — whatever the command, so no `sudo -A`
+// behind env, a shell or a tool that runs sudo itself picks up a helper the
+// user's shell exported. That helper is code archmaid knows nothing about;
+// archmaid gives its own wrapper explicitly, to the steps that need it. (An
+// explicit Env is the caller's, e.g. privilege.Sudo.Env with that wrapper.)
 func (s Spec) env() []string {
-	if s.Env != nil || !isSudo(s.Name) {
+	if s.Env != nil {
 		return s.Env
 	}
 	environ := os.Environ()

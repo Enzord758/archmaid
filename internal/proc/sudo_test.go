@@ -96,6 +96,93 @@ func TestStartSudoEnv(t *testing.T) {
 	}
 }
 
+// askpassProbe is the script for a non-sudo shim that prints the
+// SUDO_ASKPASS it saw ("unset" if none).
+const askpassProbe = "#!/bin/sh\nprintf '%s\\n' \"${SUDO_ASKPASS-unset}\"\n"
+
+// TestNilEnvStripsAskpass: a child with a nil Env never sees a SUDO_ASKPASS
+// the user's shell exported, whatever the command — not only a direct sudo,
+// but a `sudo -A` behind env or a shell, and a plain command (topgrade, which
+// runs sudo itself). That helper is unknown code; archmaid hands its own
+// wrapper only to the steps that need it, through an explicit Env. Every case
+// here fails on the code that stripped it for a direct sudo only.
+func TestNilEnvStripsAskpass(t *testing.T) {
+	t.Setenv("SUDO_ASKPASS", "/from/the/users/shell")
+	for _, spec := range []Spec{
+		{Name: "/usr/bin/env", Args: []string{"sudo", "-A", "true"}},
+		{Name: "/usr/bin/env", Args: []string{"FOO=1", "sudo", "-n", "true"}},
+		{Name: "/bin/sh", Args: []string{"-c", "sudo -A true"}},
+		{Name: "/usr/bin/env", Args: []string{"/bin/sh", "-c", "sudo -A true"}},
+	} {
+		dir := shimSudo(t)
+		if _, err := startSpec(t, spec); err != nil {
+			t.Fatalf("%s %q: %v", spec.Name, spec.Args, err)
+		}
+		if ran, askpass := sudoRan(dir); !ran || askpass != "unset" {
+			t.Errorf("%s %q: sudo ran=%v with SUDO_ASKPASS=%q; want it run without the inherited one", spec.Name, spec.Args, ran, askpass)
+		}
+	}
+
+	// A plain command: topgrade, which runs sudo itself, by name and by path.
+	dir := t.TempDir()
+	topgrade := filepath.Join(dir, "topgrade")
+	if err := os.WriteFile(topgrade, []byte(askpassProbe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	for _, name := range []string{"topgrade", topgrade} {
+		ch := make(chan Msg, 16)
+		New(Options{}).Start(Spec{Name: name}, ch, nil)
+		if lines, err := drain(t, ch); err != nil || len(lines) != 1 || lines[0] != "unset" {
+			t.Errorf("%s saw SUDO_ASKPASS %q (err %v), want unset", name, lines, err)
+		}
+	}
+
+	// Query, for a plain command too.
+	out, err := Query(context.Background(), "/bin/sh", "-c", `printf '%s' "${SUDO_ASKPASS-unset}"`)
+	if err != nil || string(out) != "unset" {
+		t.Errorf("Query(sh -c …) saw SUDO_ASKPASS %q (err %v), want unset", out, err)
+	}
+
+	if got := os.Getenv("SUDO_ASKPASS"); got != "/from/the/users/shell" {
+		t.Fatalf("SUDO_ASKPASS = %q: archmaid's own environment must be left alone", got)
+	}
+}
+
+// TestExplicitEnvKeepsAskpass: an explicit Env is the child's whole
+// environment, as given — archmaid's own wrapper reaches a plain command
+// (topgrade's step) and a wrapped sudo, and an Env without SUDO_ASKPASS
+// doesn't gain the inherited one.
+func TestExplicitEnvKeepsAskpass(t *testing.T) {
+	t.Setenv("SUDO_ASKPASS", "/from/the/users/shell")
+	dir := shimSudo(t)
+	topgrade := filepath.Join(dir, "topgrade")
+	if err := os.WriteFile(topgrade, []byte(askpassProbe), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wired := []string{"PATH=" + dir, "SUDO_ASKPASS=/run/archmaid/askpass.sh"}
+	for _, c := range []struct {
+		env  []string
+		want string
+	}{
+		{wired, "/run/archmaid/askpass.sh"},
+		{[]string{"PATH=" + dir}, "unset"},
+	} {
+		ch := make(chan Msg, 16)
+		New(Options{}).Start(Spec{Name: topgrade, Env: c.env}, ch, nil)
+		if lines, err := drain(t, ch); err != nil || len(lines) != 1 || lines[0] != c.want {
+			t.Errorf("topgrade with Env %q saw SUDO_ASKPASS %q (err %v), want %s", c.env, lines, err, c.want)
+		}
+	}
+
+	if _, err := startSpec(t, Spec{Name: "/usr/bin/env", Args: []string{"sudo", "-A", "true"}, Env: wired}); err != nil {
+		t.Fatal(err)
+	}
+	if ran, askpass := sudoRan(dir); !ran || askpass != "/run/archmaid/askpass.sh" {
+		t.Fatalf("env sudo -A with explicit Env: ran=%v SUDO_ASKPASS=%q, want the caller's wrapper", ran, askpass)
+	}
+}
+
 // TestQueryRefusesAPromptingSudo: Query holds sudo to the same rule, and a
 // `sudo -n` it runs doesn't inherit SUDO_ASKPASS either.
 func TestQueryRefusesAPromptingSudo(t *testing.T) {
