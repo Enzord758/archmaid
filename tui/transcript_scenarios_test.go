@@ -12,13 +12,13 @@ import (
 // that changes any of it shows up as a golden diff. The suffix says how the
 // action ran: .dryrun under --dryrun, .shim for real against shimmed programs.
 //
+// Fixed since the first recording (the goldens show the new behaviour):
+//   - Full Cleanup's temp step is `systemd-tmpfiles --clean`, no longer
+//     `find /tmp /var/tmp … -exec rm -rf {} +` over live system state.
+//   - Delete old downloads is in-process and judges age by ctime; the folder
+//     itself is never a candidate (downloads_old_folder).
+//
 // Known bugs these goldens deliberately pin (see the P0 plan):
-//   - Full Cleanup's temp step is `find /tmp /var/tmp … -exec rm -rf {} +`,
-//     which also deletes live system state (every Full Cleanup plan).
-//   - Delete old downloads runs `find ~/Downloads -maxdepth 1 -mtime +30
-//     -exec rm -rf {} +`, which matches Downloads itself once it's old: the
-//     count includes the directory, and the fresh file inside would go too
-//     (downloads_found).
 //   - The orphan list is computed before topgrade runs and removed after it
 //     with --noconfirm (every Full Cleanup .shim: pacman -Qdtq comes first).
 //   - The AUR snapshot advances during the audit, before the user answers, so
