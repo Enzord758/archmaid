@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -25,11 +26,52 @@ import (
 type Spec struct {
 	Name string   // the program, looked up in PATH
 	Args []string // its arguments
-	// Env is the child's whole environment; nil inherits archmaid's.
+	// Env is the child's whole environment; nil inherits archmaid's, minus
+	// any SUDO_ASKPASS when the command is sudo (see CheckSudo).
 	Env []string
 	// Display is what a dry run reports it would run; empty means Name and
 	// Args joined by spaces.
 	Display string
+}
+
+// ErrSudoMayPrompt refuses a sudo that could ask for a password on the
+// terminal: one whose first argument is neither -n nor -A.
+var ErrSudoMayPrompt = errors.New("refusing to run sudo without -n or -A: it could prompt on the terminal")
+
+// isSudo reports whether name runs sudo (by name or by path).
+func isSudo(name string) bool { return filepath.Base(name) == "sudo" }
+
+// CheckSudo refuses a sudo command (name "sudo", or a path to one) whose first
+// argument isn't -n (never prompt) or -A (prompt through SUDO_ASKPASS): any
+// other sudo reads a password from the terminal, under a full-screen UI,
+// where the user can't see the prompt and every keystroke goes to sudo. Only
+// privilege.Sudo.Command builds the allowed forms. Any other command passes.
+func CheckSudo(name string, args []string) error {
+	if !isSudo(name) {
+		return nil
+	}
+	if len(args) > 0 && (args[0] == "-n" || args[0] == "-A") {
+		return nil
+	}
+	return ErrSudoMayPrompt
+}
+
+// env is the environment spec's child gets: Env, or for a nil Env
+// archmaid's own — without SUDO_ASKPASS when the command is sudo, so a
+// `sudo -A` never picks up a helper the user's shell exported. (An explicit
+// Env is the caller's, e.g. privilege.Sudo.Env with archmaid's own wrapper.)
+func (s Spec) env() []string {
+	if s.Env != nil || !isSudo(s.Name) {
+		return s.Env
+	}
+	environ := os.Environ()
+	env := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		if !strings.HasPrefix(kv, "SUDO_ASKPASS=") {
+			env = append(env, kv)
+		}
+	}
+	return env
 }
 
 func (s Spec) display() string {
@@ -87,7 +129,8 @@ type Child struct {
 // interleaving between goroutines. The child is started synchronously, so the
 // returned handle is usable at once; reading and waiting run on goroutines.
 // It returns nil in a dry run or when the command can't start (the done
-// carries that error).
+// carries that error) — which includes a sudo that could prompt on the
+// terminal (CheckSudo: ErrSudoMayPrompt), refused before anything runs.
 //
 // quit is the abort signal: once it is closed nobody reads ch anymore, so
 // every pending send gives up instead of blocking, and the rest of the
@@ -118,8 +161,12 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 		return nil
 	}
 
+	if err := CheckSudo(spec.Name, spec.Args); err != nil {
+		go func() { send(Msg{Done: true, Err: err}) }()
+		return nil
+	}
 	cmd := exec.Command(spec.Name, spec.Args...)
-	cmd.Env = spec.Env
+	cmd.Env = spec.env()
 	// Bound the wait on the pipe once the child itself is gone (see
 	// Options.WaitDelay). No SysProcAttr: the child must share archmaid's
 	// session for the sudo ticket (see the package doc).
