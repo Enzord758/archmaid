@@ -1,0 +1,12 @@
+avahi-daemon.service         enabled  disabled
+bluetooth.service            enabled  disabled
+cups.service                 enabled  disabled
+docker.service               enabled  disabled
+fstrim.service               static   -
+getty@.service               enabled  enabled
+masked-thing.service         masked   enabled
+openvpn-client@.service      disabled disabled
+sshd.service                 enabled  disabled
+systemd-timesyncd.service    enabled  enabled
+tlp.service                  enabled-runtime disabled
+user@.service                static   -

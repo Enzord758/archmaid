@@ -262,18 +262,18 @@ var transcriptScenarios = []struct {
 
 	{"services_select2.shim", func(t *testing.T) *Driver {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": systemctlRules()}, servicesTools...)
+		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": systemctlRules()})
 		return run(t, shimLog, "Disable unused services",
 			Answer{"select", "", "bluetooth.service docker.service"})
 	}},
 	{"services_none_selected.shim", func(t *testing.T) *Driver {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": systemctlRules()}, servicesTools...)
+		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": systemctlRules()})
 		return run(t, shimLog, "Disable unused services", Answer{"select", "", ""})
 	}},
 	{"services_none_found.shim", func(t *testing.T) *Driver {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": nil}, servicesTools...)
+		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": nil})
 		return run(t, shimLog, "Disable unused services")
 	}},
 
@@ -412,24 +412,19 @@ func aurTakeover(t *testing.T) {
 	saveBaseline([]string{"yay-bin"}, map[string]aurInfo{"yay-bin": {Name: "yay-bin", Maintainer: strp("jguer")}}, nil)
 }
 
-// servicesTools are what servicesPipeline needs besides systemctl.
-var servicesTools = []string{"bash", "comm", "awk", "sort", "grep"}
-
-// systemctlRules: four enabled services, three of them inactive (sshd is
-// running), plus a systemd- one the pipeline filters out.
+// systemctlRules: three enabled-but-inactive services (sshd is running and
+// absent), plus a "●" not-found row, a getty instance and a systemd- unit that
+// discovery filters out before the one batched is-enabled call.
 func systemctlRules() []Rule {
 	return []Rule{
-		{Prefix: "list-unit-files", Out: "" +
-			"bluetooth.service enabled disabled\n" +
-			"cups.service enabled enabled\n" +
-			"docker.service enabled disabled\n" +
-			"sshd.service enabled disabled\n" +
-			"systemd-timesyncd.service enabled enabled"},
 		{Prefix: "list-units", Out: "" +
 			"bluetooth.service loaded inactive dead Bluetooth service\n" +
 			"cups.service loaded inactive dead CUPS Scheduler\n" +
 			"docker.service loaded inactive dead Docker Application Container Engine\n" +
+			"● ghost.service not-found inactive dead ghost.service\n" +
+			"getty@tty2.service loaded inactive dead Getty on tty2\n" +
 			"systemd-timesyncd.service loaded inactive dead Network Time Synchronization"},
+		{Prefix: "is-enabled", Out: "enabled\nenabled\nenabled"},
 	}
 }
 

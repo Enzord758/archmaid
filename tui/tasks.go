@@ -10,6 +10,9 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -550,18 +553,67 @@ func orphanRemovalTotal(orphans []string) int {
 	return len(nonEmptyLines(string(out)))
 }
 
-// servicesPipeline reproduces the bash version: services that are enabled but
-// currently inactive, minus systemd-internal/oneshot noise.
-const servicesPipeline = `comm -12 ` +
-	`<(systemctl list-unit-files --type=service --state=enabled --no-legend | awk '{print $1}' | sort) ` +
-	`<(systemctl list-units --type=service --state=inactive --no-legend | awk '{print $1}' | sort) ` +
-	`| grep -Ev 'systemd-|getty@|emergency|rescue|initrd|plymouth|shadow|pkgstats|man-db|` +
-	`mkinitcpio|modprobe@|audit|dirmngr|gpg-agent|keyboxd|dm-event|lm_sensors|nmb|archlinux-keyring-wkd-sync'`
+// servicesExclude is systemd-internal/oneshot noise that is never offered for
+// disabling.
+var servicesExclude = regexp.MustCompile(`systemd-|getty@|emergency|rescue|initrd|plymouth|shadow|pkgstats|man-db|` +
+	`mkinitcpio|modprobe@|audit|dirmngr|gpg-agent|keyboxd|dm-event|lm_sensors|nmb|archlinux-keyring-wkd-sync`)
 
+// parseInactiveServices picks the unit names out of
+// `systemctl list-units --type=service --all --state=inactive --plain --no-legend`
+// (columns UNIT LOAD ACTIVE SUB DESCRIPTION). Units that aren't loaded
+// (not-found, masked, …) can't be enabled and are dropped; they print with a
+// leading "●" marker that must not be mistaken for the name. Templates and
+// instances ("name@.service", "name@arg.service") are dropped too: the
+// unit-file listing this replaces only ever matched plain units. The result is
+// filtered through servicesExclude and sorted.
+func parseInactiveServices(out string) []string {
+	var units []string
+	for _, line := range nonEmptyLines(out) {
+		f := strings.Fields(strings.TrimLeft(line, "●* \t"))
+		if len(f) < 2 || f[1] != "loaded" || !strings.HasSuffix(f[0], ".service") ||
+			strings.Contains(f[0], "@") || servicesExclude.MatchString(f[0]) {
+			continue
+		}
+		units = append(units, f[0])
+	}
+	sort.Strings(units)
+	return slices.Compact(units)
+}
+
+// enabledServices keeps the units `systemctl is-enabled` reports as exactly
+// "enabled" (not enabled-runtime, static, masked, …). One batched call prints
+// one state per unit; if the line count doesn't match (a unit systemctl
+// couldn't resolve prints nothing on stdout) it falls back to one call each.
+func enabledServices(units []string) []string {
+	if len(units) == 0 {
+		return nil
+	}
+	out, _ := exec.Command("systemctl", append([]string{"is-enabled"}, units...)...).Output()
+	states := nonEmptyLines(string(out))
+	if len(states) != len(units) {
+		states = states[:0]
+		for _, u := range units {
+			o, _ := exec.Command("systemctl", "is-enabled", u).Output()
+			states = append(states, strings.TrimSpace(string(o)))
+		}
+	}
+	var enabled []string
+	for i, u := range units {
+		if states[i] == "enabled" {
+			enabled = append(enabled, u)
+		}
+	}
+	return enabled
+}
+
+// discoverServices finds services that are enabled but not running. Listing
+// loaded units is ~3 ms where `list-unit-files` costs ~430 ms, so it asks for
+// the inactive units first and checks only those with one is-enabled call.
 func discoverServices() tea.Cmd {
 	return func() tea.Msg {
-		out, _ := exec.Command("bash", "-c", servicesPipeline).Output()
-		svcs := nonEmptyLines(string(out))
+		out, _ := exec.Command("systemctl", "list-units", "--type=service", "--all",
+			"--state=inactive", "--plain", "--no-legend").Output()
+		svcs := enabledServices(parseInactiveServices(string(out)))
 		if len(svcs) == 0 {
 			return discoveryMsg{kind: "services", notice: "No enabled-but-inactive services found."}
 		}

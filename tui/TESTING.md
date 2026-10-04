@@ -196,7 +196,10 @@ aborted; `TrapINT` ignores SIGINT so only the SIGKILL escalation ends it).
 Unmatched argv exits 0. PATH is *only* that dir, so anything unshimmed is "not
 installed"; `passthrough` symlinks real tools (`bash`, `find`, …) in for
 actions that need them — always under the scratch `HOME` from
-`transcriptEnv`. The AUR is `fakeAUR` plus `saveBaseline` for the snapshot.
+`transcriptEnv`. Consecutive `exec` lines of one command are sorted (a
+pipeline's processes start concurrently), so the services run lists
+`systemctl is-enabled …` before `systemctl list-units …` although it ran
+second. The AUR is `fakeAUR` plus `saveBaseline` for the snapshot.
 
 **Add a scenario.** Append to `transcriptScenarios`: `transcriptEnv(t, dry)`,
 shims, fakes, then `NewDriver(t, shimLog, answers...)` and `d.Select("<menu
@@ -217,6 +220,7 @@ the names.
 | `abort_test.go` | ctrl+c opens a confirm instead of quitting; "no" resumes with the child alive; "yes" really terminates a real child; a SIGINT-ignoring child is SIGKILLed after the grace period; late output after an abort is dropped, by its step sequence, so even once a new queue has started an aborted step's late line never reaches the new step's pane or log and its late done never finishes it. |
 | `overlay_test.go` | Popups float, centered, over their background; ANSI-styled backgrounds keep their width; the abort dialog stays over the running screen. |
 | `resize_test.go` | The output pane never overflows the terminal (running queue, log viewer, resize while a popup is open); askpass prompts over another popup keep the real background; nested popups resolve to the right base screen. |
+| `services_test.go` | Services discovery: `parseInactiveServices` on a captured `list-units` fixture (the `●` not-found row, masked, template instances, excluded names), the batched `is-enabled` with its per-unit fallback, and an equivalence test running the old bash pipeline against the same fixture system (`testdata/systemctl_list_*.txt` served by a shim) to prove both select the same units. |
 | `repair_test.go` | Repair: authenticates first (password prompt, or straight to the scan when cached), esc drops the held scan, three wrong passwords end in a notice; the scan runs `sudo -n pacman -Qkq` (one "pkg /path" line per missing file; fixture `testdata/pacman_Qkq.txt`), treats pacman's exit 1 as a result, reports a missing ticket instead of "nothing broken", and lists a package with several missing files once. |
 | `hyprpm_test.go` | `hyprpm` is disabled inside topgrade and runs as the last step, only when installed (it drops the sudo ticket on exit). |
 | `coverage_test.go` | Thin spots: `editConfig` (creates defaults, never clobbers, via the `execProcess` seam); password masking in the rendered frame; every checklist glyph; the status line (formatting, N/A fallbacks and the no-child-process guarantee are in `status_test.go`, which also has `BenchmarkSystemStatus`); all summary outcomes. |

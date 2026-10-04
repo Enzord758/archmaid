@@ -1,0 +1,13 @@
+  avahi-daemon.service                 loaded    inactive dead Avahi mDNS/DNS-SD Stack
+  bluetooth.service                    loaded    inactive dead Bluetooth service
+  cups.service                         loaded    inactive dead CUPS Scheduler
+  docker.service                       loaded    inactive dead Docker Application Container Engine
+  fstrim.service                       loaded    inactive dead Discard unused blocks on filesystems from /etc/fstab
+● ghost.service                        not-found inactive dead ghost.service
+  getty@tty2.service                   loaded    inactive dead Getty on tty2
+  masked-thing.service                 masked    inactive dead masked-thing.service
+  openvpn-client@work.service          loaded    inactive dead OpenVPN tunnel for work
+  systemd-timesyncd.service            loaded    inactive dead Network Time Synchronization
+  tlp.service                          loaded    inactive dead TLP system startup/shutdown
+  user@1000.service                    loaded    inactive dead User Manager for UID 1000
+  transient.service                    loaded    inactive dead A transient unit with no unit file

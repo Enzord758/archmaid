@@ -79,8 +79,8 @@ if want services; then
 	need "$CLEANUP_LOG" "would run: sudo systemctl disable --now fake-beta.service$" \
 		"services: the log must name exactly the toggled unit"
 	refuse "$CLEANUP_LOG" "fake-alpha" "services: the untoggled unit leaked into the log"
-	if grep '^systemctl ' "$SHIM_LOG" | grep -qv '^systemctl list-'; then
-		cat "$SHIM_LOG"; fail "services: systemctl was used for more than listing"
+	if grep '^systemctl ' "$SHIM_LOG" | grep -qvE '^systemctl (list-|is-enabled )'; then
+		cat "$SHIM_LOG"; fail "services: systemctl was used for more than listing and is-enabled"
 	fi
 	grep -q '^systemctl list-' "$SHIM_LOG" || fail "services: the shim was never asked to list"
 	echo "PASS: services disabled exactly the toggled unit, dry-run only"
