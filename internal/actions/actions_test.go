@@ -37,8 +37,9 @@ func ids(q []steps.Step) []string {
 
 // TestNoPrivilegedStepAfterHyprpm: hyprpm drops the sudo ticket on exit
 // (sudo -k), so in every action's queue nothing that needs root may follow
-// it — including the orphan removal, which the probe inserts right behind
-// itself, so the probe must come before hyprpm too.
+// it. Nor may any in-process step: its result can insert a step behind
+// itself (the orphan probe inserts the root removal), which would then run
+// after hyprpm too.
 func TestNoPrivilegedStepAfterHyprpm(t *testing.T) {
 	found := false
 	for _, a := range Menu {
@@ -55,9 +56,9 @@ func TestNoPrivilegedStepAfterHyprpm(t *testing.T) {
 			if s.NeedsPriv {
 				t.Errorf("%s: %s needs root but runs after hyprpm", a.ID, s.ID)
 			}
-		}
-		if p := slices.IndexFunc(q, func(s steps.Step) bool { return s.ID == steps.IDOrphansProbe }); p > h {
-			t.Errorf("%s: the orphan probe (which inserts a root step) runs after hyprpm", a.ID)
+			if s.Run != nil {
+				t.Errorf("%s: %s is in-process (it may insert a root step) but runs after hyprpm", a.ID, s.ID)
+			}
 		}
 		if q[h].NeedsPriv {
 			t.Errorf("%s: hyprpm must not need root (it elevates itself)", a.ID)

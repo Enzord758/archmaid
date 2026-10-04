@@ -174,7 +174,8 @@ comments and `git log`; this is the "read before you touch it" list.
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
   own final step. `TestNoPrivilegedStepAfterHyprpm` (`internal/actions`) fails
-  any action whose queue has a root step, or the orphan probe, after hyprpm.
+  any action whose queue has a root step, or any in-process step (it may insert
+  one, as the orphan probe does), after hyprpm.
 - **Full Cleanup's order:** AUR audit → topgrade → `paccache -r` → optional
   `paccache -rk0` → orphan probe → (orphan removal, inserted by the probe) →
   `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Building the
