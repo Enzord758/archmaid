@@ -8,7 +8,7 @@ plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sud
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
 plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
-plan  6 "Cleaning old temp files…" argv=sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + sudo alwayslog cat=cleanup
+plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
 plan  8 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
 plan  9 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup

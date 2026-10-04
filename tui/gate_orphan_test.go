@@ -310,3 +310,24 @@ func TestOrphanRemovalTotalFallsBackOnProbeFailure(t *testing.T) {
 		t.Fatalf("orphanRemovalTotal = %d, want 2 (fallback to len(orphans))", got)
 	}
 }
+
+// TestTempCleanupDefersToTmpfiles: temp files are aged out by the system's
+// tmpfiles.d rules (systemd-tmpfiles --clean), never by a hand-rolled
+// find/rm over /tmp that ignores their exclusions for live sockets and lock
+// dirs.
+func TestTempCleanupDefersToTmpfiles(t *testing.T) {
+	shimExclusivePath(t)
+
+	steps := fullCleanupSteps()
+	i := findStep(steps, "temp files")
+	if i == -1 {
+		t.Fatalf("no temp-file step in %d-step queue", len(steps))
+	}
+	s := steps[i]
+	if s.command != "sudo" || strings.Join(s.args, " ") != "systemd-tmpfiles --clean" {
+		t.Fatalf("temp step runs %s %v, want sudo systemd-tmpfiles --clean", s.command, s.args)
+	}
+	if !s.needsSudo || !s.alwaysLog {
+		t.Fatalf("temp step needsSudo=%v alwaysLog=%v, want both", s.needsSudo, s.alwaysLog)
+	}
+}

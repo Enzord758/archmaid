@@ -10,7 +10,7 @@ plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
 plan  5 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm libfoo libbar sudo confirm optional alwayslog cat=orphans
 plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
-plan  7 "Cleaning old temp files…" argv=sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + sudo alwayslog cat=cleanup
+plan  7 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
 plan  9 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
 plan  10 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
@@ -45,9 +45,9 @@ step  6 running
 exec  yay -Sc --noconfirm
 step  6 ok
 step  7 running
-exec  sudo -A find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+exec  sudo -A systemd-tmpfiles --clean
 step  7 ok
-log   cleanup OK: Old temporary files removed
+log   cleanup OK: Temp files cleaned per tmpfiles.d rules
 step  8 running
 exec  sudo -A journalctl --vacuum-time=2weeks
 step  8 ok

@@ -31,7 +31,7 @@ Full details in [`INSTALL.md`](INSTALL.md).
 
 | Option | What it does |
 | --- | --- |
-| **Full Cleanup** (recommended) | Runs every step in sequence: audits your AUR packages first (if one changed maintainer since the last audit, it names it and asks before updating — declining skips just the update), updates the system via topgrade, trims the package cache to 3 versions (with an optional full wipe), removes orphaned packages (only when any exist — confirms with the count), cleans the AUR cache, deletes temp files older than 2 days from `/tmp` and `/var/tmp`, vacuums logs older than 2 weeks, checks package integrity, and finally updates Hyprland plugins via hyprpm (if installed; last on purpose — hyprpm drops the sudo session on exit) |
+| **Full Cleanup** (recommended) | Runs every step in sequence: audits your AUR packages first (if one changed maintainer since the last audit, it names it and asks before updating — declining skips just the update), updates the system via topgrade, trims the package cache to 3 versions (with an optional full wipe), removes orphaned packages (only when any exist — confirms with the count), cleans the AUR cache, ages out temp files with `systemd-tmpfiles --clean` (by the system's tmpfiles.d rules — on Arch, 10 days in `/tmp` and 30 days in `/var/tmp`), vacuums logs older than 2 weeks, checks package integrity, and finally updates Hyprland plugins via hyprpm (if installed; last on purpose — hyprpm drops the sudo session on exit) |
 | Clear user cache | Deletes everything under `~/.cache` |
 | Repair broken packages | Finds packages with missing files (`pacman -Qk`) and reinstalls them |
 | Delete old downloads | Deletes files in `~/Downloads` older than 30 days |

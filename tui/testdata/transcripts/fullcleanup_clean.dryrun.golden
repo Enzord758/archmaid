@@ -7,7 +7,7 @@ plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sud
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
 plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
-plan  6 "Cleaning old temp files…" argv=sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} + sudo alwayslog cat=cleanup
+plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
 plan  8 "Checking package integrity…" argv=sudo pacman -Qk sudo cat=cleanup
 step  1 running
@@ -31,9 +31,9 @@ out   5 [dry-run] would run: yay -Sc --noconfirm
 step  5 ok
 log   cleanup DRYRUN: AUR cache cleaned
 step  6 running
-out   6 [dry-run] would run: sudo find /tmp /var/tmp -mindepth 1 -maxdepth 1 -mtime +2 -exec rm -rf {} +
+out   6 [dry-run] would run: sudo systemd-tmpfiles --clean
 step  6 ok
-log   cleanup DRYRUN: Old temporary files removed
+log   cleanup DRYRUN: Temp files cleaned per tmpfiles.d rules
 step  7 running
 out   7 [dry-run] would run: sudo journalctl --vacuum-time=2weeks
 step  7 ok

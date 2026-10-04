@@ -271,11 +271,16 @@ func fullCleanupSteps() []step {
 			title: "Cleaning AUR cache…", logLabel: "AUR cache cleaned",
 			command: "yay", args: []string{"-Sc", "--noconfirm"},
 		},
+		// Temp files are aged out by the system's own tmpfiles.d rules (on
+		// Arch: /tmp after 10 days, /var/tmp after 30), not a hand-rolled
+		// find/rm. The rules know what must survive — the sockets and lock
+		// dirs of running sessions, and their x/X exclusions — where a blanket
+		// `rm -rf` of anything two days old pulled those out from under live
+		// programs.
 		{
-			title: "Cleaning old temp files…", logLabel: "Old temporary files removed",
-			command: "sudo", needsSudo: true, alwaysLog: true,
-			args: []string{"find", "/tmp", "/var/tmp", "-mindepth", "1", "-maxdepth", "1",
-				"-mtime", "+2", "-exec", "rm", "-rf", "{}", "+"},
+			title: "Cleaning old temp files…", logLabel: "Temp files cleaned per tmpfiles.d rules",
+			command: "sudo", args: []string{"systemd-tmpfiles", "--clean"}, needsSudo: true,
+			alwaysLog: true,
 		},
 		{
 			title: "Vacuuming logs…", logLabel: "Old logs removed",
