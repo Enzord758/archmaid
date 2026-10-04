@@ -1,11 +1,16 @@
 package main
 
-// The transcript harness: drives a whole menu action through Update against
-// shimmed programs and records what happened — which programs ran, what was
-// asked, the plan, every step transition, its output and its log entries — as
-// a frontend-agnostic text transcript, golden-compared under
-// testdata/transcripts/. Nothing is rendered, so a future engine can be held to
-// the same goldens. See TESTING.md → Transcripts for the format.
+// The transcript harness: runs a whole menu action against shimmed programs
+// and records what happened — which programs ran, what was asked, the plan,
+// every step transition, its output and its log entries — as a
+// frontend-agnostic text transcript, golden-compared under
+// testdata/transcripts/. Nothing is rendered.
+//
+// It's two halves. internal/testtranscript's Recorder owns the format and the
+// answer script; a Target runs the action and reports events. tuiTarget, here,
+// pumps the model through Update; from P4 on a sessionTarget drives
+// engine.Session against the same shims, and the same goldens hold it to the
+// same behaviour. See TESTING.md → Transcripts.
 
 import (
 	"encoding/json"
@@ -23,6 +28,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/cursor"
 	tea "github.com/charmbracelet/bubbletea"
+
+	tt "github.com/Enzord758/archmaid/internal/testtranscript"
 )
 
 var updateTranscripts = flag.Bool("update-transcripts", false, "rewrite testdata/transcripts/*.golden")
@@ -124,54 +131,207 @@ func shQuote(s string) string {
 
 // ── script ───────────────────────────────────────────────────────────────────
 
-// Answer is one scripted reply, consumed in order:
-//
-//   - confirm: Match is a substring of the confirm text; Reply is yes or no.
-//   - password: Reply is correct (types shimPassword) or wrong.
-//   - abort: fires ctrl+c then y as soon as the step whose title contains
-//     Match turns running.
-//   - select: answers the services multi-select; Reply is the space-separated
-//     services to tick ("" ticks none).
-type Answer struct {
-	Kind, Match, Reply string
-}
+// Answer is one scripted reply; see tt.Answer for the kinds. It's tt.Answer
+// declared here (not aliased) so scenarios can write Answer{"confirm", …, "yes"}
+// without go vet's composites check objecting to another package's struct.
+type Answer struct{ Kind, Match, Reply string }
 
 // shimPassword is the password the su shim accepts (see suRules).
 const shimPassword = "hunter2"
 
-// ── driver ───────────────────────────────────────────────────────────────────
+// newTarget makes the Target a scenario runs on, once the scenario has set up
+// its environment (scratch HOME and log dir, shims, fakes). tuiTarget is the
+// only one until engine.Session exists (P4); sessionTarget plugs in here.
+type newTarget func(t *testing.T, shimLog string) tt.Target
 
-// tickMsg replaces every tea.Tick (tickFn); the driver drops it unseen.
-type tickMsg struct{}
+// record runs the menu item matching item on a fresh target and records it,
+// answering prompts from script. $HOME and the log dir are normalised.
+func record(t *testing.T, mk newTarget, shimLog, item string, script ...Answer) *tt.Recorder {
+	t.Helper()
+	tg := mk(t, shimLog)
+	answers := make([]tt.Answer, len(script))
+	for i, a := range script {
+		answers[i] = tt.Answer(a)
+	}
+	r := tt.NewRecorder(t, answers, os.Getenv("HOME"), "$HOME", logDir, "$LOGDIR")
+	r.Run(tg, item)
+	return r
+}
 
-// Driver pumps one menu action through Update and records its transcript.
-//
-// Cmds run synchronously in FIFO order and each resulting msg is fed back
-// through Update; tea.BatchMsg is expanded in order; ticks are dropped; Init
-// is never called, so the spinner never ticks. When nothing is left to run,
-// an open prompt is answered from the script, and the action is over when
-// there's neither work nor a prompt.
+// Driver is an action recorded through the TUI, for a test that also checks
+// the model it left behind (d.m).
 type Driver struct {
-	t      *testing.T
-	m      model
-	script []Answer
-	out    []string
-	norm   *strings.Replacer
+	*tt.Recorder
+	*tuiTarget
+}
 
+// run records item through a tuiTarget and keeps the model.
+func run(t *testing.T, shimLog, item string, script ...Answer) *Driver {
+	t.Helper()
+	var tg *tuiTarget
+	r := record(t, func(t *testing.T, shimLog string) tt.Target {
+		tg = newTUITarget(t, shimLog)
+		return tg
+	}, shimLog, item, script...)
+	return &Driver{r, tg}
+}
+
+// ── side effects ─────────────────────────────────────────────────────────────
+
+// effects watches what an action leaves outside the frontend: the programs
+// the shims logged, log entries and the AUR snapshot. It's target-agnostic: a
+// sessionTarget running the engine against the same shims and log store reads
+// them the same way.
+type effects struct {
 	shimLog string
 	shimOff int
 	logOff  map[string]int
 	snap    string // last seen AUR snapshot content
+}
+
+// newEffects starts watching from now: only what the action writes counts.
+func newEffects(shimLog string) *effects {
+	fx := &effects{shimLog: shimLog, logOff: map[string]int{}}
+	fx.snap, _ = readFileString(baselinePath())
+	for _, f := range fx.logFiles() {
+		b, _ := os.ReadFile(f)
+		fx.logOff[f] = len(b)
+	}
+	return fx
+}
+
+// execs returns the shim invocations logged since the last call. Runs of one
+// command with the same first argument are sorted: a pipeline's processes, or
+// Repair's parallel `pacman -Qkq -- <chunk>` scans, start concurrently, so
+// their relative order isn't behaviour (an order between different commands
+// is, as is `pacman -Qq` before the scans it feeds).
+func (fx *effects) execs() []tt.Event {
+	b, _ := os.ReadFile(fx.shimLog)
+	if len(b) <= fx.shimOff {
+		return nil
+	}
+	chunk := string(b[fx.shimOff:])
+	fx.shimOff = len(b)
+	lines := strings.Split(strings.TrimSuffix(chunk, "\n"), "\n")
+	runKey := func(l string) string {
+		if f := strings.Fields(l); len(f) > 1 {
+			return f[0] + " " + f[1]
+		}
+		return l
+	}
+	for i := 0; i < len(lines); {
+		j := i + 1
+		for j < len(lines) && runKey(lines[j]) == runKey(lines[i]) {
+			j++
+		}
+		sort.Strings(lines[i:j])
+		i = j
+	}
+	evs := make([]tt.Event, len(lines))
+	for i, l := range lines {
+		evs[i] = tt.Exec{Cmdline: l}
+	}
+	return evs
+}
+
+// awaitExec waits until a child has logged itself to its shim, so the shim's
+// SIGINT trap (if any) is installed and its exec line is deterministic.
+func (fx *effects) awaitExec(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		b, _ := os.ReadFile(fx.shimLog)
+		if len(b) > fx.shimOff && b[len(b)-1] == '\n' {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+var logStamp = regexp.MustCompile(`^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] `)
+
+func (fx *effects) logFiles() []string {
+	files, _ := filepath.Glob(filepath.Join(resolveLogDir(), "*", "*.log"))
+	sort.Strings(files)
+	return files
+}
+
+// logs returns the new log entries (header lines only; bodies are the out
+// lines already recorded), without timestamp or run directory, grouped by
+// category file.
+func (fx *effects) logs() []tt.Event {
+	var evs []tt.Event
+	for _, f := range fx.logFiles() {
+		b, _ := os.ReadFile(f)
+		if len(b) <= fx.logOff[f] {
+			continue
+		}
+		cat := strings.TrimSuffix(filepath.Base(f), ".log")
+		for _, l := range strings.Split(string(b[fx.logOff[f]:]), "\n") {
+			if logStamp.MatchString(l) {
+				evs = append(evs, tt.LogWritten{Category: cat, Header: logStamp.ReplaceAllString(l, "")})
+			}
+		}
+		fx.logOff[f] = len(b)
+	}
+	return evs
+}
+
+// snapshot returns the AUR maintainer snapshot when its content changed.
+func (fx *effects) snapshot() []tt.Event {
+	s, _ := readFileString(baselinePath())
+	if s == fx.snap {
+		return nil
+	}
+	fx.snap = s
+	var m map[string]snapEntry
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return []tt.Event{tt.SnapshotChanged{Unreadable: true}}
+	}
+	ev := tt.SnapshotChanged{Entries: []tt.SnapEntry{}}
+	for n, e := range m {
+		ev.Entries = append(ev.Entries, tt.SnapEntry{Name: n, Maintainer: e.Maintainer,
+			HasCo: e.HasCo, CoMaintainers: e.CoMaintainers})
+	}
+	return []tt.Event{ev}
+}
+
+func readFileString(path string) (string, error) {
+	b, err := os.ReadFile(path)
+	return string(b), err
+}
+
+// ── tuiTarget ────────────────────────────────────────────────────────────────
+
+// tickMsg replaces every tea.Tick (tickFn); the target drops it unseen.
+type tickMsg struct{}
+
+// tuiTarget is the Target that drives the TUI's model through Update.
+//
+// Cmds run synchronously in FIFO order and each resulting msg is fed back
+// through Update; tea.BatchMsg is expanded in order; ticks are dropped; Init
+// is never called, so the spinner never ticks. Each Update's events are
+// buffered and handed out before the next cmd runs. When nothing is left to
+// run, an open prompt is reported, and the action is over when there's
+// neither work nor a prompt.
+type tuiTarget struct {
+	m       model
+	fx      *effects
+	q       []tea.Cmd  // cmds still to run
+	pending []tt.Event // events not yet handed out
+	err     error      // the first fault; reported once pending is empty
 
 	queue0  *stepState // &queue[0] of the planned queue, to spot a new one
 	seen    []stepStatus
-	flags   []string
-	aborted bool // an abort answer fired
+	flags   []tt.Step // the plan as last reported
+	aborted bool      // an abort answer fired
 }
 
-// NewDriver starts a driver on a fresh model at 100×40 with the status line
-// pinned. Call it after installShims and after seeding HOME/logDir.
-func NewDriver(t *testing.T, shimLog string, script ...Answer) *Driver {
+// newTUITarget starts a target on a fresh model at 100×40 with the status
+// line pinned. Call it after installShims and after seeding HOME/logDir.
+func newTUITarget(t *testing.T, shimLog string) *tuiTarget {
 	t.Helper()
 	old := tickFn
 	tickFn = func(time.Duration, func(time.Time) tea.Msg) tea.Cmd {
@@ -189,34 +349,20 @@ func NewDriver(t *testing.T, shimLog string, script ...Answer) *Driver {
 	// A blinking cursor's Focus cmd sleeps and re-arms forever; static is inert.
 	m.password.Cursor.SetMode(cursor.CursorStatic)
 	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 40})
-
-	// longest first, so a path that prefixes another can't win
-	pairs := [][2]string{{os.Getenv("HOME"), "$HOME"}, {logDir, "$LOGDIR"}}
-	sort.Slice(pairs, func(i, j int) bool { return len(pairs[i][0]) > len(pairs[j][0]) })
-	var rep []string
-	for _, p := range pairs {
-		if p[0] != "" {
-			rep = append(rep, p[0], p[1])
-		}
-	}
-	d := &Driver{t: t, m: m, script: script, shimLog: shimLog,
-		logOff: map[string]int{}, norm: strings.NewReplacer(rep...)}
-	d.snap, _ = readFileString(baselinePath())
-	for _, f := range d.logFiles() { // only what this action writes
-		b, _ := os.ReadFile(f)
-		d.logOff[f] = len(b)
-	}
-	return d
+	return &tuiTarget{m: m, fx: newEffects(shimLog)}
 }
 
-func (d *Driver) emit(kind, format string, a ...any) {
-	line := fmt.Sprintf("%-5s ", kind) + fmt.Sprintf(format, a...)
-	d.out = append(d.out, strings.TrimRight(d.norm.Replace(line), " "))
+func (tg *tuiTarget) push(evs ...tt.Event) { tg.pending = append(tg.pending, evs...) }
+
+func (tg *tuiTarget) fail(format string, a ...any) {
+	if tg.err == nil {
+		tg.err = fmt.Errorf(format, a...)
+	}
 }
 
-// Select runs the menu item whose label contains sub to completion.
-func (d *Driver) Select(sub string) {
-	d.t.Helper()
+// Start moves the menu cursor to the item whose label contains sub and
+// presses enter.
+func (tg *tuiTarget) Start(sub string) (string, error) {
 	idx := -1
 	for i, it := range menu {
 		if strings.Contains(it.label, sub) {
@@ -225,81 +371,157 @@ func (d *Driver) Select(sub string) {
 		}
 	}
 	if idx < 0 {
-		d.t.Fatalf("no menu item %q", sub)
+		return "", fmt.Errorf("no menu item %q", sub)
 	}
-	for d.m.cursor < idx {
-		d.m = update(d.m, key("down"))
+	for tg.m.cursor < idx {
+		tg.m = update(tg.m, key("down"))
 	}
 	_, label, _ := strings.Cut(menu[idx].label, "  ") // drop the icon
-	d.emit("action", "%q", label)
-	d.pump(d.update(key("enter")))
+	tg.q = tg.update(key("enter"))
+	return label, nil
 }
 
-// pump runs cmds (and everything they lead to) until nothing is left, then
-// answers the open prompt, if any, and carries on.
-func (d *Driver) pump(q []tea.Cmd) {
-	for {
-		for len(q) > 0 {
-			c := q[0]
-			q = q[1:]
-			if c == nil {
-				continue
-			}
-			switch msg := c().(type) {
-			case nil, tickMsg, statusNowMsg: // the status line is pinned
-			case tea.BatchMsg:
-				q = append(q, msg...)
-			default:
-				// whatever the cmd ran synchronously (a probe, a discovery,
-				// the audit) — or the async step child, whose line is known
-				// to be logged by the time its first stream msg arrives
-				d.drainExec()
-				q = append(q, d.update(msg)...)
-			}
+// Next hands out the buffered events, running cmds until there are some;
+// with no cmd left it reports the open prompt, or nil when there's none.
+func (tg *tuiTarget) Next() (tt.Event, error) {
+	for len(tg.pending) == 0 {
+		if tg.err != nil {
+			return nil, tg.err
 		}
-		keys := d.answer()
-		if keys == nil {
-			return
+		if len(tg.q) == 0 {
+			return tg.prompt()
 		}
-		for _, k := range keys {
-			q = append(q, d.update(k)...)
+		c := tg.q[0]
+		tg.q = tg.q[1:]
+		if c == nil {
+			continue
+		}
+		switch msg := c().(type) {
+		case nil, tickMsg, statusNowMsg: // the status line is pinned
+		case tea.BatchMsg:
+			tg.q = append(tg.q, msg...)
+		default:
+			// whatever the cmd ran synchronously (a probe, a discovery, the
+			// audit) — or the async step child, whose line is known to be
+			// logged by the time its first stream msg arrives
+			tg.push(tg.fx.execs()...)
+			tg.q = append(tg.q, tg.update(msg)...)
 		}
 	}
+	ev := tg.pending[0]
+	tg.pending = tg.pending[1:]
+	return ev, nil
 }
 
-// update feeds one msg through Update and records what changed.
-func (d *Driver) update(msg tea.Msg) []tea.Cmd {
-	d.t.Helper()
+// prompt reports the open prompt; nil when the action is over.
+func (tg *tuiTarget) prompt() (tt.Event, error) {
+	switch tg.m.screen {
+	case screenConfirm:
+		return tt.NeedsConfirm{Text: tg.m.confirmMsg}, nil
+	case screenPassword:
+		return tt.NeedsPassword{}, nil
+	case screenServices:
+		return tt.NeedsSelection{Options: slices.Clone(tg.m.services)}, nil
+	case screenRunning, screenDiscovering, screenAbortConfirm:
+		return nil, fmt.Errorf("stalled on screen %d with nothing left to run", tg.m.screen)
+	}
+	return nil, nil
+}
+
+// Reply answers the open prompt with keys, or aborts the running step.
+func (tg *tuiTarget) Reply(a tt.Answer) error {
+	var keys []tea.Msg
+	switch a.Kind {
+	case "confirm":
+		keys = []tea.Msg{key(a.Reply[:1])}
+	case "password":
+		pw := "not-the-password"
+		if a.Reply == "correct" {
+			pw = shimPassword
+		}
+		tg.m.password.SetValue(pw)
+		keys = []tea.Msg{key("enter")}
+	case "select":
+		want := strings.Fields(a.Reply)
+		for _, svc := range tg.m.services {
+			if slices.Contains(want, svc) {
+				keys = append(keys, key(" "))
+			}
+			keys = append(keys, key("down"))
+		}
+		keys = append(keys, key("enter"))
+	case "abort":
+		return tg.abort()
+	default:
+		return fmt.Errorf("no reply of kind %q", a.Kind)
+	}
+	for _, k := range keys {
+		tg.q = append(tg.q, tg.update(k)...)
+	}
+	return nil
+}
+
+// abort answers ctrl+c → y on the running step. It first waits for the child
+// to log itself, so the shim's SIGINT trap (if any) is installed and the exec
+// line is deterministic.
+func (tg *tuiTarget) abort() error {
+	i := tg.m.current
+	if i < 0 || i >= len(tg.m.queue) || tg.m.queue[i].status != statusRunning {
+		return fmt.Errorf("abort with no running step (current %d)", i)
+	}
+	if tg.m.proc != nil {
+		if !tg.fx.awaitExec(5 * time.Second) {
+			return fmt.Errorf("step %d's child never reached its shim", i+1)
+		}
+		tg.push(tg.fx.execs()...)
+	}
+	tg.push(tt.Aborted{Index: i})
+	tg.aborted = true
+	for _, k := range []tea.KeyMsg{{Type: tea.KeyCtrlC}, key("y")} {
+		next, cmd := tg.m.Update(k)
+		tg.m = next.(model)
+		if cmd != nil {
+			return fmt.Errorf("abort key %q returned a cmd", k)
+		}
+	}
+	tg.observe(-1)
+	return nil
+}
+
+// update feeds one msg through Update and buffers what changed.
+func (tg *tuiTarget) update(msg tea.Msg) []tea.Cmd {
 	switch msg.(type) {
 	case tea.KeyMsg, tea.WindowSizeMsg, sudoCachedMsg, sudoResultMsg, discoveryMsg,
 		streamBatchMsg, stepResultMsg, editorDoneMsg:
 	default:
-		d.t.Fatalf("unexpected msg %T (%v) — teach the driver about it\n%s", msg, msg, d.dump())
+		tg.fail("unexpected msg %T (%v) — teach the target about it", msg, msg)
+		return nil
 	}
-	cur, seq, wasScreen := d.m.current, d.m.stepSeq, d.m.screen
+	cur, seq, wasScreen := tg.m.current, tg.m.stepSeq, tg.m.screen
 	inserted := -1 // a step this Update put into the queue
 	var curStatus stepStatus
-	if cur >= 0 && cur < len(d.m.queue) {
-		curStatus = d.m.queue[cur].status
+	if cur >= 0 && cur < len(tg.m.queue) {
+		curStatus = tg.m.queue[cur].status
 	}
 
-	next, cmd := d.m.Update(msg)
-	d.m = next.(model)
+	next, cmd := tg.m.Update(msg)
+	tg.m = next.(model)
 	// An action that audits starts the lookup on its own goroutine when it's
 	// chosen (auditFetch). Let it finish here, so its pacman -Qqm lands in
 	// this Update's exec lines rather than at a racy point later.
-	if f := d.m.auditFetch; f != nil {
+	if f := tg.m.auditFetch; f != nil {
 		select {
 		case <-f.Done():
 		case <-time.After(5 * time.Second):
-			d.t.Fatalf("the prefetched AUR audit never finished\n%s", d.dump())
+			tg.fail("the prefetched AUR audit never finished")
+			return nil
 		}
 	}
 
 	// A child launched by this Update logs itself asynchronously; its line is
 	// drained with its first stream msg (or by the abort) so it never races in.
-	if !(d.m.stepSeq != seq && d.m.proc != nil) {
-		d.drainExec()
+	if !(tg.m.stepSeq != seq && tg.m.proc != nil) {
+		tg.push(tg.fx.execs()...)
 	}
 	switch msg := msg.(type) {
 	case streamBatchMsg:
@@ -308,342 +530,129 @@ func (d *Driver) update(msg tea.Msg) []tea.Cmd {
 		// launched the next step, which resets buf, so judge by seq).
 		if msg.seq == seq {
 			for _, l := range msg.lines {
-				d.emit("out", "%d %s", cur+1, l)
+				tg.push(tt.OutputLine{Index: cur, Text: l})
 			}
 		}
 	case stepResultMsg:
-		accepted := cur >= 0 && cur < len(d.m.queue) && d.m.queue[cur].status != curStatus
+		accepted := cur >= 0 && cur < len(tg.m.queue) && tg.m.queue[cur].status != curStatus
 		if accepted && msg.output != "" {
 			for _, l := range strings.Split(strings.TrimRight(msg.output, "\n"), "\n") {
-				d.emit("out", "%d %s", cur+1, l)
+				tg.push(tt.OutputLine{Index: cur, Text: l})
 			}
 		}
 		if accepted && msg.err == nil && msg.insertNext != nil {
 			inserted = cur + 1
 		}
 	}
-	started := d.observe(inserted)
-	if d.m.screen != wasScreen {
-		switch d.m.screen {
+	tg.observe(inserted)
+	if tg.m.screen != wasScreen {
+		switch tg.m.screen {
 		case screenNotice:
-			d.emit("note", "%q", d.m.notice)
+			tg.push(tt.Notice{Text: tg.m.notice})
 		case screenAudit:
 			if dm, ok := msg.(discoveryMsg); ok {
-				for _, l := range strings.Split(dm.report, "\n") {
-					d.emit("audit", "%s", l)
-				}
+				tg.push(tt.OutputReport{Text: dm.report})
 			}
 		}
 	}
-	cmds := []tea.Cmd{cmd}
-	if i := d.abortTarget(started); i >= 0 {
-		d.abort(i)
-	}
-	return cmds
+	return []tea.Cmd{cmd}
 }
 
-// observe emits the plan once a queue exists, then — in a fixed order — the
+// observe buffers the plan once a queue exists, then — in a fixed order — the
 // steps that finished (with a step inserted at index inserted, -1 for none,
 // in its place among them), changed plan flags, log and snapshot writes, and
-// returns the steps that started.
-func (d *Driver) observe(inserted int) (started []int) {
+// the steps that started.
+func (tg *tuiTarget) observe(inserted int) {
+	q := tg.m.queue
 	if inserted >= 0 {
 		// The same queue, one step longer (it may have moved in memory):
 		// shift the bookkeeping behind the insertion point, not a new plan.
-		d.queue0 = &d.m.queue[0]
-		d.seen = slices.Insert(d.seen, inserted, statusPending)
-		d.flags = slices.Insert(d.flags, inserted, planFlags(d.m.queue[inserted].step))
+		tg.queue0 = &q[0]
+		tg.seen = slices.Insert(tg.seen, inserted, statusPending)
+		tg.flags = slices.Insert(tg.flags, inserted, planStep(q[inserted].step))
 	}
-	if len(d.m.queue) > 0 && &d.m.queue[0] != d.queue0 {
-		d.queue0 = &d.m.queue[0]
-		d.emit("plan", "%d steps", len(d.m.queue))
-		d.seen = make([]stepStatus, len(d.m.queue))
-		d.flags = make([]string, len(d.m.queue))
-		for i, s := range d.m.queue {
-			d.flags[i] = planFlags(s.step)
-			d.emit("plan", "%d %q %s", i+1, s.step.title, d.flags[i])
+	if len(q) > 0 && &q[0] != tg.queue0 {
+		tg.queue0 = &q[0]
+		tg.seen = make([]stepStatus, len(q))
+		tg.flags = make([]tt.Step, len(q))
+		for i, s := range q {
+			tg.flags[i] = planStep(s.step)
 		}
+		tg.push(tt.QueueStarted{Steps: slices.Clone(tg.flags)})
 	}
-	for i := range d.seen {
+	for i := range tg.seen {
 		if i == inserted { // in place: after the step that inserted it finished
-			d.emit("plan", "%d steps", len(d.m.queue))
-			d.emit("plan", "+%d %q %s", i+1, d.m.queue[i].step.title, d.flags[i])
+			tg.push(tt.StepInserted{Index: i, Step: tg.flags[i]})
 		}
-		if st := d.m.queue[i].status; st != d.seen[i] && st >= statusOK {
-			d.seen[i] = st
-			d.emit("step", "%d %s", i+1, statusName(st))
-		}
-	}
-	for i := range d.flags {
-		if f := planFlags(d.m.queue[i].step); f != d.flags[i] {
-			d.flags[i] = f
-			d.emit("plan", "%d %q %s", i+1, d.m.queue[i].step.title, f)
+		if st := q[i].status; st != tg.seen[i] && st >= statusOK {
+			tg.seen[i] = st
+			tg.push(tt.StepDone{Index: i, Status: planStatus(st)})
 		}
 	}
-	d.drainLogs()
-	d.drainSnapshot()
-	for i := range d.seen {
-		if st := d.m.queue[i].status; st != d.seen[i] {
-			d.seen[i] = st
-			d.emit("step", "%d %s", i+1, statusName(st))
-			if st == statusRunning {
-				started = append(started, i)
+	for i := range tg.flags {
+		if s := planStep(q[i].step); !s.SameFlags(tg.flags[i]) {
+			tg.flags[i] = s
+			tg.push(tt.PlanChanged{Index: i, Step: s})
+		}
+	}
+	tg.push(tg.fx.logs()...)
+	tg.push(tg.fx.snapshot()...)
+	for i := range tg.seen {
+		if st := q[i].status; st != tg.seen[i] {
+			tg.seen[i] = st
+			if st != statusRunning {
+				tg.fail("step %d went back to %s — teach the recorder", i+1, planStatus(st))
+				continue
 			}
+			tg.push(tt.StepStarted{Index: i})
 		}
-	}
-	return started
-}
-
-// abortTarget is the started step the next abort answer is waiting for, or -1.
-func (d *Driver) abortTarget(started []int) int {
-	if len(d.script) == 0 || d.script[0].Kind != "abort" {
-		return -1
-	}
-	for _, i := range started {
-		if strings.Contains(d.m.queue[i].step.title, d.script[0].Match) {
-			return i
-		}
-	}
-	return -1
-}
-
-// abort answers ctrl+c → y on running step i. It first waits for the child
-// to log itself, so the shim's SIGINT trap (if any) is installed and the exec
-// line is deterministic.
-func (d *Driver) abort(i int) {
-	d.t.Helper()
-	d.script = d.script[1:]
-	if d.m.proc != nil {
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			b, _ := os.ReadFile(d.shimLog)
-			if len(b) > d.shimOff && b[len(b)-1] == '\n' {
-				break
-			}
-			if time.Now().After(deadline) {
-				d.t.Fatalf("step %d's child never reached its shim\n%s", i+1, d.dump())
-			}
-			time.Sleep(time.Millisecond)
-		}
-		d.drainExec()
-	}
-	d.emit("abort", "%d %q", i+1, d.m.queue[i].step.title)
-	d.aborted = true
-	for _, k := range []tea.KeyMsg{{Type: tea.KeyCtrlC}, key("y")} {
-		next, cmd := d.m.Update(k)
-		d.m = next.(model)
-		if cmd != nil {
-			d.t.Fatalf("abort key %q returned a cmd", k)
-		}
-	}
-	d.observe(-1)
-}
-
-// answer replies to the open prompt from the script; nil when there's none.
-func (d *Driver) answer() []tea.Msg {
-	d.t.Helper()
-	var kind, text string
-	switch d.m.screen {
-	case screenConfirm:
-		kind, text = "confirm", d.m.confirmMsg
-	case screenPassword:
-		kind = "password"
-	case screenServices:
-		kind, text = "select", strings.Join(d.m.services, " ")
-	case screenRunning, screenDiscovering, screenAbortConfirm:
-		d.t.Fatalf("stalled on screen %d with nothing left to run\n%s", d.m.screen, d.dump())
-	default:
-		return nil
-	}
-	if len(d.script) == 0 {
-		d.t.Fatalf("unscripted %s prompt %q\n%s", kind, text, d.dump())
-	}
-	a := d.script[0]
-	d.script = d.script[1:]
-	if a.Kind != kind || !strings.Contains(text, a.Match) {
-		d.t.Fatalf("script wants %s %q, got %s prompt %q\n%s", a.Kind, a.Match, kind, text, d.dump())
-	}
-	switch kind {
-	case "password":
-		pw, shown := "not-the-password", "<wrong>"
-		if a.Reply == "correct" {
-			pw, shown = shimPassword, "<correct>"
-		}
-		d.emit("auth", "password -> %s", shown)
-		d.m.password.SetValue(pw)
-		return []tea.Msg{key("enter")}
-	case "select":
-		want := strings.Fields(a.Reply)
-		var keys []tea.Msg
-		for _, svc := range d.m.services {
-			for _, w := range want {
-				if w == svc {
-					keys = append(keys, key(" "))
-				}
-			}
-			keys = append(keys, key("down"))
-		}
-		d.emit("pick", "[%s] -> [%s]", text, strings.Join(want, " "))
-		return append(keys, key("enter"))
-	}
-	if a.Reply != "yes" && a.Reply != "no" {
-		d.t.Fatalf("confirm reply %q, want yes or no", a.Reply)
-	}
-	d.emit("ask", "%q -> %s", text, a.Reply)
-	return []tea.Msg{key(a.Reply[:1])}
-}
-
-// suUser matches su's user argument, with or without a `-s <shell>` before it.
-var suUser = regexp.MustCompile(`^su ((?:-s \S+ )?)\S+`)
-
-// drainExec emits the shim invocations logged since the last drain. Runs of
-// one command with the same first argument are sorted: a pipeline's processes,
-// or Repair's parallel `pacman -Qkq -- <chunk>` scans, start concurrently, so
-// their relative order isn't behaviour (an order between different commands
-// is, as is `pacman -Qq` before the scans it feeds).
-func (d *Driver) drainExec() {
-	b, _ := os.ReadFile(d.shimLog)
-	if len(b) <= d.shimOff {
-		return
-	}
-	chunk := string(b[d.shimOff:])
-	d.shimOff = len(b)
-	lines := strings.Split(strings.TrimSuffix(chunk, "\n"), "\n")
-	runKey := func(l string) string {
-		if f := strings.Fields(l); len(f) > 1 {
-			return f[0] + " " + f[1]
-		}
-		return l
-	}
-	for i := 0; i < len(lines); {
-		j := i + 1
-		for j < len(lines) && runKey(lines[j]) == runKey(lines[i]) {
-			j++
-		}
-		sort.Strings(lines[i:j])
-		i = j
-	}
-	for _, l := range lines {
-		d.emit("exec", "%s", suUser.ReplaceAllString(l, "su ${1}$$USER"))
 	}
 }
 
-var logStamp = regexp.MustCompile(`^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] `)
-
-func (d *Driver) logFiles() []string {
-	files, _ := filepath.Glob(filepath.Join(resolveLogDir(), "*", "*.log"))
-	sort.Strings(files)
-	return files
-}
-
-// drainLogs emits new log entries (header lines only; bodies are the out
-// lines already recorded), without timestamp or run directory. Entries
-// written in one Update are grouped by category file.
-func (d *Driver) drainLogs() {
-	for _, f := range d.logFiles() {
-		b, _ := os.ReadFile(f)
-		if len(b) <= d.logOff[f] {
-			continue
-		}
-		cat := strings.TrimSuffix(filepath.Base(f), ".log")
-		for _, l := range strings.Split(string(b[d.logOff[f]:]), "\n") {
-			if logStamp.MatchString(l) {
-				d.emit("log", "%s %s", cat, logStamp.ReplaceAllString(l, ""))
-			}
-		}
-		d.logOff[f] = len(b)
-	}
-}
-
-// drainSnapshot emits the AUR maintainer snapshot whenever its content changes.
-func (d *Driver) drainSnapshot() {
-	s, _ := readFileString(baselinePath())
-	if s == d.snap {
-		return
-	}
-	d.snap = s
-	var m map[string]snapEntry
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		d.emit("snap", "unreadable")
-		return
-	}
-	names := make([]string, 0, len(m))
-	for n := range m {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	var parts []string
-	for _, n := range names {
-		// name="maintainer", then +co[a,b] when there are co-maintainers, or
-		// +co? for an entry with no co-maintainer record (old format).
-		e := m[n]
-		p := fmt.Sprintf("%s=%q", n, e.Maintainer)
-		switch {
-		case !e.HasCo:
-			p += "+co?"
-		case len(e.CoMaintainers) > 0:
-			p += "+co[" + strings.Join(e.CoMaintainers, ",") + "]"
-		}
-		parts = append(parts, p)
-	}
-	d.emit("snap", "%s", strings.Join(parts, " "))
-}
-
-func readFileString(path string) (string, error) {
-	b, err := os.ReadFile(path)
-	return string(b), err
-}
-
-// outcome classifies where the action ended up, independent of screens.
-func (d *Driver) outcome() string {
+// Outcome classifies where the action ended, independent of screens.
+func (tg *tuiTarget) Outcome() (tt.Outcome, error) {
+	out := tt.Outcome{Errs: tg.m.errs, Skipped: tg.m.skipped}
 	switch {
-	case d.aborted, d.m.screen == screenSummary && d.m.aborted:
-		return "aborted"
-	case d.m.screen == screenSummary:
-		return "completed"
-	case d.m.screen == screenNotice:
-		return "notice"
-	case d.m.screen == screenAudit:
-		return "report"
-	case d.m.screen == screenMenu:
-		return "cancelled"
+	case tg.aborted, tg.m.screen == screenSummary && tg.m.aborted:
+		out.Kind = "aborted"
+	case tg.m.screen == screenSummary:
+		out.Kind = "completed"
+	case tg.m.screen == screenNotice:
+		out.Kind = "notice"
+	case tg.m.screen == screenAudit:
+		out.Kind = "report"
+	case tg.m.screen == screenMenu:
+		out.Kind = "cancelled"
+	default:
+		return out, fmt.Errorf("action ended on screen %d", tg.m.screen)
 	}
-	d.t.Fatalf("action ended on screen %d\n%s", d.m.screen, d.dump())
-	return ""
+	return out, nil
 }
 
-func (d *Driver) dump() string { return strings.Join(d.out, "\n") }
-
-// Transcript ends the recording; every scripted answer must have been used.
-func (d *Driver) Transcript() string {
-	d.t.Helper()
-	if len(d.script) > 0 {
-		d.t.Errorf("unused script answers: %+v\n%s", d.script, d.dump())
+// planStep is what a transcript records of a step.
+func planStep(s step) tt.Step {
+	p := tt.Step{Title: s.title, InProc: s.run != nil, Sudo: s.needsSudo, Confirm: s.confirm != "",
+		Optional: s.optional, AlwaysLog: s.alwaysLog, Category: string(stepCategory(s))}
+	if !p.InProc {
+		p.Argv = append([]string{s.command}, s.args...)
 	}
-	d.emit("end", "outcome=%s errs=%d skipped=%d", d.outcome(), d.m.errs, d.m.skipped)
-	return strings.Join(d.out, "\n") + "\n"
+	return p
 }
 
-func planFlags(s step) string {
-	var f []string
-	if s.run != nil {
-		f = append(f, "inproc")
-	} else {
-		f = append(f, "argv="+strings.Join(append([]string{s.command}, s.args...), " "))
+func planStatus(s stepStatus) tt.Status {
+	switch s {
+	case statusPending:
+		return tt.Pending
+	case statusRunning:
+		return tt.Running
+	case statusOK:
+		return tt.OK
+	case statusFailed:
+		return tt.Failed
+	case statusSkipped:
+		return tt.Skipped
 	}
-	for _, b := range []struct {
-		on   bool
-		name string
-	}{{s.needsSudo, "sudo"}, {s.confirm != "", "confirm"}, {s.optional, "optional"}, {s.alwaysLog, "alwayslog"}} {
-		if b.on {
-			f = append(f, b.name)
-		}
-	}
-	return strings.Join(append(f, "cat="+string(stepCategory(s))), " ")
-}
-
-func statusName(s stepStatus) string {
-	return [...]string{"pending", "running", "ok", "failed", "skipped"}[s]
+	panic(fmt.Sprintf("unknown stepStatus %d", s))
 }
 
 // checkGolden compares got with testdata/transcripts/<name>.golden, or

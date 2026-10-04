@@ -14,7 +14,7 @@ drive the real binary end to end.
 | Layer | Tool | What it is for |
 |---|---|---|
 | Unit | plain `go test`, driving `Update` with `tea.Msg`s | State transitions, command construction, parsers, log routing. The bulk of the suite. |
-| Transcript | a driver pumping a whole menu action through `Update` against `sh` shims | What an action *does* end to end — programs run, prompts, plan, step results, log entries — as a frontend-agnostic golden. |
+| Transcript | a recorder fed by a target that runs a whole menu action — today the model pumped through `Update` — against `sh` shims | What an action *does* end to end — programs run, prompts, plan, step results, log entries — as a frontend-agnostic golden. |
 | Layout/render | direct `View()` assertions + `teatest` goldens | Frames at a pinned size and color profile; the output pane never overflowing the terminal. |
 | Real processes | a real `sleep` child, real signals | Only where behaviour *is* the OS (abort → SIGINT → SIGKILL escalation). |
 | E2E | VHS drives the real binary in a pty under `--dryrun`, with every external command shimmed | A few short paths proving the wiring (build, alt-screen, keys, log files): Clear user cache, services multi-select, Full Cleanup's orphan confirm, abort. |
@@ -169,7 +169,7 @@ rather than adding more indirection:
 | `askpassWrapper` | wire askpass up (or not) for `runStep` without starting a server (`privileged()` builds `privilege.Sudo{Wrapper: askpassWrapper}`) |
 | `readProc`, `ourUID` | stand in a fake process table and uid for the askpass peer check (`proc.Read`/`os.Getuid` by default; `fakeProcs`), passed to `privilege.Verify` as `VerifyOptions`; the server takes `readProc` when it starts |
 | `aurRPCURL` | point the AUR audit at `httptest` |
-| `tickFn` | `tea.Tick` for the status refresh and sudo keep-alive; the transcript driver drops the ticks |
+| `tickFn` | `tea.Tick` for the status refresh and sudo keep-alive; the transcripts' `tuiTarget` drops the ticks |
 | `logNow` | the clock that names the process's run directory (fixed by the first store) |
 
 `TestMain` also dispatches `--askpass <sock> [prompt]` to `privilege.RunClient`
@@ -228,7 +228,9 @@ on the done's wait status (see `abort_test.go`, `internal/proc/stop_test.go`).
 
 ## Transcripts
 
-`transcript_test.go` is the harness; `transcript_scenarios_test.go` holds the
+`internal/testtranscript` is the recorder and its event vocabulary;
+`transcript_test.go` is the rest of the harness (shims, the side-effect
+watcher, `tuiTarget`, golden compare); `transcript_scenarios_test.go` holds the
 scenarios, each a menu action recorded to
 `cmd/archmaid/testdata/transcripts/<action>_<case>.<mode>.golden` — `.dryrun` under
 `dryRun`, `.shim` run for real against shims. They characterize today's
@@ -266,20 +268,83 @@ inserted step in its place among them), changed plan flags, log entries
 (grouped by category file), snapshot, then steps that started, then a notice
 or report. `$HOME` and the log dir are normalised.
 
-**The driver.** Runs each `tea.Cmd` synchronously, FIFO, feeding its msg back
-through `Update`; `tea.BatchMsg` is expanded in order; ticks come back through
-`tickFn` as an immediate msg that's dropped; `Init` is never called, so the
-spinner never ticks, and the password cursor is static. A msg type it doesn't
-know (e.g. a `tea.Sequence`) fails the test — teach it rather than ignore it.
-When the queue is empty an open prompt is answered from the script
-(`Answer{Kind, Match, Reply}`: `confirm`, `password`, `select`, or `abort`,
-which fires when the matching step turns running); an unscripted prompt fails
-and dumps the transcript so far, and so does an unused answer. A step child
-logs itself asynchronously, so its `exec` line is taken with its first output
-or exit, never from the `Update` that launched it. The AUR audit's lookup,
-started on its own goroutine when Full Cleanup or Run topgrade is chosen
-(`auditFetch`), is awaited right after that `Update`, so its `pacman -Qqm`
-lands with the action's own queries, before the sudo probe.
+**Recorder and Target.** The harness is split so that more than one frontend
+can be held to the same goldens. `testtranscript.Recorder` owns the format and
+the answer script; it knows nothing of Bubble Tea, the model or the engine.
+It drives a `Target`:
+
+```go
+type Target interface {
+	Start(action string) (label string, err error) // choose the menu action
+	Next() (Event, error)                          // next event; nil when the action is over
+	Reply(Answer) error                            // answer the open prompt, or abort
+	Outcome() (Outcome, error)                     // completed|aborted|cancelled|notice|report, errs, skipped
+}
+```
+
+The events are the engine API planned for P4, projected down to what a
+golden records — `QueueStarted`, `StepInserted`, `PlanChanged`, `StepStarted`,
+`StepDone`, `OutputLine`, `Exec`, `LogWritten`, `SnapshotChanged`,
+`NeedsConfirm`, `NeedsPassword`, `NeedsSelection`, `Aborted`, `Notice`,
+`OutputReport` — and each has exactly one line shape (the table above). Steps
+are queue positions, 0-based. The set is closed (an unexported marker
+method), so a target can only report what the recorder can write. A target
+returns the `Needs*` prompt only once everything else is done, and the
+recorder replies before asking for more: it matches the open prompt against
+the script (`Answer{Kind, Match, Reply}`: `confirm`, `password`, `select`),
+writes the `ask`/`auth`/`pick` line and calls `Reply`. An `abort` answer is
+the recorder's too: on the `StepStarted` of the step whose title matches it
+calls `Reply`, and the target emits the child's `exec` line, then `Aborted`.
+An unscripted prompt, a mismatch, an unused answer or a target error fails
+the test with the transcript so far. `internal/testtranscript/recorder_test.go`
+feeds the recorder a hand-built sequence through a fake target and pins
+every line kind.
+
+**Side effects.** `effects` (in `transcript_test.go`) turns what the action
+left outside the frontend into events: new shim-log lines (`Exec`), new log
+entry headers (`LogWritten`), a changed AUR snapshot (`SnapshotChanged`). It
+only reads files, so any target running against the shims and the real log
+store uses it unchanged.
+
+**tuiTarget.** Runs each `tea.Cmd` synchronously, FIFO, feeding its msg back
+through `Update`, and buffers each `Update`'s events; `Next` hands them out
+before it runs the next cmd. `tea.BatchMsg` is expanded in order; ticks come
+back through `tickFn` as an immediate msg that's dropped; `Init` is never
+called, so the spinner never ticks, and the password cursor is static. A msg
+type it doesn't know (e.g. a `tea.Sequence`) fails the test — teach it rather
+than ignore it. When the queue is empty an open screen becomes a `Needs*`
+event; `Reply` types the keys. A step child logs itself asynchronously, so its
+`exec` line is taken with its first output or exit, never from the `Update`
+that launched it. The AUR audit's lookup, started on its own goroutine when
+Full Cleanup or Run topgrade is chosen (`auditFetch`), is awaited right after
+that `Update`, so its `pacman -Qqm` lands with the action's own queries,
+before the sudo probe. `run(t, shimLog, item, answers...)` records through a
+`tuiTarget` and returns a `Driver`, the recorder plus the target, for a test
+that checks the model afterwards (`d.m`).
+
+**Plugging in a sessionTarget (P4).** Scenarios take the target as a
+constructor, `newTarget func(t, shimLog) tt.Target`, and `replay(t, mk)` runs
+them all against their goldens; `TestTranscript` is `replay` with
+`newTUITarget`. The engine's target is a new `sessionTarget` beside
+`tuiTarget` plus `TestTranscriptSession` calling `replay(t, newSessionTarget)`
+— no scenario or golden changes. It runs `engine.Session` with the real
+`Driver` (or one whose executor is the same shims) and maps:
+
+| Engine | Event |
+|---|---|
+| `QueueStarted`, `PlanChanged` (a step added / flags changed) | `QueueStarted`, `StepInserted` / `PlanChanged` (`Step` from the step's flags) |
+| `StepStarted`, `StepDone` (`SkippedAuth`/`Denied` → `Skipped`) | `StepStarted`, `StepDone` |
+| `OutputChunk` | one `OutputLine` per line, only for the current step |
+| `NeedsConfirm{Msg}`, `NeedsPassword`, `NeedsSelection` | the same; `Reply` calls `Confirm(id, yes)`, `SubmitPassword(id, pw)`, `Select(id, …)` with the prompt's ID |
+| `OutputReport{Text}`, a notice | `OutputReport`, `Notice` |
+| abort answer | `Reply` calls the session's abort on the running step, emits its `exec` line, then `Aborted` |
+
+`Exec`, `LogWritten` and `SnapshotChanged` come from `effects`, called where
+`tuiTarget` calls it: execs after each step of work (a step child's once it
+logged), logs and snapshot after finished steps and plan changes, before
+started steps. Within one engine step the event order must be the one under
+**Format** above; where the engine's order differs, sort it in the target and
+say why, or change the golden deliberately (the plan's v1 → v2 step).
 
 **Shims.** `installShims(t, Shims{"pacman": {{Prefix: "-Qdtq", Out: "a\nb"}}},
 passthrough...)` writes one `#!/bin/sh` per command: it logs `<cmd> $*` to
@@ -297,9 +362,10 @@ Repair's scenarios pin `repairScanWorkers` (`pinScanWorkers`) so the chunks
 don't depend on the machine's core count. The AUR is `fakeAUR` plus
 `saveBaseline` for the snapshot.
 
-**Add a scenario.** Append to `transcriptScenarios`: `transcriptEnv(t, dry)`,
-shims, fakes, then `NewDriver(t, shimLog, answers...)` and `d.Select("<menu
-label>")`. Run with `-update-transcripts` and read the new golden line by line
+**Add a scenario.** Append to `transcriptScenarios` a
+`func(t *testing.T, mk newTarget) *tt.Recorder`: `transcriptEnv(t, dry)`,
+shims, fakes, then `return record(t, mk, shimLog, "<menu label>",
+answers...)`. Run with `-update-transcripts` and read the new golden line by line
 — it's the spec you're signing off.
 
 ## Coverage map
@@ -340,7 +406,8 @@ the names.
 | `audit_cancel_test.go` | Aborting the audit step while the AUR sits on its request: the step returns at once, its late result is dropped, and no goroutine (connection, handler, pacman) is left behind. The deadline itself is `internal/audit/cancel_test.go`'s. |
 | `audit_race_test.go` | Every audit setting is read on the model's goroutine (`currentAuditConfig`): a menu audit, a prefetch and an audit step run while the test rewrites `logDir`, `aurRPCURL`, `auditDeadline` and `dryRun`, and still finish against what they captured (race clean under `-race`); a commit run after `logDir` moved writes the snapshot the audit read and logs beside it. |
 | `audit_prefetch_test.go` | The audit fetched behind the password prompt: choosing Full Cleanup starts the lookup before the prompt is answered, saving nothing; a whole Full Cleanup asks the AUR exactly once; esc on the prompt, a declined gate and an abort while Run topgrade's step awaits it each cancel it promptly, with no second request and no goroutine left. Home of `activateMenu` and `reapAuditFetch` (ground rule 7). |
-| `transcript_*_test.go` + `testdata/transcripts/` | Whole actions end to end against shims — see Transcripts above and the scenario names. |
+| `transcript_*_test.go` + `testdata/transcripts/` | Whole actions end to end against shims, through `tuiTarget` — see Transcripts above and the scenario names. |
+| `internal/testtranscript/recorder_test.go` | The transcript format itself, target-free: a hand-built event sequence through a fake target gives every line kind (plan, inserted step, flag change, normalised paths, snapshot with and without co-maintainers, prompts and their replies, abort, note, report, end); an unscripted or mismatched prompt, a bad confirm reply, an unused answer, a step outside the plan and a target error each fail with the transcript so far. |
 | `askpass_peer_test.go` | The model's side of who may have the password, against a fake process table (`fakeProcs`): the step's own sudo opens the popup, naming the step and sudo's caller; the model hangs up with no popup when no sudo step runs (menu, non-sudo step, finished, aborted) and on a second request while one is open; a refusal mid-step leaves a sanitized note in the output pane; the popup shows sudo's prompt only quoted, stripped of escapes and clipped. The refusal cases themselves are `Verify`'s, in `internal/privilege`. |
 | `internal/proc/*_test.go` | Child processes, against real ones. `Start`: lines in order (stdout and stderr through one pipe), then exactly one done; a failure keeps its `*exec.ExitError`; a missing command is a nil `Child` and a done with the error; the `Child` carries the start time `/proc` gives and the child gets exactly `Spec.Env`; a dry run starts nothing (a marker file proves it) and reports one `[dry-run] would run:` line; a child that leaves a background process holding its pipe is done within `WaitDelay`, with every line, its own exit status (a clean exit is a success) and no goroutine left. `Next`: batches what's buffered (at most `max` lines, in order, ending at the done, nothing left behind); released by quit. `Stop`: SIGINT first; a SIGINT-ignoring child is SIGKILLed after the grace; nil-safe; no goroutine left behind for a child blocked on a full channel or holding its pipe through a background process. `Query`: stdout on success and failure, the `ExitError` with stderr and a stderr-led message, ctx cancel kills. `Read` against the real `/proc` (a root process's exe is unreadable to a user). `TestNoSetsid`: a started child shares our session and process group, and a `go/parser` scan of `cmd/` (minus `cmd/archmaid-helper`) and `internal/` finds no `Setsid`/`Setpgid`/`Setctty`. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |

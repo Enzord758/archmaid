@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tt "github.com/Enzord758/archmaid/internal/testtranscript"
 )
 
 // Characterization scenarios for the transcript harness (transcript_test.go).
@@ -33,48 +35,48 @@ import (
 //     "no" still uses the alarm up (fullcleanup_audit_takeover_decline).
 
 // transcriptScenarios run as subtests of TestTranscript; each sets up its own
-// environment and returns the driver after the action finished.
+// environment, then records its action on the target mk makes.
 var transcriptScenarios = []struct {
 	name string
-	run  func(t *testing.T) *Driver
+	run  func(t *testing.T, mk newTarget) *tt.Recorder
 }{
 	// ── Full Cleanup ─────────────────────────────────────────────────────────
 
-	{"fullcleanup_clean.dryrun", func(t *testing.T) *Driver {
+	{"fullcleanup_clean.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		// nothing to remove, nothing foreign, no hyprpm
 		transcriptEnv(t, true)
 		shimLog := installShims(t, Shims{"pacman": pacmanRules("", "", "")})
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
-	{"fullcleanup_orphans_cascade_acceptall.dryrun", func(t *testing.T) *Driver {
+	{"fullcleanup_orphans_cascade_acceptall.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, true)
 		shimLog := installShims(t, Shims{
 			"pacman": pacmanRules("libfoo\nlibbar", "libfoo\nlibbar\nlibbaz", "yay-bin"),
 			"hyprpm": nil,
 		})
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup", acceptAll...)
+		return record(t, mk, shimLog, "Full Cleanup", acceptAll...)
 	}},
-	{"fullcleanup_orphans_cascade_acceptall.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_orphans_cascade_acceptall.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(true, "libfoo\nlibbar", "libfoo\nlibbar\nlibbaz"))
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup", acceptAll...)
+		return record(t, mk, shimLog, "Full Cleanup", acceptAll...)
 	}},
-	{"fullcleanup_decline_optionals.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_decline_optionals.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(true, "libfoo\nlibbar", "libfoo\nlibbar\nlibbaz"))
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 			Answer{"confirm", "orphaned package", "no"},
 		)
 	}},
-	{"fullcleanup_orphans_from_update.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_orphans_from_update.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		// topgrade orphans two packages; before it, there are none. The
 		// probe after it must find them, and the removal take exactly those.
 		transcriptEnv(t, false)
@@ -85,92 +87,92 @@ echo libold
 echo python-oldthing`}}, sh["pacman"]...)
 		shimLog := installShims(t, sh)
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 			Answer{"confirm", "Remove 2 orphaned package(s) — 3 total", "yes"},
 		)
 	}},
-	{"fullcleanup_gate_declined.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_gate_declined.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(true, "libfoo\nlibbar", "libfoo\nlibbar\nlibbaz"))
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "no"},
 		)
 	}},
-	{"fullcleanup_yay_fails.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_yay_fails.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		sh := fullCleanupShims(true, "libfoo\nlibbar", "libfoo\nlibbar\nlibbaz")
 		sh["yay"] = []Rule{{Prefix: "-Sc", Out: "error: could not access cache directory", Exit: 1}}
 		shimLog := installShims(t, sh)
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 			Answer{"confirm", "orphaned package", "yes"},
 		)
 	}},
-	{"fullcleanup_audit_takeover_decline.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_audit_takeover_decline.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(true, "", ""))
 		aurTakeover(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "yay-bin changed maintainer", "no"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
-	{"fullcleanup_audit_takeover_accept.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_audit_takeover_accept.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(true, "", ""))
 		aurTakeover(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "yay-bin changed maintainer", "yes"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
-	{"fullcleanup_audit_unreachable.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_audit_unreachable.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		// no fakeAUR: TestMain's closed port refuses the connection
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(true, "", ""))
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
-	{"fullcleanup_uncached_password_ok.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_uncached_password_ok.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(false, "", ""))
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"password", "", "correct"},
 			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
-	{"fullcleanup_three_wrong_passwords.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_three_wrong_passwords.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, fullCleanupShims(false, "libfoo\nlibbar", "libfoo\nlibbar\nlibbaz"))
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"password", "", "wrong"},
 			Answer{"password", "", "wrong"},
 			Answer{"password", "", "wrong"},
 		)
 	}},
-	{"fullcleanup_abort_topgrade.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_abort_topgrade.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		sh := fullCleanupShims(true, "", "")
 		sh["topgrade"] = []Rule{{Prefix: "-y", Block: true}}
 		shimLog := installShims(t, sh)
 		aurClean(t)
-		return run(t, shimLog, "Full Cleanup",
+		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"abort", "topgrade", ""},
 		)
 	}},
-	{"fullcleanup_abort_sigkill.shim", func(t *testing.T) *Driver {
+	{"fullcleanup_abort_sigkill.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		// topgrade ignores SIGINT; only the SIGKILL after sigkillGrace ends
 		// it, well before its sleep would
 		transcriptEnv(t, false)
@@ -179,7 +181,7 @@ echo python-oldthing`}}, sh["pacman"]...)
 		shimLog := installShims(t, sh)
 		aurClean(t)
 		start := time.Now()
-		d := run(t, shimLog, "Full Cleanup",
+		d := record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"abort", "topgrade", ""},
 		)
@@ -191,42 +193,42 @@ echo python-oldthing`}}, sh["pacman"]...)
 
 	// ── Clear user cache ─────────────────────────────────────────────────────
 
-	{"clearcache_accept.dryrun", func(t *testing.T) *Driver {
+	{"clearcache_accept.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, true)
 		shimLog := installShims(t, nil)
-		return run(t, shimLog, "Clear user cache", Answer{"confirm", "Clear all user cache", "yes"})
+		return record(t, mk, shimLog, "Clear user cache", Answer{"confirm", "Clear all user cache", "yes"})
 	}},
-	{"clearcache_decline.dryrun", func(t *testing.T) *Driver {
+	{"clearcache_decline.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, true)
 		shimLog := installShims(t, nil)
-		return run(t, shimLog, "Clear user cache", Answer{"confirm", "Clear all user cache", "no"})
+		return record(t, mk, shimLog, "Clear user cache", Answer{"confirm", "Clear all user cache", "no"})
 	}},
 
 	// ── Run topgrade ─────────────────────────────────────────────────────────
 
-	{"topgrade_ok.shim", func(t *testing.T) *Driver {
+	{"topgrade_ok.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{
 			"sudo":     sudoRules(true),
 			"topgrade": {{Prefix: "-y", Out: topgradeOK}},
 		})
-		return run(t, shimLog, "Run topgrade")
+		return record(t, mk, shimLog, "Run topgrade")
 	}},
-	{"topgrade_fail.shim", func(t *testing.T) *Driver {
+	{"topgrade_fail.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{
 			"sudo": sudoRules(true),
 			"topgrade": {{Prefix: "-y", Exit: 1, Out: "error: failed to commit transaction (conflicting files)\n" +
 				"── Summary ──\nSystem update: FAILED"}},
 		})
-		return run(t, shimLog, "Run topgrade")
+		return record(t, mk, shimLog, "Run topgrade")
 	}},
 
 	// ── Repair broken packages ───────────────────────────────────────────────
 
 	// The user scan flags amd-ucode (a file under the 0700 /boot) besides the
 	// truly broken foo and baz; the root recheck confirms only those two.
-	{"repair_cached_found.shim", func(t *testing.T) *Driver {
+	{"repair_cached_found.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		pinScanWorkers(t, 2)
 		shimLog := installShims(t, Shims{
@@ -236,9 +238,9 @@ echo python-oldthing`}}, sh["pacman"]...)
 				"baz /usr/share/baz/b\n" +
 				"foo /usr/share/foo/a"}),
 		})
-		return run(t, shimLog, "Repair broken packages", Answer{"confirm", "Reinstall 2 broken", "yes"})
+		return record(t, mk, shimLog, "Repair broken packages", Answer{"confirm", "Reinstall 2 broken", "yes"})
 	}},
-	{"repair_none.shim", func(t *testing.T) *Driver {
+	{"repair_none.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		// nothing flagged as the user: done, without sudo
 		transcriptEnv(t, false)
 		pinScanWorkers(t, 2)
@@ -246,9 +248,9 @@ echo python-oldthing`}}, sh["pacman"]...)
 			"pacman": repairPacmanRules("amd-ucode baz foo glibc", ""),
 			"sudo":   sudoRules(true),
 		})
-		return run(t, shimLog, "Repair broken packages")
+		return record(t, mk, shimLog, "Repair broken packages")
 	}},
-	{"repair_false_positive.shim", func(t *testing.T) *Driver {
+	{"repair_false_positive.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		// flagged as the user, clean as root: nothing to reinstall
 		transcriptEnv(t, false)
 		pinScanWorkers(t, 2)
@@ -256,9 +258,9 @@ echo python-oldthing`}}, sh["pacman"]...)
 			"pacman": repairPacmanRules("amd-ucode baz foo glibc", "amd-ucode"),
 			"sudo":   sudoRules(true, Rule{Prefix: "-n pacman -Qkq -- "}),
 		})
-		return run(t, shimLog, "Repair broken packages")
+		return record(t, mk, shimLog, "Repair broken packages")
 	}},
-	{"repair_auth_giveup.shim", func(t *testing.T) *Driver {
+	{"repair_auth_giveup.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		pinScanWorkers(t, 2)
 		shimLog := installShims(t, Shims{
@@ -266,7 +268,7 @@ echo python-oldthing`}}, sh["pacman"]...)
 			"sudo":   sudoRules(false),
 			"su":     suRules(),
 		})
-		return run(t, shimLog, "Repair broken packages",
+		return record(t, mk, shimLog, "Repair broken packages",
 			Answer{"password", "", "wrong"},
 			Answer{"password", "", "wrong"},
 			Answer{"password", "", "wrong"},
@@ -275,7 +277,7 @@ echo python-oldthing`}}, sh["pacman"]...)
 
 	// ── Delete old downloads (dry run only: the step deletes for real) ───────
 
-	{"downloads_found.dryrun", func(t *testing.T) *Driver {
+	{"downloads_found.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, true)
 		dl := downloadsDir(t)
 		for _, n := range []string{"old.iso", "old.zip"} {
@@ -285,11 +287,11 @@ echo python-oldthing`}}, sh["pacman"]...)
 		writeFile(t, filepath.Join(dl, "fresh.pdf"), "x")
 		cutoffAt(t, mark)
 		shimLog := installShims(t, nil)
-		return run(t, shimLog, "Delete old downloads", Answer{"confirm", "older than 30 days", "yes"})
+		return record(t, mk, shimLog, "Delete old downloads", Answer{"confirm", "older than 30 days", "yes"})
 	}},
 	// Nothing in the folder changed for a month, so the folder itself is old
 	// too: it must not be a candidate (it was, under find -mtime).
-	{"downloads_old_folder.dryrun", func(t *testing.T) *Driver {
+	{"downloads_old_folder.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, true)
 		dl := downloadsDir(t)
 		for _, n := range []string{"old.iso", "old.zip"} {
@@ -297,49 +299,49 @@ echo python-oldthing`}}, sh["pacman"]...)
 		}
 		cutoffAt(t, ctimeMark(t))
 		shimLog := installShims(t, nil)
-		return run(t, shimLog, "Delete old downloads", Answer{"confirm", "older than 30 days", "yes"})
+		return record(t, mk, shimLog, "Delete old downloads", Answer{"confirm", "older than 30 days", "yes"})
 	}},
-	{"downloads_none.dryrun", func(t *testing.T) *Driver {
+	{"downloads_none.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, true)
 		dl := downloadsDir(t)
 		mark := ctimeMark(t)
 		writeFile(t, filepath.Join(dl, "fresh.pdf"), "x")
 		cutoffAt(t, mark)
 		shimLog := installShims(t, nil)
-		return run(t, shimLog, "Delete old downloads")
+		return record(t, mk, shimLog, "Delete old downloads")
 	}},
 
 	// ── Disable unused services ──────────────────────────────────────────────
 
-	{"services_select2.shim", func(t *testing.T) *Driver {
+	{"services_select2.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": systemctlRules()})
-		return run(t, shimLog, "Disable unused services",
+		return record(t, mk, shimLog, "Disable unused services",
 			Answer{"select", "", "bluetooth.service docker.service"})
 	}},
-	{"services_none_selected.shim", func(t *testing.T) *Driver {
+	{"services_none_selected.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": systemctlRules()})
-		return run(t, shimLog, "Disable unused services", Answer{"select", "", ""})
+		return record(t, mk, shimLog, "Disable unused services", Answer{"select", "", ""})
 	}},
-	{"services_none_found.shim", func(t *testing.T) *Driver {
+	{"services_none_found.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{"sudo": sudoRules(true), "systemctl": nil})
-		return run(t, shimLog, "Disable unused services")
+		return record(t, mk, shimLog, "Disable unused services")
 	}},
 
 	// ── Audit AUR packages ───────────────────────────────────────────────────
 
-	{"auraudit_first_baseline.shim", func(t *testing.T) *Driver {
+	{"auraudit_first_baseline.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{"pacman": pacmanRules("", "", "yay-bin\nfoo-git")})
 		fakeAUR(t, map[string]aurInfo{
 			"yay-bin": {Name: "yay-bin", Maintainer: strp("jguer"), LastModified: aged(24 * 365), NumVotes: 900},
 			"foo-git": {Name: "foo-git", LastModified: aged(24 * 365)},
 		})
-		return run(t, shimLog, "Audit AUR packages")
+		return record(t, mk, shimLog, "Audit AUR packages")
 	}},
-	{"auraudit_takeover.shim", func(t *testing.T) *Driver {
+	{"auraudit_takeover.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{"pacman": pacmanRules("", "", "yay-bin\nfoo-git")})
 		fakeAUR(t, map[string]aurInfo{
@@ -350,33 +352,32 @@ echo python-oldthing`}}, sh["pacman"]...)
 			"yay-bin": {Name: "yay-bin", Maintainer: strp("jguer")},
 			"foo-git": {Name: "foo-git"},
 		}, nil)
-		return run(t, shimLog, "Audit AUR packages")
+		return record(t, mk, shimLog, "Audit AUR packages")
 	}},
-	{"auraudit_no_foreign.shim", func(t *testing.T) *Driver {
+	{"auraudit_no_foreign.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{"pacman": pacmanRules("", "", "")})
-		return run(t, shimLog, "Audit AUR packages")
+		return record(t, mk, shimLog, "Audit AUR packages")
 	}},
 }
 
+// TestTranscript replays every scenario through the TUI. A sessionTarget
+// gets its own TestTranscriptSession calling replay with its constructor:
+// same scenarios, same goldens.
 func TestTranscript(t *testing.T) {
+	replay(t, func(t *testing.T, shimLog string) tt.Target { return newTUITarget(t, shimLog) })
+}
+
+// replay runs every scenario on mk's target against its golden.
+func replay(t *testing.T, mk newTarget) {
 	for _, sc := range transcriptScenarios {
 		t.Run(sc.name, func(t *testing.T) {
-			d := sc.run(t)
-			checkGolden(t, sc.name, d.Transcript())
+			checkGolden(t, sc.name, sc.run(t, mk).Transcript())
 		})
 	}
 }
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
-
-// run starts a driver with script and runs the menu item matching item.
-func run(t *testing.T, shimLog, item string, script ...Answer) *Driver {
-	t.Helper()
-	d := NewDriver(t, shimLog, script...)
-	d.Select(item)
-	return d
-}
 
 // acceptAll says yes to Full Cleanup's gate and both optional removals.
 var acceptAll = []Answer{
