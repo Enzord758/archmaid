@@ -89,7 +89,7 @@ func TestAbortCancelsAuditStep(t *testing.T) {
 				t.Fatalf("audit step returned %s after the abort, want within %s", d, cancelSlack)
 			}
 			got := update(m, msg)
-			if got.screen != screenMenu || got.queue[0].status != steps.Running || got.errs != 0 {
+			if got.screen != screenMenu || got.queue[0].status != steps.Aborted || got.errs != 0 {
 				t.Fatalf("late audit result applied: screen=%d status=%d errs=%d",
 					got.screen, got.queue[0].status, got.errs)
 			}

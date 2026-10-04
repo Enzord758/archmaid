@@ -213,7 +213,7 @@ func TestAbortCancelsPrefetchedAudit(t *testing.T) {
 		if d := time.Since(start); d > cancelSlack {
 			t.Fatalf("audit step returned %s after the abort, want within %s", d, cancelSlack)
 		}
-		if got := update(m, msg); got.queue[0].status != steps.Running || got.errs != 0 {
+		if got := update(m, msg); got.queue[0].status != steps.Aborted || got.errs != 0 {
 			t.Fatalf("late result applied: status=%d errs=%d", got.queue[0].status, got.errs)
 		}
 	case <-time.After(5 * time.Second):

@@ -486,6 +486,22 @@ func (tg *tuiTarget) abort() error {
 			return fmt.Errorf("abort key %q returned a cmd", k)
 		}
 	}
+	// The abort settles the checklist: the running step is Aborted and every
+	// pending one behind it Skipped. The abort line stands for those changes
+	// (a step line each would say nothing it doesn't), so check them and
+	// take them as seen.
+	for j := i; j < len(tg.seen); j++ {
+		want := steps.Skipped
+		if j == i {
+			want = steps.Aborted
+		} else if tg.seen[j] != steps.Pending {
+			continue
+		}
+		if st := tg.m.queue[j].status; st != want {
+			return fmt.Errorf("after the abort step %d is %d, want %d", j+1, st, want)
+		}
+		tg.seen[j] = want
+	}
 	tg.observe(-1)
 	return nil
 }

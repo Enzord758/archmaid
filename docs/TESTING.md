@@ -265,7 +265,7 @@ go test -race -count=5 -run Transcript ./cmd/archmaid            # must stay det
 | `out` | `<i> <line>` of a step's output, as the model accepted it — one per line, however the pump batched them |
 | `log` | `<cat> <KIND>: <label>` — the entry header, no timestamp or run dir |
 | `snap` | the AUR maintainer snapshot, whenever its content changes: `name="maintainer"`, plus `+co[a,b]` for co-maintainers or `+co?` for an entry with no co-maintainer record |
-| `abort` | `<i> "<title>"` — ctrl+c, then y |
+| `abort` | `<i> "<title>"` — ctrl+c, then y. It stands for the checklist the abort settles (the running step aborted, every pending one behind it skipped), so no `step` line follows for those; the target checks them instead |
 | `note` | a notice popup's text |
 | `audit` | a line of the AUR-audit report screen |
 | `end` | `outcome=completed\|aborted\|cancelled\|notice\|report errs=N skipped=N` |
@@ -344,7 +344,7 @@ them all against their goldens; `TestTranscript` is `replay` with
 | `OutputChunk` | one `OutputLine` per line, only for the current step |
 | `NeedsConfirm{Msg}`, `NeedsPassword`, `NeedsSelection` | the same; `Reply` calls `Confirm(id, yes)`, `SubmitPassword(id, pw)`, `Select(id, …)` with the prompt's ID |
 | `OutputReport{Text}`, a notice | `OutputReport`, `Notice` |
-| abort answer | `Reply` calls the session's abort on the running step, emits its `exec` line, then `Aborted` |
+| abort answer | `Reply` calls the session's abort on the running step, emits its `exec` line, then `Aborted`; the `StepDone`s that follow for the aborted step and the skipped ones behind it are checked and dropped, as `tuiTarget.abort` does |
 
 `Exec`, `LogWritten` and `SnapshotChanged` come from `effects`, called where
 `tuiTarget` calls it: execs after each step of work (a step child's once it

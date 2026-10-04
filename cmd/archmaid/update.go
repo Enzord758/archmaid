@@ -743,7 +743,22 @@ var sigkillGrace = 5 * time.Second
 // can start. An in-process step (the AUR audit, the downloads delete) also has
 // its ctx cancelled, so it returns at once rather than running on unseen; the
 // downloads delete stops between entries and logs what it removed itself.
+//
+// The checklist is settled before the run is recorded: the running step is
+// Aborted and every step still Pending behind it Skipped, so last-run.json's
+// steps_skipped counts what never ran (the summary isn't shown, so m.skipped,
+// its tally, is left alone).
 func (m *model) abortRunning() {
+	if m.current >= 0 && m.current < len(m.queue) {
+		if s := &m.queue[m.current]; s.status == steps.Running {
+			s.status = steps.Aborted
+		}
+		for i := m.current + 1; i < len(m.queue); i++ {
+			if m.queue[i].status == steps.Pending {
+				m.queue[i].status = steps.Skipped
+			}
+		}
+	}
 	if m.stepCancel != nil {
 		m.stepCancel()
 		m.stepCancel = nil

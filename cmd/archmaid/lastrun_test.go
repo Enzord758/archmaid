@@ -134,14 +134,34 @@ func runScenario(t *testing.T, name string) *Driver {
 
 func TestLastRunAborted(t *testing.T) {
 	useLogDir(t, t.TempDir())
-	m := lastRunModel("topgrade", steps.Running)
+	m := lastRunModel("fullcleanup", steps.OK, steps.Running, steps.Pending, steps.Pending)
+	m.current = 1
 	m.screen = screenAbortConfirm
 	m = update(m, key("y"))
 	if m.screen != screenMenu {
 		t.Fatalf("screen = %d, want menu", m.screen)
 	}
-	if r := readLastRun(t); r.Outcome != "aborted" || r.Action != "topgrade" {
-		t.Fatalf("record = %+v", r)
+	// The aborted step and the two that never ran are on record as skipped.
+	want := []steps.Status{steps.OK, steps.Aborted, steps.Skipped, steps.Skipped}
+	for i, q := range m.queue {
+		if q.status != want[i] {
+			t.Errorf("step %d status = %d, want %d", i+1, q.status, want[i])
+		}
+	}
+	if r := readLastRun(t); r.Outcome != "aborted" || r.Action != "fullcleanup" || r.StepsSkipped != 3 || r.StepsFailed != 0 {
+		t.Fatalf("record = %+v, want aborted with 3 skipped", r)
+	}
+}
+
+// End to end: aborting topgrade in Full Cleanup records every step from it
+// on as skipped.
+func TestLastRunAbortedFullCleanup(t *testing.T) {
+	d := runScenario(t, "fullcleanup_abort_topgrade.shim")
+	if st := d.m.queue[1].status; st != steps.Aborted {
+		t.Fatalf("topgrade status = %d, want Aborted", st)
+	}
+	if r := readLastRun(t); r.Outcome != "aborted" || r.StepsSkipped != len(d.m.queue)-1 {
+		t.Fatalf("record = %+v, want aborted with %d skipped", r, len(d.m.queue)-1)
 	}
 }
 
