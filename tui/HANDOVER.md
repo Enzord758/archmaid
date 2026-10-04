@@ -71,7 +71,9 @@ comments and `git log`; this is the "read before you touch it" list.
   build scripts) can carry escapes that retitle the terminal, write the
   clipboard (OSC 52) or redraw what the user reads. Streamed output keeps only
   SGR colours (`SanitizeKeepSGR`); logs are plain text, both when written and
-  when an older log is read back (`SanitizePlain`). New paths that show foreign
+  when an older log is read back (`SanitizePlain`); AUR names and maintainers
+  go through it too (`aurField`: plain, one line, capped). It also drops
+  Unicode format characters (bidi overrides, zero-width). New paths that show foreign
   text should use it rather than a second filter.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
   *current* maintainer, never adoption history. Consequence: the first audit only

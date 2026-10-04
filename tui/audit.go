@@ -15,7 +15,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -73,31 +72,26 @@ type auditFinding struct {
 // line renders the finding. name stays raw in the struct (it keys the
 // snapshot); it is only sanitized here, for display.
 func (f auditFinding) line(width int) string {
-	return fmt.Sprintf("%-*s  %s", width, sanitizeAUR(f.name), strings.Join(f.flags, " · "))
+	return fmt.Sprintf("%-*s  %s", width, aurField(f.name), strings.Join(f.flags, " · "))
 }
 
-// sanitizeAUR makes a package name or maintainer safe to put on screen, in a
-// popup or in a log: control and format characters (ESC and the rest of
-// C0/C1, bidi overrides, zero-width marks) are dropped so a crafted value
-// can't smuggle in terminal escapes, invalid UTF-8 becomes U+FFFD, and the
-// result is cut to aurFieldMax runes plus "…".
-//
-// TODO: use the shared sanitize func from the log-hygiene commit
-func sanitizeAUR(s string) string {
-	var b strings.Builder
-	n := 0
-	for _, r := range strings.ToValidUTF8(s, "�") {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
-			continue
+// aurField makes a package name or maintainer safe to put on screen, in a
+// popup or in a log: Sanitize (plain) drops escape sequences, controls and
+// format characters, and the value is kept to one line of at most aurFieldMax
+// runes plus "…". Line breaks and tabs are removed before Sanitize sees them,
+// so a CR can't make the value read as just its tail ("mallory\ralice" shows
+// both names, not "alice").
+func aurField(s string) string {
+	s = Sanitize(strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' || r == '\t' {
+			return -1
 		}
-		if n == aurFieldMax {
-			b.WriteString("…")
-			break
-		}
-		b.WriteRune(r)
-		n++
+		return r
+	}, s), SanitizePlain)
+	if utf8.RuneCountInString(s) <= aurFieldMax {
+		return s
 	}
-	return b.String()
+	return string([]rune(s)[:aurFieldMax]) + "…"
 }
 
 // foreignPackages lists installed packages that aren't in any sync repo
@@ -176,12 +170,12 @@ func classify(name string, ai *aurInfo, prev string, hadPrev bool, now time.Time
 	switch {
 	case hadPrev && prev == "" && cur != "":
 		f.high = true
-		f.flags = append(f.flags, fmt.Sprintf("adopted by %s (was orphaned)", sanitizeAUR(cur)))
+		f.flags = append(f.flags, fmt.Sprintf("adopted by %s (was orphaned)", aurField(cur)))
 	case hadPrev && prev != "" && cur == "":
-		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", sanitizeAUR(prev)))
+		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", aurField(prev)))
 	case hadPrev && prev != cur:
 		f.high = true
-		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", sanitizeAUR(prev), sanitizeAUR(cur)))
+		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", aurField(prev), aurField(cur)))
 	case cur == "":
 		f.flags = append(f.flags, "orphaned")
 	}
@@ -562,7 +556,7 @@ func highNames(findings []auditFinding) string {
 	var names []string
 	for _, f := range findings {
 		if f.high {
-			names = append(names, sanitizeAUR(f.name))
+			names = append(names, aurField(f.name))
 		}
 	}
 	switch len(names) {
@@ -651,7 +645,7 @@ func baselineNote(state baselineState) string {
 func nameWidth(findings []auditFinding) int {
 	w := 0
 	for _, f := range findings {
-		w = max(w, utf8.RuneCountInString(sanitizeAUR(f.name)))
+		w = max(w, utf8.RuneCountInString(aurField(f.name)))
 	}
 	return min(w, 28)
 }

@@ -239,23 +239,25 @@ func TestFetchAURInfoDropsUnrequestedNames(t *testing.T) {
 	}
 }
 
-func TestSanitizeAUR(t *testing.T) {
+func TestAURField(t *testing.T) {
 	cases := map[string]string{
-		"alice":                          "alice",
-		"mal\x1b]0;pwned\x07lory":        "mal]0;pwnedlory", // OSC title set: ESC and BEL dropped
-		"bob\x1b[2J\r\n":                 "bob[2J",
-		"‮yrollam":                       "yrollam", // bidi override
-		"zero​width":                     "zerowidth",
-		"c1\u009bcsi":                    "c1csi",
-		"bad\xffutf8":                    "bad�utf8",
-		"ålæsø":                          "ålæsø",
-		strings.Repeat("x", 100):         strings.Repeat("x", aurFieldMax) + "…",
-		strings.Repeat("x", 64):          strings.Repeat("x", 64),
-		"\x1b" + strings.Repeat("y", 64): strings.Repeat("y", 64),
+		"alice":                             "alice",
+		"mal\x1b]0;pwned\x07lory":           "mallory", // OSC title set: the whole sequence dropped
+		"bob\x1b[2J\r\n":                    "bob",
+		"mallory\ralice":                    "malloryalice", // a CR can't hide the head
+		"tab\tnew\nline":                    "tabnewline",
+		"‮yrollam":                          "yrollam", // bidi override
+		"zero​width":                        "zerowidth",
+		"c1\u009bcsi":                       "c1csi",
+		"bad\xffutf8":                       "bad�utf8",
+		"ålæsø":                             "ålæsø",
+		strings.Repeat("x", 100):            strings.Repeat("x", aurFieldMax) + "…",
+		strings.Repeat("x", 64):             strings.Repeat("x", 64),
+		"\x1b[1m" + strings.Repeat("y", 64): strings.Repeat("y", 64), // escapes don't count toward the cap
 	}
 	for in, want := range cases {
-		if got := sanitizeAUR(in); got != want {
-			t.Errorf("sanitizeAUR(%q) = %q, want %q", in, got, want)
+		if got := aurField(in); got != want {
+			t.Errorf("aurField(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
@@ -271,7 +273,7 @@ func TestAuditReportCarriesNoAURControlBytes(t *testing.T) {
 	saveBaseline([]string{"victim"}, map[string]aurInfo{"victim": {Name: "victim", Maintainer: strp("bob")}}, nil)
 
 	r := runAuditStep()
-	if r.confirmNext == "" || !strings.Contains(r.output, "bob → mallory]52;c;") {
+	if r.confirmNext == "" || !strings.Contains(r.output, "bob → mallory\n") {
 		t.Fatalf("confirm=%q output:\n%s", r.confirmNext, r.output)
 	}
 	for name, s := range map[string]string{"output": r.output, "confirm": r.confirmNext, "report": runAudit(auditNow).report} {

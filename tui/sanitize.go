@@ -1,6 +1,9 @@
 package main
 
-import "unicode/utf8"
+import (
+	"unicode"
+	"unicode/utf8"
+)
 
 // ── sanitizing untrusted text ────────────────────────────────────────────────
 //
@@ -27,9 +30,11 @@ const (
 // Sanitize returns s with every control character removed except tab and
 // newline, and every escape sequence removed except, in SanitizeKeepSGR, SGR.
 // That covers C0 and C1 controls, DEL, CSI, OSC, DCS/SOS/PM/APC strings and
-// two-byte escapes; invalid UTF-8 becomes U+FFFD. A carriage return (a progress
-// bar redrawing its line) behaves like the terminal: text after it replaces the
-// line so far, so "50%\r100%" reads "100%", while a trailing CR or CRLF just
+// two-byte escapes. Unicode format characters (category Cf: bidi overrides and
+// isolates, zero-width spaces and joiners, the BOM, tag characters) go too, so
+// text can't be reordered or hidden from the reader. Invalid UTF-8 becomes
+// U+FFFD. A carriage return (a progress bar redrawing its line) behaves like
+// the terminal: text after it replaces the line so far, so "50%\r100%" reads "100%", while a trailing CR or CRLF just
 // ends the line. Text that needs no change is returned without copying.
 func Sanitize(s string, mode SanitizeMode) string {
 	if clean(s) {
@@ -82,6 +87,8 @@ func Sanitize(s string, mode SanitizeMode) string {
 				emit("\uFFFD")
 			case r >= 0x80 && r <= 0x9f:
 				// C1 control (8-bit CSI, OSC, …): dropped
+			case unicode.Is(unicode.Cf, r):
+				// format character (bidi, zero-width): dropped
 			default:
 				emit(s[i : i+size])
 			}
@@ -92,7 +99,8 @@ func Sanitize(s string, mode SanitizeMode) string {
 }
 
 // clean reports whether s is already safe as-is: no control characters but
-// tab and newline, no DEL, valid UTF-8 and no C1 controls.
+// tab and newline, no DEL, valid UTF-8, no C1 controls and no format
+// characters.
 func clean(s string) bool {
 	for i := 0; i < len(s); {
 		c := s[i]
@@ -104,7 +112,7 @@ func clean(s string) bool {
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
-		if (r == utf8.RuneError && size == 1) || (r >= 0x80 && r <= 0x9f) {
+		if (r == utf8.RuneError && size == 1) || (r >= 0x80 && r <= 0x9f) || unicode.Is(unicode.Cf, r) {
 			return false
 		}
 		i += size
