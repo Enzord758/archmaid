@@ -27,7 +27,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[a-z0-9@_+][a-z0-9@._+-]{0,127}$`; one bad name exits 2. Each package must be installed (`-Qq`), in a sync repo (`-Si`) and really missing files (`-Qk -- pkg`). Any other package is skipped and listed | `…repair` (keep) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
-| `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name or alias exits **4**, and the whole request is refused. A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
+| `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit exits **4**, and the whole request is refused. A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
 | `upgrade-repos` | `pacman -Syu --noconfirm` | none. Only the GUI uses it; the TUI keeps topgrade | `…upgrade-repos` (admin) |
 | `full-cleanup …` | the sequence below | strict flags, see below | `…full-cleanup` (admin) |
 
@@ -41,12 +41,32 @@ Both lists are sorted. It covers the direct orphans *and* the whole `-s`
 cascade with versions, so a confirm given for one plan can't be spent on
 another.
 
-**Denylist** (`disable-unit`). Units whose names start with `systemd-`, `dbus`,
-`polkit`, `getty@`, `NetworkManager`, `sshd`, `coolercontrold` or `ly@`, plus
-`sddm`, `gdm`, `lightdm`, `ly`, `greetd` and `display-manager` (`.service`).
-The check runs on the literal argument before any systemctl call. It runs again
-on the unit's `Id` and `Names`, so a denied unit can't be reached through an
-alias.
+**Denylist** (`disable-unit`). A unit is denied if:
+
+- its name starts with `systemd-`, `dbus`, `polkit`, `getty@`,
+  `NetworkManager`, `sshd`, `coolercontrold` or `ly@`;
+- its name without the type suffix is one of the login managers `sddm`, `gdm`,
+  `lightdm`, `ly`, `greetd`, `display-manager`; the security controls
+  `firewalld`, `nftables`, `iptables`, `ip6tables`, `ufw`, `apparmor`,
+  `auditd`; or the sleep hooks `nvidia-suspend`, `nvidia-resume`,
+  `nvidia-hibernate`, `nvidia-suspend-then-hibernate` (so `firewalld.socket`
+  is denied as well as `firewalld.service`);
+- it is wanted, required or upheld by a sleep unit: `sleep.target`,
+  `suspend.target`, `hibernate.target`, `hybrid-sleep.target`,
+  `suspend-then-hibernate.target` or the matching `systemd-*.service`.
+
+The name check runs on the literal argument before any systemctl call. It runs
+again on the unit's `Id` and `Names` (`systemctl show`), so a denied unit can't
+be reached through an alias. For each unit it is about to disable, the helper
+then reads the `[Install]` section with `systemctl cat` (unit file plus
+drop-ins). `systemctl show` has no `Also=` property, and its `WantedBy` lists
+only loaded units, so it would miss `WantedBy=systemd-suspend.service`. Every
+`Alias=`, `WantedBy=`/`RequiredBy=`/`UpheldBy=` and `Also=` value counts, and
+list resets in drop-ins are ignored, so the helper reads too much rather than
+too little. `systemctl disable` also disables the units named in `Also=`, so
+those are checked the same way and their own `Also=` is followed too (at most
+1024 units). An `Also=` value with a specifier (`%i`) or an odd name can't be
+checked, so it is refused. Any hit refuses the whole request with exit 4.
 
 **full-cleanup** takes
 `full-cleanup --keep N [--wipe] [--orphans sha256:…] --journal D`. Flags take
@@ -139,7 +159,7 @@ In order, before anything else:
 - Confused-deputy input: option injection (every name list follows `--`,
   regexes forbid a leading `-` on package names), `repo/pkg` syntax,
   arbitrary journal windows, `paccache -k 0` smuggled through `paccache`, and
-  disabling critical units directly or through an alias.
+  disabling critical units directly, through an alias or through `Also=`.
 - TOCTOU between confirm and act. remove-orphans recomputes the plan and
   requires the hash the user saw. repair and disable-unit recheck each target
   as root and skip anything that no longer qualifies.
