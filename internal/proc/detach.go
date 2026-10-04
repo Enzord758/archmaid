@@ -35,6 +35,20 @@ func (c *Child) signalGroup(sig syscall.Signal) {
 	_ = syscall.Kill(-c.Pid, sig)
 }
 
+// KillGroup SIGKILLs a detached child and its whole process group at once,
+// with no grace: for a front end that must exit now and may leave nothing
+// running. After the child is reaped the group is signalled only while a
+// member is left (signalGroup). A nil Child, or one that isn't detached,
+// is a no-op.
+func (c *Child) KillGroup() {
+	if c == nil || c.p == nil || !c.group {
+		return
+	}
+	_ = c.p.Kill() // a no-op once reaped
+	c.signalGroup(syscall.SIGKILL)
+	c.killOnce.Do(func() { close(c.killed) }) // a running Stop's timer ends now
+}
+
 // groupAlive reports whether any process is still in process group pgid
 // of session pgid: the detached child's own group.
 func groupAlive(pgid int) bool {

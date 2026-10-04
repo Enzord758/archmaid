@@ -268,9 +268,12 @@ type Child struct {
 	// group: the child leads a process group of its own (Options.Detach),
 	// which Stop signals as a whole. escalate starts the group's SIGKILL
 	// timer once; groupGone is closed when it is done (GroupStopped).
+	// killed is closed by KillGroup: the timer need not run out.
 	group     bool
 	escalate  sync.Once
 	groupGone chan struct{}
+	killOnce  sync.Once
+	killed    chan struct{}
 	// reaped is closed once cmd.Wait has returned, so Stop's escalation can
 	// stop waiting instead of sleeping out the whole grace.
 	reaped chan struct{}
@@ -341,7 +344,7 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 	}
 	c := &Child{Pid: cmd.Process.Pid, p: cmd.Process, grace: r.opts.KillGrace, reaped: make(chan struct{})}
 	if r.opts.Detach {
-		c.group, c.groupGone = true, make(chan struct{})
+		c.group, c.groupGone, c.killed = true, make(chan struct{}), make(chan struct{})
 	}
 	if info, err := Read(c.Pid); err == nil { // not reaped yet: Wait runs below
 		c.Start = info.Start
@@ -434,9 +437,13 @@ func (c *Child) escalateGroup() {
 		if !groupAlive(c.Pid) {
 			return
 		}
-		<-t.C
+		select {
+		case <-t.C:
+		case <-c.killed:
+		}
 	case <-t.C:
 		_ = c.p.Kill() // the child itself, even if it left its group
+	case <-c.killed:
 	}
 	c.signalGroup(syscall.SIGKILL)
 }

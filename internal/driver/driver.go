@@ -41,6 +41,7 @@ import (
 	"fmt"
 	"os/user"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 
@@ -158,6 +159,11 @@ type Driver struct {
 	stop     chan struct{} // closed by the loop's teardown: everything else ends
 	done     chan struct{} // closed once Events is closed
 	aborted  chan struct{} // closed once teardown has aborted the run (Aborted)
+
+	// Deps.Detach: every child started, for KillNow, which may run on any
+	// goroutine while the loop owns children.
+	detachedMu sync.Mutex
+	detached   []*proc.Child
 
 	root    context.Context // every worker's; cancelled at teardown
 	cancel  context.CancelFunc
@@ -283,6 +289,22 @@ func (d *Driver) Send(c engine.Command) bool {
 // the children may still take up to KillGrace. A front end that must exit
 // at once can wait for it so the record isn't lost.
 func (d *Driver) Aborted() <-chan struct{} { return d.aborted }
+
+// KillNow SIGKILLs, at once and with no grace, the process group of every
+// child the Driver started under Deps.Detach: what Close is still
+// stopping, and whatever a step that already ended left running. A group
+// already gone is never signalled (proc.Child.KillGroup). It is for a
+// front end about to exit without waiting for Close (archmaid-gui's
+// second signal, after Aborted): nothing a run started may outlive it.
+// Safe from any goroutine; without Detach it does nothing.
+func (d *Driver) KillNow() {
+	d.detachedMu.Lock()
+	kids := slices.Clone(d.detached)
+	d.detachedMu.Unlock()
+	for _, c := range kids {
+		c.KillGroup()
+	}
+}
 
 // Close stops the run and everything the Driver started, then closes
 // Events (see the package doc). Safe to call more than once and from any

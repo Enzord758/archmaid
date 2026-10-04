@@ -469,6 +469,50 @@ func TestCloseDetached(t *testing.T) {
 	}
 }
 
+// KillNow, during a Close that would wait a minute's grace for a child and
+// its leftover (both ignore SIGINT), SIGKILLs them both at once; Close then
+// returns without waiting out the grace.
+func TestKillNow(t *testing.T) {
+	script := "trap '' INT; (exec sleep 30) >/dev/null 2>&1 & echo $$; echo $!; exec sleep 30"
+	r := newRig(t, engine.Options{}, Deps{Detach: true, KillGrace: time.Minute}, action("k", shStep("sleep", script)))
+	r.d.Send(engine.Start{Action: "k"})
+	var pids []int
+	for len(pids) < 2 {
+		ev, _ := r.next()
+		if c, ok := ev.(engine.OutputChunk); ok {
+			for _, l := range c.Lines {
+				n, err := strconv.Atoi(l)
+				if err != nil {
+					t.Fatalf("pid line %q", l)
+				}
+				pids = append(pids, n)
+			}
+		}
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	closed := make(chan struct{})
+	go func() { r.d.Close(); close(closed) }()
+	<-r.d.Aborted()
+	r.d.KillNow()
+	deadline := time.Now().Add(time.Second)
+	for _, pid := range pids {
+		for !gone(pid, 0) && !zombie(pid) && time.Now().Before(deadline) {
+			time.Sleep(2 * time.Millisecond)
+		}
+		if !gone(pid, 0) && !zombie(pid) {
+			t.Errorf("pid %d outlived KillNow", pid)
+		}
+	}
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close still waiting out the grace after KillNow")
+	}
+	if rec, err := r.log.ReadLastRun(); err != nil || rec.Outcome != logstore.OutcomeAborted {
+		t.Fatalf("last run %+v (%v), want aborted", rec, err)
+	}
+}
+
 // zombie: pid has exited and waits to be reaped by its new parent.
 func zombie(pid int) bool {
 	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))

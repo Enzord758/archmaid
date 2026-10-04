@@ -150,6 +150,11 @@ func (d *Driver) startStep(e engine.StartStep) {
 	if c != nil {
 		d.children[e.Seq] = c
 		d.lastChild = e.Seq
+		if d.cfg.Detach {
+			d.detachedMu.Lock()
+			d.detached = append(d.detached, c)
+			d.detachedMu.Unlock()
+		}
 	}
 	d.goRun(func() { d.pump(e.Seq, ch) })
 }
