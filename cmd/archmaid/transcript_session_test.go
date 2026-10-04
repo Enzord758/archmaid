@@ -708,3 +708,34 @@ func TestSessionDownloadsRealRunLogsNoAbort(t *testing.T) {
 		t.Fatalf("cleanup.log = %q (%v), want the OK entry and no ABORT\n%s", log, err, got)
 	}
 }
+
+// L7: an in-process step's output with an escape sequence spanning a
+// newline. The TUI sanitizes Result.Output whole and then splits it
+// (handleStepResult), so the OSC below swallows the newline and the "y"
+// in it; the Session splits first and sanitizes each line, so it shows
+// three lines, the "y" among them. Both are safe; they differ.
+func TestSessionInProcOutputLikeTUI(t *testing.T) {
+	t.Skip("fails until Dev 1's L7 fix: the engine's stepResult (queue.go) must sanitize Result.Output whole, " +
+		"then split it, as the TUI does (today the Session shows a, yb, c where the TUI shows ab, c)")
+	const out = "a\x1b]0;x\ny\x07b\nc"
+	probe := actions.Action{ID: "l7probe", Label: "Escape across a newline", Steps: func(actions.Env) []steps.Step {
+		return []steps.Step{{ID: "l7probe", Title: "Printing…", LogLabel: "Printed", AlwaysLog: true,
+			Run: func(context.Context, steps.Env) steps.Result { return steps.Result{Output: out} }}}
+	}}
+	old := actions.Menu
+	actions.Menu = append(slices.Clone(old), probe)
+	t.Cleanup(func() { actions.Menu = old })
+	got := map[string]string{}
+	for name, mk := range map[string]newTarget{
+		"tui":     func(t *testing.T, shimLog string) tt.Target { return newTUITarget(t, shimLog) },
+		"session": func(t *testing.T, shimLog string) tt.Target { return newSessionTarget(t, shimLog) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			transcriptEnv(t, false)
+			got[name] = record(t, mk, installShims(t, nil), probe.Label).Transcript()
+		})
+	}
+	if got["tui"] != got["session"] {
+		t.Errorf("the Session shows the step's output unlike the TUI\nTUI:\n%s\nsession:\n%s", got["tui"], got["session"])
+	}
+}
