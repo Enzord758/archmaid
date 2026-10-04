@@ -139,6 +139,13 @@ func (d countingDriver) Close() { d.closes.Add(1); d.Driver.Close() }
 // Aborted passes the real Driver's through (signals.go waits for it).
 func (d countingDriver) Aborted() <-chan struct{} { return abortedOf(d.Driver) }
 
+// KillNow passes the real Driver's through (signals.go's second signal).
+func (d countingDriver) KillNow() {
+	if k, ok := d.Driver.(killer); ok {
+		k.KillNow()
+	}
+}
+
 func (d countingDriver) Send(c engine.Command) bool {
 	var s string
 	switch c := c.(type) {

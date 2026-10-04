@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+
+	"github.com/Enzord758/archmaid/internal/engine"
 )
 
 // quitSignals end archmaid-gui the way Stop and Quit does: ctrl+c in the
@@ -22,25 +24,29 @@ const recordWait = 5 * time.Second
 // written its last-run record (driver.Driver.Aborted).
 type aborter interface{ Aborted() <-chan struct{} }
 
+// killer is a Driver that can SIGKILL, at once, everything its run
+// started (driver.Driver.KillNow).
+type killer interface{ KillNow() }
+
 // signals carries quitSignals for one Run: the first is Stop and Quit
 // without asking (quitOnSignal); a second, while the window is still
-// closing, exits at once, but only once the first's aborted record is
-// written (or after recordWait). stop ends it; code is 128 + the first
-// signal's number once one came, else 0.
+// closing, exits at once: as soon as the first's aborted record is written
+// (or after recordWait) it SIGKILLs what the run started and exits. stop
+// ends it; code is 128 + the first signal's number once one came, else 0.
 type signals struct {
-	ch       chan os.Signal
-	recorded chan (<-chan struct{}) // the closing Driver's Aborted, once known
-	done     chan struct{}
-	code     atomic.Int32
+	ch      chan os.Signal
+	closing chan engine.Driver // the Driver the first signal closes; nil: none
+	done    chan struct{}
+	code    atomic.Int32
 }
 
 // catchSignals starts catching quitSignals for app's window *w (nil until
 // activated). Call stop once app.Run has returned.
 func catchSignals(app *adw.Application, w **Window) *signals {
 	s := &signals{
-		ch:       make(chan os.Signal, 2),
-		recorded: make(chan (<-chan struct{}), 1),
-		done:     make(chan struct{}),
+		ch:      make(chan os.Signal, 2),
+		closing: make(chan engine.Driver, 1),
+		done:    make(chan struct{}),
 	}
 	signal.Notify(s.ch, quitSignals...)
 	go s.run(app, w)
@@ -65,27 +71,31 @@ func (s *signals) run(app *adw.Application, w **Window) {
 			post(func() {
 				win := *w
 				if win == nil { // not activated yet: nothing runs
-					s.recorded <- closedCh()
+					s.closing <- nil
 					app.Quit()
 					return
 				}
-				s.recorded <- abortedOf(win.drv)
+				s.closing <- win.drv
 				win.quitOnSignal() // a no-op if it is closing already
 			})
 		}
 	}
 }
 
-// exitNow is the second signal: exit as soon as the first's record is
-// written, with the second signal's status.
+// exitNow is the second signal: once the first's record is written, it
+// SIGKILLs everything the run started, without Stop's grace, so nothing is
+// left running, and exits with the second signal's status.
 func (s *signals) exitNow(sig os.Signal) {
 	t := time.NewTimer(recordWait)
 	defer t.Stop()
 	select {
-	case rec := <-s.recorded:
+	case d := <-s.closing:
 		select {
-		case <-rec:
+		case <-abortedOf(d):
 		case <-t.C:
+		}
+		if k, ok := d.(killer); ok {
+			k.KillNow()
 		}
 	case <-t.C:
 	}
@@ -105,7 +115,7 @@ func (s *signals) stop() int {
 }
 
 // abortedOf is d's Aborted, or an already-closed channel for a Driver
-// without one (the stub writes no record).
+// without one (the stub writes no record; nil is no Driver).
 func abortedOf(d any) <-chan struct{} {
 	if a, ok := d.(aborter); ok {
 		return a.Aborted()

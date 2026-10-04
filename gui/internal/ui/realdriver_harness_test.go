@@ -103,6 +103,12 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 	if os.Getenv("ARCHMAID_GUI_CHILD") == "real-runs" {
 		now = runsClock()
 	}
+	grace := 100 * time.Millisecond // proc.Child.Stop's SIGKILL timer outlives Close by this much
+	if os.Getenv("ARCHMAID_GUI_CHILD") == "real-sigint-twice" {
+		// Far past the exit: only the second signal's KillNow can end
+		// what the step left running.
+		grace = 30 * time.Second
+	}
 	return realdriver.Start(realdriver.Config{
 		Now:        now,
 		StateDir:   os.Getenv("ARCHMAID_GUI_STATE"),
@@ -113,7 +119,7 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 		},
 		Foreign:   func(context.Context) ([]string, error) { return nil, nil },
 		LookPath:  func(string) (string, error) { return "", errors.New("not found") },
-		KillGrace: 100 * time.Millisecond, // proc.Child.Stop's SIGKILL timer outlives Close by this much
+		KillGrace: grace,
 		WaitDelay: 500 * time.Millisecond,
 		Report:    func(err error) { fail("driver report: %v", err) },
 	})
@@ -520,7 +526,9 @@ func TestGUIRealDriver(t *testing.T) {
 
 // A second SIGINT while the first one's Stop and Quit is still stopping
 // topgrade exits at once (130, no report: the window never finished
-// closing), but only after the aborted record is written.
+// closing), but only after the aborted record is written, and with the
+// step's whole process group SIGKILLed: nothing it started outlives the
+// GUI.
 func TestGUISignalTwice(t *testing.T) {
 	needDisplay(t)
 	dir, env := installShims(t, shimOpts{topgrade: "hang"})
@@ -541,10 +549,22 @@ func TestGUISignalTwice(t *testing.T) {
 		_ = cmd.Process.Kill()
 		t.Fatal("child still running after 60s")
 	}
-	// The exit came before the leftover's grace ran out: it may still
-	// run, so it goes now.
-	for _, p := range readLines(t, filepath.Join(dir, "topgrade.bg")) {
-		if n, _ := strconv.Atoi(p); n > 0 {
+	// The GUI exited long before Stop's grace (30 s here) ran out: the
+	// topgrade shim and its leftover (it ignores SIGINT) must be gone all
+	// the same, SIGKILLed before the exit. (Should one still run, it is
+	// killed once checked, not to help the check.)
+	pids := append(readLines(t, filepath.Join(dir, "topgrade.pid")), readLines(t, filepath.Join(dir, "topgrade.bg"))...)
+	if len(pids) != 2 {
+		t.Fatalf("topgrade shim and leftover pids %q: they never started", pids)
+	}
+	deadline := time.Now().Add(time.Second) // SIGKILL sent: only its delivery may lag
+	for _, p := range pids {
+		n, _ := strconv.Atoi(p)
+		for !ended(n) && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if !ended(n) {
+			t.Errorf("pid %d (topgrade shim or its leftover) outlived the GUI", n)
 			_ = syscall.Kill(n, syscall.SIGKILL)
 		}
 	}

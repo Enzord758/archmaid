@@ -153,7 +153,9 @@ comments and `git log`; this is the "read before you touch it" list.
   and SIGHUP as Stop and Quit (`gui/internal/ui/signals.go`): the run is
   aborted and recorded, the groups stopped, and it exits with 128+signal. A
   second signal exits at once, once `driver.Driver.Aborted` says the record
-  is written; what was still being stopped then gets no SIGKILL from us.
+  is written, after `driver.Driver.KillNow` has SIGKILLed every detached
+  step's process group (no grace; a group already gone is never signalled),
+  so nothing a run started outlives the GUI.
 - **Auth is two-stage (`privilege.Sudo.Authenticate`).** One wrong `sudo -S -v` burns *two*
   `pam_faillock` failures (the wrong password plus sudo's retry hitting EOF), and
   `sudo -A` burns two as well — with Arch's `deny=3`, one typo from lockout. So
