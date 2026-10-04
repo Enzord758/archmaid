@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/engine/enginetest"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -78,101 +79,7 @@ func TestReplayFullCleanupInOrder(t *testing.T) {
 	if clock.Now() != t0.Add(script.Duration()) {
 		t.Errorf("clock at %v, want start + %v", clock.Now(), script.Duration())
 	}
-	checkContract(t, got)
-}
-
-// checkContract holds an event sequence to the ordering rules in the
-// engine package doc.
-func checkContract(t *testing.T, evs []engine.Event) {
-	t.Helper()
-	var (
-		plan     []string
-		queued   bool
-		running  = ""
-		settled  = map[string]bool{}
-		started  = map[string]bool{}
-		prompts  = map[engine.PromptID]bool{}
-		finished = false
-	)
-	at := func(i int, id string, idx int) {
-		if !queued {
-			t.Errorf("event %d names step %s before QueueStarted", i, id)
-		} else if idx < 0 || idx >= len(plan) || plan[idx] != id {
-			t.Errorf("event %d: step %s is not at index %d of %v", i, id, idx, plan)
-		}
-		if settled[id] {
-			t.Errorf("event %d names step %s after it ended", i, id)
-		}
-	}
-	for i, ev := range evs {
-		if finished {
-			if _, ok := ev.(engine.PhaseChanged); !ok {
-				t.Errorf("event %d (%T) after Finished", i, ev)
-			}
-			continue
-		}
-		if id := promptID(ev); id != 0 {
-			if prompts[id] {
-				t.Errorf("event %d reuses prompt ID %d", i, id)
-			}
-			prompts[id] = true
-		}
-		switch ev := ev.(type) {
-		case engine.QueueStarted:
-			queued = true
-			for _, s := range ev.Steps {
-				plan = append(plan, s.ID)
-			}
-		case engine.StepInserted:
-			if ev.Index < 0 || ev.Index > len(plan) {
-				t.Fatalf("event %d inserts at %d into %d steps", i, ev.Index, len(plan))
-			}
-			plan = append(plan[:ev.Index], append([]string{ev.Step.ID}, plan[ev.Index:]...)...)
-		case engine.StepStarted:
-			at(i, ev.ID, ev.Index)
-			if running != "" {
-				t.Errorf("event %d starts %s while %s runs", i, ev.ID, running)
-			}
-			running, started[ev.ID] = ev.ID, true
-		case engine.OutputChunk:
-			at(i, ev.ID, ev.Index)
-			if running != ev.ID {
-				t.Errorf("event %d: output for %s, which isn't running", i, ev.ID)
-			}
-		case engine.StepDone:
-			at(i, ev.ID, ev.Index)
-			switch {
-			case ev.Status == steps.Aborted || ev.Status == steps.Running || ev.Status == steps.Pending:
-				t.Errorf("event %d: StepDone with status %d", i, ev.Status)
-			case started[ev.ID] && running != ev.ID:
-				t.Errorf("event %d: %s done but not running", i, ev.ID)
-			case !started[ev.ID] && ev.Status != steps.Skipped && ev.Status != steps.AuthRefused:
-				t.Errorf("event %d: %s settled without running, status %d", i, ev.ID, ev.Status)
-			}
-			settled[ev.ID] = true
-			if running == ev.ID {
-				running = ""
-			}
-		case engine.Aborted:
-			at(i, ev.ID, ev.Index)
-			if running != ev.ID {
-				t.Errorf("event %d: aborted %s, which isn't running", i, ev.ID)
-			}
-			settled[ev.ID], running = true, ""
-		case engine.Finished:
-			finished = true
-			if ev.Outcome == engine.OutcomeCompleted {
-				for _, id := range plan {
-					if !settled[id] {
-						t.Errorf("completed with step %s never settled", id)
-					}
-				}
-			}
-		}
-	}
-	if !finished {
-		t.Error("no Finished event")
-	}
+	enginetest.CheckContract(t, got)
 }
 
 // A script with two prompts and a marker after each.

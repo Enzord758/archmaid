@@ -69,51 +69,202 @@ type Output struct {
 	Effects []Effect
 }
 
+func (o *Output) event(evs ...Event)  { o.Events = append(o.Events, evs...) }
+func (o *Output) effect(fx ...Effect) { o.Effects = append(o.Effects, fx...) }
+
 // Session is one front end's run state: which action runs, its plan, the
 // open prompt, auth, timings. See the package doc for the contract.
+//
+// Built so far (P4 E1/E2): an action's discovery (a Notice or a queue), the
+// queue itself — the sudo probe, the proceed-gate, each step's confirm,
+// running, output, results and their logging, steps a result inserts or
+// gates — and the last-run record. Not yet: the password itself
+// (SubmitPassword, E3), askpass (E4: every request is hung up on), Abort,
+// Select and the discoveries that need them (NeedsSelection, Report,
+// NeedsRoot; E3 and E5). Those calls panic with errNotImplemented rather
+// than pretend to run something.
 type Session struct {
-	opts Options
+	opts   Options
+	env    actions.Env
+	lookup func(string) (actions.Action, bool) // actions.ByID; tests swap it
+
+	lastPrompt PromptID
+	lastSeq    uint64
+	phase      Phase
+	run        *run // the action in progress; nil when idle
 }
 
-// errNotImplemented is what every Session method panics with until E1.
-var errNotImplemented = errors.New("engine: Session is not implemented yet (E1); use internal/engine/stub")
+// errNotImplemented is what a Session method panics with for a part of the
+// engine that isn't built yet (see Session).
+var errNotImplemented = errors.New("engine: not implemented yet (P4 E3–E5); use internal/engine/stub")
 
 // New returns an idle Session.
-func New(opts Options) *Session { return &Session{opts: opts} }
+func New(opts Options) *Session {
+	env := opts.Env
+	env.DryRun = opts.DryRun
+	return &Session{opts: opts, env: env, lookup: actions.ByID}
+}
 
 // Start runs the menu action with id (actions.ByID): a queue is planned
 // (QueueStarted, after the probe, password or gate it needs), a discovery is
 // started (PhaseChanged with its Busy text). An unknown id, or a Start
 // while an action runs, is ignored.
-func (s *Session) Start(action string) Output { panic(errNotImplemented) }
+func (s *Session) Start(action string) Output {
+	if s.run != nil {
+		return Output{}
+	}
+	a, ok := s.lookup(action)
+	if !ok || (a.Steps == nil && a.Discover == nil) {
+		return Output{} // the front end's own entries (view log, …)
+	}
+	s.run = &run{action: a.ID, started: s.now(), cur: -1}
+	var o Output
+	if a.Discover != nil {
+		s.run.discoverSeq = s.seq()
+		s.setPhase(&o, PhaseDiscovering, a.Busy)
+		o.effect(Discover{Seq: s.run.discoverSeq, Action: a.ID, Run: a.Discover, Env: s.env})
+		return o
+	}
+	s.plan(&o, a.Steps(s.env), a.Gate)
+	return o
+}
 
 // Confirm answers the open NeedsConfirm (or OutputReport: yes accepts its
 // audit findings, no dismisses it) with id.
-func (s *Session) Confirm(id PromptID, yes bool) Output { panic(errNotImplemented) }
+func (s *Session) Confirm(id PromptID, yes bool) Output {
+	r := s.run
+	if r == nil || id == 0 || id != r.prompt || r.promptFor == promptPassword {
+		return Output{}
+	}
+	var o Output
+	r.prompt = 0
+	switch r.promptFor {
+	case promptGate:
+		if yes {
+			s.startQueue(&o)
+		} else {
+			s.finish(&o, OutcomeCancelled)
+		}
+	case promptStep:
+		if yes {
+			s.launch(&o, true)
+		} else {
+			s.decline(&o)
+		}
+	}
+	return o
+}
 
 // SubmitPassword answers the open NeedsPassword with id. The Session hands
 // pw on in one Effect (Authenticate for the up-front prompt, AnswerAskpass
 // for a mid-run one) and keeps no copy.
-func (s *Session) SubmitPassword(id PromptID, pw Secret) Output { panic(errNotImplemented) }
+func (s *Session) SubmitPassword(id PromptID, pw Secret) Output {
+	if r := s.run; r == nil || id == 0 || id != r.prompt || r.promptFor != promptPassword {
+		return Output{}
+	}
+	panic(errNotImplemented) // E3
+}
 
 // CancelPrompt closes the open prompt with id unanswered: a password prompt
 // gives up on privilege (the up-front one cancels the queue; an askpass one
 // hangs up on sudo), a confirm counts as "no", a selection picks nothing, a
 // report is dismissed.
-func (s *Session) CancelPrompt(id PromptID) Output { panic(errNotImplemented) }
+func (s *Session) CancelPrompt(id PromptID) Output {
+	r := s.run
+	if r == nil || id == 0 || id != r.prompt {
+		return Output{}
+	}
+	if r.promptFor != promptPassword {
+		return s.Confirm(id, false)
+	}
+	var o Output
+	r.prompt = 0
+	s.finish(&o, OutcomeCancelled)
+	return o
+}
 
 // Select answers the open NeedsSelection with id; picked is a subset of its
 // Items (anything else is ignored). Picking nothing runs nothing.
-func (s *Session) Select(id PromptID, picked []string) Output { panic(errNotImplemented) }
+func (s *Session) Select(id PromptID, picked []string) Output {
+	// No NeedsSelection is opened until E5, so no id is one.
+	return Output{}
+}
 
 // Abort ends the running action at once: a running step is stopped (a Stop
 // effect) and ends with Aborted, an open prompt is withdrawn (PromptClosed),
 // and the action ends with Finished — OutcomeAborted, or OutcomeCancelled if
 // no step had run. A no-op when idle. Asking "are you sure?" first is the
 // front end's business.
-func (s *Session) Abort() Output { panic(errNotImplemented) }
+func (s *Session) Abort() Output {
+	if s.run == nil {
+		return Output{}
+	}
+	panic(errNotImplemented) // E5
+}
 
 // Handle feeds the Session the result of an Effect, or a Driver
 // observation (Tick, AskpassRequest). An Input for a Seq that is no longer
 // current (a stopped step's late output) is ignored.
-func (s *Session) Handle(in Input) Output { panic(errNotImplemented) }
+func (s *Session) Handle(in Input) Output {
+	var o Output
+	switch in := in.(type) {
+	case Tick:
+		s.tick(&o, in)
+	case AskpassRequest:
+		// Nothing of ours asks until askpass is built (E4): hang up.
+		o.effect(HangUpAskpass{Req: in.Req})
+	case ProbeDone:
+		s.probed(&o, in)
+	case Discovered:
+		s.discovered(&o, in)
+	case StepOutput:
+		s.stepOutput(&o, in)
+	case StepExited:
+		s.stepExited(&o, in)
+	case StepResult:
+		s.stepResult(&o, in)
+	}
+	// HookDone needs nothing (a hook that fails is logged by the hook, and
+	// never blocks its step), and the rest answer Effects this Session
+	// doesn't emit yet, so they are never current.
+	return o
+}
+
+func (s *Session) now() time.Time {
+	if s.opts.Now != nil {
+		return s.opts.Now()
+	}
+	return time.Now()
+}
+
+// seq is a fresh Effect sequence number (never zero).
+func (s *Session) seq() uint64 {
+	s.lastSeq++
+	return s.lastSeq
+}
+
+func (s *Session) promptID() PromptID {
+	s.lastPrompt++
+	return s.lastPrompt
+}
+
+func (s *Session) setPhase(o *Output, p Phase, busy string) {
+	if p == s.phase && busy == "" {
+		return
+	}
+	s.phase = p
+	o.event(PhaseChanged{Phase: p, Busy: busy})
+}
+
+func (s *Session) tick(o *Output, in Tick) {
+	now := s.now()
+	ev := StatusUpdated{Now: now, Status: in.Status}
+	if r := s.run; r != nil {
+		ev.Elapsed = now.Sub(r.started)
+		if st := r.running(); st != nil {
+			ev.StepElapsed = now.Sub(r.stepAt)
+			ev.Step = st.step.ID
+		}
+	}
+	o.event(ev)
+}

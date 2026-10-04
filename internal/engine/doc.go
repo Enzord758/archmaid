@@ -9,8 +9,9 @@
 //
 // The API was frozen at E0: from then on changes are additive only — new
 // Event, Effect, Input or Command types, new fields, new constants. Nothing
-// is renamed, removed or given a new meaning. At E0 the Session itself is a
-// skeleton (its methods panic until E1); front ends build against
+// is renamed, removed or given a new meaning. The Session is built up
+// through P4 (its doc says what runs so far; the rest panics rather than
+// pretend); until the real Driver (E6), front ends build against
 // internal/engine/stub, a Driver that replays a scripted Event sequence.
 //
 // This comment and the doc comments on each type are the contract. A Driver

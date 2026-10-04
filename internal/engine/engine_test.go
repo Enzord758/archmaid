@@ -260,30 +260,3 @@ func TestOutcomeString(t *testing.T) {
 		}
 	}
 }
-
-// Until E1 the Session is a skeleton: every method panics rather than
-// pretend to run something.
-func TestSessionSkeletonPanics(t *testing.T) {
-	s := New(Options{})
-	if s == nil {
-		t.Fatal("New returned nil")
-	}
-	for name, call := range map[string]func(){
-		"Start":          func() { s.Start("fullcleanup") },
-		"Confirm":        func() { s.Confirm(1, true) },
-		"SubmitPassword": func() { s.SubmitPassword(1, "x") },
-		"CancelPrompt":   func() { s.CancelPrompt(1) },
-		"Select":         func() { s.Select(1, nil) },
-		"Abort":          func() { s.Abort() },
-		"Handle":         func() { s.Handle(Tick{}) },
-	} {
-		func() {
-			defer func() {
-				if r := recover(); r != errNotImplemented {
-					t.Errorf("%s: recovered %v, want errNotImplemented", name, r)
-				}
-			}()
-			call()
-		}()
-	}
-}
