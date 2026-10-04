@@ -6,9 +6,12 @@
 # name ($0) and, where a tape needs it, by SHIM_* variables run.sh exports.
 set -u
 name="$(basename "$0")"
-printf '%s' "$name" >>"${SHIM_LOG:?SHIM_LOG unset}"
-printf ' %s' "$@" >>"$SHIM_LOG"
-printf '\n' >>"$SHIM_LOG"
+# One write per line: archmaid runs several shims at once (the async Driver),
+# and under O_APPEND a single short write is atomic, while three separate
+# appends interleave ("pacmanpacman -Qkq ...") and break the log assertions.
+line="$name"
+for a in "$@"; do line+=" $a"; done
+printf '%s\n' "$line" >>"${SHIM_LOG:?SHIM_LOG unset}"
 
 case "$name" in
 systemctl)
