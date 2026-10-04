@@ -204,6 +204,92 @@ func TestFetchAURInfoErrors(t *testing.T) {
 	}
 }
 
+// serveAUR points aurRPCURL at a one-off handler for the test's duration.
+func serveAUR(t *testing.T, h http.HandlerFunc) {
+	t.Helper()
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	old := aurRPCURL
+	aurRPCURL = srv.URL
+	t.Cleanup(func() { aurRPCURL = old })
+}
+
+func TestFetchAURInfoCapsTheResponse(t *testing.T) {
+	serveAUR(t, func(w http.ResponseWriter, r *http.Request) {
+		// Valid JSON, but one string field alone is past the cap.
+		w.Write([]byte(`{"type":"multiinfo","results":[{"Name":"x","Description":"`))
+		w.Write([]byte(strings.Repeat("a", aurMaxResponse)))
+		w.Write([]byte(`"}]}`))
+	})
+	if _, err := fetchAURInfo([]string{"x"}); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Fatalf("err = %v, want an oversized response to be rejected", err)
+	}
+}
+
+func TestFetchAURInfoDropsUnrequestedNames(t *testing.T) {
+	serveAUR(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"type":"multiinfo","results":[{"Name":"x","NumVotes":1},{"Name":"evil","NumVotes":1}]}`))
+	})
+	got, err := fetchAURInfo([]string{"x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["evil"]; ok || len(got) != 1 {
+		t.Fatalf("got %v, want only the requested package", got)
+	}
+}
+
+func TestSanitizeAUR(t *testing.T) {
+	cases := map[string]string{
+		"alice":                          "alice",
+		"mal\x1b]0;pwned\x07lory":        "mal]0;pwnedlory", // OSC title set: ESC and BEL dropped
+		"bob\x1b[2J\r\n":                 "bob[2J",
+		"‮yrollam":                       "yrollam", // bidi override
+		"zero​width":                     "zerowidth",
+		"c1\u009bcsi":                    "c1csi",
+		"bad\xffutf8":                    "bad�utf8",
+		"ålæsø":                          "ålæsø",
+		strings.Repeat("x", 100):         strings.Repeat("x", aurFieldMax) + "…",
+		strings.Repeat("x", 64):          strings.Repeat("x", 64),
+		"\x1b" + strings.Repeat("y", 64): strings.Repeat("y", 64),
+	}
+	for in, want := range cases {
+		if got := sanitizeAUR(in); got != want {
+			t.Errorf("sanitizeAUR(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestAuditReportCarriesNoAURControlBytes: a maintainer name with terminal
+// escapes reaches neither the report, the confirm, nor audit.log intact,
+// while the raw value still drives the comparison and the snapshot.
+func TestAuditReportCarriesNoAURControlBytes(t *testing.T) {
+	auditEnv(t)
+	shimPacmanForeign(t, "victim\n")
+	evil := "mallory\x1b]52;c;cGF5bG9hZA==\x07"
+	fakeAUR(t, map[string]aurInfo{"victim": {Name: "victim", Maintainer: strp(evil), LastModified: aged(24 * 90), NumVotes: 10}})
+	saveBaseline([]string{"victim"}, map[string]aurInfo{"victim": {Name: "victim", Maintainer: strp("bob")}}, nil)
+
+	r := runAuditStep()
+	if r.confirmNext == "" || !strings.Contains(r.output, "bob → mallory]52;c;") {
+		t.Fatalf("confirm=%q output:\n%s", r.confirmNext, r.output)
+	}
+	for name, s := range map[string]string{"output": r.output, "confirm": r.confirmNext, "report": runAudit(auditNow).report} {
+		if strings.ContainsAny(s, "\x07") || strings.Contains(s, "]52;c;cGF5bG9hZA==\x07") || strings.Contains(s, "\x1b]") {
+			t.Errorf("%s still carries the escape: %q", name, s)
+		}
+	}
+	if log, _ := os.ReadFile(logPath(logCategoryAudit)); strings.Contains(string(log), "\x1b]") {
+		t.Errorf("audit.log carries the escape: %q", log)
+	}
+	if err := r.commit(); err != nil {
+		t.Fatal(err)
+	}
+	if snap, _ := loadBaseline(); snap["victim"] != evil {
+		t.Fatalf("the snapshot keeps the raw value for the next comparison, got %q", snap["victim"])
+	}
+}
+
 // ── snapshot ──────────────────────────────────────────────────────────────────
 
 func TestBaselineRoundTripAndKeepsMissing(t *testing.T) {

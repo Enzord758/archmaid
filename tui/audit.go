@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -43,6 +46,11 @@ const (
 	auditCooldown = 72 * time.Hour
 	auditChunk    = 100 // packages per RPC request
 	auditTimeout  = 15 * time.Second
+	// aurMaxResponse caps one RPC response body, far above what a real
+	// 100-package reply needs.
+	aurMaxResponse = 8 << 20
+	// aurFieldMax caps an AUR-supplied name or maintainer for display.
+	aurFieldMax = 64
 )
 
 // aurInfo is the subset of an RPC "info" result the audit reads.
@@ -62,8 +70,34 @@ type auditFinding struct {
 	flags []string
 }
 
+// line renders the finding. name stays raw in the struct (it keys the
+// snapshot); it is only sanitized here, for display.
 func (f auditFinding) line(width int) string {
-	return fmt.Sprintf("%-*s  %s", width, f.name, strings.Join(f.flags, " · "))
+	return fmt.Sprintf("%-*s  %s", width, sanitizeAUR(f.name), strings.Join(f.flags, " · "))
+}
+
+// sanitizeAUR makes a package name or maintainer safe to put on screen, in a
+// popup or in a log: control and format characters (ESC and the rest of
+// C0/C1, bidi overrides, zero-width marks) are dropped so a crafted value
+// can't smuggle in terminal escapes, invalid UTF-8 becomes U+FFFD, and the
+// result is cut to aurFieldMax runes plus "…".
+//
+// TODO: use the shared sanitize func from the log-hygiene commit
+func sanitizeAUR(s string) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range strings.ToValidUTF8(s, "�") {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		if n == aurFieldMax {
+			b.WriteString("…")
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
 }
 
 // foreignPackages lists installed packages that aren't in any sync repo
@@ -75,15 +109,18 @@ func foreignPackages() []string {
 
 // fetchAURInfo looks the packages up on the AUR RPC (POST, chunked so a large
 // package list never hits URL limits) and returns the ones it knows about,
-// keyed by name. Packages the AUR doesn't know are simply absent.
+// keyed by name. Packages the AUR doesn't know are simply absent, and so is
+// any result for a name that wasn't asked for.
 func fetchAURInfo(pkgs []string) (map[string]aurInfo, error) {
 	client := &http.Client{Timeout: auditTimeout}
 	found := make(map[string]aurInfo, len(pkgs))
 	for start := 0; start < len(pkgs); start += auditChunk {
 		end := min(start+auditChunk, len(pkgs))
 		form := url.Values{}
+		requested := make(map[string]bool, end-start)
 		for _, p := range pkgs[start:end] {
 			form.Add("arg[]", p)
+			requested[p] = true
 		}
 		req, err := http.NewRequest(http.MethodPost, aurRPCURL, strings.NewReader(form.Encode()))
 		if err != nil {
@@ -100,7 +137,9 @@ func fetchAURInfo(pkgs []string) (map[string]aurInfo, error) {
 			Error   string
 			Results []aurInfo
 		}
-		err = json.NewDecoder(resp.Body).Decode(&body)
+		// Capped: a response past aurMaxResponse is cut off and fails to
+		// decode, rather than growing without bound in memory.
+		err = json.NewDecoder(io.LimitReader(resp.Body, aurMaxResponse)).Decode(&body)
 		resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("AUR returned HTTP %d", resp.StatusCode)
@@ -112,7 +151,9 @@ func fetchAURInfo(pkgs []string) (map[string]aurInfo, error) {
 			return nil, fmt.Errorf("AUR error: %s", body.Error)
 		}
 		for _, r := range body.Results {
-			found[r.Name] = r
+			if requested[r.Name] { // ignore anything this chunk didn't ask about
+				found[r.Name] = r
+			}
 		}
 	}
 	return found, nil
@@ -131,15 +172,16 @@ func classify(name string, ai *aurInfo, prev string, hadPrev bool, now time.Time
 	if ai.Maintainer != nil {
 		cur = *ai.Maintainer
 	}
+	// Compare the raw values; only what's displayed is sanitized.
 	switch {
 	case hadPrev && prev == "" && cur != "":
 		f.high = true
-		f.flags = append(f.flags, fmt.Sprintf("adopted by %s (was orphaned)", cur))
+		f.flags = append(f.flags, fmt.Sprintf("adopted by %s (was orphaned)", sanitizeAUR(cur)))
 	case hadPrev && prev != "" && cur == "":
-		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", prev))
+		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", sanitizeAUR(prev)))
 	case hadPrev && prev != cur:
 		f.high = true
-		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", prev, cur))
+		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", sanitizeAUR(prev), sanitizeAUR(cur)))
 	case cur == "":
 		f.flags = append(f.flags, "orphaned")
 	}
@@ -520,7 +562,7 @@ func highNames(findings []auditFinding) string {
 	var names []string
 	for _, f := range findings {
 		if f.high {
-			names = append(names, f.name)
+			names = append(names, sanitizeAUR(f.name))
 		}
 	}
 	switch len(names) {
@@ -609,7 +651,7 @@ func baselineNote(state baselineState) string {
 func nameWidth(findings []auditFinding) int {
 	w := 0
 	for _, f := range findings {
-		w = max(w, len(f.name))
+		w = max(w, utf8.RuneCountInString(sanitizeAUR(f.name)))
 	}
 	return min(w, 28)
 }
