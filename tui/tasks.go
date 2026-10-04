@@ -148,6 +148,18 @@ type streamBatchMsg struct {
 	err   error    // the step's exit error (only meaningful when done)
 }
 
+// stepWaitDelay is how long a step's output pipe is still read after its
+// child has exited (exec.Cmd.WaitDelay). Anything the child started in the
+// background — a daemon, a helper topgrade leaves running — inherits the pipe
+// and can hold it open for good; without a bound, cmd.Wait and the scanner
+// waited on it, and the finished step stayed "running". Whatever the child
+// wrote before exiting is read within that window (only a UI stalled for the
+// whole of it could leave some unread in the pipe); then the pipe is closed,
+// and a background process writing to it later gets SIGPIPE/EPIPE like any
+// writer to a closed pipe. Lines already read are always delivered, before
+// the one done. A var so tests can shrink it.
+var stepWaitDelay = 2 * time.Second
+
 // runStep starts the step's command and streams its output on ch, returning the
 // running process so the caller can signal it on abort (nil in dry run or if the
 // command never starts). Start() happens synchronously so the handle is
@@ -202,6 +214,10 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) (*os.Proces
 	}
 	cmd := exec.Command(name, args...)
 	cmd.Env = stepEnv(s)
+	// Bound the wait on the pipe once the child itself is gone (see
+	// stepWaitDelay). Process groups stay as they are: no Setsid/Setpgid,
+	// the step must share archmaid's session for the sudo ticket.
+	cmd.WaitDelay = stepWaitDelay
 
 	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
 	pr, pw := io.Pipe()
@@ -236,6 +252,11 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) (*os.Proces
 		}()
 
 		err := cmd.Wait()
+		if errors.Is(err, exec.ErrWaitDelay) {
+			// The child exited 0; only something it left running still
+			// held the pipe. The step itself succeeded.
+			err = nil
+		}
 		pw.Close() // unblocks the scanner with EOF
 		<-scanned  // all lines are on the channel before we report done
 		send(streamMsg{done: true, err: err})

@@ -238,7 +238,10 @@ comments and `git log`; this is the "read before you touch it" list.
   ~1.8 GB of allocations, 20k lines ~5 s (`BenchmarkStreamView*`, now ~5 ms
   and ~21 ms). The pane follows new output only while it's at the bottom; a
   user who scrolled up stays put, and when the tail drops old lines their
-  offset moves with the text.
+  offset moves with the text. A step is done when its child exits: the pipe
+  is read for at most `stepWaitDelay` (2 s, `exec.Cmd.WaitDelay`) after that,
+  so a background process the child left holding stdout can't keep it
+  "running" — no process-group change needed (see the `Setsid` landmine).
 - **`m.bg` is one field, not a stack.** A popup that overwrites it with its own
   screen value makes `renderScreen` recurse forever; see `handleAskpass` in
   `update.go`.

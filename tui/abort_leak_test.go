@@ -46,3 +46,34 @@ func TestAbortDoesNotLeakGoroutines(t *testing.T) {
 		t.Fatalf("goroutines: %d before, %d after 5 aborted steps — leaked %d", base, n, n-base)
 	}
 }
+
+// TestAbortStepWithBackgroundChild: aborting a step whose child left a
+// background process holding the output pipe still lets every goroutine
+// behind the step finish — SIGINT ends the child, and stepWaitDelay ends the
+// wait on the pipe the background process keeps.
+func TestAbortStepWithBackgroundChild(t *testing.T) {
+	oldGrace, oldDelay := sigkillGrace, stepWaitDelay
+	sigkillGrace, stepWaitDelay = 10*time.Millisecond, 100*time.Millisecond
+	defer func() { sigkillGrace, stepWaitDelay = oldGrace, oldDelay }()
+
+	base := runtime.NumGoroutine()
+	m := fixedModel()
+	// exec: SIGINT reaches sleep itself, whose default action is to die.
+	m.queue = []stepState{{step: step{title: "bg", logLabel: "bg", command: "bash",
+		args: []string{"-c", `sleep 30 & echo "holder $!"; exec sleep 30`}}}}
+	m.current = -1
+	m.screen = screenRunning
+	m.advance()
+	if m.proc == nil {
+		t.Fatal("step did not start")
+	}
+	select {
+	case msg := <-m.stream:
+		killHolder(t, msg.line)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no output from the step")
+	}
+
+	m.abortRunning()
+	waitGoroutines(t, base, 3*time.Second)
+}

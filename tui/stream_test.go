@@ -1,10 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -203,6 +209,102 @@ func TestStreamAlwaysLogKeepsFullOutput(t *testing.T) {
 	want := "--- Updated output ---\n" + strings.Join(lines, "\n") + "\n--- end output ---\n"
 	if !strings.Contains(log, want) {
 		t.Fatalf("log should hold all %d lines in order; got %d bytes", n, len(log))
+	}
+}
+
+// killHolder SIGKILLs the background process a shim step reported with a
+// "holder <pid>" line, so a test never leaves its `sleep 30` behind.
+func killHolder(t *testing.T, line string) {
+	t.Helper()
+	pid, err := strconv.Atoi(strings.TrimPrefix(line, "holder "))
+	if err != nil || pid <= 0 {
+		t.Fatalf("no holder pid in %q", line)
+	}
+	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGKILL) })
+}
+
+// waitGoroutines fails t unless the goroutine count falls back to base.
+func waitGoroutines(t *testing.T, base int, within time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for runtime.NumGoroutine() > base && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > base {
+		t.Fatalf("goroutines: %d before, %d after — leaked %d", base, n, n-base)
+	}
+}
+
+// TestStreamStepNotHeldByBackgroundChild: a step whose child starts something
+// in the background that keeps the output pipe (a daemon, a helper topgrade
+// leaves running) is done once the child exits — within stepWaitDelay, not
+// when the background process lets go. Every line the child wrote comes
+// before exactly one done, which carries the child's own exit status (a
+// clean exit is a success, not exec's ErrWaitDelay), and nothing is left
+// running behind it.
+func TestStreamStepNotHeldByBackgroundChild(t *testing.T) {
+	old := stepWaitDelay
+	stepWaitDelay = 200 * time.Millisecond
+	defer func() { stepWaitDelay = old }()
+
+	for _, tc := range []struct {
+		exit int
+		want func(error) bool
+	}{
+		{0, func(err error) bool { return err == nil }},
+		{3, func(err error) bool {
+			var ee *exec.ExitError
+			return errors.As(err, &ee) && ee.ExitCode() == 3
+		}},
+	} {
+		t.Run(fmt.Sprintf("exit%d", tc.exit), func(t *testing.T) {
+			base := runtime.NumGoroutine()
+			ch := make(chan streamMsg, 16)
+			script := fmt.Sprintf(`echo one; sleep 30 & echo "holder $!"; echo two; exit %d`, tc.exit)
+			began := time.Now()
+			if p, _ := runStepUntil(step{command: "bash", args: []string{"-c", script}}, ch, nil); p == nil {
+				t.Fatal("step did not start")
+			}
+
+			var lines []string
+			var done streamMsg
+			timeout := time.After(5 * time.Second)
+		read:
+			for {
+				select {
+				case msg := <-ch:
+					if msg.done {
+						done = msg
+						break read
+					}
+					lines = append(lines, msg.line)
+					if strings.HasPrefix(msg.line, "holder ") {
+						killHolder(t, msg.line)
+					}
+				case <-timeout:
+					t.Fatalf("no done after 5s (lines so far %q): the background sleep held the step open", lines)
+				}
+			}
+			elapsed := time.Since(began)
+
+			if len(lines) != 3 || lines[0] != "one" || !strings.HasPrefix(lines[1], "holder ") || lines[2] != "two" {
+				t.Fatalf("lines = %q, want one, holder <pid>, two", lines)
+			}
+			if !tc.want(done.err) {
+				t.Fatalf("done err = %v, want the child's own exit %d", done.err, tc.exit)
+			}
+			// The sleep really held the pipe (else this proves nothing), and
+			// only for about stepWaitDelay.
+			if elapsed < stepWaitDelay || elapsed > stepWaitDelay+2*time.Second {
+				t.Fatalf("done after %v, want about stepWaitDelay (%v)", elapsed, stepWaitDelay)
+			}
+			select {
+			case msg := <-ch:
+				t.Fatalf("message after the done: %#v", msg)
+			case <-time.After(100 * time.Millisecond):
+			}
+			waitGoroutines(t, base, 2*time.Second)
+		})
 	}
 }
 
