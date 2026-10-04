@@ -122,6 +122,8 @@ test can delete your files or need root.
    home and clear `--downloads` / `ARCHMAID_DOWNLOADS`. Tests that read or write
    run logs or the AUR snapshot also set `logDir = t.TempDir()` (restored on
    cleanup), so nothing lands in the real `~/.local/state/archmaid`.
+   A new test package that can reach the home directory (`os.UserHomeDir`,
+   `user.Current`, `HOME`, `XDG_*`) calls `testenv.Run` from its `TestMain`.
 3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
    replaced by shell shims placed first on `PATH` (see Recipes).
 4. **No network.** The AUR RPC is an `httptest` server reached through the
