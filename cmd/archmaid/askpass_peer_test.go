@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 )
 
@@ -68,111 +69,8 @@ func askpassTree(t *testing.T) map[int]proc.Info {
 }
 
 // helperPeer is the helper as the server records it at accept.
-func helperPeer() askpassPeer {
-	return askpassPeer{pid: fakeHelperPid, uid: fakeUID, start: 400}
-}
-
-// TestVerifyAskpassPeer: the happy path names sudo's caller; every way a
-// request can fail to be ours is refused.
-func TestVerifyAskpassPeer(t *testing.T) {
-	t.Run("happy path", func(t *testing.T) {
-		fakeProcs(t, askpassTree(t))
-		from, err := verifyAskpassPeer(helperPeer(), fakeStepPid, 100)
-		if err != nil {
-			t.Fatalf("refused the step's own sudo: %v", err)
-		}
-		if from.callerExe != "/usr/bin/yay" || from.callerPid != fakeCallerPid {
-			t.Fatalf("caller = %q (pid %d), want /usr/bin/yay (pid %d)", from.callerExe, from.callerPid, fakeCallerPid)
-		}
-	})
-
-	t.Run("sudo is the step itself", func(t *testing.T) {
-		// A plain `sudo -A …` step: the step's child is sudo.
-		fakeProcs(t, askpassTree(t))
-		if _, err := verifyAskpassPeer(helperPeer(), fakeSudoPid, 300); err != nil {
-			t.Fatalf("refused a direct sudo step: %v", err)
-		}
-	})
-
-	t.Run("readable sudo exe", func(t *testing.T) {
-		// As root the exe link is readable; then it must be sudo's binary.
-		tree := askpassTree(t)
-		sudo := tree[fakeSudoPid]
-		sudo.Exe = sudoPath
-		tree[fakeSudoPid] = sudo
-		fakeProcs(t, tree)
-		if _, err := verifyAskpassPeer(helperPeer(), fakeStepPid, 100); err != nil {
-			t.Fatalf("refused a sudo whose exe reads %s: %v", sudoPath, err)
-		}
-	})
-
-	refusals := []struct {
-		name      string
-		edit      func(tree map[int]proc.Info, peer *askpassPeer)
-		stepPid   int
-		stepStart uint64
-		want      string // in the error
-	}{
-		{name: "wrong uid", want: "not ours",
-			edit: func(_ map[int]proc.Info, peer *askpassPeer) { peer.uid = fakeUID + 1 }},
-		{name: "helper gone", want: "gone",
-			edit: func(tree map[int]proc.Info, _ *askpassPeer) { delete(tree, fakeHelperPid) }},
-		{name: "helper pid reused since accept", want: "reused",
-			edit: func(_ map[int]proc.Info, peer *askpassPeer) { peer.start = 399 }},
-		{name: "not archmaid", want: "/usr/bin/python3",
-			edit: setProc(fakeHelperPid, func(p *proc.Info) { p.Exe = "/usr/bin/python3" })},
-		{name: "helper exe unreadable", want: "unknown program",
-			edit: setProc(fakeHelperPid, func(p *proc.Info) { p.Exe = "" })},
-		{name: "user process named sudo", want: "not started by sudo",
-			edit: setProc(fakeSudoPid, func(p *proc.Info) { p.EUID = fakeUID })},
-		{name: "root process not named sudo", want: "not started by sudo",
-			edit: setProc(fakeSudoPid, func(p *proc.Info) { p.Comm = "pkexec" })},
-		{name: "readable exe that isn't sudo", want: "not started by sudo",
-			edit: setProc(fakeSudoPid, func(p *proc.Info) { p.Exe = "/home/u/bin/sudo" })},
-		{name: "parent gone", want: "not started by sudo",
-			edit: func(tree map[int]proc.Info, _ *askpassPeer) { delete(tree, fakeSudoPid) }},
-		{name: "chain misses the step", stepPid: 4242, want: "not started by the running step"},
-		{name: "chain broken", want: "not started by the running step",
-			edit: func(tree map[int]proc.Info, _ *askpassPeer) { delete(tree, fakeCallerPid) }},
-		{name: "step pid reused", stepStart: 99, want: "step's pid"},
-		{name: "ancestor pid reused", want: "reused",
-			// a parent can't have started after its child
-			edit: setProc(fakeCallerPid, func(p *proc.Info) { p.Start = 350 })},
-		{name: "cycle", want: "not started by the running step",
-			edit: setProc(fakeCallerPid, func(p *proc.Info) { p.PPid = fakeSudoPid; p.Start = 300 })},
-	}
-	for _, c := range refusals {
-		t.Run(c.name, func(t *testing.T) {
-			tree, peer := askpassTree(t), helperPeer()
-			if c.edit != nil {
-				c.edit(tree, &peer)
-			}
-			fakeProcs(t, tree)
-			stepPid, stepStart := fakeStepPid, uint64(100)
-			if c.stepPid != 0 {
-				stepPid = c.stepPid
-			}
-			if c.stepStart != 0 {
-				stepStart = c.stepStart
-			}
-			_, err := verifyAskpassPeer(peer, stepPid, stepStart)
-			if err == nil {
-				t.Fatal("request accepted, want it refused")
-			}
-			if !strings.Contains(err.Error(), c.want) {
-				t.Fatalf("err = %q, want it to mention %q", err, c.want)
-			}
-		})
-	}
-}
-
-// setProc returns an edit that changes pid's entry in the fake tree.
-func setProc(pid int, change func(*proc.Info)) func(map[int]proc.Info, *askpassPeer) {
-	return func(tree map[int]proc.Info, _ *askpassPeer) {
-		p := tree[pid]
-		change(&p)
-		tree[pid] = p
-	}
+func helperPeer() privilege.Peer {
+	return privilege.Peer{Pid: fakeHelperPid, UID: fakeUID, Start: 400}
 }
 
 // ── the model's side ─────────────────────────────────────────────────────────
@@ -195,7 +93,7 @@ func sudoStepRunning(t *testing.T, m model) model {
 
 // helperAsks is the helper's request, as the server delivers it.
 func helperAsks(conn net.Conn) askpassMsg {
-	return askpassMsg{prompt: "[sudo] password for u: ", conn: conn, peer: helperPeer()}
+	return askpassMsg{req: privilege.NewRequest(conn, "[sudo] password for u: ", helperPeer())}
 }
 
 // pipeConn returns the model's end of an in-memory connection and the
@@ -254,8 +152,8 @@ func TestAskpassIdleSocketHungUp(t *testing.T) {
 			conn, helper := pipeConn(t)
 			m = update(m, helperAsks(conn))
 			requireClosedUnanswered(t, helper)
-			if m.screen != before || m.askpassConn != nil {
-				t.Fatalf("screen %d → %d, conn set=%v; want no popup", before, m.screen, m.askpassConn != nil)
+			if m.screen != before || m.askpassReq != nil {
+				t.Fatalf("screen %d → %d, conn set=%v; want no popup", before, m.screen, m.askpassReq != nil)
 			}
 		})
 	}
@@ -276,8 +174,8 @@ func TestAskpassRefusedRequestIsNoted(t *testing.T) {
 	conn, peer := pipeConn(t)
 	m = update(m, helperAsks(conn))
 	requireClosedUnanswered(t, peer)
-	if m.screen != screenRunning || m.askpassConn != nil {
-		t.Fatalf("screen = %d, conn set=%v; want no popup", m.screen, m.askpassConn != nil)
+	if m.screen != screenRunning || m.askpassReq != nil {
+		t.Fatalf("screen = %d, conn set=%v; want no popup", m.screen, m.askpassReq != nil)
 	}
 	out := m.buf.String()
 	if !strings.Contains(out, "refused a sudo password request") || !strings.Contains(out, "/tmp/evil") {
@@ -294,15 +192,16 @@ func TestAskpassSecondRequestRefused(t *testing.T) {
 	m := sudoStepRunning(t, fixedModel())
 	m.screen = screenRunning
 	first, _ := pipeConn(t)
-	m = update(m, helperAsks(first))
-	if m.askpassConn != first {
+	firstReq := helperAsks(first)
+	m = update(m, firstReq)
+	if m.askpassReq != firstReq.req {
 		t.Fatal("first request didn't open the popup")
 	}
 
 	second, helper := pipeConn(t)
 	m = update(m, helperAsks(second))
 	requireClosedUnanswered(t, helper)
-	if m.askpassConn != first || m.screen != screenPassword {
+	if m.askpassReq != firstReq.req || m.screen != screenPassword {
 		t.Fatal("second request displaced the open one")
 	}
 }
@@ -315,7 +214,7 @@ func TestAskpassPopupShowsRequester(t *testing.T) {
 	m.screen = screenRunning
 	conn, _ := pipeConn(t)
 	req := helperAsks(conn)
-	req.prompt = "\x1b]0;pwned\x07[sudo] password\nfor u: "
+	req.req.Prompt = "\x1b]0;pwned\x07[sudo] password\nfor u: "
 	m = update(m, req)
 	if m.screen != screenPassword {
 		t.Fatalf("screen = %d, want the password popup", m.screen)
@@ -341,29 +240,5 @@ func TestAskpassPromptTextClipped(t *testing.T) {
 	got := askpassPromptText(strings.Repeat("ab ", 40))
 	if n := len([]rune(got)); n != 48 || !strings.HasSuffix(got, "…") {
 		t.Fatalf("prompt = %q (%d runes), want 48 ending in …", got, n)
-	}
-}
-
-// TestAskpassServerReportsPeer: over a real socket the server records the
-// connecting process — here the test itself — with its uid and start time.
-func TestAskpassServerReportsPeer(t *testing.T) {
-	askpassEnv(t)
-	s := startAskpassServer()
-	defer s.close()
-	conn, err := net.Dial("unix", s.sock)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	conn.Write([]byte("Password:\n"))
-	req := recv(t, s.reqs, "the request")
-	defer req.conn.Close()
-
-	self, err := proc.Read(os.Getpid())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := (askpassPeer{pid: os.Getpid(), uid: os.Getuid(), start: self.Start}); req.peer != want {
-		t.Fatalf("peer = %+v, want %+v", req.peer, want)
 	}
 }

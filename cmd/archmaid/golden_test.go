@@ -127,8 +127,8 @@ func TestAskpassGolden(t *testing.T) {
 	conn, _ := pipeConn(t)
 	m = update(m, helperAsks(conn))
 	m = update(m, key("hunter2"))
-	if m.screen != screenPassword || m.askpassConn == nil {
-		t.Fatalf("screen=%d conn set=%v, want the askpass prompt", m.screen, m.askpassConn != nil)
+	if m.screen != screenPassword || m.askpassReq == nil {
+		t.Fatalf("screen=%d conn set=%v, want the askpass prompt", m.screen, m.askpassReq != nil)
 	}
 	viewGolden(t, m)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 	"github.com/muesli/termenv"
 
+	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/testenv"
 )
 
@@ -32,13 +33,14 @@ func fixedModel() model {
 func TestMain(m *testing.M) {
 	// Under `go test` os.Executable() is this test binary, so the SUDO_ASKPASS
 	// wrapper startAskpassServer writes execs it with --askpass. Dispatch that
-	// exactly as main() does, so askpass_test.go can drive the real round trip.
+	// exactly as main() does, so a wrapper reaching this binary relays instead of
+	// running the whole suite again.
 	if len(os.Args) >= 3 && os.Args[1] == "--askpass" {
 		prompt := ""
 		if len(os.Args) >= 4 {
 			prompt = os.Args[3]
 		}
-		os.Exit(runAskpass(os.Args[2], prompt))
+		os.Exit(privilege.RunClient(os.Args[2], prompt))
 	}
 
 	lipgloss.SetColorProfile(termenv.Ascii)

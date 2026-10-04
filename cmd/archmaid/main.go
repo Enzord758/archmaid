@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Enzord758/archmaid/internal/privilege"
 )
 
 func main() {
@@ -21,7 +23,7 @@ func main() {
 		if len(os.Args) >= 4 {
 			prompt = os.Args[3]
 		}
-		os.Exit(runAskpass(os.Args[2], prompt))
+		os.Exit(privilege.RunClient(os.Args[2], prompt))
 	}
 
 	if err := parseArgs(os.Args[1:]); err != nil {
@@ -31,15 +33,17 @@ func main() {
 
 	pruneLogs() // keep only the most recent logKeepRuns run directories
 
-	srv := startAskpassServer()
-	defer srv.close()
+	srv := startAskpassServer() // nil: askpass isn't wired, sudo steps run -n
+	defer stopAskpassServer(srv)
 
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
-	go func() { // deliver sudo password requests to the model
-		for req := range srv.reqs {
-			p.Send(req)
-		}
-	}()
+	if srv != nil {
+		go func() { // deliver sudo password requests to the model
+			for req := range srv.Requests() {
+				p.Send(askpassMsg{req: req})
+			}
+		}()
+	}
 
 	_, err := p.Run()
 	// An aborted downloads deletion finishes its current entry and logs what

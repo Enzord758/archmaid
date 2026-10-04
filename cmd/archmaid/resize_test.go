@@ -160,9 +160,10 @@ func TestAskpassOverPasswordScreenKeepsRealBackground(t *testing.T) {
 	m.bg = screenMenu
 
 	c1, _ := pipeConn(t)
-	got := update(m, helperAsks(c1))
+	req := helperAsks(c1)
+	got := update(m, req)
 
-	if got.screen != screenPassword || got.askpassConn != c1 {
+	if got.screen != screenPassword || got.askpassReq != req.req {
 		t.Fatal("the request didn't open the askpass prompt")
 	}
 	if got.bg != screenMenu {

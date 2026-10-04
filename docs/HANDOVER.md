@@ -18,17 +18,17 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 
 | File | Owns |
 |---|---|
-| `main.go` | package doc + `main()`: askpass dispatch, flag parsing (`parseArgs`: `--dryrun`, `--downloads`), `pruneLogs`, `tea.NewProgram` |
+| `main.go` | package doc + `main()`: `--askpass` dispatch to `privilege.RunClient`, the askpass server's requests fed to the program as `askpassMsg`s, flag parsing (`parseArgs`: `--dryrun`, `--downloads`), `pruneLogs`, `tea.NewProgram` |
 | `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `discoverDownloads` (Resolve + Scan -> confirm step), `deleteOldDownloads` (the in-process step, abort logging), `waitForDownloads` |
 | `internal/downloads` | the resolver (`Resolve(Options)`), `Scan(dir, now, Options) Plan`, `Plan.Confirm()`, `Delete(ctx, Plan, Options) (Result, error)`; ctime, Lstat, `os.Root`, the mountinfo boundary and the per-node re-check; no UI, no logging, no env reads |
 | `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
 | `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
-| `tasks.go` | `step`, `runStep`/`stepSpec` (a step's command, sudo flag and environment, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, sudo probe/auth/keep-alive, discovery commands, `editConfig` |
+| `tasks.go` | `step`, `runStep`/`stepSpec` (a step's command via `privilege.Sudo.Command`, started through `internal/proc`), `waitForStream` (`proc.Next` as a `tea.Cmd`: pumps the output to the UI in batches), the step queues, the sudo probe/auth/keep-alive as `tea.Cmd`s over `privilege.Sudo` (`checkSudoCached`, `authSudo`, `refreshSudo`), discovery commands, `editConfig` |
 | `output.go` | the running step's output pane: full buffer for the log, capped tail for the viewport, follow-the-bottom |
 | `audit.go` | the AUR audit: RPC lookup, classification, maintainer snapshot, report |
 | `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun`, thin `appendLog`/`readLog`/`pruneLogs` wrappers, and the "Log is empty." rendering |
-| `askpass.go` | `SUDO_ASKPASS` helper + socket server |
+| `askpass.go` | askpass tea glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper), `askpassMsg`/`askpassResultMsg`, `answerAskpass` (`Request.Answer` off the UI thread), `verifyAskpassPeer` (`privilege.Verify` with the `readProc`/`ourUID` seams), the popup's `askpassRequester`; the popup itself is `handleAskpass` in `update.go` |
 | `overlay.go` | ANSI-aware popup compositor |
 | `status.go`, `theme.go` | the status line's tea glue (`refreshStatus`, `refreshStatusNow`, the `tickFn` seam; the reading itself is `internal/sysstat`: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
 
@@ -45,6 +45,7 @@ charmbracelet, except `internal/tui`):
 
 | Package | Owns |
 |---|---|
+| `internal/privilege` | getting root without prompting on the tty. `Privileged` (`Probe`, `Authenticate`, `Refresh`, `Command`) and its one implementation `Sudo{Wrapper}`: `sudo -n -v` probe and keep-alive, two-stage `Authenticate` (`CheckPassword` = `su -s /usr/bin/true <user>`, then `sudo -S -v`; lockout notices), `Command` (sudo gets `-A` or `-n`; `Env` strips `SUDO_ASKPASS` and gives the wrapper only to privileged steps). Askpass: `Listen(runtimeDir, exe, ServerOptions)` → `*Server` (`Requests`, `Wrapper`, `Close`; private 0700 dir, shell-quoted wrapper, per-client read deadline and `MaxPrompt` cap, `SO_PEERCRED` + start time per client), `*Request` (`Prompt`, `Peer`, `Answer(pw)` — su-checked before anything is written — and `Cancel`), `Verify(peer, stepPid, stepStart, VerifyOptions)` → `Requester`, `RunClient(sock, prompt)` (the `--askpass` helper) |
 | `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace}`, its combined output streamed as `Msg`s on one ordered channel, the dry-run echo, `ErrWaitDelay` → success on a clean exit), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
 
 ## Decisions and landmines
@@ -64,24 +65,28 @@ comments and `git log`; this is the "read before you touch it" list.
   through pkexec, runs no sudo, and *does* give every child its own session, so
   a Ctrl-C/Ctrl-Z/hangup at the terminal can't reach pacman mid-transaction.
   Don't "fix" one by copying the other.
-- **Auth is two-stage (`authSudo`).** One wrong `sudo -S -v` burns *two*
+- **Auth is two-stage (`privilege.Sudo.Authenticate`).** One wrong `sudo -S -v` burns *two*
   `pam_faillock` failures (the wrong password plus sudo's retry hitting EOF), and
   `sudo -A` burns two as well — with Arch's `deny=3`, one typo from lockout. So
   the password is validated with `su -s /usr/bin/true <user>` first
-  (`suCheck`: single-shot, su's stack has no faillock on Arch, and `-s` keeps
+  (`privilege.CheckPassword`: single-shot, su's stack has no faillock on Arch, and `-s` keeps
   the user's shell startup files out of it, which `su -c true` didn't); only a
   known-correct password reaches sudo. The mid-run askpass popup does the same
-  (`answerAskpass`): a password su rejects is never written to sudo's
+  (`privilege.Request.Answer`): a password su rejects is never written to sudo's
   connection, the popup stays up with the attempts left, and the third failure
   cancels the request and skips the queue's remaining sudo steps, like a
-  failed prime. A password with a line break is refused before su: sudo reads
-  one line, so it would get a different password than su checked.
+  failed prime. A password with a line break is refused before su (by the
+  popup, and again by `Answer`): sudo reads one line, so it would get a
+  different password than su checked. `Answer` is the only way a password
+  reaches an askpass connection; don't add another.
 - **Nothing may prompt on the raw tty.** Sudo steps run `sudo -A`, and
   `SUDO_ASKPASS` routes any re-prompt back into the TUI as a popup. The password
-  is passed straight through, never stored or logged. `sudo -n -v` is only the
-  cache probe and the 60 s keep-alive.
+  is passed straight through, never stored or logged, and never kept in a
+  struct that outlives the call (`privilege.Request` holds no password).
+  `sudo -n -v` is only the cache probe and the 60 s keep-alive
+  (`Sudo.Probe`, `Sudo.Refresh`).
 - **`SUDO_ASKPASS` goes only to steps that use sudo.** It is never set in
-  archmaid's own environment: `stepEnv` gives it to `needsSudo` steps (sudo
+  archmaid's own environment: `privilege.Sudo.Command`/`Env` give it to `needsSudo` steps (sudo
   steps and topgrade) and strips it from every other child, including a value
   inherited from the user's shell. The socket and wrapper live in a private
   0700 directory under `XDG_RUNTIME_DIR`. Without that variable askpass stays
@@ -96,7 +101,7 @@ comments and `git log`; this is the "read before you touch it" list.
 - **An askpass request is answered only from the running sudo step.** The
   server records each client's pid/uid (`SO_PEERCRED`) and start time;
   `handleAskpass` hangs up unless a `needsSudo` step is running, and
-  `verifyAskpassPeer` requires: our uid; the same start time as at accept (pid
+  `privilege.Verify` requires: our uid; the same start time as at accept (pid
   not reused); `/proc/<pid>/exe` = `os.Executable()` (the wrapper execs us);
   a parent that is sudo; and a parent chain that reaches the step's child,
   matched on pid *and* the start time `proc.Runner.Start` captured (`Child.Start`) before anything

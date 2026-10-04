@@ -1,282 +1,90 @@
 package main
 
 import (
-	"bufio"
-	"errors"
-	"fmt"
-	"io"
-	"net"
 	"os"
-	"path/filepath"
-	"strings"
-	"syscall"
-	"time"
 
-	"github.com/Enzord758/archmaid/internal/sanitize"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
-// askpass routes sudo password prompts to a TUI popup instead of the tty. The
-// archmaid binary doubles as sudo's SUDO_ASKPASS helper: when sudo needs a
-// password it runs a tiny wrapper that execs `archmaid --askpass <sock>`, which
-// asks the running TUI over a unix socket and prints back whatever the user
-// typed. The password is passed straight through — never stored.
-//
-// SUDO_ASKPASS is not set in archmaid's own environment: runStep hands it only
-// to the steps that use sudo (see stepEnv), so nothing else archmaid starts
-// learns where the socket is. Those steps still include topgrade, and with it
-// every AUR build script, so the model also answers a request only while a sudo
-// step runs and only from archmaid's own helper, run by sudo, inside that
-// step's process tree (see verifyAskpassPeer).
+// The TUI's side of askpass: the socket server, the client (RunClient), the
+// peer check (Verify) and answering a request (Request.Answer) live in
+// internal/privilege. Here the server is started for the session, its
+// requests become askpassMsgs, and the model vets each one, shows a popup and
+// hands the typed password to Request.Answer (see handleAskpass).
 
 // askpassMsg is delivered to the model when a child's sudo asks for a password.
-// The model vets peer, shows a popup and writes the password back over conn (or
-// closes it unanswered to cancel, which sudo treats as a failed attempt).
-type askpassMsg struct {
-	prompt string
-	conn   net.Conn
-	peer   askpassPeer
-}
+type askpassMsg struct{ req *privilege.Request }
 
-// askpassResultMsg is the outcome of checking a password typed into the
-// askpass popup (see answerAskpass). conn ties it to the request it answers.
+// askpassResultMsg is the outcome of answering the open askpass request (see
+// answerAskpass). req ties it to the request it answers.
 type askpassResultMsg struct {
-	conn   net.Conn
-	err    error  // su rejected the password; nothing was written to conn
+	req    *privilege.Request
+	err    error  // su rejected the password; nothing was written to sudo
 	detail string // a lockout notice to show verbatim, if su printed one
 }
 
-// answerAskpass validates password with su before sudo sees it, like
-// authSudo's first stage, and writes it to conn only once it's known to be
-// right. A wrong answer to `sudo -A` burns two pam_faillock failures (deny=3
-// on Arch: one typo from lockout); a wrong su burns none. The password is
-// written straight through — never stored.
-func answerAskpass(conn net.Conn, password string) tea.Cmd {
+// answerAskpass checks password with su and, only if it's right, passes it
+// to sudo (privilege.Request.Answer), off the UI thread.
+func answerAskpass(req *privilege.Request, password string) tea.Cmd {
 	return func() tea.Msg {
-		if detail, err := suCheck(password); err != nil {
-			return askpassResultMsg{conn: conn, err: err, detail: detail}
-		}
-		fmt.Fprintf(conn, "%s\n", password)
-		conn.Close()
-		return askpassResultMsg{conn: conn}
+		detail, err := req.Answer(password)
+		return askpassResultMsg{req: req, err: err, detail: detail}
 	}
-}
-
-// askpassPeer is the process on the other end of an askpass connection: its
-// pid and uid as the kernel recorded them at connect time (SO_PEERCRED), and
-// its start time read when the connection was accepted, so a later check can
-// tell whether that pid still names the same process.
-type askpassPeer struct {
-	pid, uid int
-	start    uint64
-}
-
-// runAskpass is the SUDO_ASKPASS helper path (archmaid --askpass <sock> [prompt]).
-// Returns the process exit code: 0 on success, 1 if it can't reach the TUI or
-// the prompt is cancelled.
-func runAskpass(sock, prompt string) int {
-	conn, err := net.Dial("unix", sock)
-	if err != nil {
-		return 1
-	}
-	defer conn.Close()
-	fmt.Fprintln(conn, prompt) // tell the TUI what sudo is asking
-	pw, err := bufio.NewReader(conn).ReadString('\n')
-	if err != nil {
-		return 1 // TUI closed the connection unanswered → cancel
-	}
-	fmt.Print(pw) // pw keeps its trailing newline, which sudo expects
-	return 0
 }
 
 // askpassWrapper is the SUDO_ASKPASS wrapper that runStep gives to sudo steps,
 // or "" while askpass isn't wired up (no server, or it couldn't start). Set by
-// startAskpassServer, cleared by close.
+// startAskpassServer, cleared by stopAskpassServer.
 var askpassWrapper string
 
-// askpassReadTimeout bounds how long a client may take to send its prompt
-// line. A var so tests can shrink it.
-var askpassReadTimeout = 5 * time.Second
-
-// maxAskpassPrompt caps the prompt line a client may send. sudo's prompts are
-// a few dozen bytes; anything longer than this is dropped.
-const maxAskpassPrompt = 4096
-
-// askpassServer owns the private directory, socket and wrapper script for a
-// TUI session.
-type askpassServer struct {
-	reqs        chan askpassMsg
-	done        chan struct{} // closed by close(): pending deliveries give up
-	ln          net.Listener
-	dir         string // private 0700 directory holding sock and wrapper
-	sock        string
-	wrapper     string
-	readTimeout time.Duration
-	readProc    func(pid int) (proc.Info, error) // readProc, fixed at start
+// privileged is how steps get root: sudo, with the askpass wrapper while it's
+// wired up. Call it on the model's goroutine (it reads askpassWrapper).
+func privileged() privilege.Privileged {
+	return privilege.Sudo{Wrapper: askpassWrapper}
 }
 
-// startAskpassServer creates a private directory under XDG_RUNTIME_DIR, opens
-// the socket and writes the SUDO_ASKPASS wrapper in it. Best-effort: on any
-// error askpass simply isn't wired up, and sudo steps run `sudo -n` — they rely
-// on the primed ticket and fail cleanly without it, never prompting on the tty.
-// There is deliberately no fallback to /tmp: XDG_RUNTIME_DIR is the user's own
-// 0700 directory, while /tmp is shared with every user on the machine. reqs is
-// never closed; close() stops delivering to it.
-func startAskpassServer() *askpassServer {
-	s := &askpassServer{
-		reqs:        make(chan askpassMsg),
-		done:        make(chan struct{}),
-		readTimeout: askpassReadTimeout,
-		readProc:    readProc,
-	}
-
+// startAskpassServer starts the session's askpass server under
+// XDG_RUNTIME_DIR and wires its wrapper up for runStep. Best-effort: on any
+// error it returns nil, askpass simply isn't wired up, and sudo steps run
+// `sudo -n` — they rely on the primed ticket and fail cleanly without it,
+// never prompting on the tty.
+func startAskpassServer() *privilege.Server {
 	exe, err := os.Executable()
 	if err != nil {
-		return s
+		return nil
 	}
-	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
-	if runtimeDir == "" {
-		return s
-	}
-	dir, err := os.MkdirTemp(runtimeDir, "archmaid-askpass-") // mode 0700
+	s, err := privilege.Listen(os.Getenv("XDG_RUNTIME_DIR"), exe, privilege.ServerOptions{ReadProc: readProc})
 	if err != nil {
-		return s
+		return nil
 	}
-	s.dir = dir
-	s.sock = filepath.Join(dir, "askpass.sock")
-	s.wrapper = filepath.Join(dir, "askpass.sh")
-
-	ln, err := net.Listen("unix", s.sock)
-	if err != nil {
-		return s
-	}
-	s.ln = ln
-
-	if err := os.WriteFile(s.wrapper, []byte(askpassScript(exe, s.sock)), 0o700); err != nil {
-		ln.Close()
-		s.ln = nil
-		return s
-	}
-	askpassWrapper = s.wrapper
-
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			// One goroutine per client: a client that never sends its
-			// prompt holds up only itself, never the next sudo.
-			go s.serve(conn)
-		}
-	}()
+	askpassWrapper = s.Wrapper()
 	return s
 }
 
-// askpassScript is the wrapper sudo runs. It bakes in the socket path (via
-// argv) so we never depend on an env var reaching the helper — and never risk
-// sudo running archmaid as a full TUI. "$@" forwards sudo's prompt text.
-func askpassScript(exe, sock string) string {
-	return "#!/bin/sh\nexec " + shellQuote(exe) + " --askpass " + shellQuote(sock) + " \"$@\"\n"
-}
-
-// shellQuote quotes s as one POSIX shell word. Inside single quotes nothing is
-// special except the quote itself, which is closed, escaped and reopened.
-// (Go's %q is not shell quoting: "$", "`" and "\" stay live inside it.)
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// serve identifies one client, reads its prompt line within readTimeout, and
-// hands the request to the model, which decides whether to answer it. A client
-// that can't be identified, is too slow, sends too much or goes away is
-// dropped.
-func (s *askpassServer) serve(conn net.Conn) {
-	peer, err := s.peerOf(conn)
-	if err != nil {
-		conn.Close()
+// stopAskpassServer closes s and unwires its wrapper. A nil s is a no-op.
+func stopAskpassServer(s *privilege.Server) {
+	if s == nil {
 		return
 	}
-	conn.SetReadDeadline(time.Now().Add(s.readTimeout))
-	prompt, err := bufio.NewReader(io.LimitReader(conn, maxAskpassPrompt)).ReadString('\n')
-	if err != nil {
-		conn.Close()
-		return
-	}
-	conn.SetReadDeadline(time.Time{}) // the user takes as long as they need
-	select {
-	case s.reqs <- askpassMsg{prompt: strings.TrimRight(prompt, "\r\n"), conn: conn, peer: peer}:
-	case <-s.done:
-		conn.Close()
-	}
-}
-
-func (s *askpassServer) close() {
-	if s.done != nil {
-		select {
-		case <-s.done:
-		default:
-			close(s.done)
-		}
-	}
-	if s.ln != nil {
-		s.ln.Close()
-	}
-	if s.dir != "" {
-		os.RemoveAll(s.dir)
-	}
-	if askpassWrapper == s.wrapper {
+	s.Close()
+	if askpassWrapper == s.Wrapper() {
 		askpassWrapper = ""
 	}
 }
 
-// peerOf asks the kernel who is on the other end of conn (SO_PEERCRED) and
-// records that process's start time.
-func (s *askpassServer) peerOf(conn net.Conn) (askpassPeer, error) {
-	uc, ok := conn.(*net.UnixConn)
-	if !ok {
-		return askpassPeer{}, errors.New("not a unix socket")
-	}
-	raw, err := uc.SyscallConn()
-	if err != nil {
-		return askpassPeer{}, err
-	}
-	var cred *syscall.Ucred
-	var credErr error
-	if err := raw.Control(func(fd uintptr) {
-		cred, credErr = syscall.GetsockoptUcred(int(fd), syscall.SOL_SOCKET, syscall.SO_PEERCRED)
-	}); err != nil {
-		return askpassPeer{}, err
-	}
-	if credErr != nil {
-		return askpassPeer{}, credErr
-	}
-	p, err := s.readProc(int(cred.Pid))
-	if err != nil {
-		return askpassPeer{}, err
-	}
-	return askpassPeer{pid: int(cred.Pid), uid: int(cred.Uid), start: p.Start}, nil
-}
-
-// ── vetting a request ────────────────────────────────────────────────────────
-
-// ourUID is the uid a peer must run as. A var so tests can pin it instead of
-// depending on who runs the suite.
+// ourUID is the uid an askpass peer must run as. A var so tests can pin it
+// instead of depending on who runs the suite.
 var ourUID = os.Getuid
 
-// readProc looks a process up in /proc. A var so tests can stand in a fake
-// process table.
+// readProc looks a process up in /proc, for the askpass server and the peer
+// check. A var so tests can stand in a fake process table.
 var readProc = proc.Read
 
-// sudoPath is sudo's binary; the askpass helper's parent must be it.
-const sudoPath = "/usr/bin/sudo"
-
-// maxAskpassChain bounds the walk from sudo up to the running step.
-const maxAskpassChain = 64
-
-// askpassRequester is who a request the model answers came from, for the popup.
+// askpassRequester is who the open askpass request came from, for the popup.
 type askpassRequester struct {
 	step      string // title of the running step it belongs to
 	callerExe string // real binary of the process that ran sudo; "" if unreadable
@@ -284,80 +92,13 @@ type askpassRequester struct {
 	prompt    string // sudo's prompt, sanitized; untrusted (sudo -p sets it)
 }
 
-// verifyAskpassPeer decides whether a request may have the password. Anything
-// that inherited SUDO_ASKPASS can connect — under topgrade that includes every
-// AUR build script — so the peer must be:
-//
-//   - running as our uid;
-//   - still the process that connected (same start time as at accept: its pid
-//     wasn't reused);
-//   - archmaid itself (the wrapper execs us in --askpass mode);
-//   - a child of sudo; and
-//   - inside the running step's process tree: walking up from sudo reaches
-//     stepPid, started at stepStart.
-//
-// A fork's parent always started before it, so a parent with a later start
-// time than its child is a reused pid, and the walk refuses it. On success it
-// returns sudo's caller for the popup; the caller fills in step and prompt.
-func verifyAskpassPeer(peer askpassPeer, stepPid int, stepStart uint64) (askpassRequester, error) {
-	if peer.uid != ourUID() {
-		return askpassRequester{}, fmt.Errorf("pid %d runs as uid %d, not ours", peer.pid, peer.uid)
-	}
-	helper, err := readProc(peer.pid)
+// verifyAskpassPeer runs privilege.Verify against the package's seams.
+func verifyAskpassPeer(peer privilege.Peer, stepPid int, stepStart uint64) (askpassRequester, error) {
+	from, err := privilege.Verify(peer, stepPid, stepStart, privilege.VerifyOptions{UID: ourUID, ReadProc: readProc})
 	if err != nil {
-		return askpassRequester{}, fmt.Errorf("pid %d is gone", peer.pid)
+		return askpassRequester{}, err
 	}
-	if helper.Start != peer.start {
-		return askpassRequester{}, fmt.Errorf("pid %d was reused since it connected", peer.pid)
-	}
-	if self, err := os.Executable(); err != nil || helper.Exe != self {
-		return askpassRequester{}, fmt.Errorf("pid %d is %s, not archmaid's askpass helper", peer.pid, orUnknown(helper.Exe))
-	}
-	sudo, err := readProc(helper.PPid)
-	if err != nil || !isSudo(sudo) {
-		return askpassRequester{}, fmt.Errorf("pid %d was not started by sudo (parent pid %d)", peer.pid, helper.PPid)
-	}
-
-	pid, p, child := helper.PPid, sudo, helper
-	for depth := 0; ; depth++ {
-		if p.Start > child.Start {
-			return askpassRequester{}, fmt.Errorf("pid %d was reused", pid)
-		}
-		if pid == stepPid {
-			if p.Start != stepStart {
-				return askpassRequester{}, fmt.Errorf("the step's pid %d was reused", pid)
-			}
-			break
-		}
-		if p.PPid <= 1 || depth >= maxAskpassChain {
-			return askpassRequester{}, fmt.Errorf("pid %d's sudo was not started by the running step", peer.pid)
-		}
-		child, pid = p, p.PPid
-		if p, err = readProc(pid); err != nil {
-			return askpassRequester{}, fmt.Errorf("pid %d's sudo was not started by the running step", peer.pid)
-		}
-	}
-
-	from := askpassRequester{callerPid: sudo.PPid}
-	if caller, err := readProc(sudo.PPid); err == nil {
-		from.callerExe = caller.Exe
-	}
-	return from, nil
-}
-
-// isSudo reports whether p is sudo. sudo is setuid root, and reading another
-// process's /proc/<pid>/exe needs ptrace access, which a user doesn't have over
-// a root process — so for a real sudo exe is normally empty. Then fall back to
-// running with euid 0 under the name "sudo": a user can rename only their own
-// processes, and those never run as root. comm comes from the executed file's
-// name, though, so a symlink named sudo to another setuid-root binary passes
-// too; none of Arch's starts a user program as its child without
-// authenticating first. If exe is readable it must be sudoPath.
-func isSudo(p proc.Info) bool {
-	if p.Exe != "" {
-		return p.Exe == sudoPath
-	}
-	return p.EUID == 0 && p.Comm == "sudo"
+	return askpassRequester{callerExe: from.CallerExe, callerPid: from.CallerPid}, nil
 }
 
 func orUnknown(s string) string {

@@ -114,7 +114,7 @@ func (m model) viewMenu() string {
 
 func (m model) viewPassword() string {
 	head := stepRunStyle.Render("🔒 sudo access required")
-	if m.askpassConn != nil {
+	if m.askpassReq != nil {
 		head += "\n\n" + m.viewAskpassFrom()
 	}
 	if m.authInFlight {

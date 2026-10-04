@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"net"
 	"strings"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 )
 
@@ -86,13 +86,13 @@ type model struct {
 	// password-prompt state
 	password        textinput.Model
 	pwErr           string
-	pwAttempts      int              // consecutive wrong passwords this action
-	authInFlight    bool             // prime submitted, waiting on PAM — input locked
-	sudoUnavailable bool             // set after maxSudoAttempts failures: skip sudo steps
-	sudoAlive       bool             // keep-alive loop active for the running queue
-	sudoGen         int              // generation of the live keep-alive loop; stale ticks are dropped
-	askpassConn     net.Conn         // pending sudo askpass request (nil = prime-mode prompt)
-	askpassFrom     askpassRequester // who askpassConn's request came from, for the popup
+	pwAttempts      int                // consecutive wrong passwords this action
+	authInFlight    bool               // prime submitted, waiting on PAM — input locked
+	sudoUnavailable bool               // set after maxSudoAttempts failures: skip sudo steps
+	sudoAlive       bool               // keep-alive loop active for the running queue
+	sudoGen         int                // generation of the live keep-alive loop; stale ticks are dropped
+	askpassReq      *privilege.Request // pending sudo askpass request (nil = prime-mode prompt)
+	askpassFrom     askpassRequester   // who askpassReq came from, for the popup
 
 	// dynamic-action state
 	notice      string // screenNotice message

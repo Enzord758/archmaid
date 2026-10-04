@@ -13,6 +13,8 @@ import (
 // live: a wrong password through `sudo -S` burns TWO pam_faillock failures
 // (sudo's retry re-enters PAM on the EOF'd stdin), and during PAM's ~2s delay
 // the input kept accepting keystrokes / a second enter fired concurrent sudo.
+// authSudo is the tea glue over privilege.Sudo.Authenticate, whose own tests
+// (su argv, stdin, lockout notices) live in internal/privilege.
 
 // shimAuthPair installs fake `su` and `sudo` on an exclusive PATH. su exits
 // with suExit; both record their invocation (argv) into markers in dir.
@@ -60,18 +62,6 @@ func TestAuthCorrectPasswordMintsTicket(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(argv)); got != "-S -v" {
 		t.Fatalf("sudo argv = %q, want -S -v", got)
-	}
-}
-
-// TestLockoutNoticeExtraction: a pam_faillock lockout line is surfaced; plain
-// wrong-password stderr is not.
-func TestLockoutNoticeExtraction(t *testing.T) {
-	if got := lockoutNotice("su: Authentication failure\n"); got != "" {
-		t.Fatalf("plain failure should give no notice, got %q", got)
-	}
-	stderr := "Password: \nThe account is locked due to 3 failed logins.\n"
-	if got := lockoutNotice(stderr); !strings.Contains(got, "locked") {
-		t.Fatalf("lockout line not extracted from %q", stderr)
 	}
 }
 

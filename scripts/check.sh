@@ -13,7 +13,7 @@ set -euo pipefail
 # Coverage floors, in percent of statements. Raise them when coverage rises;
 # never lower one to make a change pass.
 MIN_TOTAL=89.1   # the TUI package (cmd/archmaid), measured after the askpass tests + view goldens
-MIN_ASKPASS=80   # askpass.go: it carries the sudo password
+MIN_ASKPASS=90   # internal/privilege/askpass.go: it carries the sudo password (95.0% after the move)
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -65,9 +65,9 @@ if ! out="$(go test -count=1 -coverpkg="$COVERPKG" -coverprofile="$PROFILE" "${C
 fi
 
 # coverage FILE prints the statement coverage of FILE (a path suffix such as
-# "/askpass.go"), or of everything when FILE is empty. Profile lines are
-# `path/file.go:a.b,c.d numStmts count`; a block is covered if any line for it
-# has a non-zero count.
+# "/internal/privilege/askpass.go"), or of everything when FILE is empty.
+# Profile lines are `path/file.go:a.b,c.d numStmts count`; a block is
+# covered if any line for it has a non-zero count.
 coverage() {
 	awk -v file="$1" '
 		NR == 1 { next } # mode: line
@@ -100,7 +100,7 @@ floor() {
 	fi
 }
 floor total "" "$MIN_TOTAL"
-floor askpass.go /askpass.go "$MIN_ASKPASS"
+floor internal/privilege/askpass.go /internal/privilege/askpass.go "$MIN_ASKPASS"
 
 if ((failed)); then
 	exit 1

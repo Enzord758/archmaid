@@ -185,25 +185,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // sudo, inside that step's process tree (verifyAskpassPeer). Anything else is
 // hung up on without a popup; sudo counts that as a failed attempt.
 func (m model) handleAskpass(msg askpassMsg) (tea.Model, tea.Cmd) {
+	req := msg.req
 	title, ok := m.runningSudoStep()
 	if !ok {
-		msg.conn.Close() // no sudo step running: nothing of ours is asking
+		req.Cancel() // no sudo step running: nothing of ours is asking
 		return m, nil
 	}
-	if m.askpassConn != nil {
-		msg.conn.Close()
+	if m.askpassReq != nil {
+		req.Cancel()
 		m.noteOutput("archmaid: refused a second sudo password request while one is open")
 		return m, nil
 	}
-	from, err := verifyAskpassPeer(msg.peer, m.proc.Pid, m.proc.Start)
+	from, err := verifyAskpassPeer(req.Peer, m.proc.Pid, m.proc.Start)
 	if err != nil {
-		msg.conn.Close()
+		req.Cancel()
 		m.noteOutput("archmaid: refused a sudo password request: " + err.Error())
 		return m, nil
 	}
 	from.step = title
-	from.prompt = askpassPromptText(msg.prompt)
-	m.askpassConn = msg.conn
+	from.prompt = askpassPromptText(req.Prompt)
+	m.askpassReq = req
 	m.askpassFrom = from
 
 	switch m.screen {
@@ -223,7 +224,7 @@ func (m model) handleAskpass(msg askpassMsg) (tea.Model, tea.Cmd) {
 		m.bg = m.screen
 	}
 	m.pwErr = ""
-	if strings.Contains(strings.ToLower(msg.prompt), "try again") {
+	if strings.Contains(strings.ToLower(req.Prompt), "try again") {
 		m.pwErr = "Incorrect password — try again"
 	}
 	m.screen = screenPassword
@@ -243,7 +244,7 @@ func (m model) submitAskpass(pw string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.authInFlight = true
-	return m, answerAskpass(m.askpassConn, pw)
+	return m, answerAskpass(m.askpassReq, pw)
 }
 
 // handleAskpassResult closes the askpass popup once su accepted the password
@@ -252,7 +253,7 @@ func (m model) submitAskpass(pw string) (tea.Model, tea.Cmd) {
 // prime; at the limit the request is cancelled and, as after a failed prime,
 // the queue's remaining sudo steps are skipped.
 func (m model) handleAskpassResult(msg askpassResultMsg) (tea.Model, tea.Cmd) {
-	if msg.conn != m.askpassConn {
+	if msg.req != m.askpassReq {
 		return m, nil // not the open request's answer
 	}
 	m.authInFlight = false
@@ -263,7 +264,7 @@ func (m model) handleAskpassResult(msg askpassResultMsg) (tea.Model, tea.Cmd) {
 	}
 	m.pwAttempts++
 	if m.pwAttempts >= maxSudoAttempts {
-		m.askpassConn.Close() // unanswered: this sudo fails, its step with it
+		m.askpassReq.Cancel() // unanswered: this sudo fails, its step with it
 		m.sudoUnavailable = true
 		m.closeAskpass()
 		return m, nil
@@ -278,7 +279,7 @@ func (m model) handleAskpassResult(msg askpassResultMsg) (tea.Model, tea.Cmd) {
 
 // closeAskpass drops the askpass popup's state and shows what was under it.
 func (m *model) closeAskpass() {
-	m.askpassConn = nil
+	m.askpassReq = nil
 	m.askpassFrom = askpassRequester{}
 	m.password.Reset()
 	m.pwErr = ""
@@ -359,8 +360,8 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "esc", "ctrl+c":
-			if m.askpassConn != nil {
-				m.askpassConn.Close() // cancel → sudo fails this attempt
+			if m.askpassReq != nil {
+				m.askpassReq.Cancel() // cancel → sudo fails this attempt
 				m.closeAskpass()
 				return m, nil
 			}
@@ -372,7 +373,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.recordRun(logstore.OutcomeCancelled)
 			return m, nil
 		case "enter":
-			if m.askpassConn != nil {
+			if m.askpassReq != nil {
 				return m.submitAskpass(m.password.Value())
 			}
 			m.authInFlight = true

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -40,7 +39,7 @@ type step struct {
 
 	// needsSudo steps are grouped so we can prime `sudo -v` once up front
 	// (see primeSudo) instead of prompting mid-run behind a spinner. They are
-	// also the only steps whose child gets SUDO_ASKPASS (see stepEnv).
+	// also the only steps whose child gets SUDO_ASKPASS (see stepSpec).
 	needsSudo bool
 
 	// category buckets this step's log entries (see logPath); zero value
@@ -153,43 +152,11 @@ func runStep(s step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
 	return proc.New(procOptions()).Start(stepSpec(s), ch, quit)
 }
 
-// stepSpec is the command a step runs. A dry run reports the step's own
-// command line, without the sudo flag added here.
+// stepSpec is the command a step runs: sudo gets -A or -n, and only
+// needsSudo steps see SUDO_ASKPASS (privilege.Sudo.Command). A dry run
+// reports the step's own command line, without the sudo flag.
 func stepSpec(s step) proc.Spec {
-	name, args := s.command, s.args
-	if name == "sudo" {
-		// -A: read the password via SUDO_ASKPASS (a TUI popup), never the tty.
-		// Without our askpass, -A would fall back to sudo.conf's `Path
-		// askpass` (a GUI helper, if one is configured) or fail; -n instead
-		// relies on the primed ticket and fails cleanly when it's gone.
-		flag := "-n"
-		if s.needsSudo && askpassWrapper != "" {
-			flag = "-A"
-		}
-		args = append([]string{flag}, s.args...)
-	}
-	return proc.Spec{
-		Name: name, Args: args, Env: stepEnv(s),
-		Display: s.command + " " + strings.Join(s.args, " "),
-	}
-}
-
-// stepEnv is the environment a step's child runs with: archmaid's own, without
-// any SUDO_ASKPASS, plus our askpass wrapper for steps that use sudo (sudo
-// steps, and topgrade, which runs sudo itself). Everything a step starts
-// inherits it, down to AUR build scripts, so the fewer steps that carry the
-// socket's location the better; one the user's shell exported is dropped too.
-func stepEnv(s step) []string {
-	env := make([]string, 0, len(os.Environ())+1)
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "SUDO_ASKPASS=") {
-			env = append(env, kv)
-		}
-	}
-	if s.needsSudo && askpassWrapper != "" {
-		env = append(env, "SUDO_ASKPASS="+askpassWrapper)
-	}
-	return env
+	return privileged().Command(append([]string{s.command}, s.args...), s.needsSudo)
 }
 
 // waitForStream is the pump: proc.Next as a tea.Cmd, its batch stamped with
@@ -336,76 +303,25 @@ type sudoResultMsg struct {
 // skip the password prompt entirely when they are (e.g. re-running within the
 // timeout).
 func checkSudoCached() tea.Cmd {
+	dry, priv := dryRun, privileged()
 	return func() tea.Msg {
-		if dryRun {
+		if dry {
 			return sudoCachedMsg{cached: true} // never prompt during a dry run
 		}
-		cmd := exec.Command("sudo", "-n", "-v")
-		err := cmd.Run()
-		return sudoCachedMsg{cached: err == nil}
+		return sudoCachedMsg{cached: priv.Probe(context.Background())}
 	}
 }
 
-// authSudo validates the password and mints the sudo ticket — in two stages,
-// because a wrong password fed to `sudo -S` burns TWO pam_faillock failures
-// (sudo's passwd_tries retry re-enters PAM on the EOF'd stdin before giving
-// up; measured live). With Arch's default `deny=3`, one mistyped in-app
-// password would leave the account one failure from lockout.
-//
-//  1. Validate with su (see suCheck) — single-shot PAM, burns nothing.
-//  2. Only a known-correct password reaches `sudo -S -v`, which then always
-//     succeeds: mints the ticket, burns nothing, and clears stale failures.
-//
-// Stderr is captured so a pam_faillock lockout notice ("account locked…")
-// can be surfaced verbatim instead of the generic wrong-password error. A
-// mid-run askpass popup validates the same way (see answerAskpass).
+// authSudo validates the password with su and only then mints the sudo
+// ticket (privilege.Sudo.Authenticate: a wrong password must never reach
+// sudo, which would burn two pam_faillock failures). A mid-run askpass popup
+// validates the same way (see answerAskpass).
 func authSudo(password string) tea.Cmd {
+	priv := privileged()
 	return func() tea.Msg {
-		if detail, err := suCheck(password); err != nil {
-			return sudoResultMsg{err: err, detail: detail}
-		}
-
-		cmd := exec.Command("sudo", "-S", "-v")
-		cmd.Stdin = strings.NewReader(password + "\n")
-		var sudoErr bytes.Buffer
-		cmd.Stderr = &sudoErr
-		if err := cmd.Run(); err != nil {
-			return sudoResultMsg{err: err, detail: lockoutNotice(sudoErr.String())}
-		}
-		return sudoResultMsg{}
+		detail, err := priv.Authenticate(context.Background(), password)
+		return sudoResultMsg{err: err, detail: detail}
 	}
-}
-
-// suCheck validates password as the current user's with
-// `su -s /usr/bin/true <user>`: single-shot PAM with no retry loop, and on Arch
-// su's PAM stack doesn't include pam_faillock at all, so a wrong entry burns
-// nothing. -s runs true in place of the login shell, so none of the user's
-// shell startup files run (`su -c true` still had zsh read ~/.zshenv). On
-// failure, detail is a lockout notice from su's stderr, if there was one.
-func suCheck(password string) (detail string, err error) {
-	self, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	check := exec.Command("su", "-s", "/usr/bin/true", self.Username)
-	check.Stdin = strings.NewReader(password + "\n")
-	var stderr bytes.Buffer
-	check.Stderr = &stderr
-	if err := check.Run(); err != nil {
-		return lockoutNotice(stderr.String()), err
-	}
-	return "", nil
-}
-
-// lockoutNotice extracts a pam_faillock lockout message from PAM stderr, if
-// present, so the UI can say "account locked" rather than "wrong password".
-func lockoutNotice(stderr string) string {
-	for _, line := range strings.Split(stderr, "\n") {
-		if strings.Contains(strings.ToLower(line), "locked") {
-			return strings.TrimSpace(line)
-		}
-	}
-	return ""
 }
 
 // sudoKeepAliveMsg drives the keep-alive loop that refreshes the cached sudo
@@ -426,9 +342,9 @@ func sudoTick(gen int) tea.Cmd {
 // refreshSudo extends the cached timestamp non-interactively (a no-op if it has
 // already lapsed — a step's `sudo -A` then re-prompts via the popup).
 func refreshSudo() tea.Cmd {
+	priv := privileged()
 	return func() tea.Msg {
-		cmd := exec.Command("sudo", "-n", "-v")
-		cmd.Run()
+		priv.Refresh(context.Background())
 		return nil
 	}
 }

@@ -47,7 +47,7 @@ straight over via `lipgloss`).
   reported inline with a remaining-attempts count; after three failures it gives
   up, skips the sudo-requiring steps, and logs each as `SKIP: …`. If anything
   needs to re-authenticate mid-run, `SUDO_ASKPASS` routes the prompt back into
-  the TUI as a popup (`askpass.go`) — nothing can ever prompt on the raw
+  the TUI as a popup (`internal/privilege`) — nothing can ever prompt on the raw
   terminal. The password is passed straight through, never stored or logged.
 - **A self-updating status header** via `tea.Tick` (disk/RAM/cache), the thing
   gum couldn't do without redrawing everything by hand.
