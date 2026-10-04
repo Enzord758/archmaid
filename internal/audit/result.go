@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -11,11 +12,17 @@ import (
 
 // Result is one completed audit. Total, Findings and Baseline are what a
 // report shows; the rest is what Commit builds the next snapshot from.
+//
+// Only Run sets ok, and only when the audit completed: a failed or cancelled
+// audit, a Fetch abandoned by Cancel or an aborted Wait, and a Result built
+// by hand (the zero value included) have no commit, so none of them can
+// overwrite the snapshot with what they didn't see.
 type Result struct {
 	Total    int       // foreign packages checked
 	Findings []Finding // flagged packages only, high first
 	Baseline Baseline  // the snapshot this audit was diffed against
 
+	ok   bool // Run completed: the only Result Commit will save
 	pkgs []string
 	info map[string]Info
 	prev map[string]Entry
@@ -58,7 +65,14 @@ func (r Result) Clean() int {
 // (maintainer and co-maintainers), so they're flagged again until
 // acknowledged, and a corrupt snapshot is left alone entirely (replacing it
 // is itself the acknowledgement).
+//
+// An audit that saw no packages has nothing to save: writing its empty
+// snapshot would erase every package's history, so it is refused
+// (errEmptySnapshot) whatever the Result claims.
 func (r Result) save(holdHigh bool) error {
+	if !r.ok || len(r.pkgs) == 0 {
+		return errEmptySnapshot
+	}
 	if holdHigh && r.Baseline == BaselineCorrupt {
 		return nil
 	}
@@ -78,8 +92,13 @@ func (r Result) save(holdHigh bool) error {
 	return WriteSnapshot(r.cfg.SnapshotPath, next)
 }
 
+// errEmptySnapshot refuses a save with no audited packages behind it.
+var errEmptySnapshot = errors.New("audit: refusing to save a snapshot without a completed audit of at least one package")
+
 // Commit is the deferred snapshot save for the audit's caller to run, nil in
-// a dry run (which never writes the snapshot). Run never saves: saving is
+// a dry run (which never writes the snapshot) and nil for any Result that
+// isn't a completed audit's (see Result): a failed lookup, a cancelled or
+// abandoned one, the zero value. Run never saves: saving is
 // what acknowledges a maintainer change, so the caller decides when. Saved
 // too early (before the user has answered the gate), a declined change would
 // read as settled next run.
@@ -90,7 +109,7 @@ func (r Result) save(holdHigh bool) error {
 // with accepting, a successful one records that the user accepted flagged
 // maintainer changes (ACCEPT).
 func (r Result) Commit(holdHigh, accepting bool) func() error {
-	if r.cfg.DryRun {
+	if r.cfg.DryRun || !r.ok {
 		return nil
 	}
 	return func() error {

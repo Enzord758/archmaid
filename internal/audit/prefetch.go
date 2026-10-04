@@ -2,6 +2,7 @@ package audit
 
 import (
 	"context"
+	"sync/atomic"
 	"time"
 )
 
@@ -12,11 +13,12 @@ import (
 // fetching again (one RPC per run). It only reads: the snapshot commit is
 // still the Result's, so nothing is saved before the gate is answered.
 type Fetch struct {
-	cancel context.CancelFunc
-	cfg    Config
-	done   chan struct{} // closed once res and err are set
-	res    Result
-	err    error
+	cancel    context.CancelFunc
+	cancelled atomic.Bool // Cancel ran: the fetch is abandoned, whatever Run returned
+	cfg       Config
+	done      chan struct{} // closed once res and err are set
+	res       Result
+	err       error
 }
 
 // Prefetch starts Run(cfg) now, on its own goroutine, with the clock read as
@@ -35,18 +37,27 @@ func Prefetch(cfg Config) *Fetch {
 func (f *Fetch) Done() <-chan struct{} { return f.done }
 
 // Cancel abandons the audit: it returns promptly with context.Canceled.
-// Safe to call more than once, and after it finished.
-func (f *Fetch) Cancel() { f.cancel() }
+// Safe to call more than once, and after it finished: once cancelled, Wait
+// never hands out the result, even one that completed first, so an abandoned
+// fetch can't be committed.
+func (f *Fetch) Cancel() {
+	f.cancelled.Store(true)
+	f.cancel()
+}
 
 // Wait returns the audit's result once it's done. If ctx ends first (an
 // abort), it cancels the audit and returns at once with ctx's error and a
-// Result that carries only the Config.
+// Result that carries only the Config. After Cancel it returns
+// context.Canceled and such a Result too. Neither has a commit.
 func (f *Fetch) Wait(ctx context.Context) (Result, error) {
 	select {
 	case <-f.done:
+		if f.cancelled.Load() {
+			return Result{cfg: f.cfg}, context.Canceled
+		}
 		return f.res, f.err
 	case <-ctx.Done():
-		f.cancel()
+		f.Cancel()
 		return Result{cfg: f.cfg}, ctx.Err()
 	}
 }

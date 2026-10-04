@@ -179,7 +179,8 @@ func Run(ctx context.Context, cfg Config, now time.Time) (Result, error) {
 	if state == BaselineCorrupt {
 		findings = append([]Finding{snapshotFinding()}, findings...)
 	}
-	res := Result{Total: len(pkgs), Findings: findings, Baseline: state, pkgs: pkgs, info: info, prev: prev, cfg: cfg, checked: now}
+	// The one place a Result becomes committable (ok): the audit completed.
+	res := Result{Total: len(pkgs), Findings: findings, Baseline: state, ok: true, pkgs: pkgs, info: info, prev: prev, cfg: cfg, checked: now}
 	// Record the highs that are still unacknowledged. An audit that failed
 	// (unreachable AUR, cancelled) returned above and leaves the file alone.
 	_ = res.writeState(res.state())
