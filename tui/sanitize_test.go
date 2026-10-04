@@ -35,6 +35,14 @@ func TestSanitize(t *testing.T) {
 		{"CRLF is a newline", "one\r\ntwo\r\n", "one\ntwo\n", "one\ntwo\n"},
 		{"CR only rewrites its own line", "keep\nold\rnew", "keep\nnew", "keep\nnew"},
 		{"SGR after CR starts the new text", "50%\r" + red + "100%", red + "100%", "100%"},
+		{"conceal only is dropped", "\x1b[8mhidden\x1b[28m", "hidden\x1b[28m", "hidden"},
+		{"conceal removed from a list", "\x1b[1;8;31mx", "\x1b[1;31mx", "x"},
+		{"conceal with zeros", "\x1b[08mx", "x", "x"},
+		{"palette index 8 is not conceal", "\x1b[38;5;8mx\x1b[48;2;8;8;8m", "\x1b[38;5;8mx\x1b[48;2;8;8;8m", "x"},
+		{"conceal after a colour", "\x1b[38;5;8;8mx", "\x1b[38;5;8mx", "x"},
+		{"18 and 80 are not conceal", "\x1b[18;80mx", "\x1b[18;80mx", "x"},
+		{"line and paragraph separators dropped", "a b c", "abc", "abc"},
+		{"hangul fillers dropped", "aᅟbᅠcㅤdﾠe", "abcde", "abcde"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

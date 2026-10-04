@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strconv"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -68,7 +70,9 @@ func Sanitize(s string, mode SanitizeMode) string {
 		case c == 0x1b:
 			end, sgr := escapeEnd(s, i)
 			if sgr && mode == SanitizeKeepSGR {
-				emit(s[i:end])
+				if seq := withoutConceal(s[i:end]); seq != "" {
+					emit(seq)
+				}
 			}
 			i = end
 		case c < 0x20 || c == 0x7f:
@@ -87,8 +91,9 @@ func Sanitize(s string, mode SanitizeMode) string {
 				emit("\uFFFD")
 			case r >= 0x80 && r <= 0x9f:
 				// C1 control (8-bit CSI, OSC, …): dropped
-			case unicode.Is(unicode.Cf, r):
-				// format character (bidi, zero-width): dropped
+			case dropRune(r):
+				// format character (bidi, zero-width), line/paragraph
+				// separator or Hangul filler: dropped
 			default:
 				emit(s[i : i+size])
 			}
@@ -96,6 +101,64 @@ func Sanitize(s string, mode SanitizeMode) string {
 		}
 	}
 	return string(out)
+}
+
+// dropRune reports whether r is removed from the text: a Unicode format
+// character (Cf), U+2028/U+2029 (line and paragraph separator: terminals don't
+// break lines on them, so they are dropped rather than mapped to "\n", which
+// keeps "a line" meaning exactly what \n says) and the Hangul fillers
+// U+115F, U+1160, U+3164 and U+FFA0, which render as blank space and so can
+// hide or pad text.
+func dropRune(r rune) bool {
+	switch r {
+	case 0x2028, 0x2029, 0x115F, 0x1160, 0x3164, 0xFFA0:
+		return true
+	}
+	return unicode.Is(unicode.Cf, r)
+}
+
+// withoutConceal returns the well-formed SGR sequence seq (ESC [ … m) without
+// parameter 8 (conceal, which hides text from the reader). Other parameters
+// stay; 38/48/58 colour selectors are copied whole, so the 8 in "38;5;8" (a
+// palette index) survives. A sequence of only conceal becomes "".
+func withoutConceal(seq string) string {
+	params := seq[2 : len(seq)-1]
+	if strings.IndexByte(params, '8') < 0 {
+		return seq
+	}
+	toks := strings.Split(params, ";")
+	kept := make([]string, 0, len(toks))
+	for i := 0; i < len(toks); i++ {
+		code, _, _ := strings.Cut(toks[i], ":")
+		n, _ := strconv.Atoi(code) // "" (= 0) and overlong numbers aren't 8
+		switch {
+		case (n == 38 || n == 48 || n == 58) && toks[i] == code:
+			// semicolon form: 5;n or 2;r;g;b follow
+			take := 1
+			if i+1 < len(toks) {
+				switch toks[i+1] {
+				case "5":
+					take = 3
+				case "2":
+					take = 5
+				}
+			}
+			end := min(i+take, len(toks))
+			kept = append(kept, toks[i:end]...)
+			i = end - 1
+		case n == 8:
+			// conceal: dropped
+		default:
+			kept = append(kept, toks[i])
+		}
+	}
+	if len(kept) == len(toks) {
+		return seq
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	return "\x1b[" + strings.Join(kept, ";") + "m"
 }
 
 // clean reports whether s is already safe as-is: no control characters but
@@ -112,7 +175,7 @@ func clean(s string) bool {
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
-		if (r == utf8.RuneError && size == 1) || (r >= 0x80 && r <= 0x9f) || unicode.Is(unicode.Cf, r) {
+		if (r == utf8.RuneError && size == 1) || (r >= 0x80 && r <= 0x9f) || dropRune(r) {
 			return false
 		}
 		i += size
