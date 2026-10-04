@@ -140,7 +140,8 @@ func (s *Session) authorized(o *Output) {
 	}
 	r.prompt, r.promptFor = s.promptID(), promptGate
 	title, body := splitQuestion(r.gate)
-	o.event(NeedsConfirm{ID: r.prompt, Kind: ConfirmGate, Title: title, Body: body, Msg: r.gate})
+	o.event(NeedsConfirm{ID: r.prompt, Kind: ConfirmGate, Title: title, Body: body, Msg: r.gate,
+		Plan: planSteps(hyprpmLast(r.pending))})
 }
 
 // startQueue publishes the plan and runs its first step. hyprpm is kept
@@ -150,14 +151,12 @@ func (s *Session) startQueue(o *Output) {
 	queue := hyprpmLast(r.pending)
 	r.pending = nil
 	r.plan = make([]slot, len(queue))
-	ps := make([]PlanStep, len(queue))
 	for i, st := range queue {
 		r.plan[i] = slot{step: st}
-		ps[i] = planStep(st)
 	}
 	r.queued = true
 	s.setPhase(o, PhaseRunning, "")
-	o.event(QueueStarted{Action: r.action, Steps: ps, DryRun: s.opts.DryRun, Started: s.now()})
+	o.event(QueueStarted{Action: r.action, Steps: planSteps(queue), DryRun: s.opts.DryRun, Started: s.now()})
 	if !s.opts.DryRun && s.opts.Auth == AuthSudo && !r.sudoGone && needsPriv(queue) {
 		r.keepAlive = true
 		o.effect(KeepAlive{On: true})
@@ -175,6 +174,15 @@ func hyprpmLast(queue []steps.Step) []steps.Step {
 	}
 	h := queue[i]
 	return append(slices.Delete(slices.Clone(queue), i, i+1), h)
+}
+
+// planSteps is queue as a front end sees it.
+func planSteps(queue []steps.Step) []PlanStep {
+	ps := make([]PlanStep, len(queue))
+	for i, st := range queue {
+		ps[i] = planStep(st)
+	}
+	return ps
 }
 
 // planStep is s as a front end sees it.

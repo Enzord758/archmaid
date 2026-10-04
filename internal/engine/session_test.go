@@ -683,6 +683,27 @@ func TestSessionCommitRunsWhenTheResultIsTaken(t *testing.T) {
 	}
 }
 
+// The gate previews the plan QueueStarted will carry: same steps, same
+// order (hyprpm last), same sanitized arguments. Other confirms carry none.
+func TestSessionGatePreviewsThePlan(t *testing.T) {
+	x := child("x", "rm", "evil\x1b[2Jname")
+	x.Confirm = "Sure?"
+	a := queue("q", child(steps.IDHyprpm, "hyprpm", "update"), x)
+	a.Gate = "Proceed?"
+	h := newHarness(t, Options{}, a)
+	gate := event[NeedsConfirm](t, h.start("q"))
+	if gate.Kind != ConfirmGate || len(gate.Plan) == 0 {
+		t.Fatalf("gate = %+v, want a plan preview", gate)
+	}
+	o := h.confirm(true)
+	if qs := event[QueueStarted](t, o); !reflect.DeepEqual(gate.Plan, qs.Steps) {
+		t.Errorf("gate plan = %+v\nQueueStarted = %+v", gate.Plan, qs.Steps)
+	}
+	if nc := event[NeedsConfirm](t, o); nc.Plan != nil {
+		t.Errorf("a step confirm carries a plan: %+v", nc.Plan)
+	}
+}
+
 func TestSplitQuestion(t *testing.T) {
 	for msg, want := range map[string][2]string{
 		"One line?":            {"One line?", ""},

@@ -146,6 +146,10 @@ type NeedsConfirm struct {
 	// refused result (steps.Result.Check): that step runs on "yes", but
 	// nothing is committed.
 	Commits bool
+	// Plan previews the queue a ConfirmGate stands in front of: the steps
+	// QueueStarted will carry on "yes", equal to its Steps (same order,
+	// same sanitized arguments). nil for every other kind.
+	Plan []PlanStep
 }
 
 // PasswordKind is which password prompt a NeedsPassword is.

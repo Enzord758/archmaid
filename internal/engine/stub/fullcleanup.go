@@ -107,7 +107,8 @@ func FullCleanup(start time.Time) Script {
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseProbing})
 	b.wait(60 * time.Millisecond)
 	const gate = "Proceed with full cleanup?"
-	b.emit(engine.NeedsConfirm{ID: 1, Kind: engine.ConfirmGate, Title: gate, Msg: gate})
+	b.emit(engine.NeedsConfirm{ID: 1, Kind: engine.ConfirmGate, Title: gate, Msg: gate,
+		Plan: append([]engine.PlanStep(nil), b.plan...)})
 
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
 	b.emit(engine.QueueStarted{Action: "fullcleanup", Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
