@@ -19,10 +19,24 @@ and there is one real-binary end-to-end run.
 
 Keep new tests at the lowest layer that can prove the behaviour.
 
+## Running the gate
+
+```sh
+../scripts/check.sh                 # from tui/; or scripts/check.sh from the repo root
+```
+
+Every commit must pass it. In order, it runs `go test -race -count=3 ./...`
+(three runs to shake out flakes), `go vet ./...`, the `gofmt -l .` check, then a
+coverage run into a temporary profile (removed on exit) and enforces the floors
+set at the top of the script: `MIN_TOTAL` for the whole package and
+`MIN_ASKPASS` for `askpass.go`, which carries the sudo password. Per-file
+coverage is computed from the profile itself. When coverage rises, raise the
+floor in the same commit; never lower one to make a change pass.
+
 ## Running
 
 ```sh
-go test -race ./...                 # the gate — must be green
+go test -race ./...                 # the quick loop — must be green
 go vet ./... && gofmt -l .          # must print nothing
 go test -run TestAbort ./...        # a subset by name
 go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change

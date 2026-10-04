@@ -10,8 +10,8 @@ than appending dated ones.
 ## Status
 
 Feature-complete: all nine menu actions work, with `--dryrun` for a safe end to
-end. The gate is `go test -race ./...`, `go vet ./...` and `gofmt -l .` all
-clean (see `TESTING.md`). Verified live against a real Arch system: Full
+end. The gate is `scripts/check.sh`: race tests, vet, gofmt and coverage
+floors (see `TESTING.md`). Verified live against a real Arch system: Full
 Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 
 ## Code map (`tui/`, `package main`)
