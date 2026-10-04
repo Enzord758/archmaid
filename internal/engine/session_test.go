@@ -648,7 +648,7 @@ func TestSessionPanicsOnWhatIsNotBuilt(t *testing.T) {
 		}()
 		f()
 	}
-	for _, d := range []actions.Discovery{actions.Report{Text: "r"}, actions.NeedsSelection{}} {
+	for _, d := range []actions.Discovery{actions.Report{Text: "r"}} {
 		h := newHarness(t, Options{}, actions.Action{ID: "d", Discover: func(context.Context, actions.Env) actions.Discovery { return nil }})
 		seq := effect[Discover](t, h.start("d")).Seq
 		expectPanic(reflectName(d), func() { h.s.Handle(Discovered{Seq: seq, Discovery: d}) })

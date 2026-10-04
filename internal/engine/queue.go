@@ -48,6 +48,10 @@ type run struct {
 	polkitWait     bool               // AuthWaiting{WaitPolkit} is open for the running step
 	ask            *askpass           // the open askpass request (askpass.go), or nil
 
+	// A pick list (NeedsSelection) and what it showed, or nil.
+	sel      *actions.NeedsSelection
+	selShown []string
+
 	errs, skipped, refused int
 }
 
@@ -65,6 +69,7 @@ const (
 	promptStep
 	promptPassword // the up-front one
 	promptAskpass
+	promptSelect
 )
 
 // running is the step running now, or nil.
@@ -544,9 +549,9 @@ func (s *Session) discovered(o *Output, in Discovered) {
 		return
 	}
 	switch in.Discovery.(type) {
-	case actions.Notice, actions.Pending, actions.NeedsRoot:
+	case actions.Notice, actions.Pending, actions.NeedsRoot, actions.NeedsSelection:
 	default:
-		// NeedsSelection, Report (E5); checked before anything changes, so
+		// Report (E5); checked before anything changes, so
 		// a recovered panic leaves the Session as it was.
 		panic(errNotImplemented)
 	}
@@ -559,6 +564,8 @@ func (s *Session) discovered(o *Output, in Discovered) {
 		s.plan(o, d.Steps, "")
 	case actions.NeedsRoot:
 		s.needsRoot(o, d)
+	case actions.NeedsSelection:
+		s.askSelection(o, d)
 	}
 }
 

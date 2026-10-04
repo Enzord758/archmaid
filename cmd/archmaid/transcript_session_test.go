@@ -32,15 +32,12 @@ import (
 // sessionSkips are the scenarios the Session can't run yet, each with the
 // reason; TestTranscriptSession skips them by name, never silently.
 var sessionSkips = map[string]string{
-	"services_select2.shim":        needsSelection,
-	"services_none_selected.shim":  needsSelection,
 	"auraudit_first_baseline.shim": needsReport,
 	"auraudit_takeover.shim":       needsReport,
 }
 
 const (
-	needsSelection = "needs E5: the services selection (Select)"
-	needsReport    = "needs E5: the audit report (OutputReport)"
+	needsReport = "needs E5: the audit report (OutputReport)"
 )
 
 // TestTranscriptSession replays every scenario through the engine's
@@ -351,6 +348,13 @@ func (tg *sessionTarget) Reply(a tt.Answer) error {
 		tg.prompt, tg.promptID = nil, 0
 		tg.apply(tg.s.SubmitPassword(id, pw))
 		return nil
+	case "select":
+		if _, ok := tg.prompt.(tt.NeedsSelection); !ok {
+			return fmt.Errorf("select reply with %T open", tg.prompt)
+		}
+		tg.prompt, tg.promptID = nil, 0
+		tg.apply(tg.s.Select(id, strings.Fields(a.Reply)))
+		return nil
 	case "abort":
 		return tg.abort()
 	}
@@ -474,6 +478,8 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			}
 		case engine.NeedsPassword:
 			tg.open(ev.ID, tt.NeedsPassword{})
+		case engine.NeedsSelection:
+			tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items)})
 		case engine.Finished:
 			tg.fin = &ev
 		case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting, engine.AuthResolved,

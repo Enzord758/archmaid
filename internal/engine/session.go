@@ -214,8 +214,13 @@ func (s *Session) CancelPrompt(id PromptID) Output {
 // Select answers the open NeedsSelection with id; picked is a subset of its
 // Items (anything else is ignored). Picking nothing runs nothing.
 func (s *Session) Select(id PromptID, picked []string) Output {
-	// No NeedsSelection is opened until E5, so no id is one.
-	return Output{}
+	r := s.run
+	if r == nil || id == 0 || id != r.prompt || r.promptFor != promptSelect {
+		return Output{}
+	}
+	var o Output
+	s.selected(&o, picked)
+	return o
 }
 
 // Abort ends the running action at once: a running step is stopped (a Stop
