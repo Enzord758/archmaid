@@ -51,6 +51,51 @@ func TestTrapChild(t *testing.T) {
 	}
 }
 
+// bothChildEnv marks the re-exec'd half of TestRunReportsTrapAndStateChange;
+// its value is the (scratch) state home the child's Run guards as "real".
+const bothChildEnv = "ARCHMAID_TESTENV_BOTH_CHILD"
+
+// TestBothChild hits one trap and creates the guarded state dir. Skipped
+// unless re-exec'd. The state home is the parent's scratch dir, never the
+// owner's real one.
+func TestBothChild(t *testing.T) {
+	if os.Getenv(bothChildEnv) == "" {
+		t.Skip("child half of TestRunReportsTrapAndStateChange")
+	}
+	path, err := exec.LookPath("su")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(path); err != nil || !bytes.Contains(b, []byte("archmaid testenv trap")) {
+		t.Fatalf("su resolves to %s, not a trap: refusing to run it", path)
+	}
+	_ = exec.Command("su", "--version").Run()
+	if err := os.MkdirAll(filepath.Join(os.Getenv(bothChildEnv), "archmaid"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestRunReportsTrapAndStateChange: a test that both hits a trap and changes
+// the state dir gets both reports, not just the first.
+func TestRunReportsTrapAndStateChange(t *testing.T) {
+	state := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestBothChild$", "-test.count=1")
+	cmd.Env = append(os.Environ(), bothChildEnv+"="+state, "XDG_STATE_HOME="+state)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("child: %v, want exit 1\nstderr:\n%s", err, stderr.String())
+	}
+	out := stderr.String()
+	for _, want := range []string{"a test reached a real privileged binary", "   su --version\n", "the tests changed the real state dir"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report misses %q:\n%s", want, out)
+		}
+	}
+}
+
 // TestTrapCatchesRealSu proves the guard: a test that execs su (and the other
 // trapped names) through PATH fails its package, with the calls on stderr.
 func TestTrapCatchesRealSu(t *testing.T) {

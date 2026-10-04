@@ -117,15 +117,20 @@ func Run(m interface{ Run() int }) int {
 			os.Setenv(k, v)
 		}
 	}
+	// Report every failure, not just the first: a test can do both.
+	failed := false
 	if calls := TrapCalls(trapLog); len(calls) > 0 {
 		fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: a test reached a real privileged binary (shim it first on PATH):")
 		for _, c := range calls {
 			fmt.Fprintln(os.Stderr, "  ", c)
 		}
-		return 1
+		failed = true
 	}
 	if out, err := guardCompare(guard, before); err != nil {
 		fmt.Fprintf(os.Stderr, "\ntestenv: FAIL: the tests changed the real state dir (%v):\n%s", err, out)
+		failed = true
+	}
+	if failed {
 		return 1
 	}
 	return code
