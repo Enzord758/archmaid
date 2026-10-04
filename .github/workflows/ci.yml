@@ -14,6 +14,7 @@ env:
   GO_MOD_FILE: go.mod
   GO_SUM_FILE: go.sum
   E2E_DIR: cmd/archmaid/e2e
+  GUI_SUM_FILE: gui/go.sum
 
 jobs:
   core:
@@ -123,15 +124,38 @@ jobs:
           path: ${{ runner.temp }}/bench/
           if-no-files-found: ignore
 
-  # Planned: gui, a headless-weston job for the GUI module (it does not exist
-  # yet). Run only when the GUI paths change: install weston and the GUI build
-  # deps in an archlinux container, start `weston --backend=headless`, point
-  # WAYLAND_DISPLAY at it, then run the GUI tests and screenshot goldens.
-  #
-  # gui:
-  #   runs-on: ubuntu-latest
-  #   container: archlinux:latest
-  #   steps:
-  #     - uses: actions/checkout@v7
-  #     - run: pacman -Syu --noconfirm --needed go weston make
-  #     - run: make gui-test
+  # The GUI module (gui/, its own go.mod: the jobs above never build gotk4).
+  # Builds and vets it, runs the plain-Go tests, then the display tests in a
+  # private headless weston (gui/scripts/headless.sh) with the cairo renderer
+  # (no GPU here). The budgets aren't enforced: they are the dev machine's.
+  # A cold gotk4 build is the slow part (cgo over all of GTK), so the build
+  # cache is keyed on gui/go.sum and kept.
+  gui:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 40
+    steps:
+      - name: Install toolchain, GTK and weston
+        run: pacman -Syu --noconfirm --needed go gcc git make pkgconf gtk4 libadwaita adwaita-icon-theme ttf-dejavu weston dbus
+      - uses: actions/checkout@v7
+      - name: Create an unprivileged user
+        run: |
+          useradd --create-home --shell /bin/bash builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+      - name: Go version
+        id: gover
+        run: echo "v=$(runuser -u builder -- go env GOVERSION)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: |
+            /home/builder/.cache/go-build
+            /home/builder/go/pkg/mod
+          key: gui-${{ steps.gover.outputs.v }}-${{ hashFiles(env.GUI_SUM_FILE, env.GO_SUM_FILE) }}
+          restore-keys: |
+            gui-${{ steps.gover.outputs.v }}-
+      - name: Make the restored caches the user's
+        run: |
+          mkdir -p /home/builder/.cache/go-build /home/builder/go/pkg/mod
+          chown -R builder:builder /home/builder
+      - name: make gui-test (as builder)
+        run: runuser -u builder -- env HOME=/home/builder GSK_RENDERER=cairo make -C "$GITHUB_WORKSPACE" gui-test
