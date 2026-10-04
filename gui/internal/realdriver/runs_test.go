@@ -15,8 +15,8 @@ import (
 	"github.com/Enzord758/archmaid/internal/logstore"
 )
 
-// shimTopgrade puts a topgrade shim first on PATH (topgrade isn't one of
-// testenv's traps: without the shim a real run would reach the real one)
+// shimTopgrade puts a topgrade shim first on PATH (testenv traps topgrade,
+// so without the shim a run would reach the trap and fail the package)
 // and returns the file it appends a line to per run.
 func shimTopgrade(t *testing.T) string {
 	t.Helper()
