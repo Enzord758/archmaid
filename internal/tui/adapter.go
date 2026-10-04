@@ -53,17 +53,6 @@ func driverDeps(askpass <-chan *privilege.Request) driver.Deps {
 	}
 }
 
-// startPrefetch starts the prefetch named name (Deps.Prefetch): the AUR
-// audit's lookup, so it runs behind the password prompt or the gate; nil for
-// a name the TUI doesn't know. It runs on the Driver's loop and reads the
-// audit's config there, from package vars that only tests change.
-func startPrefetch(name string) driver.Prefetch {
-	if name != steps.PrefetchAURAudit {
-		return nil
-	}
-	return startAuditFetch()
-}
-
 // driverReports is the TUI's error log: what the Driver reports that no
 // Event carries (a log write that failed, a hook's error, a recovered
 // panic). The alt screen owns the terminal while the program runs, so main

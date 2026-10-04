@@ -26,30 +26,31 @@ charmbracelet (`check.sh` layering, which also bars every package under
 | `cmd/archmaid/main.go` | package doc + `main()`: `startup` (the `--askpass` relay to `privilege.RunClient`, and `parseArgs`, which returns the `flags`: `--dryrun`, `--downloads`, `--help`/`-h`; anything else exits 2 — it writes and deletes nothing), then through `internal/tui`'s API: `tui.Configure` with the flags, `engine.New` with `tui.ActionEnv()`, `tui.StartAskpass`, the Driver from `tui.NewDriver` (handed the askpass server's requests), `tui.Run`; after the program `Close`, then `tui.Finish` (the Driver's reports to stderr, `waitForDownloads`) |
 | `tui.go` | the package doc and the API main calls: `Configure`, `ActionEnv`, `StartAskpass`/`StopAskpass`, `NewDriver`, `Run` (the model on the Driver, `forwardEvents` into `tea.NewProgram`), `Finish` |
 | `adapter.go` | the TUI as an engine front end (E7): `newDriver` (`driver.New` with `driverDeps`: `privileged()`, `logs()`, `sigkillGrace`, `stepWaitDelay`, the askpass requests, `startPrefetch` and `driverReports.add`; the tests' `tuiDriverDeps` is the same), `forwardEvents` (then `engineStoppedMsg` once Events closes: a Driver that closed on its own — a Session panic — gets a notice with the newest report's first line, and any key quits), `engineState` (the Driver and the open prompts' IDs), `applyEvents` (every Event → the model's state: checklist, screen, prompt, output pane, summary), `engineKey` (a key on a prompt → a Command: confirm, password, selection, report, abort), `openAskpass` (the askpass popup over whatever shows; the bg landmine below), and `reportLog` (what the Driver reports that no Event carries, printed after the program) |
-| `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `deleteOldDownloads` (the in-process step's `Run`, abort logging), `waitForDownloads`; the discovery is `internal/actions` |
+| `glue.go` | the TUI's settings for the shared glue (`internal/frontend`): the audit's seams (`aurRPCURL`, `auditDeadline`) and `currentAuditConfig` (`frontend.AuditConfig` over them, read on main's goroutine or the Driver's loop), `startPrefetch` (`frontend.Prefetcher(currentAuditConfig)`, the Driver's `Deps.Prefetch`), the downloads flag and seams (`downloadsFlag`, `downloadsNow`, `downloadsEntryHook`) and `downloadsOptions`, `downloadsRunning` (a `frontend.Deletions`) and `waitForDownloads` |
 | `internal/downloads` | the resolver (`Resolve(Options)`), `Scan(dir, now, Options) Plan`, `Plan.Confirm()`, `Delete(ctx, Plan, Options) (Result, error)`; ctime, Lstat, `os.Root`, the mountinfo boundary and the per-node re-check; no UI, no logging, no env reads |
 | `model.go` | screens, the `model` struct (what the Events left it showing, plus the TUI's own menu, log viewer and pane state), `initialModel`, `Init` (the menu is `actions.Menu`) |
 | `update.go` | `Update` — the single source of state transitions: keys go to `engineKey` first, then `handleKey` (moving, toggling, typing, scrolling, the summary and the log viewer); `activate` (the TUI's own entries, otherwise `engine.Start`), `resizeOutput`, the log picker. No queue, sudo, askpass or abort logic: that is the engine's |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
-| `tasks.go` | `stepState` (a checklist row: the engine's `PlanStep` and its status), the knobs the Driver gets (`stepWaitDelay`, `sigkillGrace`), `actionEnv` (the `actions.Env` the TUI hands the Session), `editConfig` |
+| `tasks.go` | `stepState` (a checklist row: the engine's `PlanStep` and its status), the knobs the Driver gets (`stepWaitDelay`, `sigkillGrace`), `actionEnv` (the `actions.Env` the TUI hands the Session: `frontend.Glue.Env` on the TUI's settings, with `renderAudit` drawing the report), `editConfig` |
 | `output.go` | the running step's output pane: a capped tail for the viewport, follow-the-bottom (the full output is the engine's, which logs it) |
-| `audit.go` | the AUR audit's tea glue: `currentAuditConfig` (the package vars -> `audit.Config`, read on the model's goroutine; `foreignPackages` runs `pacman -Qqm` behind `Config.Foreign`), the menu action (`menuAudit`, handed to `internal/actions` as `Env.AuditReport` by `actionEnv`; `auditOutcome` → `actions.Notice`/`Report`), `auditStep` + `auditStepResult` (the topgrade gate and the snapshot commit), the prefetch (`auditFetch`, wrapping `audit.Fetch`; a `driver.Prefetch` as it is, started by `startPrefetch` in `adapter.go`), and the styled `renderAudit` |
+| `auditview.go` | the styled `renderAudit` (the menu audit's report, `frontend.Glue.Render`); the audit glue itself is `internal/frontend` |
 | `log.go` | the TUI's seam to `internal/logstore`: one package-level store built from `logDir`/`dryRun` (`logs()`, cached under a mutex, rebuilt when either changes, with the run directory's stamp fixed for the process; the Driver gets it as `Deps.Log` and does every write), `readLog` (the store rotates the run history itself, see the state-dir landmine), and the "Log is empty." rendering. `logs()` is for main's and the model's goroutine; anything that logs off it captures the `*logstore.Store` where it is set up |
 | `askpass.go` | askpass glue: `startAskpassServer`/`stopAskpassServer` (the `askpassWrapper` seam), `privileged()` (a `privilege.Sudo` with that wrapper: the Driver's `Deps.Priv`), the popup's `askpassRequester` and `askpassPromptText`. The Driver verifies each request against the running step's child (`Request.Verify`) and answers it (`Request.Answer`); the popup is `openAskpass` in `adapter.go` |
 | `overlay.go` | ANSI-aware popup compositor |
 | `status.go`, `theme.go` | the status line's tea glue (`refreshStatus`, `refreshStatusNow`, the `tickFn` seam; the reading itself is `internal/sysstat`: statfs, MemAvailable from /proc/meminfo, a cache-dir walk — no child processes); the Tokyo Night styles |
 
-### `internal/` (UI-free: nothing here may import charmbracelet; `check.sh` enforces it)
+### `internal/` (UI-free: nothing here may import charmbracelet or gotk4; `check.sh` enforces it)
 
 | Package | Owns |
 |---|---|
+| `internal/frontend` | the glue every front end hands the engine, once for the TUI and the GUI (P5): `AuditConfig(store, AuditOptions{RPCURL, Deadline, DryRun, Foreign})` (zero fields are the real thing; `ForeignPackages` is `pacman -Qqm`), `MenuAudit(ctx, cfg, now, render)` (`Env.AuditReport`'s Notice or Report; a cancelled audit is "stopped" and writes no snapshot), `AuditStep(cfg)` (the topgrade gate and snapshot commit, with its `Prefetch`), `StartAuditFetch`/`AuditFetch` (a `driver.Prefetch`) and `Prefetcher(cfg func)` (`driver.Deps.Prefetch`), `DownloadsOptions(flag, dry)`, `Deletions` (`Step(plan, store, opts)`: the delete step's Run with its abort record; `Wait`), `StepAborted(ctx)` (any cancel but `steps.ErrResultTaken`), and `Glue{AuditConfig, Render, Downloads, Store, Deletions}.Env(base)` filling in the four `actions.Env` funcs. Neither charmbracelet nor gotk4, named in `check.sh` |
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
 | `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories`; `WriteLastRun`/`ReadLastRun` for `last-run.json` (`RunRecord`, see state files below) |
 | `internal/audit` | the AUR audit itself: `Run(ctx, Config, now) (Result, error)` with `Config{RPCURL, SnapshotPath, StatePath, Deadline, DryRun, Foreign, Log}`; `Result` (`Total`, `Findings`, `Baseline`; `Text()` plain report, `GateReason()`, `Commit(holdHigh, accepting)`, `LogSummary()`, `Note()`, `High()`/`Clean()`); `Prefetch(Config) *Fetch` with `Wait(ctx)`/`Cancel()`/`Done()`; the RPC (chunked POST, 8 MiB cap, unrequested names dropped), classification, the snapshot (`Entry`, `LoadSnapshot`, `WriteSnapshot`: atomic 0600 + flock, old-format compatible), `State`/`WriteState`/`ReadState` (audit-state.json), `ErrNoForeign`, `ErrSnapshotLocked`, `ShortErr`. No UI, no globals: everything comes in through `Config` |
 | `internal/sysstat` | `Paths`/`DefaultPaths`, `Read(Paths) Status`, `Status.Line()`, the df/du/free-style size formatters; no UI imports |
 
 Shared packages under `internal/` are UI-free (the gate fails any that imports
-charmbracelet, except `internal/tui`):
+charmbracelet, except `internal/tui`, and any that imports gotk4):
 
 | Package | Owns |
 |---|---|
@@ -390,8 +391,9 @@ comments and `git log`; this is the "read before you touch it" list.
   whole audit has one deadline, `auditDeadline` (20 s for the query and every
   RPC chunk together), not a timeout per request. The lookup itself starts
   the moment the action is chosen: the Session asks for `StartPrefetch`, and
-  the Driver starts an `auditFetch` through `Deps.Prefetch` (`startPrefetch` in
-  `adapter.go`; `audit.Prefetch`: a goroutine publishing its result by
+  the Driver starts a `frontend.AuditFetch` through `Deps.Prefetch`
+  (`frontend.Prefetcher`, the TUI's `startPrefetch` in `glue.go`;
+  `audit.Prefetch`: a goroutine publishing its result by
   closing `Done()`) so it runs while the password prompt or the gate is up,
   and the step awaits it instead of fetching again (one RPC per run). It only
   reads: the snapshot commit still comes from the step's result, so the gate

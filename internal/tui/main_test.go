@@ -149,18 +149,17 @@ func TestServicesDisableStep(t *testing.T) {
 
 // ── behaviour 7: parsers ──────────────────────────────────────────────────────
 
-// TestNonEmptyLinesTrimsAndDropsBlanks: the shared line parser trims whitespace
-// and drops empty lines (dedup itself is done by `sort -u` in the shell).
-func TestNonEmptyLinesTrimsAndDropsBlanks(t *testing.T) {
-	in := "  a.service \n\n\tb.service\n   \nc.service\n"
-	got := nonEmptyLines(in)
-	want := []string{"a.service", "b.service", "c.service"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("nonEmptyLines = %v, want %v", got, want)
+// nonEmptyLines is s's lines, trimmed, without the blank ones: how the
+// tests read a shim's exec log or a command's list. (The foreign-package
+// parser it once was is frontend.ForeignPackages, tested there.)
+func nonEmptyLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(strings.TrimSpace(s), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			out = append(out, l)
+		}
 	}
-	if len(nonEmptyLines("")) != 0 || len(nonEmptyLines("   \n\n")) != 0 {
-		t.Fatal("blank input should yield no lines")
-	}
+	return out
 }
 
 // ── behaviour 8: log categories + view-log picker ──────────────────────────────

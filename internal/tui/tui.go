@@ -1,7 +1,8 @@
 // Package tui is archmaid's terminal front end: a Bubble Tea model on an
-// engine.Driver, with its view, styles and the glue the actions get from
-// it (the AUR audit, the downloads delete, the log store, sudo with the
-// askpass wrapper). It is the only package that may import Bubble Tea,
+// engine.Driver, with its view, styles and what the actions get from it:
+// the shared audit and downloads glue (internal/frontend) on the TUI's
+// settings, the log store, and sudo with the askpass wrapper. It is the
+// only package that may import Bubble Tea,
 // lipgloss or bubbles (scripts/check.sh, layering); cmd/archmaid is a thin
 // main around the functions in this file.
 package tui

@@ -1,13 +1,10 @@
-package tui
+package frontend
 
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/logstore"
@@ -22,53 +19,54 @@ import (
 // delete step's Run (actions.Env.DeleteDownloads; the discovery is in
 // internal/actions) and keeps the abort bookkeeping.
 
-// downloadsFlag is set by --downloads <dir>. It overrides discovery and may
-// point outside $HOME (a data disk), but never at a home folder, an ancestor
-// of one, or /.
-var downloadsFlag string
-
-// downloadsNow is the clock for the age check — a seam for tests, which can't
-// set ctimes and instead move "now".
-var downloadsNow = time.Now
-
-// downloadsEntryHook, if set, runs before each entry is handled (before the
-// abort check) — a seam for tests to abort mid-deletion.
-var downloadsEntryHook func(name string)
-
-// downloadsOptions gathers the process state the package takes as values. It
-// is read when a Cmd or step runs, so flags and seams set later still count.
-func downloadsOptions() downloads.Options {
+// DownloadsOptions is the downloads resolver's input from the process
+// environment ($ARCHMAID_DOWNLOADS, $HOME, the passwd home,
+// $XDG_CONFIG_HOME), with the front end's folder (flag: --downloads or the
+// Settings page; "" for none) and dry-run flag. Read it when a discovery or
+// step runs, so a folder set later still counts. Now and EntryHook are left
+// to the caller (nil: the real clock, no hook).
+func DownloadsOptions(flag string, dry bool) downloads.Options {
 	return downloads.Options{
-		Flag:          downloadsFlag,
+		Flag:          flag,
 		Env:           os.Getenv(downloads.EnvVar),
 		Home:          os.Getenv("HOME"),
 		PasswdHome:    downloads.PasswdHome(),
 		XDGConfigHome: os.Getenv("XDG_CONFIG_HOME"),
-		DryRun:        dryRun,
-		Now:           downloadsNow,
-		EntryHook:     downloadsEntryHook,
+		DryRun:        dry,
 	}
 }
 
-// deleteOldDownloads is the delete step's run. An abort cancels ctx, which
-// stops the deletion between entries: nothing after that is touched.
+// Deletions counts the downloads deletions still in flight, with their
+// pending abort records, so a front end can let them finish before it
+// exits (Wait). The zero value is ready; it must not be copied once used.
+type Deletions struct{ wg sync.WaitGroup }
+
+// Wait blocks until no deletion is in flight and no abort record is
+// pending. After an abort a run stops at the end of the entry it is
+// deleting, so this is short.
+func (d *Deletions) Wait() { d.wg.Wait() }
+
+// Step is the delete step's Run for plan (actions.Env.DeleteDownloads):
+// opts is read as the step runs, store gets the abort record. An abort
+// cancels ctx, which stops the deletion between entries: nothing after
+// that is touched.
 //
 // An aborted run's result is dropped and the engine never logs it, so a
 // real run puts what it deleted on record itself: when it sees the abort,
 // and — should the abort land after it returned but before the engine took
 // its result — from a context.AfterFunc. The AfterFunc logs only for an
-// abort (stepAborted): once the engine has taken the result its Driver
+// abort (StepAborted): once the engine has taken the result its Driver
 // cancels ctx with steps.ErrResultTaken, which the AfterFunc lets pass, so
 // a result taken without its commit run (refused, or gated behind a
 // confirm) leaves no false abort record. The commit just disarms it early.
-// Either way cleanup.log gets one entry naming exactly what was deleted, in
-// store: both run on a Driver worker, so they must not look the store up
-// themselves (logs).
-func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context.Context, steps.Env) steps.Result {
+// Either way the cleanup log gets one entry naming exactly what was
+// deleted, in store: both run on a Driver worker, so the front end
+// captures store where it sets the step up and never looks it up there.
+func (d *Deletions) Step(plan downloads.Plan, store *logstore.Store, opts func() downloads.Options) func(context.Context, steps.Env) steps.Result {
 	return func(ctx context.Context, _ steps.Env) steps.Result {
-		downloadsRunning.Add(1)
-		defer downloadsRunning.Done()
-		opt := downloadsOptions()
+		d.wg.Add(1)
+		defer d.wg.Done()
+		opt := opts()
 		r, err := downloads.Delete(ctx, plan, opt)
 		res := steps.Result{Output: r.Output, Err: err}
 		if opt.DryRun {
@@ -81,16 +79,16 @@ func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context
 		if ctx.Done() == nil {
 			return res // can't be aborted (a test's context.Background())
 		}
-		downloadsRunning.Add(1) // until the AfterFunc has run or been disarmed
+		d.wg.Add(1) // until the AfterFunc has run or been disarmed
 		stop := context.AfterFunc(ctx, func() {
-			defer downloadsRunning.Done()
-			if stepAborted(ctx) {
+			defer d.wg.Done()
+			if StepAborted(ctx) {
 				logAbortedDownloads(store, res.Output)
 			}
 		})
 		res.Commit = func() error {
 			if stop() {
-				downloadsRunning.Done()
+				d.wg.Done()
 			}
 			return nil
 		}
@@ -98,34 +96,16 @@ func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context
 	}
 }
 
-// stepAborted reports whether an in-process step's ctx was cancelled by an
+// StepAborted reports whether an in-process step's ctx was cancelled by an
 // abort, as opposed to released after its result was taken
 // (steps.ErrResultTaken).
-func stepAborted(ctx context.Context) bool {
+func StepAborted(ctx context.Context) bool {
 	return ctx.Err() != nil && !errors.Is(context.Cause(ctx), steps.ErrResultTaken)
-}
-
-// downloadsRunning counts deletions (and their pending abort records) still
-// in flight, so main can let them finish before the process exits.
-var downloadsRunning sync.WaitGroup
-
-// waitForDownloads blocks until no deletion is in flight, saying why on w if
-// that takes a moment. After an abort a run stops at the end of the entry it
-// is deleting, so this is short.
-func waitForDownloads(w io.Writer) {
-	done := make(chan struct{})
-	go func() { downloadsRunning.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(200 * time.Millisecond):
-		fmt.Fprintln(w, "archmaid: waiting for the downloads deletion to stop…")
-		<-done
-	}
 }
 
 // logAbortedDownloads records an aborted real run's output — what it deleted
 // and where it stopped — in place of the entry the engine would have
 // written. A failed write is dropped: logging must never break a step.
 func logAbortedDownloads(store *logstore.Store, output string) {
-	_ = store.Append(logCategoryCleanup, "ABORT", "Old downloads deleted (aborted)", output)
+	_ = store.Append(logstore.Cleanup, "ABORT", "Old downloads deleted (aborted)", output)
 }

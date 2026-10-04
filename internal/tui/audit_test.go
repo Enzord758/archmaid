@@ -14,7 +14,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
+	"github.com/Enzord758/archmaid/internal/frontend"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -54,10 +56,37 @@ func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEn
 	return audit.WriteSnapshot(baselinePath(), next)
 }
 
-// runAudit is the menu action's audit against the current settings.
-func runAudit(now time.Time) auditOutcome {
-	return menuAudit(context.Background(), now, currentAuditConfig())
+// auditOutcome is the menu audit's discovery as these tests read it: the
+// notice, or the TUI's rendered report with the commit that accepts its
+// high findings (nil when there are none) and the result itself.
+type auditOutcome struct {
+	notice, report string
+	commit         func() error
+	res            *audit.Result
 }
+
+// runAudit is the menu action's audit against the current settings, drawn
+// as the TUI draws it.
+func runAudit(now time.Time) auditOutcome {
+	switch d := frontend.MenuAudit(context.Background(), currentAuditConfig(), now, renderAudit).(type) {
+	case actions.Notice:
+		return auditOutcome{notice: d.Text}
+	case actions.Report:
+		return auditOutcome{report: d.Text, commit: d.Accept, res: d.Audit}
+	default:
+		panic(fmt.Sprintf("menu audit discovery %T", d))
+	}
+}
+
+// auditStep is the audit step as the TUI's Env builds it, on the current
+// settings.
+func auditStep() steps.Step { return frontend.AuditStep(currentAuditConfig()) }
+
+// auditFetch is the audit's prefetch, as the Driver holds it.
+type auditFetch = frontend.AuditFetch
+
+// startAuditFetch starts the audit's prefetch on the current settings.
+func startAuditFetch() *auditFetch { return frontend.StartAuditFetch(currentAuditConfig()) }
 
 // runAuditStep is the audit step's run against the current settings.
 func runAuditStep(ctx context.Context) steps.Result { return auditStep().Run(ctx, steps.Env{}) }
