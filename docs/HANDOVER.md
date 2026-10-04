@@ -46,7 +46,7 @@ charmbracelet, except `internal/tui`):
 
 | Package | Owns |
 |---|---|
-| `internal/privilege` | getting root without prompting on the tty. `Privileged` (`Probe`, `Authenticate`, `Refresh`, `Command`) and its one implementation `Sudo{Wrapper}`: `sudo -n -v` probe and keep-alive, two-stage `Authenticate` (`CheckPassword` = `su -s /usr/bin/true <user>`, then `sudo -S -v`; lockout notices), `Command` (sudo gets `-A` or `-n`; `Env` strips `SUDO_ASKPASS` and gives the wrapper only to privileged steps). Askpass: `Listen(runtimeDir, exe, ServerOptions)` → `*Server` (`Requests`, `Wrapper`, `Close`; private 0700 dir, shell-quoted wrapper, per-client read deadline and `MaxPrompt` cap, `SO_PEERCRED` + start time per client), `*Request` (`Prompt`, `Peer`, `Verify(stepPid, stepStart, VerifyOptions)` → `Requester`, `Answer(pw)` — refused unless Verify passed, su-checked before anything is written — and `Cancel`; only a Server makes one, tests use `NewTestRequest`), `RunClient(sock, prompt)` (the `--askpass` helper) |
+| `internal/privilege` | getting root without prompting on the tty. `Privileged` (`Probe`, `Authenticate`, `Refresh`, `Command`) and its one implementation `Sudo{Wrapper}`: `sudo -n -v` probe and keep-alive, two-stage `Authenticate` (`CheckPassword` = `su -s /usr/bin/true <user>`, then `sudo -S -v`; lockout notices), `Command` (sudo gets `-A` or `-n`; `Env` strips `SUDO_ASKPASS` and gives the wrapper only to privileged steps). Askpass: `Listen(runtimeDir, exe, ServerOptions)` → `*Server` (`Requests`, `Wrapper`, `Close`; private 0700 dir, shell-quoted wrapper, per-client read deadline and `MaxPrompt` cap, `SO_PEERCRED` + start time per client), `*Request` (`Prompt`, `Peer`, `Verify(stepPid, stepStart, VerifyOptions)` → `Requester`, `Answer(pw)` — refused unless Verify passed, su-checked before anything is written — and `Cancel`; only a Server makes one, tests use `NewTestRequest`), `RunClient(sock, prompt)` (the `--askpass` helper). `FaillockStatus(user, now)` → `Status{Failures, Locked, Unlock, Deny}` (`LastAttempt()`): pam_faillock's state, read before any password or polkit prompt (see the faillock landmine) |
 | `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace}`, its combined output streamed as `Msg`s on one ordered channel, the dry-run echo, `ErrWaitDelay` → success on a clean exit), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
 | `internal/steps` | what a unit of work is: `Step` (stable `ID`, the root helper's `Verb` where one exists, `Argv` or an in-process `Run(ctx, Env) Result`, `Confirm`/`Optional`/`OnAccept`, `NeedsPriv`, `AlwaysLog`, log `Category`, `Prefetch`), `Result` (`Output`, `Err`, `ConfirmNext`, `Commit`, `InsertNext`; `Check` forbids gating and inserting at once), `Status` (`Pending` … `AuthRefused` — privilege not granted, one status whatever the reason, since pkexec exits 127 for every refusal — and `Aborted`) |
 | `internal/actions` | the menu as data: `Menu []Action` (`ID`, `Label`, `Icon`, `Gate`, `Busy`, `Steps func(Env) []steps.Step` or `Discover func(ctx, Env) Discovery`), `ByID`; the queues (Full Cleanup, Run topgrade, Clear user cache), the orphan probe, Repair's user scan and root recheck, the services discovery and `DisableUnits`, the downloads discovery. `Discovery` is a typed union: `Notice`, `Pending`, `NeedsSelection{Items, Steps}`, `Report{Text, Accept}` (`Accept func() error` accepts the flagged findings, nil when there is nothing to accept), `NeedsRoot{Items, Busy, AuthFailed, Rescan}`. `Env` carries the run's flags and what still lives in the TUI, as func values: the AUR audit (`AuditStep`, `AuditReport`) and the downloads delete step (`Downloads`, `DeleteDownloads`). Those four are required (a nil one panics mid-action); `Env.Validate` names any left out, and the TUI's `main` calls it on `actionEnv()` at startup. `DryRun`, `LookPath` and `RepairWorkers` may stay zero |
@@ -414,9 +414,32 @@ to:
   can't tell them apart — "the helper exited 127 before its `start` line"
   means *privilege not granted*. One wrong polkit password costs one
   `pam_faillock` failure (deny=3), and so does cancelling the dialog; a
-  success resets the count. The GUI should read `/run/faillock/$USER` before
-  asking and warn at two. Never add a policy action without `exec.argv1` for
-  the helper's path: it can capture calls meant for the verb actions.
+  success resets the count. Never add a policy action without `exec.argv1`
+  for the helper's path: it can capture calls meant for the verb actions.
+- **Read the faillock state before every password or polkit prompt.**
+  `privilege.FaillockStatus(user, now)` returns `Status{Failures, Locked,
+  Unlock, Deny}` as pam_faillock would judge it, read-only and without root:
+  it parses the user's own tally `/run/faillock/<user>` (`<user>:root 0660`)
+  and honours `deny`, `unlock_time` (`never` = 0), `fail_interval` and `dir`
+  from `/etc/security/faillock.conf` (defaults 3 / 600 s / 900 s /
+  `/var/run/faillock`). The GUI calls it right before it shows the sudo
+  password prompt or starts pkexec, and:
+  - `Locked`: says so with `Unlock` ("try again at 14:32"; zero = an admin
+    must `faillock --reset`) instead of prompting — even the right password
+    fails, and pkexec's 127 can't say why;
+  - `LastAttempt()` (`Failures == Deny-1`, deny=3: at two): warns that the
+    next wrong password **or a cancelled polkit dialog** (both cost a
+    failure, `docs/polkit-live-test.md`) locks the account.
+  The tally format and the rules (64-byte host-order records `source[52]`,
+  `reserved u16`, `status u16` (0x1 valid), `time u64`; locked when the valid
+  records within `fail_interval` of the newest reach `deny`, until newest +
+  `unlock_time`; a lapsed lock resets the count) are Linux-PAM's
+  `pam_faillock` (`faillock.h`, `check_tally`/`write_tally` in
+  `pam_faillock.c`, `faillock_config.c`); see the comment in
+  `internal/privilege/faillock.go` before changing it. The admin rules
+  (`root_unlock_time`, `even_deny_root`, `admin_group`) are not applied:
+  archmaid only asks for the desktop user's own password. Never run the
+  `faillock` binary from archmaid or its tests (`testenv` traps it).
 
 ## Open items
 
