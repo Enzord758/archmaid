@@ -39,11 +39,11 @@ bench:
 # alone would add minutes), the rest without. Needs gtk4, libadwaita, gcc.
 gui:
 	cd $(GUI_DIR) && go build ./... && go vet ./... && test -z "$$(gofmt -l .)"
-	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview && go test -count=1 ./...
+	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview ./internal/overview ./internal/logview ./internal/settings && go test -count=1 ./...
 
 # `gui` plus the display tests in a private headless weston (no window on the
 # desktop): every action from its Overview row, the logs, Stop, close mid-run, the
 # 50k-line throughput proof and first frame/RAM, all leak-checked. Add
 # ARCHMAID_GUI_PERF=1 to also enforce the budgets (machine-specific).
 gui-test: gui
-	$(GUI_DIR)/scripts/headless.sh go test -count=1 -v ./internal/ui
+	$(GUI_DIR)/scripts/headless.sh

@@ -7,7 +7,7 @@
 #   ARCHMAID_GUI_PERF=1 gui/scripts/headless.sh        # also enforce the budgets
 #
 # weston and the command are bounded by `timeout` (HEADLESS_TIMEOUT seconds,
-# default 60: the display tests take ~35 s here), so nothing outlives a run
+# default 60; the default run is two halves of ~40 s here), so nothing outlives a run
 # on the owner's machine; CI raises it for its slower runner.
 #
 # It sets WAYLAND_DISPLAY to weston's socket as an absolute path (the tests'
@@ -17,11 +17,16 @@
 # sets ARCHMAID_GUI_DISPLAY_TESTS=1, which the display tests require. Run it
 # from anywhere: it cds to the GUI module.
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+self="$(realpath "${BASH_SOURCE[0]}")"
+cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
+# The whole display suite takes ~80 s, past the bound, so the default runs
+# it in two halves of ~40 s, each with its own weston and timeout.
 if [[ $# -eq 0 ]]; then
-	set -- go test -count=1 -v ./internal/ui
+	long='^TestGUI(Prompts|FullCleanup)$'
+	"$self" go test -count=1 -v -run "$long" ./internal/ui
+	exec "$self" go test -count=1 -v -skip "$long" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and
