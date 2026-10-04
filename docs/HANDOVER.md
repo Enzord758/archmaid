@@ -19,7 +19,8 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | File | Owns |
 |---|---|
 | `main.go` | package doc + `main()`: askpass dispatch, flag parsing (`parseArgs`: `--dryrun`, `--downloads`), `pruneLogs`, `tea.NewProgram` |
-| `downloads.go` | "Delete old downloads": which folder (`resolveDownloadsDir`), what is old (`oldDownloads`, by ctime), and the in-process delete step (`deleteOldDownloads`) |
+| `downloads.go` | "Delete old downloads" glue: `downloadsOptions` (process state -> `downloads.Options`), `discoverDownloads` (Resolve + Scan -> confirm step), `deleteOldDownloads` (the in-process step, abort logging), `waitForDownloads` |
+| `internal/downloads` | the resolver (`Resolve(Options)`), `Scan(dir, now, Options) Plan`, `Plan.Confirm()`, `Delete(ctx, Plan, Options) (Result, error)`; ctime, Lstat, `os.Root`, the mountinfo boundary and the per-node re-check; no UI, no logging, no env reads |
 | `model.go` | screens, `menu`, the `model` struct, `initialModel`, `Init` |
 | `update.go` | `Update`/`handleKey` — the single source of state transitions — plus queue, confirm and abort orchestration |
 | `view.go` | `View` and every renderer; `popupLayer` is the one place that knows which screens are popups |
@@ -224,12 +225,12 @@ comments and `git log`; this is the "read before you touch it" list.
 - **The downloads folder is resolved, never assumed.** On the dev machine it is
   `~/Download`, `~/Downloads` doesn't exist, and `XDG_DOWNLOAD_DIR="$HOME/"` —
   so "just read the XDG dir" would clean the whole home folder.
-  `resolveDownloadsDir` walks flag → `ARCHMAID_DOWNLOADS` → XDG → `~/Downloads`
+  `downloads.Resolve` walks flag → `ARCHMAID_DOWNLOADS` → XDG → `~/Downloads`
   → `~/Download`, resolves symlinks, and refuses `/`, `$HOME`, the passwd
-  home (`user.Current`, seam `passwdHome`) and ancestors of either for every
+  home (`user.Current`, passed in as `Options.PasswdHome`) and ancestors of either for every
   source; all but the flag must be strictly inside the home folder, which is
   `$HOME` unless that is unset, relative or `/` — then the passwd home.
-  Don't add a candidate that skips `checkDownloadsDir`. `--downloads` refuses
+  Don't add a candidate that skips `checkDownloadsDir` (in `internal/downloads`). `--downloads` refuses
   a value starting with `-` (exit 2): `archmaid --downloads --dryrun` would
   otherwise take `--dryrun` as the folder and silently run for real.
 - **Old downloads are judged by ctime, in Go — never `find -mtime … rm -rf`.**
@@ -240,7 +241,7 @@ comments and `git log`; this is the "read before you touch it" list.
   removed as the link). The delete is an in-process step that checks the
   folder is still the scanned inode, re-checks each entry right before
   removing it, and removes through an `os.Root` (hence `go 1.25`). Tests
-  can't set ctimes: they move `downloadsNow` past a mark instead.
+  can't set ctimes: they move the clock (`Options.Now`, `downloadsNow` in cmd) past a mark instead.
 - **The downloads cleaner never crosses a mount point — never use
   `os.Root.RemoveAll` there.** RemoveAll descends into a filesystem mounted
   below the folder (a USB disk, sshfs, a bind mount of `~/Documents`) and
@@ -256,8 +257,8 @@ comments and `git log`; this is the "read before you touch it" list.
   `os.Root` that must be the inode it Lstat'd. It stops at the first node
   that fails and reports the entry as partly deleted. Left open: a node
   swapped between its Lstat and its unlink.
-  `TestDownloadsMountPoints` mounts tmpfs and bind mounts for real inside
-  `unshare -rm` (skipped where that's unavailable); `statDev` and
+  `TestDownloadsMountPoints` (in `internal/downloads`) mounts tmpfs and bind mounts for real inside
+  `unshare -rm` (skipped where that's unavailable); package vars `statDev` and
   `mountinfoPath` are the seams for the rest.
 - **Streamed output is batched, and the pane shows only a tail.** A step's
   child writes combined stdout+stderr to one ordered channel: every line, then
