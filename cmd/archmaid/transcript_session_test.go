@@ -32,16 +32,13 @@ import (
 // sessionSkips are the scenarios the Session can't run yet, each with the
 // reason; TestTranscriptSession skips them by name, never silently.
 var sessionSkips = map[string]string{
-	"fullcleanup_abort_topgrade.shim": needsAbort,
-	"fullcleanup_abort_sigkill.shim":  needsAbort,
-	"services_select2.shim":           needsSelection,
-	"services_none_selected.shim":     needsSelection,
-	"auraudit_first_baseline.shim":    needsReport,
-	"auraudit_takeover.shim":          needsReport,
+	"services_select2.shim":        needsSelection,
+	"services_none_selected.shim":  needsSelection,
+	"auraudit_first_baseline.shim": needsReport,
+	"auraudit_takeover.shim":       needsReport,
 }
 
 const (
-	needsAbort     = "needs E5: Abort"
 	needsSelection = "needs E5: the services selection (Select)"
 	needsReport    = "needs E5: the audit report (OutputReport)"
 )
@@ -354,8 +351,39 @@ func (tg *sessionTarget) Reply(a tt.Answer) error {
 		tg.prompt, tg.promptID = nil, 0
 		tg.apply(tg.s.SubmitPassword(id, pw))
 		return nil
+	case "abort":
+		return tg.abort()
 	}
 	return fmt.Errorf("the session target can't reply %q yet", a.Kind)
+}
+
+// abort aborts the running step, as tuiTarget's abort does: a child is
+// first awaited until it has logged itself, so its shim's SIGINT trap (if
+// any) is installed and its exec line lands before the abort.
+func (tg *sessionTarget) abort() error {
+	if len(tg.children) > 0 {
+		if !tg.fx.awaitExec(5 * time.Second) {
+			return fmt.Errorf("the running step's child never reached its shim")
+		}
+		tg.push(tg.fx.execs()...)
+	}
+	o := tg.s.Abort()
+	if _, ok := find[engine.Aborted](o.Events); !ok {
+		return fmt.Errorf("abort with no running step: %#v", o.Events)
+	}
+	tg.apply(o)
+	return nil
+}
+
+// find is the first T in evs.
+func find[T engine.Event](evs []engine.Event) (T, bool) {
+	for _, ev := range evs {
+		if v, ok := ev.(T); ok {
+			return v, true
+		}
+	}
+	var zero T
+	return zero, false
 }
 
 // Outcome is the Finished event's.
@@ -417,6 +445,8 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			}
 		case engine.StepDone:
 			done = append(done, tt.StepDone{Index: ev.Index, Status: transcriptStatus(ev.Status)})
+		case engine.Aborted:
+			done = append(done, tt.Aborted{Index: ev.Index})
 		case engine.StepInserted:
 			done = append(done, tt.StepInserted{Index: ev.Index, Step: transcriptStep(ev.Step)})
 			tg.flags = slices.Insert(tg.flags, ev.Index, transcriptStep(ev.Step))
@@ -606,6 +636,19 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 		case <-time.After(5 * time.Second):
 			tg.fail("the prefetched AUR audit never finished")
 		}
+	case engine.Stop:
+		// As a Driver: a child gets SIGINT, then SIGKILL after the grace
+		// (proc.Child.Stop with procOptions' KillGrace); an in-process
+		// step's ctx is cancelled with plain context.Canceled, an abort.
+		if c := tg.children[e.Seq]; c != nil {
+			close(c.quit)
+			c.c.Stop()
+			delete(tg.children, e.Seq)
+		}
+		if cancel := tg.release[e.Seq]; cancel != nil {
+			cancel(nil)
+			delete(tg.release, e.Seq)
+		}
 	case engine.CancelPrefetch:
 		if f := tg.fetches[e.Name]; f != nil {
 			f.Cancel()
@@ -737,5 +780,53 @@ func TestSessionInProcOutputLikeTUI(t *testing.T) {
 	}
 	if got["tui"] != got["session"] {
 		t.Errorf("the Session shows the step's output unlike the TUI\nTUI:\n%s\nsession:\n%s", got["tui"], got["session"])
+	}
+}
+
+// An Abort that lands after the downloads delete ran but before the Session
+// took its result: the Stop cancels the step's ctx with plain
+// context.Canceled, so the delete logs its own ABORT entry naming what it
+// removed, and the late result is dropped (no OK entry).
+func TestSessionDownloadsAbortLogsAbort(t *testing.T) {
+	transcriptEnv(t, false)
+	dl := downloadsDir(t)
+	writeFile(t, filepath.Join(dl, "old.iso"), "x")
+	cutoffAt(t, ctimeMark(t))
+	tg := newSessionTarget(t, installShims(t, nil))
+	if _, err := tg.Start("Delete old downloads"); err != nil {
+		t.Fatal(err)
+	}
+	for tg.prompt == nil {
+		if _, err := tg.Next(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tg.Reply(tt.Answer{Kind: "confirm", Reply: "yes"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(tg.work) != 1 {
+		t.Fatalf("want the delete queued as work, got %d items", len(tg.work))
+	}
+	ins := tg.work[0]() // the whole delete runs
+	tg.work = nil
+	if err := tg.abort(); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range ins {
+		if o := tg.s.Handle(in); len(o.Events) != 0 || len(o.Effects) != 0 {
+			t.Errorf("the late result wasn't dropped: %#v", o)
+		}
+	}
+	waitForDownloads(io.Discard)
+	if exists(filepath.Join(dl, "old.iso")) {
+		t.Fatal("old.iso survived")
+	}
+	log, err := logs().Read(logCategoryCleanup)
+	if err != nil || !strings.Contains(log, "ABORT: Old downloads deleted (aborted)") ||
+		strings.Count(log, ": Old downloads deleted") != 1 {
+		t.Fatalf("cleanup.log = %q (%v), want one ABORT entry", log, err)
+	}
+	if tg.fin == nil || tg.fin.Outcome != engine.OutcomeAborted {
+		t.Errorf("Finished = %+v", tg.fin)
 	}
 }
