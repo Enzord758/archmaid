@@ -200,6 +200,35 @@ func TestSessionNoRootInsertedAfterHyprpm(t *testing.T) {
 	}
 }
 
+// An inserted step may not be hyprpm (it would no longer run last, ahead of
+// root steps), nor take an ID already in the plan (IDs key a front end's
+// rows): such a result is refused like a malformed one.
+func TestSessionRefusesBadInserts(t *testing.T) {
+	hy := child(steps.IDHyprpm, "hyprpm", "update")
+	dup := child("b", "true")
+	for _, c := range []struct {
+		name string
+		ins  steps.Step
+		err  string
+	}{{"hyprpm", hy, "hyprpm"}, {"duplicate ID", dup, `"b"`}} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, Options{DryRun: true}, queue("q", inproc("a"), child("b", "true"), sudo(child("p", "sudo", "x"))))
+			h.start("q")
+			ins := c.ins
+			o := h.result(steps.Result{InsertNext: &ins})
+			if _, ok := find[StepInserted](o.Events); ok {
+				t.Fatal("inserted")
+			}
+			if got := event[StepDone](t, o); got.Status != steps.Failed || !strings.Contains(got.Err, c.err) {
+				t.Errorf("StepDone = %+v", got)
+			}
+			h.ok()
+			h.ok()
+			enginetest.CheckContract(t, h.evs)
+		})
+	}
+}
+
 func TestSessionDownloadsConfirmListsItems(t *testing.T) {
 	dl := inproc(steps.IDDownloads)
 	dl.Confirm, dl.Optional, dl.Items = "Delete 2 item(s)?\n\n  a\n  b", true, []string{"a", "b\nforged"}

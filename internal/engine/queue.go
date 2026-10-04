@@ -2,6 +2,7 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -369,6 +370,9 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 // hyprpm, which drops the sudo ticket on exit.
 var errAfterHyprpm = errors.New("a step that needs root may not run after hyprpm")
 
+// errInsertHyprpm refuses inserting hyprpm: it would no longer run last.
+var errInsertHyprpm = errors.New("hyprpm may not be inserted: it runs last")
+
 // stepResult takes an in-process step's result, the way the TUI does, and
 // fails closed where the result is malformed:
 //
@@ -377,7 +381,8 @@ var errAfterHyprpm = errors.New("a step that needs root may not run after hyprpm
 //     inserted and Commit never runs — but the gate stands, on the step it
 //     was meant for (with nothing inserted, the next one), so that step runs
 //     only on "yes". So is an InsertNext of a step needing root once hyprpm
-//     has run.
+//     has run, of hyprpm itself (it must stay last), or of a step whose ID
+//     is already in the plan (IDs key a front end's rows).
 //   - InsertNext (only from a result without Err) goes right behind the
 //     step: StepInserted.
 //   - ConfirmNext puts that confirm on the next step and makes it optional
@@ -404,6 +409,14 @@ func (s *Session) stepResult(o *Output, in StepResult) {
 	if res.Err == nil && res.InsertNext != nil && res.InsertNext.NeedsPriv &&
 		slices.ContainsFunc(r.plan[:r.cur+1], func(sl slot) bool { return sl.step.ID == steps.IDHyprpm }) {
 		refuse(errAfterHyprpm)
+	}
+	if ins := res.InsertNext; res.Err == nil && ins != nil {
+		switch {
+		case ins.ID == steps.IDHyprpm:
+			refuse(errInsertHyprpm)
+		case slices.ContainsFunc(r.plan, func(sl slot) bool { return sl.step.ID == ins.ID }):
+			refuse(fmt.Errorf("step %q is already in the plan", ins.ID))
+		}
 	}
 	if p := st.step.Prefetch; p != "" && slices.Contains(r.prefetch, p) {
 		// consumed: the step awaited it
