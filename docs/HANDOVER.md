@@ -578,6 +578,8 @@ to:
   not while the gate is up); the log store names one run directory per GUI
   process, so every real run of a long session lands in it; the root
   helper isn't installed by `install.sh` for the GUI yet (`packaging/`).
+  The owner's step-by-step first live run (TUI, helper and policy, GUI,
+  with a results table and rollback): `docs/first-live-run.md`.
 - **`proc.Child.Stop`'s SIGKILL timer outlives `Driver.Close`.**
   `escalateKill` sleeps the whole `KillGrace` (5 s by default) even when the
   child is already reaped, so a goroutine survives Close by up to that long
