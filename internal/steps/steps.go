@@ -38,6 +38,11 @@ type Step struct {
 	// front end makes them safe to show. Cascade is, for the orphan removal,
 	// everything `pacman -Rns` takes along with Items.
 	Items, Cascade []string
+	// Plan, set only on the orphan removal under polkit, is the root
+	// helper's plan its confirm shows: Items and Cascade are its Direct and
+	// Cascade, and the helper's remove-orphans gets only its Hash (see
+	// OrphanPlan). Nil under sudo, where Argv names the packages.
+	Plan *OrphanPlan
 
 	// NeedsPriv steps need root. The front end authenticates once before a
 	// queue holding any of them runs, instead of prompting mid-run, and only
@@ -65,6 +70,18 @@ type Step struct {
 	// chosen, so it runs while the password prompt is up; the step then awaits
 	// it instead of running Run (see PrefetchAURAudit).
 	Prefetch string
+}
+
+// OrphanPlan is the root helper's orphan-removal plan, as its unprivileged
+// plan-orphans reported it: Direct are the orphans (pacman -Qdtq), Cascade
+// everything `pacman -Rns` removes with them, as "name version" lines
+// (pacman -Rs --print, Direct included), and Hash ("sha256:<64 hex>") the
+// helper's commitment to both. remove-orphans takes only Hash: the helper
+// recomputes the plan as root and removes nothing unless it still hashes to
+// it, so what is removed is what the confirm listed.
+type OrphanPlan struct {
+	Hash            string
+	Direct, Cascade []string
 }
 
 // Env is what a running step may know about the run it is part of.
