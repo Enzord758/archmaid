@@ -78,5 +78,21 @@ func Run(args []string, opts Options) int {
 	return code
 }
 
+// DefaultRenderer makes GTK render with cairo unless GSK_RENDERER is
+// already set, so the owner can still pick one (GSK_RENDERER=vulkan, ngl,
+// gl). Call it before GTK initializes: the renderer is read once.
+//
+// Why cairo: with the GPU renderers NVIDIA's userspace driver is mapped
+// into the process, which puts the idle RSS at ~280–390 MB against a
+// 120 MB budget and the first frame at ~375–450 ms; with cairo it is
+// ~110–120 MB and ~85 ms, and the 50k-line flood stays within its budgets
+// (docs/TESTING.md → GUI measurements). The window is lists and text,
+// which cairo draws as fast.
+func DefaultRenderer() {
+	if _, set := os.LookupEnv("GSK_RENDERER"); !set {
+		os.Setenv("GSK_RENDERER", "cairo")
+	}
+}
+
 // post runs f on the GTK main thread; it never blocks.
 func post(f func()) { glib.IdleAdd(f) }

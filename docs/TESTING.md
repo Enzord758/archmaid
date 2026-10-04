@@ -141,7 +141,7 @@ cd gui
 go test ./...                                     # runview; the display tests skip
 scripts/headless.sh                               # + the display tests, headless
 ARCHMAID_GUI_PERF=1 scripts/headless.sh           # + enforce the budgets below
-GSK_RENDERER=cairo scripts/headless.sh            # pick GTK's renderer
+GSK_RENDERER=vulkan scripts/headless.sh           # another renderer (default: cairo)
 ```
 
 With `ARCHMAID_GUI_PERF=1` the tests fail over budget: warm first frame
@@ -156,7 +156,7 @@ always measured and logged with `-v`. CI runs them without the variable.
 Dev machine (Ryzen 7 7800X3D, RTX 4090 on driver 615.71, gtk4 4.22.5,
 libadwaita 1.9.4, go1.27.1), headless weston, warm:
 
-| Measure | Budget | Vulkan (GTK's default) | `GSK_RENDERER=cairo` |
+| Measure | Budget | `GSK_RENDERER=vulkan` (GTK's own default) | cairo (archmaid-gui's default) |
 |---|---|---|---|
 | First frame, warm | < 400 ms | 376–396 ms (one run 446) | 85–95 ms |
 | Idle RSS (PSS, anon) | < 120 MB | 280–290 MB (181–192, 92–103) | 110–122 MB (45–56, 24–36) |
@@ -174,6 +174,13 @@ own, so the Vulkan numbers are the closest to the desktop we can get without
 opening a window there. Before the follow-the-bottom fix the list's head trim
 cost 6 ms a flush (the visible rows were rebound each time): keep the newest
 line in view while appending.
+
+**archmaid-gui renders with cairo by default.** `ui.DefaultRenderer`, called
+first thing in `main` (and in the harness's child, so the tests measure what
+ships), sets `GSK_RENDERER=cairo` only when the variable is unset; the owner
+overrides it with `GSK_RENDERER=vulkan` (or `ngl`, `gl`) in the environment
+or the `.desktop` file. The table above is why: only cairo meets the RAM and
+first-frame budgets on this NVIDIA machine, at the same throughput.
 
 Builds: a cold `go build ./cmd/archmaid-gui` (empty `GOCACHE`, modules
 downloaded) takes ~430 s on 16 threads; an incremental build after a change

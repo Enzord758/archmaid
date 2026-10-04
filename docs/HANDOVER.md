@@ -519,9 +519,9 @@ to:
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The
-  difference is NVIDIA's userspace driver mapped into the process. Whether
-  archmaid-gui should default to cairo is the owner's call (`TESTING.md` →
-  GUI measurements).
+  difference is NVIDIA's userspace driver mapped into the process, so
+  archmaid-gui defaults to cairo (`ui.DefaultRenderer`, only when
+  `GSK_RENDERER` is unset; `TESTING.md` → GUI measurements).
 
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.

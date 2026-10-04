@@ -81,6 +81,7 @@ type countingDriver struct {
 func (d countingDriver) Close() { d.closes.Add(1); d.Driver.Close() }
 
 func runChild(scenario, path string) int {
+	DefaultRenderer() // as archmaid-gui's main does
 	ignore := goleak.IgnoreCurrent()
 	rep := &report{Scenario: scenario}
 	fail := func(format string, a ...any) { rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...)) }

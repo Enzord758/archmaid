@@ -9,5 +9,8 @@ import (
 )
 
 func main() {
+	// Before anything initializes GTK: cairo unless the owner picked a
+	// renderer (docs/TESTING.md → GUI measurements).
+	ui.DefaultRenderer()
 	os.Exit(ui.Main(os.Args))
 }
