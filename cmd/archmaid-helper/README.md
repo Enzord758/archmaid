@@ -29,7 +29,6 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
 | `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit, a running `Also=` unit, or a trigger that would start the unit again exits **4**, and the whole request is refused (see "Companions and triggers"). A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
-| `upgrade-repos` | `pacman -Syu --noconfirm` | none. Only the GUI uses it; the TUI keeps topgrade | `…upgrade-repos` (admin) |
 | `full-cleanup …` | the sequence below | strict flags, see below | `…full-cleanup` (admin) |
 
 Action ids are `org.archmaid.helper.<verb>` (see
@@ -267,9 +266,11 @@ In order, before anything else:
 
 - Root, or anyone who can already write to `/usr`. The admin password itself.
   A compromised pacman, paccache, systemd or mirror.
-- What a legitimate admin-approved action does. `upgrade-repos` installs
-  whatever the repos serve, and `disable-unit` can still disable a
-  non-denylisted unit the user depends on.
+- What a legitimate admin-approved action does. `repair` reinstalls whatever
+  the repos serve at the installed version, and `disable-unit` can still
+  disable a non-denylisted unit the user depends on. (System updates are not a
+  helper verb: topgrade is archmaid's only update path, in the TUI and the
+  GUI alike.)
 - Denial of service by holding the lock or `db.lck`.
 
 ## Development

@@ -125,8 +125,10 @@ comments and `git log`; this is the "read before you touch it" list.
   "no askpass program specified", so `-n` (the primed ticket, or a clean
   failure) is the form that never prompts anywhere. This does **not** close
   the threat for topgrade: everything it starts — yay, makepkg, a PKGBUILD's
-  `build()` — inherits `SUDO_ASKPASS` and can reach the socket. The peer check
-  below is the control there; full closure comes with the P6 repo/AUR split.
+  `build()` — inherits `SUDO_ASKPASS` and can reach the socket. Topgrade stays
+  archmaid's only update path, in the TUI and the GUI (there is no repo/AUR
+  split), so the askpass peer checks below (F7b) are the control there. If the
+  GUI later gives topgrade its own pty, that doesn't change the sudo path.
 - **An askpass request is answered only from the running sudo step.** The
   server records each client's pid/uid (`SO_PEERCRED`) and start time;
   `handleAskpass` hangs up unless a `NeedsPriv` step is running, and
@@ -142,7 +144,7 @@ comments and `git log`; this is the "read before you touch it" list.
   child without authenticating first.
   Refusals leave a line in the step's output. The popup names the step, the
   real binary and pid of sudo's caller, and sudo's prompt only quoted and
-  sanitized (`sudo -p` sets it). Residual risk, for P6: code already running
+  sanitized (`sudo -p` sets it). Residual risk: code already running
   under topgrade can run `sudo -A` itself with its own askpass, connect from
   it, keep the socket in a forked child and exec archmaid in place — the peer
   then checks out. The popup's caller line is what gives that away: genuine

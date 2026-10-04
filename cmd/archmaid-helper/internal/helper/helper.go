@@ -87,7 +87,6 @@ var verbs = map[string]verb{
 	"vacuum-journal": {root: true, run: runVacuumJournal},
 	"clean-tmp":      {root: true, run: runCleanTmp},
 	"disable-unit":   {root: true, run: runDisableUnit},
-	"upgrade-repos":  {root: true, pacmanLock: true, run: runUpgradeRepos},
 	"full-cleanup":   {root: true, pacmanLock: true, run: runFullCleanup},
 }
 
@@ -224,7 +223,6 @@ func checkFilesArgv() []string       { return []string{Pacman, "-Qk"} }
 func paccacheArgv(k string) []string { return []string{Paccache, "-r", "-k", k} }
 func journalArgv(d string) []string  { return []string{Journalctl, "--vacuum-time=" + d} }
 func cleanTmpArgv() []string         { return []string{SystemdTmpfile, "--clean"} }
-func upgradeArgv() []string          { return []string{Pacman, "-Syu", "--noconfirm"} }
 func removeArgv(targets []string) []string {
 	return append([]string{Pacman, "-Rns", "--noconfirm", "--"}, targets...)
 }
@@ -274,13 +272,6 @@ func runCleanTmp(s *session, args []string) int {
 		return ExitUsage
 	}
 	return s.single("Cleaning temporary files", cleanTmpArgv())
-}
-
-func runUpgradeRepos(s *session, args []string) int {
-	if !noArgs(s, "upgrade-repos", args) {
-		return ExitUsage
-	}
-	return s.single("Upgrading repository packages", upgradeArgv())
 }
 
 func runPlanOrphans(s *session, args []string) int {

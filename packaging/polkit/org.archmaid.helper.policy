@@ -131,18 +131,6 @@
     <annotate key="org.freedesktop.policykit.exec.argv1">disable-unit</annotate>
   </action>
 
-  <action id="org.archmaid.helper.upgrade-repos">
-    <description>Upgrade packages from the repositories</description>
-    <message>Authentication is required to upgrade the system's packages</message>
-    <defaults>
-      <allow_any>no</allow_any>
-      <allow_inactive>no</allow_inactive>
-      <allow_active>auth_admin</allow_active>
-    </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
-    <annotate key="org.freedesktop.policykit.exec.argv1">upgrade-repos</annotate>
-  </action>
-
   <action id="org.archmaid.helper.full-cleanup">
     <description>Run archmaid's full system cleanup</description>
     <message>Authentication is required to clean the package cache, remove orphaned packages, vacuum the journal, clean temporary files and check package files</message>

@@ -39,8 +39,7 @@ func TestVerbs(t *testing.T) {
 		{"vacuum missing", []string{"vacuum-journal"}, ExitUsage, ""},
 		{"clean-tmp", []string{"clean-tmp"}, ExitOK, "/usr/bin/systemd-tmpfiles --clean"},
 		{"clean-tmp extra", []string{"clean-tmp", "--remove"}, ExitUsage, ""},
-		{"upgrade-repos", []string{"upgrade-repos"}, ExitOK, "/usr/bin/pacman -Syu --noconfirm"},
-		{"upgrade-repos extra", []string{"upgrade-repos", "linux"}, ExitUsage, ""},
+		{"upgrade-repos is gone (topgrade is the only update path)", []string{"upgrade-repos"}, ExitUsage, ""},
 		{"no verb", nil, ExitUsage, ""},
 		{"unknown verb", []string{"rm-rf"}, ExitUsage, ""},
 		{"verb case matters", []string{"Check-Files"}, ExitUsage, ""},
@@ -677,7 +676,7 @@ func TestBusy(t *testing.T) {
 		}
 	})
 	for verb, args := range map[string][]string{
-		"paccache": {"3"}, "paccache-wipe": nil, "repair": {"x"}, "upgrade-repos": nil,
+		"paccache": {"3"}, "paccache-wipe": nil, "repair": {"x"},
 		"remove-orphans": {hash0}, "full-cleanup": {"--keep", "3", "--journal", "2weeks"},
 	} {
 		t.Run("db.lck blocks "+verb, func(t *testing.T) {
