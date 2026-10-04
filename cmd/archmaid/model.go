@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -47,11 +48,11 @@ type menuItem struct {
 }
 
 var menu = []menuItem{
-	{label: "󰓦  Full Cleanup (Recommended)", steps: fullCleanupSteps, gate: "Proceed with full cleanup?"},
-	{label: "󰃨  Clear user cache", steps: clearUserCacheSteps},
+	{label: "󰓦  Full Cleanup (Recommended)", id: "fullcleanup", steps: fullCleanupSteps, gate: "Proceed with full cleanup?"},
+	{label: "󰃨  Clear user cache", id: "usercache", steps: clearUserCacheSteps},
 	{label: "󰚰  Repair broken packages", id: "repair"},
 	{label: "󰋊  Delete old downloads", id: "downloads"},
-	{label: "󰏗  Run topgrade (system update)", steps: topgradeSteps},
+	{label: "󰏗  Run topgrade (system update)", id: "topgrade", steps: topgradeSteps},
 	{label: "󰒔  Disable unused services", id: "services"},
 	{label: "󰶚  Audit AUR packages", id: "auraudit"},
 	{label: "󰙪  Edit topgrade config", id: "editconfig"},
@@ -75,6 +76,11 @@ type model struct {
 	// the running screen's checklist grows the chrome around it (see
 	// resizeOutput).
 	termWidth, termHeight int
+
+	// last-run record state (see recordRun)
+	runAction  string    // menu id of the action in progress
+	runStarted time.Time // when the action was chosen
+	runDone    bool      // the record for this run has been written
 
 	// password-prompt state
 	password        textinput.Model

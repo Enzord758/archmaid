@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -369,6 +370,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.scanAfterAuth = nil
 			m.dropAuditFetch() // the action is cancelled before it started
 			m.screen = screenMenu
+			m.recordRun(logstore.OutcomeCancelled)
 			return m, nil
 		case "enter":
 			if m.askpassConn != nil {
@@ -543,7 +545,8 @@ func (m *model) confirmServices() tea.Cmd {
 // activate handles an Enter on the menu.
 func (m model) activate() (tea.Model, tea.Cmd) {
 	item := menu[m.cursor]
-	m.gate = ""        // only steps-actions with a gate re-arm it below
+	m.gate = "" // only steps-actions with a gate re-arm it below
+	m.runAction, m.runStarted, m.runDone = item.id, time.Now(), false
 	m.dropAuditFetch() // a previous action's, should one still be around
 	switch item.id {
 	case "exit":
@@ -617,6 +620,7 @@ func (m *model) resetRun() {
 	m.gateActive = false
 	m.pwAttempts = 0
 	m.sudoUnavailable = false
+	m.runDone = false
 }
 
 // beginPending starts m.pending: authenticate first if any step needs sudo
@@ -670,6 +674,7 @@ func (m *model) advance() tea.Cmd {
 		m.screen = screenSummary
 		m.sudoAlive = false // stop the keep-alive loop
 		m.dropAuditFetch()
+		m.recordRun(m.queueOutcome(false))
 		return refreshStatusNow()
 	}
 	s := m.queue[m.current].step
@@ -755,6 +760,7 @@ func (m *model) abortRunning() {
 	m.stepSeq++         // the aborted launch is over: its late messages are stale
 	m.sudoAlive = false // stop the keep-alive loop
 	m.screen = screenMenu
+	m.recordRun(logstore.OutcomeAborted)
 }
 
 // escalateKill force-terminates p if it hasn't exited within grace. p.Kill() is
@@ -772,6 +778,7 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 		if !m.confirmYes {
 			m.dropAuditFetch()
 			m.screen = screenMenu
+			m.recordRun(logstore.OutcomeCancelled)
 			return m, nil
 		}
 		cmd := m.startQueue()
@@ -800,6 +807,7 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 		m.sudoAlive = false // stop the keep-alive loop
 		m.dropAuditFetch()
 		m.screen = screenSummary
+		m.recordRun(m.queueOutcome(true))
 		return m, nil
 	}
 	if s.step.onAccept != nil {

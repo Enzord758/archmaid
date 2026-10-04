@@ -37,7 +37,7 @@ Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 | Package | Owns |
 |---|---|
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
-| `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories` |
+| `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories`; `WriteLastRun`/`ReadLastRun` for `last-run.json` (`RunRecord`, see state files below) |
 | `internal/sysstat` | `Paths`/`DefaultPaths`, `Read(Paths) Status`, `Status.Line()`, the df/du/free-style size formatters; no UI imports |
 
 ## Decisions and landmines
@@ -156,9 +156,18 @@ comments and `git log`; this is the "read before you touch it" list.
   before exiting. Logs are split into
   `topgrade`/`orphans`/`cleanup`/`audit` files per run directory; the newest 5
   run directories are kept, `dryrun/` is a single reused slot, and files in the
-  state-dir root (the AUR snapshot) are ignored by `pruneLogs`. Only `appendLog`
+  state-dir root (the AUR snapshot, `last-run.json`) are ignored by `pruneLogs`. Only `appendLog`
   creates a run directory (viewing logs must not, or it evicts a real run), and
   logs are private: directories 0700, files 0600.
+- **State files** (under `~/.local/state/archmaid/`, for the planned DMS widget, see
+  `docs/dms-widget.md`). `last-run.json` is written by `model.recordRun` (cmd/archmaid/log.go)
+  exactly once per queue, at its end: summary (`ok`/`failed` by `errs`; `cancelled` if no
+  step ran, e.g. sudo gave up), ctrl+c abort (`aborted`), a declined required step
+  (`aborted`, or `cancelled` if nothing ran yet), a declined gate or cancelled password
+  prompt (`cancelled`). `runDone` makes it idempotent; `activate`/`resetRun` re-arm it. The
+  action is the menu `id` (the three static actions have ids `fullcleanup`, `usercache`,
+  `topgrade` for this). A dry run writes `dryrun/last-run.json` instead and never touches
+  the real one. `audit-state.json` is planned, not written yet.
 - **Untrusted text goes through `sanitize.String`.** Command output (topgrade, yay, AUR
   build scripts) can carry escapes that retitle the terminal, write the
   clipboard (OSC 52) or redraw what the user reads. Streamed output keeps only

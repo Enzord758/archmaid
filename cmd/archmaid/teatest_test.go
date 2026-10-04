@@ -44,7 +44,17 @@ func TestMain(m *testing.M) {
 	// Anything that wants the RPC points aurRPCURL at an httptest server
 	// (fakeAUR); everything else fails fast against this closed port.
 	aurRPCURL = "http://127.0.0.1:1/rpc"
-	m.Run()
+	// No test may write the user's real state dir either (appendLog, and now
+	// last-run.json): default to a throwaway one; tests that inspect the logs
+	// still point logDir at their own.
+	dir, err := os.MkdirTemp("", "archmaid-test-state")
+	if err != nil {
+		panic(err)
+	}
+	logDir = dir
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 // waitForText blocks until the program's output contains sub, failing fast if it

@@ -134,9 +134,19 @@ user timer does and writes the cache).
 
 **Where the data comes from (gaps in today's code):**
 - last run: newest run dir `YYYYMMDD-HHMM` under the log dir (name pattern
-  `runDirPattern`), `dryrun` separate. Outcome is **not recorded today**; P7a adds a
-  tiny `last-run.json` written atomically at run end (0600, same dir). Until then
-  outcome = "unknown", time = dir name.
+  `runDirPattern`), `dryrun` separate. The outcome comes from `last-run.json`
+  (written by `logstore.WriteLastRun` at the end of every queue: temp + fsync + rename,
+  0600, state dir 0700), one record, overwritten each run:
+  `{"v":1,"action":"fullcleanup","started":"<RFC3339>","finished":"<RFC3339>",
+  "outcome":"ok|failed|aborted|cancelled","steps_failed":0,"steps_skipped":0,"dry_run":false}`.
+  `action` is the menu id (`fullcleanup`, `usercache`, `repair`, `downloads`,
+  `topgrade`, `services`, `auraudit`). `cancelled` = nothing ran (declined gate or
+  password prompt, sudo gave up with every step skipped); `aborted` = stopped part-way
+  (ctrl+c, or a declined required step). A dry run never touches this file: it writes
+  `dryrun/last-run.json` instead (`dry_run:true`), so the widget reads the top-level file
+  only. `status --json` maps `last_run.time` = `finished`, `steps_failed`, `dry_run`, and
+  `outcome` straight through (`unknown` when the file is absent; `dryrun` is never
+  reported from the real file). Absent file = "no record yet", not an error.
 - AUR: `aur-maintainers.json` gives snapshot presence/age/count today. "Unacknowledged
   high findings" is **not persisted**: P7a adds `audit-state.json` written when an
   audit finishes (findings + whether the snapshot was accepted). Corrupt snapshot

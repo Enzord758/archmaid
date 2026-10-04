@@ -88,3 +88,45 @@ func categoryLabel(cat logCategory) string { return cat.Label() }
 
 // logCategoryLabels drives the "View log" category picker, in display order.
 var logCategoryLabels = logstore.Categories
+
+// queueOutcome classifies a queue that has just ended: cancelled when no step
+// ran at all (every one skipped, e.g. sudo gave up), aborted when a declined
+// required step stopped it, failed on any failed step, otherwise ok.
+func (m *model) queueOutcome(declined bool) string {
+	ran := false
+	for _, q := range m.queue {
+		if q.status == statusOK || q.status == statusFailed {
+			ran = true
+		}
+	}
+	switch {
+	case !ran:
+		return logstore.OutcomeCancelled
+	case declined:
+		return logstore.OutcomeAborted
+	case m.errs > 0:
+		return logstore.OutcomeFailed
+	}
+	return logstore.OutcomeOK
+}
+
+// recordRun writes last-run.json for the run in progress, at most once per run
+// (activate and resetRun re-arm it). It sits where appendLog does: a tiny
+// synchronous write; a failed one is dropped like a failed log write. A dry run
+// goes to the dry-run slot, never over the real record (see logstore).
+func (m *model) recordRun(outcome string) {
+	if m.runDone || m.runAction == "" {
+		return
+	}
+	m.runDone = true
+	skipped := 0
+	for _, q := range m.queue {
+		if q.status == statusSkipped {
+			skipped++
+		}
+	}
+	_ = logs().WriteLastRun(logstore.RunRecord{
+		Action: m.runAction, Started: m.runStarted, Finished: time.Now(),
+		Outcome: outcome, StepsFailed: m.errs, StepsSkipped: skipped, DryRun: dryRun,
+	})
+}
