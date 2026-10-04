@@ -462,6 +462,15 @@ type editorDoneMsg struct{ err error }
 // processes. A variable so tests can pin the chunking.
 var repairScanWorkers = min(runtime.NumCPU(), 16)
 
+// repairErr words a Repair scan failure for the notice. shortErr's "no answer
+// within 20s" is the audit's own deadline, so a timeout here says only that.
+func repairErr(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timed out"
+	}
+	return shortErr(err)
+}
+
 // scanRepairCandidates is Repair's first stage, run as the user with no sudo:
 // every package with a file the user can't stat (brokenCandidates). Nothing
 // flagged means nothing is broken, which ends Repair without a password
@@ -470,7 +479,7 @@ func scanRepairCandidates() tea.Cmd {
 	return func() tea.Msg {
 		cands, err := brokenCandidates(repairScanWorkers)
 		if err != nil {
-			return discoveryMsg{kind: "repair", notice: "Couldn't scan for broken packages: " + shortErr(err)}
+			return discoveryMsg{kind: "repair", notice: "Couldn't scan for broken packages: " + repairErr(err)}
 		}
 		if len(cands) == 0 {
 			return discoveryMsg{kind: "repair", notice: "No broken packages found."}
@@ -486,7 +495,7 @@ func discoverRepair(candidates []string) tea.Cmd {
 	return func() tea.Msg {
 		pkgs, err := brokenPackages(candidates)
 		if err != nil {
-			return discoveryMsg{kind: "repair", notice: "Couldn't scan for broken packages: " + shortErr(err)}
+			return discoveryMsg{kind: "repair", notice: "Couldn't scan for broken packages: " + repairErr(err)}
 		}
 		if len(pkgs) == 0 {
 			return discoveryMsg{kind: "repair", notice: "No broken packages found."}

@@ -304,9 +304,7 @@ func (m model) runningSudoStep() (string, bool) {
 // pane (and so to its log). It may quote names read from /proc, so it is
 // sanitized like any foreign text.
 func (m *model) noteOutput(line string) {
-	m.buf.WriteString(sanitize.OneLine(line) + "\n")
-	m.output.SetContent(m.buf.String())
-	m.output.GotoBottom()
+	m.appendOutput([]string{sanitize.OneLine(line)})
 }
 
 // resizeOutput sizes the output viewport for the active screen. The log
