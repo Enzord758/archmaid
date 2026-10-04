@@ -94,6 +94,89 @@ Noise shows as `~` and passes. It takes about 40 s plus the build. Output
 dir by default; `BENCH_COUNT` changes the sample count. If a benchmark is new on
 HEAD it has no base column and is checked only against its cap.
 
+## GUI (`gui/`, its own module)
+
+The GUI is a separate Go module, so nothing above builds it: the root gate,
+`go test ./...` at the root and CI's `core` job never compile gotk4 (a cold
+gotk4 build takes about 7 minutes). Two layers:
+
+| Layer | Where | Needs |
+|---|---|---|
+| View-model and pump | `gui/internal/runview`, plain `go test` (`-race` is fine: it doesn't build gotk4) | nothing: no display, no GTK |
+| The real window | `gui/internal/ui/harness_test.go`, through `gui/scripts/headless.sh` | gtk4, libadwaita, weston |
+
+`runview`'s tests replay `stub.FullCleanup` one event at a time and as one
+batch, check that the widget-side output diff always reproduces the model's
+output, including random batches across the 10k cap, and run the `Pump`
+against the stub Driver with a fake main loop (one goroutine running posted
+funcs, which also asserts that `apply` only ever runs on it): every control
+event arrives once and in order, a 50k flood arrives whole in slices of at
+most `FlushLines`, a stalled loop gets the newest `MaxPending` lines with the
+drop counted, and Abort then Close, or Close alone, leaves no goroutine
+behind (`go.uber.org/goleak`). Every gui test package runs under
+`testenv.Run`, like the root's.
+
+The display tests run the real window in a child process (the test binary
+re-executed with `ARCHMAID_GUI_CHILD=<scenario>`, so GTK owns that process's
+main thread) and read its JSON report. They skip unless
+`ARCHMAID_GUI_DISPLAY_TESTS=1`, which only `headless.sh` sets, so a plain
+`go test ./...` in `gui/` never opens a window. `headless.sh` starts
+`weston --backend=headless` (pixman) with its socket in a fresh temp runtime
+dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
+`HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
+no service activation (no portal, at-spi or gvfs starts). Scenarios:
+`fullcleanup` (the stub run end to end, each confirm answered through its
+dialog), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
+`close-midrun` (closing mid-run asks first, then closes), `idle` (first frame
+and RAM), `flood` (50k unpaced lines, dropping off: the view's real capacity),
+`flood-paced` (100 lines every 10 ms = 10k lines/s, default pump: nothing may
+drop), `flood-default` (unpaced, default pump). Every scenario also checks
+that `Close` was called on the Driver and that no goroutine is left after
+`Run` returns (goleak, against the goroutines from before the app started).
+
+```sh
+cd gui
+go test ./...                                     # runview; the display tests skip
+scripts/headless.sh                               # + the display tests, headless
+ARCHMAID_GUI_PERF=1 scripts/headless.sh           # + enforce the budgets below
+GSK_RENDERER=cairo scripts/headless.sh            # pick GTK's renderer
+```
+
+With `ARCHMAID_GUI_PERF=1` the tests fail over budget: warm first frame
+< 400 ms (the best of the runs after the first, measured from exec to the
+frame clock's first `after-paint`), idle RSS < 120 MB, ≥ 5k lines/s for the
+unpaced flood, main-thread work per flush p95 ≤ 4 ms (the time in the pump's
+`apply`: model, list splice, scroll), RSS after 50k lines < 200 MB. They are
+always measured and logged with `-v`. CI runs them without the variable.
+
+### GUI measurements
+
+Dev machine (Ryzen 7 7800X3D, RTX 4090 on driver 615.71, gtk4 4.22.5,
+libadwaita 1.9.4, go1.27.1), headless weston, warm:
+
+| Measure | Budget | Vulkan (GTK's default) | `GSK_RENDERER=cairo` |
+|---|---|---|---|
+| First frame, warm | < 400 ms | 376–396 ms (one run 446) | 85–95 ms |
+| Idle RSS (PSS, anon) | < 120 MB | 280–290 MB (181–192, 92–103) | 110–122 MB (45–56, 24–36) |
+| 50k unpaced, nothing dropped | ≥ 5k lines/s | 220 ms = ~227k lines/s | 225 ms = ~222k lines/s |
+| Main-thread work per flush, p95 (max) | ≤ 4 ms | 1.5 ms (6.0) | 1.6 ms (6.6) |
+| 10k lines/s paced: p95 (max), dropped | ≤ 4 ms | 0.96 ms (2.6), 0 | 0.90 ms (2.0), 0 |
+| RSS after 50k lines | < 200 MB | 320–341 MB | 142–149 MB |
+| Frame work (before → after paint), paced p95 | — | 6.0 ms | 5.0 ms |
+
+The max flush is the first one (the checklist's rows and the first output
+rows are created). The RAM over budget with Vulkan (and the GL renderer:
+~270–340 MB, first frame ~340 ms) is NVIDIA's userspace driver in the
+process; cairo meets every budget. Headless weston has no GPU path of its
+own, so the Vulkan numbers are the closest to the desktop we can get without
+opening a window there. Before the follow-the-bottom fix the list's head trim
+cost 6 ms a flush (the visible rows were rebound each time): keep the newest
+line in view while appending.
+
+Builds: a cold `go build ./cmd/archmaid-gui` (empty `GOCACHE`, modules
+downloaded) takes ~430 s on 16 threads; an incremental build after a change
+in `internal/ui` or `internal/runview` ~1.0–1.1 s; the binary is 21 MB.
+
 ## Make targets
 
 A root `Makefile` wraps everything CI runs; paths live in variables at its top.
@@ -104,6 +187,8 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 | `make e2e` | `bash cmd/archmaid/e2e/run.sh` (needs vhs, ttyd, ffmpeg) |
 | `make bench` | `scripts/bench-compare.sh $(BASE)`: HEAD against a base commit with benchstat — see "Bench compare" |
 | `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (the gate, then the opt-in perf guard — see "Perf guard") |
+| `make gui` | in `gui/`: build, vet, gofmt, `runview` tests under `-race`, `go test ./...` (display tests skip) |
+| `make gui-test` | `gui`, then the display tests under `gui/scripts/headless.sh` (needs weston) |
 | `make all` | `gate` — run before pushing |
 
 ## CI
@@ -116,7 +201,7 @@ the same ref cancels the older run. Paths are in the workflow's `env:` block.
 | `core` | `archlinux:latest` container (some discovery tests expect Arch tooling) | `make all`: the gate (TUI and helper). Go build and module caches keyed on `go.sum` and the Go version. |
 | `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `cmd/archmaid/e2e/*.txt` as an artifact on failure. |
 | `bench` | `ubuntu-latest` + setup-go, full history | `scripts/bench-compare.sh <base>` on the one runner: the PR's merge-base (or a push's previous SHA) against HEAD, benchstat-compared; fails on a significant slowdown (see "Bench compare"); uploads `benchstat` (old/new results, report) as an artifact, always. About 1–2 minutes. |
-| `gui` | not yet | Placeholder in the workflow: headless weston, once the GUI module exists. |
+| `gui` | `archlinux:latest` container + gtk4, libadwaita, weston, dbus, a font | `make gui-test` as an unprivileged user with `GSK_RENDERER=cairo` (no GPU): build, vet, the plain-Go tests, the display tests in headless weston; budgets not enforced. Build and module caches keyed on `gui/go.sum` + `go.sum` and the Go version (a cold gotk4 build is ~7 min on 16 threads, more on a runner). |
 
 Stays manual (not in CI): a real Full Cleanup, sudo/faillock behaviour, the
 polkit live test on a scratch user, sudo without a tty, and askpass against real

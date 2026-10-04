@@ -54,6 +54,23 @@ charmbracelet, except `internal/tui`):
 | `internal/engine/enginetest` | test helpers shared by the engine's tests, the stub's and the transcript harness: `CheckContract(t, events)` holds an event sequence to the package doc's ordering rules |
 | `internal/engine/stub` | a `Driver` that replays a scripted event sequence (`Script` of `Cue{After, Event}`) on a `Clock` (the wall clock, or `FakeClock`, which jumps instead of sleeping): prompts wait for their answer, stale IDs and early commands are ignored, `Abort` withdraws the prompt and ends the run like the engine would. `FullCleanup(start)` is a ready-made run shaped like the orphan-cascade transcript. The GUI builds against it until the real Driver (E6) |
 
+### `gui/` (its own Go module: the GTK4/libadwaita GUI, a walking skeleton on the stub Driver)
+
+`gui/go.mod` is `github.com/Enzord758/archmaid/gui`, with a `replace` onto the
+root module, so the root's `go test ./...`, `check.sh` and CI's `core` job
+never compile gotk4. gotk4 `v0.4.1` and gotk4-adwaita
+`v0.0.0-20260808200908-d4aecaa0ff32` are pinned exactly. No `go.work` is
+committed (`.gitignore`d): it would pin a toolchain line and fold the GUI's
+requirements into the root build; make one locally for gopls if you like.
+Binary `archmaid-gui`, application id `io.github.enzord758.archmaid`.
+
+| Path | Owns |
+|---|---|
+| `gui/cmd/archmaid-gui` | `main` → `ui.Main` |
+| `gui/internal/runview` | plain Go, no gotk4: `Model` (the Run page's state: checklist `Row`s keyed on step ID, the open confirm, phase/status, the output ring capped at `OutputCap` = 10k lines; `Apply(events) Change` says exactly what to redraw, including the output diff `OutRemove`/`OutAppend` so a batch bigger than the cap never inserts a line only to drop it), `Pump` (one goroutine reads `Driver.Events()`, merges adjacent `OutputChunk`s of a step, drops the oldest queued lines past `MaxPending` counting them in `Dropped`, and posts one flush at a time to the main thread; a flush applies at most `FlushLines` = 512 lines, so a flood is sliced into ~1–2 ms pieces), `Flood` (the 50k-line stub script) |
+| `gui/internal/ui` | the only gotk4 package: `Main` (picks the stub script, `ARCHMAID_GUI_SCRIPT=flood` for the 50k one), `Run`, `Window` (header with Run/Stop, checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList`, status bar, toasts, `AdwAlertDialog` per `NeedsConfirm` with "No" as default and close response and a red "Yes" for `Destructive`, close-mid-run confirm). `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
+| `gui/scripts/headless.sh` | runs a command against a private `weston --backend=headless` and a private, activation-free D-Bus, so GUI tests never open a window on the desktop |
+
 ## Decisions and landmines
 
 Each of these was learned the hard way. The reasoning lives in the code
@@ -180,6 +197,15 @@ comments and `git log`; this is the "read before you touch it" list.
   `TESTING.md` → Manual measurements). In both stages pacman's exit 1 is
   "found problems", a result; a failure with empty stdout is an error, never
   "nothing broken".
+- **GUI: widgets only on the GTK main thread.** Everything from the Driver
+  reaches the window through `runview.Pump`, which posts with glib's idle-add;
+  nothing else may touch a widget from another goroutine. `Pump` never blocks
+  (so `Driver.Close` can't deadlock against it), and closing the window hides
+  it, closes the Driver off the main thread (a real Driver may wait out its
+  kill grace), then destroys it; `Run` closes the Driver again after the loop
+  in case `app.Quit` ended it. While an `AdwDialog` is up, libadwaita turns the
+  window's close into closing the dialog, so the close-mid-run dialog closes
+  the window from its `closed` signal, not from `response`.
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
   own final step. `TestNoPrivilegedStepAfterHyprpm` (`internal/actions`) fails
@@ -490,6 +516,19 @@ to:
   scope it to the session. The docs assume the wider (session) scope, which is
   the safe assumption. The owner's step-by-step check, with a throwaway
   action and a results table: `docs/polkit-keep-session-check.md`.
+
+- **GUI skeleton TODOs, waiting for the real Driver (E6):** the polkit
+  dialog → helper progress in the checklist (`AuthWaiting{WaitPolkit}`,
+  `AuthResolved`, `FaillockState` are recorded in `runview.Model.Auth` but not
+  shown) and the askpass dialog for the AUR step (`NeedsPassword` →
+  `SubmitPassword`); today a password, selection or report prompt is
+  cancelled with a toast. ANSI colour is stripped, not rendered (P6b step 2).
+- **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
+  RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
+  it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The
+  difference is NVIDIA's userspace driver mapped into the process. Whether
+  archmaid-gui should default to cairo is the owner's call (`TESTING.md` →
+  GUI measurements).
 
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.
