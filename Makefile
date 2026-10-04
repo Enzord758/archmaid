@@ -19,6 +19,8 @@ gate:
 e2e:
 	bash $(E2E_RUN)
 
-# Opt-in perf guard; check.sh ignores the variable until it learns about it.
+# The whole gate plus the opt-in perf guard (TestPerfGuard, without -race or
+# coverage); check.sh runs it when ARCHMAID_PERF_GUARD=1. Its thresholds are
+# the dev machine's, which is why the default gate leaves it out.
 perf:
 	ARCHMAID_PERF_GUARD=1 $(CHECK)
