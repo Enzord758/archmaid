@@ -353,9 +353,10 @@ func runRepair(s *session, args []string) int {
 	defer release()
 
 	var broken []string
+	installed := map[string]string{} // broken package → installed version
 	versionSkips := 0
 	for _, p := range pkgs {
-		reason, otherVersion := s.repairable(p)
+		version, reason, otherVersion := s.repairable(p)
 		if reason != "" {
 			s.skip(p, reason)
 			if otherVersion {
@@ -364,6 +365,7 @@ func runRepair(s *session, args []string) int {
 			continue
 		}
 		broken = append(broken, p)
+		installed[p] = version
 	}
 	if len(broken) == 0 {
 		if versionSkips > 0 {
@@ -372,6 +374,9 @@ func runRepair(s *session, args []string) int {
 		}
 		return s.finish(ExitOK, "")
 	}
+	if code, msg := s.vetRepair(broken, installed); code != ExitOK {
+		return s.finish(code, msg)
+	}
 	ok, msg := s.step(1, 1, fmt.Sprintf("Reinstalling %d package(s)", len(broken)), repairArgv(broken))
 	if !ok {
 		return s.finish(ExitFailed, msg)
@@ -379,41 +384,114 @@ func runRepair(s *session, args []string) int {
 	return s.finish(ExitOK, "")
 }
 
-// repairable returns "" if pkg is installed, available in a sync repo at
-// exactly its installed version and really missing files; otherwise the
-// reason it is skipped. otherVersion reports that the repo's version is
-// the obstacle: `pacman -S` installs the repo's version, so reinstalling
-// would be a partial upgrade (or a downgrade).
-func (s *session) repairable(pkg string) (reason string, otherVersion bool) {
+// repairable returns pkg's installed version and "" if pkg is installed,
+// available in a sync repo at exactly its installed version and really
+// missing files; otherwise the reason it is skipped. otherVersion reports
+// that the repo's version is the obstacle: `pacman -S` installs the repo's
+// version, so reinstalling would be a partial upgrade (or a downgrade).
+func (s *session) repairable(pkg string) (version, reason string, otherVersion bool) {
 	r := s.o.Runner
 	qOut, _, exit, err := r.Query([]string{Pacman, "-Q", "--", pkg})
 	if err != nil || exit != 0 {
-		return "not installed", false
+		return "", "not installed", false
 	}
 	siOut, _, exit, err := r.Query([]string{Pacman, "-Si", "--", pkg})
 	if err != nil || exit != 0 {
-		return "not in a sync repository", false
+		return "", "not in a sync repository", false
 	}
 	out, _, _, err := r.Query([]string{Pacman, "-Qk", "--", pkg})
 	if err != nil {
-		return "could not check its files", false
+		return "", "could not check its files", false
 	}
 	missing, ok := missingFiles(out, pkg)
 	switch {
 	case !ok:
-		return "could not check its files", false
+		return "", "could not check its files", false
 	case missing == 0:
-		return "no missing files", false
+		return "", "no missing files", false
 	}
 	installed, okQ := installedVersion(qOut, pkg)
 	repo, okSi := syncVersion(siOut)
 	switch {
 	case !okQ || !okSi:
-		return "could not compare its installed and repo versions", false
+		return "", "could not compare its installed and repo versions", false
 	case installed != repo:
-		return fmt.Sprintf("repo has a different version (installed %s, repo %s) — update the system first", installed, repo), true
+		return "", fmt.Sprintf("repo has a different version (installed %s, repo %s) — update the system first", installed, repo), true
 	}
-	return "", false
+	return installed, "", false
+}
+
+// repairPlanArgv asks pacman what `pacman -S -- pkgs…` would install,
+// dependencies included, without doing it (--print takes no lock).
+func repairPlanArgv(pkgs []string) []string {
+	return append([]string{Pacman, "-Sp", "--noconfirm", "--print-format", "%n %v", "--"}, pkgs...)
+}
+
+// vetRepair checks the whole transaction `pacman -S -- broken…` would run:
+// it must be exactly the broken packages, each at its installed version.
+// repairable compared versions one package at a time; this catches what it
+// can't see: a dependency that would be installed or upgraded along with
+// them (a partial upgrade through the back door), and a sync database
+// refreshed in between. Anything else is refused with ExitStale and the
+// broken packages are reported as skipped, the extra ones named.
+func (s *session) vetRepair(broken []string, installed map[string]string) (int, string) {
+	// stdout only: it is just the %n %v lines (LC_ALL=C from ChildEnv);
+	// warnings go to stderr.
+	out, errOut, exit, err := s.o.Runner.Query(repairPlanArgv(broken))
+	if err != nil {
+		return ExitFailed, fmt.Sprintf("pacman -Sp: %v", err)
+	}
+	if exit != 0 {
+		return ExitFailed, fmt.Sprintf("could not plan the reinstall: pacman -Sp exited %d: %s", exit, firstLine(errOut))
+	}
+	planned := map[string]string{}
+	var extra []string
+	for _, l := range nonEmptyLines(out) {
+		name, ver, ok := strings.Cut(l, " ")
+		if !ok || !namePattern.MatchString(name) || !versionPattern.MatchString(ver) {
+			return ExitFailed, fmt.Sprintf("unexpected line from pacman -Sp: %q", l)
+		}
+		if _, dup := planned[name]; dup {
+			return ExitFailed, fmt.Sprintf("pacman -Sp lists %s twice", name)
+		}
+		planned[name] = ver
+		if _, ok := installed[name]; !ok {
+			extra = append(extra, l)
+		}
+	}
+	slices.Sort(extra)
+	reasons := map[string]string{}
+	var problems []string
+	for _, p := range broken {
+		ver, ok := planned[p]
+		switch {
+		case !ok:
+			reasons[p] = "pacman would not reinstall it"
+			problems = append(problems, p+" is not in the transaction")
+		case ver != installed[p]:
+			reasons[p] = fmt.Sprintf("pacman would install a different version (installed %s, repo %s) — update the system first", installed[p], ver)
+			problems = append(problems, fmt.Sprintf("%s would change from %s to %s", p, installed[p], ver))
+		}
+	}
+	if len(extra) > 0 {
+		problems = append(problems, "it would also install or upgrade "+strings.Join(extra, ", "))
+	}
+	if len(problems) == 0 {
+		return ExitOK, ""
+	}
+	for _, p := range broken {
+		reason := reasons[p]
+		switch {
+		case reason != "":
+		case len(extra) > 0:
+			reason = "reinstalling would also install or upgrade other packages (" + strings.Join(extra, ", ") + ") — update the system first"
+		default:
+			reason = "another package in this repair can't be reinstalled at its installed version"
+		}
+		s.skip(p, reason)
+	}
+	return ExitStale, "nothing repaired: the reinstall would not be just the broken package(s) at their installed versions: " +
+		strings.Join(problems, "; ") + " — update the system first"
 }
 
 // installedVersion parses `pacman -Q -- pkg`: one line, "name version".

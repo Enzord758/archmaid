@@ -282,10 +282,17 @@ func onPkg(f *fakeRunner, pkg, installed, repo string, missing int) *fakeRunner 
 	return f.on(pq("-Qk", "--", pkg), qk)
 }
 
+// onPlan fakes `pacman -Sp` for the sorted broken set pkgs, printing lines
+// ("name version").
+func onPlan(f *fakeRunner, pkgs []string, lines ...string) *fakeRunner {
+	return f.on(repairPlanArgv(pkgs), reply{out: strings.Join(lines, "\n") + "\n"})
+}
+
 func TestRepair(t *testing.T) {
 	f := newFake()
 	// broken: installed, in repo at the same version, missing files
 	onPkg(f, "broken", "1.0-1", "1.0-1", 2)
+	onPlan(f, []string{"broken"}, "broken 1.0-1")
 	// healthy: installed, in repo, nothing missing
 	onPkg(f, "healthy", "1.0-1", "1.0-1", 0)
 	// aur: installed but not in a repo
@@ -327,6 +334,7 @@ func TestRepairNeverCausesAPartialUpgrade(t *testing.T) {
 		f := newFake()
 		onPkg(f, "a", "1:2.0.3-4", "1:2.0.3-4", 1)
 		onPkg(f, "b", "1.0-1", "1.0-1", 3)
+		onPlan(f, []string{"a", "b"}, "b 1.0-1", "a 1:2.0.3-4")
 		o, out := rootOpts(t, f)
 		if code := Run([]string{"repair", "a", "b"}, o); code != ExitOK {
 			t.Fatalf("exit %d:\n%s", code, out)
@@ -382,6 +390,7 @@ func TestRepairNeverCausesAPartialUpgrade(t *testing.T) {
 	t.Run("mixed: only the equal ones are reinstalled", func(t *testing.T) {
 		f := newFake()
 		onPkg(f, "same", "2.0-1", "2.0-1", 1)
+		onPlan(f, []string{"same"}, "same 2.0-1")
 		onPkg(f, "newer", "1.0-1", "1.1-1", 1)
 		onPkg(f, "healthy", "1.0-1", "1.1-1", 0)
 		o, out := rootOpts(t, f)
@@ -402,6 +411,95 @@ func TestRepairNeverCausesAPartialUpgrade(t *testing.T) {
 		o, out := rootOpts(t, f)
 		if code := Run([]string{"repair", "healthy"}, o); code != ExitOK {
 			t.Fatalf("exit %d:\n%s", code, out)
+		}
+	})
+}
+
+// TestRepairTransactionIsExactlyTheBrokenSet: what `pacman -S` would really
+// do (`-Sp`) must be the broken packages at their installed versions and
+// nothing else, or nothing is reinstalled.
+func TestRepairTransactionIsExactlyTheBrokenSet(t *testing.T) {
+	broken := func() *fakeRunner {
+		f := newFake()
+		onPkg(f, "a", "1.0-1", "1.0-1", 2)
+		onPkg(f, "b", "2.0-1", "2.0-1", 1)
+		return f
+	}
+	refused := func(t *testing.T, f *fakeRunner, want int) (string, map[string]string) {
+		t.Helper()
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "a", "b"}, o); code != want {
+			t.Fatalf("exit %d, want %d:\n%s", code, want, out)
+		}
+		if len(f.streams) != 0 {
+			t.Errorf("ran %q", f.streams)
+		}
+		msg, _ := result(t, out)["error"].(string)
+		return msg, skippedNames(t, out)
+	}
+	t.Run("clean set is reinstalled", func(t *testing.T) {
+		f := onPlan(broken(), []string{"a", "b"}, "a 1.0-1", "b 2.0-1")
+		o, out := rootOpts(t, f)
+		if code := Run([]string{"repair", "b", "a"}, o); code != ExitOK {
+			t.Fatalf("exit %d:\n%s", code, out)
+		}
+		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- a b"}) {
+			t.Errorf("ran %q", got)
+		}
+		if !slices.ContainsFunc(f.queries, func(q []string) bool {
+			return slices.Equal(q, []string{Pacman, "-Sp", "--noconfirm", "--print-format", "%n %v", "--", "a", "b"})
+		}) {
+			t.Errorf("no -Sp plan was asked for: %q", f.queries)
+		}
+	})
+	t.Run("an extra dependency is exit 3 and named", func(t *testing.T) {
+		f := onPlan(broken(), []string{"a", "b"}, "libz 1.3-2", "a 1.0-1", "b 2.0-1", "glibc 2.41-1")
+		msg, sk := refused(t, f, ExitStale)
+		for _, extra := range []string{"libz 1.3-2", "glibc 2.41-1"} {
+			if !strings.Contains(msg, extra) {
+				t.Errorf("error %q does not name %s", msg, extra)
+			}
+			if !strings.Contains(sk["a"], extra) {
+				t.Errorf("skip a = %q does not name %s", sk["a"], extra)
+			}
+		}
+		if len(sk) != 2 || sk["b"] == "" {
+			t.Errorf("skipped %v, want a and b", sk)
+		}
+	})
+	t.Run("version drift is exit 3", func(t *testing.T) {
+		// The sync db was refreshed between -Si and -Sp.
+		f := onPlan(broken(), []string{"a", "b"}, "a 1.0-1", "b 2.1-1")
+		msg, sk := refused(t, f, ExitStale)
+		if !strings.Contains(msg, "b would change from 2.0-1 to 2.1-1") {
+			t.Errorf("error %q does not explain the drift", msg)
+		}
+		if want := "pacman would install a different version (installed 2.0-1, repo 2.1-1) — update the system first"; sk["b"] != want {
+			t.Errorf("skip b = %q, want %q", sk["b"], want)
+		}
+		if sk["a"] == "" {
+			t.Errorf("a not reported as skipped: %v", sk)
+		}
+	})
+	t.Run("a package missing from the transaction is exit 3", func(t *testing.T) {
+		f := onPlan(broken(), []string{"a", "b"}, "a 1.0-1")
+		if _, sk := refused(t, f, ExitStale); sk["b"] != "pacman would not reinstall it" {
+			t.Errorf("skipped %v", sk)
+		}
+	})
+	t.Run("odd -Sp output fails", func(t *testing.T) {
+		for _, lines := range [][]string{
+			{"a 1.0-1", ":: a is in IgnorePkg/IgnoreGroup. Install anyway? [Y/n]", "b 2.0-1"},
+			{"a 1.0-1", "b 2.0-1", "b 2.0-1"},
+			{"a 1.0-1", "b"},
+		} {
+			refused(t, onPlan(broken(), []string{"a", "b"}, lines...), ExitFailed)
+		}
+	})
+	t.Run("-Sp failing fails", func(t *testing.T) {
+		f := broken().on(repairPlanArgv([]string{"a", "b"}), reply{err: "error: failed to prepare transaction", exit: 1})
+		if msg, _ := refused(t, f, ExitFailed); !strings.Contains(msg, "failed to prepare transaction") {
+			t.Errorf("error %q", msg)
 		}
 	})
 }

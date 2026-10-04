@@ -119,7 +119,7 @@ func TestExecRunnerMissingBinary(t *testing.T) {
 func TestAllArgvAreAbsoluteAndUseDashDash(t *testing.T) {
 	fixed := []string{Pacman, Paccache, Journalctl, SystemdTmpfile, Systemctl}
 	names := []string{"x", "y"}
-	withNames := [][]string{removeArgv(names), repairArgv(names), disableArgv(names), unitShowArgv("x.service")}
+	withNames := [][]string{removeArgv(names), repairArgv(names), repairPlanArgv(names), disableArgv(names), unitShowArgv("x.service")}
 	all := append([][]string{checkFilesArgv(), paccacheArgv("3"), journalArgv("1week"), cleanTmpArgv(), upgradeArgv()}, withNames...)
 	for _, a := range all {
 		if !slices.Contains(fixed, a[0]) {
