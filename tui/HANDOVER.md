@@ -218,9 +218,13 @@ comments and `git log`; this is the "read before you touch it" list.
   `~/Download`, `~/Downloads` doesn't exist, and `XDG_DOWNLOAD_DIR="$HOME/"` —
   so "just read the XDG dir" would clean the whole home folder.
   `resolveDownloadsDir` walks flag → `ARCHMAID_DOWNLOADS` → XDG → `~/Downloads`
-  → `~/Download`, resolves symlinks, and refuses `$HOME`, `/` and ancestors of
-  `$HOME` for every source; all but the flag must be strictly inside `$HOME`.
-  Don't add a candidate that skips `checkDownloadsDir`.
+  → `~/Download`, resolves symlinks, and refuses `/`, `$HOME`, the passwd
+  home (`user.Current`, seam `passwdHome`) and ancestors of either for every
+  source; all but the flag must be strictly inside the home folder, which is
+  `$HOME` unless that is unset, relative or `/` — then the passwd home.
+  Don't add a candidate that skips `checkDownloadsDir`. `--downloads` refuses
+  a value starting with `-` (exit 2): `archmaid --downloads --dryrun` would
+  otherwise take `--dryrun` as the folder and silently run for real.
 - **Old downloads are judged by ctime, in Go — never `find -mtime … rm -rf`.**
   The old `find "$dir" -maxdepth 1` matched `$dir` itself (once its mtime aged,
   the whole folder went), and mtime lies: wget, `curl -R` and unzip back-date
@@ -237,9 +241,14 @@ comments and `git log`; this is the "read before you touch it" list.
   folder's `st_dev` plus every mount point inside it from
   `/proc/self/mountinfo` (a bind mount keeps the device, so `st_dev` alone
   misses it; an unreadable mount table fails closed). An entry that is or
-  holds anything outside it is never old, and `removeTree` deletes bottom-up
-  by hand, Lstat-checking each node against the boundary and opening each
-  directory as a nested `os.Root` that must be the inode it Lstat'd.
+  holds anything outside it is never old, and `remover.removeTree` deletes
+  bottom-up by hand: each node is Lstat'd right before it is touched and
+  must still be inside the boundary and old (a directory is checked before
+  it is emptied, since emptying bumps its ctime; other names of a hard link
+  it unlinked are exempt), and each directory is opened as a nested
+  `os.Root` that must be the inode it Lstat'd. It stops at the first node
+  that fails and reports the entry as partly deleted. Left open: a node
+  swapped between its Lstat and its unlink.
   `TestDownloadsMountPoints` mounts tmpfs and bind mounts for real inside
   `unshare -rm` (skipped where that's unavailable); `statDev` and
   `mountinfoPath` are the seams for the rest.

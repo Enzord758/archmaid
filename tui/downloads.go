@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -28,8 +29,8 @@ import (
 // "read the XDG dir" would clean the whole home folder.
 
 // downloadsFlag is set by --downloads <dir>. It overrides discovery and may
-// point outside $HOME (a data disk), but never at $HOME itself, an ancestor
-// of it, or /.
+// point outside $HOME (a data disk), but never at a home folder, an ancestor
+// of one, or /.
 var downloadsFlag string
 
 // downloadsEnv names the environment override, the second candidate.
@@ -38,23 +39,63 @@ const downloadsEnv = "ARCHMAID_DOWNLOADS"
 // errNoDownloads is the notice when no candidate qualifies.
 var errNoDownloads = errors.New("No downloads folder found (set --downloads or ARCHMAID_DOWNLOADS).")
 
+// passwdHome is the user's home folder from the passwd database ("" if it
+// can't be read). A seam: tests can't change the real one.
+var passwdHome = func() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.HomeDir
+}
+
+// homes is what the resolver knows about the home folder.
+type homes struct {
+	home  string   // where to look: $HOME, or the passwd home when $HOME is unusable
+	real  string   // home, symlinks resolved: candidates must lie strictly inside it
+	guard []string // $HOME and the passwd home, resolved: never one of these, nor above one
+}
+
+// homeDirs reads $HOME and the passwd home. $HOME is the user's to set, but
+// one that's unset, relative or / is no basis for "inside your home folder",
+// so the passwd home stands in; and both are guarded, so a $HOME pointed
+// elsewhere can't make the real home folder a candidate.
+func homeDirs() homes {
+	resolve := func(p string) (string, bool) {
+		if p == "" || !filepath.IsAbs(p) {
+			return "", false
+		}
+		r, err := filepath.EvalSymlinks(p)
+		if err != nil {
+			r = filepath.Clean(p)
+		}
+		return r, r != string(filepath.Separator)
+	}
+	var h homes
+	for _, p := range []string{os.Getenv("HOME"), passwdHome()} {
+		if r, ok := resolve(p); ok {
+			if h.home == "" {
+				h.home, h.real = filepath.Clean(p), r
+			}
+			h.guard = append(h.guard, r)
+		}
+	}
+	return h
+}
+
 // resolveDownloadsDir picks the downloads folder, symlinks resolved. In order:
 // --downloads, $ARCHMAID_DOWNLOADS, XDG_DOWNLOAD_DIR from user-dirs.dirs,
 // ~/Downloads, ~/Download. Each must be an existing directory; every one
-// except the flag must also sit strictly inside $HOME. A candidate that fails
-// is skipped — except the flag: the user named that folder, so a bad one is
-// reported instead of silently cleaning a different folder.
+// except the flag must also sit strictly inside the home folder. A candidate
+// that fails is skipped — except the flag: the user named that folder, so a
+// bad one is reported instead of silently cleaning a different folder.
 func resolveDownloadsDir() (string, error) {
-	home, _ := os.UserHomeDir()
-	realHome := home
-	if r, err := filepath.EvalSymlinks(home); err == nil {
-		realHome = r
-	}
+	h := homeDirs()
 
 	if downloadsFlag != "" {
 		p, err := filepath.Abs(downloadsFlag)
 		if err == nil {
-			p, err = checkDownloadsDir(p, realHome, false)
+			p, err = checkDownloadsDir(p, h, false)
 		}
 		if err != nil {
 			return "", fmt.Errorf("--downloads %s: %w", downloadsFlag, err)
@@ -62,16 +103,16 @@ func resolveDownloadsDir() (string, error) {
 		return p, nil
 	}
 
-	candidates := []string{os.Getenv(downloadsEnv), xdgDownloadDir(home)}
-	if home != "" {
+	candidates := []string{os.Getenv(downloadsEnv), xdgDownloadDir(h.home)}
+	if h.home != "" {
 		candidates = append(candidates,
-			filepath.Join(home, "Downloads"), filepath.Join(home, "Download"))
+			filepath.Join(h.home, "Downloads"), filepath.Join(h.home, "Download"))
 	}
 	for _, c := range candidates {
 		if c == "" || !filepath.IsAbs(c) {
 			continue
 		}
-		if p, err := checkDownloadsDir(c, realHome, true); err == nil {
+		if p, err := checkDownloadsDir(c, h, true); err == nil {
 			return p, nil
 		}
 	}
@@ -79,10 +120,11 @@ func resolveDownloadsDir() (string, error) {
 }
 
 // checkDownloadsDir resolves p and vets it: it must be an existing directory,
-// and never /, $HOME, or anything containing $HOME. insideHome additionally
-// requires it to be strictly inside $HOME. realHome is $HOME with symlinks
-// resolved, so a symlink to $HOME (or an XDG dir of "$HOME/") is caught.
-func checkDownloadsDir(p, realHome string, insideHome bool) (string, error) {
+// and never /, a home folder ($HOME or the passwd one), or anything
+// containing one. insideHome additionally requires it to be strictly inside
+// h.real. The homes are resolved too, so a symlink to one (or an XDG dir of
+// "$HOME/") is caught.
+func checkDownloadsDir(p string, h homes, insideHome bool) (string, error) {
 	real, err := filepath.EvalSymlinks(p)
 	if err != nil {
 		return "", errors.New("no such folder")
@@ -94,13 +136,15 @@ func checkDownloadsDir(p, realHome string, insideHome bool) (string, error) {
 	if !fi.IsDir() {
 		return "", errors.New("not a folder")
 	}
-	homeOK := realHome != "" && filepath.IsAbs(realHome)
-	switch {
-	case real == string(filepath.Separator):
+	if real == string(filepath.Separator) {
 		return "", errors.New("refusing the root folder")
-	case homeOK && (real == realHome || strictlyInside(realHome, real)):
-		return "", errors.New("refusing a folder that contains your home folder")
-	case insideHome && (!homeOK || !strictlyInside(real, realHome)):
+	}
+	for _, g := range h.guard {
+		if real == g || strictlyInside(g, real) {
+			return "", errors.New("refusing a folder that contains your home folder")
+		}
+	}
+	if insideHome && (h.real == "" || !strictlyInside(real, h.real)) {
 		return "", errors.New("not inside your home folder")
 	}
 	return real, nil
@@ -502,10 +546,15 @@ func deleteOldDownloadsNow(ctx context.Context, dir string, id dirID, names []st
 		case dryRun:
 			fmt.Fprintf(&out, "[dry-run] would delete: %s\n", shownName)
 		default:
-			if err := removeTree(root, name, name, b); err != nil {
+			r := remover{b: b, cutoff: cutoff}
+			if err := r.removeTree(root, name, name); err != nil {
 				errs = append(errs, err)
 				failed++
-				fmt.Fprintf(&out, "couldn't delete %s: %s\n", shownName, pathErrCause(err))
+				partly := ""
+				if r.removed > 0 {
+					partly = fmt.Sprintf(" (stopped partway: %d item(s) inside it deleted)", r.removed)
+				}
+				fmt.Fprintf(&out, "couldn't delete %s: %s%s\n", shownName, pathErrCause(err), partly)
 				continue
 			}
 			deleted++
@@ -525,36 +574,63 @@ var downloadsEntryHook func(name string)
 // errOtherFS refuses a removal that would leave the folder's filesystem.
 var errOtherFS = errors.New("another filesystem is mounted in it")
 
-// errSwapped refuses a directory that was swapped between its Lstat and
-// being opened.
-var errSwapped = errors.New("it changed while being deleted")
+// errChanged refuses a node that is new, or was swapped, by the time the
+// removal reaches it.
+var errChanged = errors.New("it changed while being deleted")
+
+// remover deletes one entry bottom-up; see removeTree.
+type remover struct {
+	b       boundary
+	cutoff  time.Time
+	removed int // nodes deleted so far (so a partial delete can say so)
+	// relinked holds hard-linked files this remover has unlinked a name of:
+	// that bumped their ctime, so their other names don't count as new.
+	relinked map[[2]uint64]bool
+}
 
 // removeTree deletes name — an entry of root, at rel from the downloads
 // folder — bottom-up by hand, because os.Root.RemoveAll would empty a
-// filesystem mounted below it. Each node is Lstat'd right before it is
-// touched, and nothing outside b is entered or removed (errOtherFS). A
-// directory is opened as a nested os.Root and must be the very directory
-// that was Lstat'd, so a swap for a symlink is never followed. It stops at
-// the first error and leaves the rest.
-func removeTree(root *os.Root, name, rel string, b boundary) error {
+// filesystem mounted below it. Each node is Lstat'd and re-checked right
+// before it is touched — not just the entry, seconds earlier, by entryIsOld:
+// anything outside the boundary is refused (errOtherFS) and anything new
+// since stops the delete (errChanged), so a file written into a directory
+// while it is being deleted survives. A directory is checked before it is
+// entered (emptying it changes its ctime), then opened as a nested os.Root
+// that must be the very directory that was Lstat'd, so a swap for a symlink
+// is never followed. It stops at the first error and leaves the rest.
+func (r *remover) removeTree(root *os.Root, name, rel string) error {
 	fi, err := root.Lstat(name)
 	if err != nil {
 		return err
 	}
-	if b.crosses(rel, fi) {
+	if r.b.crosses(rel, fi) {
 		return errOtherFS
 	}
+	ino := inode(fi)
+	if !changedBefore(fi, r.cutoff) && !r.relinked[ino] {
+		return errChanged
+	}
 	if fi.IsDir() {
-		if err := removeContents(root, name, rel, fi, b); err != nil {
+		if err := r.removeContents(root, name, rel, fi); err != nil {
 			return err
 		}
 	}
-	return root.Remove(name)
+	if err := root.Remove(name); err != nil {
+		return err
+	}
+	r.removed++
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok && !fi.IsDir() && st.Nlink > 1 {
+		if r.relinked == nil {
+			r.relinked = map[[2]uint64]bool{}
+		}
+		r.relinked[ino] = true
+	}
+	return nil
 }
 
 // removeContents empties directory name of root (fi its Lstat) through
 // removeTree.
-func removeContents(root *os.Root, name, rel string, fi fs.FileInfo, b boundary) error {
+func (r *remover) removeContents(root *os.Root, name, rel string, fi fs.FileInfo) error {
 	sub, err := root.OpenRoot(name)
 	if err != nil {
 		return err
@@ -563,7 +639,7 @@ func removeContents(root *os.Root, name, rel string, fi fs.FileInfo, b boundary)
 	if here, err := sub.Lstat("."); err != nil {
 		return err
 	} else if !os.SameFile(fi, here) {
-		return errSwapped
+		return errChanged
 	}
 	d, err := sub.Open(".")
 	if err != nil {
@@ -575,11 +651,19 @@ func removeContents(root *os.Root, name, rel string, fi fs.FileInfo, b boundary)
 		return err
 	}
 	for _, k := range kids {
-		if err := removeTree(sub, k, rel+"/"+k, b); err != nil {
+		if err := r.removeTree(sub, k, rel+"/"+k); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// inode is fi's device and inode number (zero without them).
+func inode(fi fs.FileInfo) [2]uint64 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return [2]uint64{st.Dev, st.Ino}
+	}
+	return [2]uint64{}
 }
 
 // pathErrCause is err without the path a *fs.PathError repeats — the caller
@@ -609,11 +693,7 @@ func displayName(name string) string {
 // displayPath shows a resolved path the way the user thinks of it: ~/… when
 // it's inside $HOME, sanitized since it comes from the environment.
 func displayPath(p string) string {
-	home, _ := os.UserHomeDir()
-	if r, err := filepath.EvalSymlinks(home); err == nil {
-		home = r
-	}
-	if home != "" && strictlyInside(p, home) {
+	if home := homeDirs().real; home != "" && strictlyInside(p, home) {
 		rel, _ := filepath.Rel(home, p)
 		p = "~/" + rel
 	}

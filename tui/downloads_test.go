@@ -708,13 +708,27 @@ func TestParseArgsDownloads(t *testing.T) {
 		{args: []string{"--downloads"}, wantErr: true},
 		{args: []string{"--downloads="}, wantErr: true},
 		{args: []string{"--dryrun"}, want: ""},
+		// Two flags, not a folder named --dryrun: refused, so the dry run
+		// isn't silently lost.
+		{args: []string{"--downloads", "--dryrun"}, wantErr: true},
+		{args: []string{"--downloads", "-x"}, wantErr: true},
+		{args: []string{"--downloads=-x"}, wantErr: true},
+		{args: []string{"--downloads", "./-x"}, want: "./-x"},
 	} {
-		downloadsFlag = ""
+		downloadsFlag, dryRun = "", false
 		err := parseArgs(tc.args)
 		if (err != nil) != tc.wantErr || (!tc.wantErr && downloadsFlag != tc.want) {
 			t.Fatalf("parseArgs(%q): flag=%q err=%v; want flag=%q err=%v",
 				tc.args, downloadsFlag, err, tc.want, tc.wantErr)
 		}
+		if tc.wantErr && downloadsFlag != "" {
+			t.Fatalf("parseArgs(%q) set the folder to %q despite failing", tc.args, downloadsFlag)
+		}
+	}
+
+	err := parseArgs([]string{"--downloads", "--dryrun"})
+	if err == nil || !strings.Contains(err.Error(), `not the option "--dryrun"`) {
+		t.Fatalf("err = %v, want it to name the option", err)
 	}
 }
 
@@ -856,7 +870,8 @@ func TestRemoveTreeStaysOnItsFilesystem(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = removeTree(root, "e", "e", b)
+			r := remover{b: b, cutoff: time.Now().Add(time.Hour)} // everything old
+			err = r.removeTree(root, "e", "e")
 			if tc.name == "nothing" {
 				if err != nil || exists(filepath.Join(dir, "e")) {
 					t.Fatalf("removeTree = %v, exists=%v; want the tree gone", err, exists(filepath.Join(dir, "e")))
@@ -871,6 +886,146 @@ func TestRemoveTreeStaysOnItsFilesystem(t *testing.T) {
 			}
 		})
 	}
+}
+
+// openBoundary opens dir as the downloads folder would be.
+func openBoundary(t *testing.T, dir string) (*os.Root, boundary) {
+	t.Helper()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { root.Close() })
+	id, err := dirIdentity(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := newBoundary(dir, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root, b
+}
+
+// TestRemoveTreeRechecksEachNode: the removal re-checks every node as it
+// reaches it, not only the entry before it starts — a file written into the
+// tree after that check stops the delete and survives (as does the folder
+// holding it), and the run reports the entry as partly deleted.
+func TestRemoveTreeRechecksEachNode(t *testing.T) {
+	dir := realDir(t, t.TempDir())
+	writeFile(t, filepath.Join(dir, "e", "a", "old.txt"), "x")
+	writeFile(t, filepath.Join(dir, "e", "sub", "old.txt"), "x")
+	mark := ctimeMark(t)
+	writeFile(t, filepath.Join(dir, "e", "sub", "new.txt"), "x") // after the re-check
+	root, b := openBoundary(t, dir)
+
+	r := remover{b: b, cutoff: mark}
+	if err := r.removeTree(root, "e", "e"); !errors.Is(err, errChanged) {
+		t.Fatalf("removeTree = %v, want errChanged", err)
+	}
+	if !exists(filepath.Join(dir, "e", "sub", "new.txt")) {
+		t.Fatal("a file new since the re-check was deleted")
+	}
+}
+
+// TestDownloadsReportsPartialDelete: an entry the removal stops partway
+// through is reported failed, with how much of it went.
+func TestDownloadsReportsPartialDelete(t *testing.T) {
+	home := isolateDownloads(t)
+	dl := filepath.Join(home, "Downloads")
+	for _, n := range []string{"x", "y", "z"} {
+		writeFile(t, filepath.Join(dl, "e", n), "x")
+	}
+	cutoffAt(t, ctimeMark(t))
+	s := discoverDownloadStep(t)
+	// Device lookups: the re-check makes four (e, then x, y, z in its walk);
+	// the removal one for e, then one per file. The second file it reaches
+	// turns out to be on another filesystem — mounted after the re-check.
+	calls := 0
+	withStatDev(t, func(fs.FileInfo) bool { calls++; return calls == 7 })
+	res := s.run(context.Background())
+	if res.err == nil || !strings.Contains(res.output,
+		"couldn't delete e: another filesystem is mounted in it (stopped partway: 1 item(s) inside it deleted)") {
+		t.Fatalf("want e reported partly deleted:\n%s", res.output)
+	}
+	left, _ := os.ReadDir(filepath.Join(dl, "e"))
+	if len(left) != 2 {
+		t.Fatalf("%d file(s) left in e, want 2", len(left))
+	}
+}
+
+// TestRemoveTreeHardLinks: unlinking one name of a hard-linked file bumps its
+// ctime; its other names in the same entry still go.
+func TestRemoveTreeHardLinks(t *testing.T) {
+	dir := realDir(t, t.TempDir())
+	writeFile(t, filepath.Join(dir, "e", "x"), "x")
+	if err := os.Link(filepath.Join(dir, "e", "x"), filepath.Join(dir, "e", "y")); err != nil {
+		t.Fatal(err)
+	}
+	mark := ctimeMark(t)
+	root, b := openBoundary(t, dir)
+	r := remover{b: b, cutoff: mark}
+	if err := r.removeTree(root, "e", "e"); err != nil || exists(filepath.Join(dir, "e")) {
+		t.Fatalf("removeTree = %v; want the tree with both links gone", err)
+	}
+}
+
+// TestResolveDownloadsHomeGuard: the passwd home is guarded as well as $HOME
+// (a $HOME pointed elsewhere doesn't make the real home a candidate), and an
+// unset, relative or "/" $HOME falls back to the passwd home.
+func TestResolveDownloadsHomeGuard(t *testing.T) {
+	setPasswd := func(t *testing.T, dir string) {
+		orig := passwdHome
+		passwdHome = func() string { return dir }
+		t.Cleanup(func() { passwdHome = orig })
+	}
+
+	t.Run("passwd home and its ancestors are refused", func(t *testing.T) {
+		home := isolateDownloads(t)
+		pw := filepath.Join(t.TempDir(), "pw")
+		mkdirs(t, filepath.Join(pw, "Download"), filepath.Join(home, "Download"))
+		setPasswd(t, pw)
+		for _, flag := range []string{pw, filepath.Dir(pw)} {
+			downloadsFlag = flag
+			if _, err := resolveDownloadsDir(); err == nil || !strings.Contains(err.Error(), "contains your home folder") {
+				t.Fatalf("--downloads %s: err = %v, want it refused", flag, err)
+			}
+		}
+		downloadsFlag = ""
+		t.Setenv(downloadsEnv, pw)
+		got, err := resolveDownloadsDir()
+		if want := realDir(t, filepath.Join(home, "Download")); err != nil || got != want {
+			t.Fatalf("env = passwd home: got %q, %v; want the fallback %q", got, err, want)
+		}
+	})
+
+	for _, h := range []string{"", "relative/home", "/"} {
+		t.Run("HOME="+h, func(t *testing.T) {
+			isolateDownloads(t)
+			pw := t.TempDir()
+			mkdirs(t, filepath.Join(pw, "Download"))
+			setPasswd(t, pw)
+			t.Setenv("HOME", h)
+			t.Setenv("XDG_CONFIG_HOME", "")
+			got, err := resolveDownloadsDir()
+			if want := realDir(t, filepath.Join(pw, "Download")); err != nil || got != want {
+				t.Fatalf("got %q, %v; want the passwd home's %q", got, err, want)
+			}
+			if shown := displayPath(got); shown != "~/Download" {
+				t.Fatalf("displayPath = %q, want ~/Download", shown)
+			}
+		})
+	}
+
+	t.Run("no usable home at all", func(t *testing.T) {
+		isolateDownloads(t)
+		setPasswd(t, "/")
+		t.Setenv("HOME", "/")
+		t.Setenv(downloadsEnv, t.TempDir())
+		if _, err := resolveDownloadsDir(); err != errNoDownloads {
+			t.Fatalf("err = %v, want nothing found without a home folder", err)
+		}
+	})
 }
 
 // TestUnescapeMountPath: the mount table's octal escapes come back as the

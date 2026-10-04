@@ -54,6 +54,10 @@ func main() {
 // parseArgs applies the command-line flags: --dryrun, and --downloads <dir>
 // (or --downloads=<dir>), the folder "Delete old downloads" cleans. Anything
 // else is ignored.
+//
+// A --downloads value starting with "-" is refused rather than taken as the
+// folder: in `archmaid --downloads --dryrun` the user meant two flags, and
+// swallowing --dryrun as a folder name would turn a dry run into a real one.
 func parseArgs(args []string) error {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -61,16 +65,31 @@ func parseArgs(args []string) error {
 		case a == "--dryrun":
 			dryRun = true
 		case a == "--downloads":
-			if i+1 >= len(args) || args[i+1] == "" {
+			if i+1 >= len(args) {
 				return errors.New("--downloads needs a folder")
 			}
 			i++
-			downloadsFlag = args[i]
+			if err := setDownloadsFlag(args[i]); err != nil {
+				return err
+			}
 		case strings.HasPrefix(a, "--downloads="):
-			if downloadsFlag = strings.TrimPrefix(a, "--downloads="); downloadsFlag == "" {
-				return errors.New("--downloads needs a folder")
+			if err := setDownloadsFlag(strings.TrimPrefix(a, "--downloads=")); err != nil {
+				return err
 			}
 		}
 	}
+	return nil
+}
+
+// setDownloadsFlag vets and sets --downloads' folder.
+func setDownloadsFlag(v string) error {
+	switch {
+	case v == "":
+		return errors.New("--downloads needs a folder")
+	case strings.HasPrefix(v, "-"):
+		return fmt.Errorf("--downloads needs a folder, not the option %q "+
+			"(write a folder whose name starts with \"-\" as %q)", v, "./"+v)
+	}
+	downloadsFlag = v
 	return nil
 }
