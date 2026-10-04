@@ -7,8 +7,8 @@ decisions and open work see `HANDOVER.md`.
 ## Strategy
 
 A bottom-heavy pyramid. Almost everything is a fast unit test against
-`model.Update`; there are two rendered-frame goldens and one real-binary
-end-to-end run.
+`model.Update`; a set of rendered-frame goldens pins every screen and popup,
+and there is one real-binary end-to-end run.
 
 | Layer | Tool | What it is for |
 |---|---|---|
@@ -105,9 +105,13 @@ as `harmlessTopgrade` does).
 request count and batches; it also fails the test if a lookup isn't a POST.
 `auditEnv(t)` gives a private `HOME` + `logDir` for anything that persists.
 
-**Add or change a golden.** Write the test (see `TestMenuGolden`), run
+**Add or change a golden.** Write the test, run
 `go test ./... -run Golden -update`, then **read the diff** — it should be
-exactly the change you intended — before committing the `.golden` file.
+exactly the change you intended — before committing the `.golden` file. Prefer
+a direct frame (`viewGolden(t, m)` on a `sizedModel()`, see `golden_test.go`):
+a live teatest program ticks the spinner and the input cursor, so its frames
+drift. Use a teatest program (`TestMenuGolden`) only when the point is the
+real program's key handling.
 
 **Test a real signal path.** Spawn a real child (`sleep`, or a script that traps
 SIGINT), never a mock; shrink `sigkillGrace`; assert on process liveness with a
@@ -134,6 +138,7 @@ the names.
 | `fullcleanup_audit_test.go` | Full Cleanup's audit step: it's first, in-process, `alwaysLog`, category `audit`; both topgrade steps are `alwaysLog`. A maintainer change gates topgrade with a confirm naming the package(s), defaulting to No, before topgrade starts; declining skips only the update and logs `SKIP: … (declined)`; the report is in the output pane and `audit.log`. No foreign packages is a clean pass; an unreachable AUR fails the step without gating. A stale or post-abort result is dropped. In a dry run it still audits, logs exactly once, and leaves the snapshot alone. |
 | `askpass_test.go` | The `SUDO_ASKPASS` round trip over a real unix socket: the helper prints the answer and exits 0, exits 1 on an unanswered close or no socket; the server writes a 0700 wrapper on its socket, sets `SUDO_ASKPASS`, delivers prompts and `close()` removes both, and stays unwired (but safely closable) when the socket or wrapper can't be made; the real wrapper end to end; submit writes the password straight to the connection, cancel closes it unanswered. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
+| `golden_test.go` + `testdata/` | Direct `View()` goldens at 80×24: the summary for each outcome (ok, issues, skipped, aborted); the password popup over the menu (masked input, and with the attempts-left error); a confirm over the running checklist; the log picker; the audit report; a notice; the discovering spinner. |
 | `e2e/run.tape` + `run.sh` | The real binary under `--dryrun` in a throwaway `HOME`: menu → Clear user cache → confirm → asserts `dryrun/cleanup.log` contains the `DRYRUN:` entry. |
 
 ## Known gaps
@@ -142,9 +147,6 @@ the names.
   Cleanup of the real binary via VHS, real AUR, with a scratch `HOME` whose
   seeded snapshot gave one real package a fake previous maintainer. A VHS tape
   for it would need a stable fake AUR, so it isn't in `e2e/`.
-- **Missing goldens:** the summary screen, the password/confirm popups over a
-  background, the log picker, and the audit report. `fixedModel()` + the ASCII
-  profile make each feasible.
 - **E2E covers only Clear user cache.** Candidates: the services multi-select
   (fake `systemctl` via a PATH shim), Full Cleanup's orphan confirm (shimmed
   `pacman`), and abort. The audit screen needs a fake AUR, so it stays a unit

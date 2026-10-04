@@ -1,0 +1,23 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM free: 8G   Cache: 512M
+
+AUR audit
+╭────────────────────────────────────────────────────────────────────────────╮
+│ 6 foreign package(s) checked against the AUR                               │
+│                                                                            │
+│ ✖ 1 look closely  ⚠ 2 glance  ✔ 3 clean                                    │
+│                                                                            │
+│ ✖ some-aur-tool       maintainer changed: alice → mallory                  │
+│ ⚠ orphaned-thing-git  orphaned · 0 votes                                   │
+│ ⚠ fresh-pkg           modified 5h ago                                      │
+│                                                                            │
+│ Recent = pushed within 72h, the same window as the yay cooldown hook.      │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+│                                                                            │
+╰────────────────────────────────────────────────────────────────────────────╯
+↑/↓ scroll · q back
