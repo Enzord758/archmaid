@@ -253,6 +253,70 @@ func TestRemoveOrphansHashMismatchIsExit3(t *testing.T) {
 	}
 }
 
+// hookRunner is a fakeRunner that calls hook on every command first.
+type hookRunner struct {
+	*fakeRunner
+	hook func(argv []string)
+}
+
+func (h hookRunner) Query(argv []string) (string, string, int, error) {
+	h.hook(argv)
+	return h.fakeRunner.Query(argv)
+}
+
+func (h hookRunner) Stream(argv []string, line func(stream, text string)) (int, error) {
+	h.hook(argv)
+	return h.fakeRunner.Stream(argv, line)
+}
+
+// TestRemoveOrphansPacmanStartsDuringRecompute: a pacman that takes its
+// lock while the plan is being recomputed (after the verb's own lock
+// check) stops the removal: -Rns never runs, exit 5. In full-cleanup the
+// same pacman started during paccache (minutes before the orphans) is
+// caught by the check before the recompute; the other steps still run.
+// Fails on a helper that checks db.lck only when the verb starts.
+func TestRemoveOrphansPacmanStartsDuringRecompute(t *testing.T) {
+	h := PlanHash([]string{"a"}, []string{"a 1-1"})
+	for name, c := range map[string]struct {
+		args    []string
+		trigger string // the command during which pacman starts
+		code    int
+	}{
+		"remove-orphans": {[]string{"remove-orphans", h}, "/usr/bin/pacman -Rs --print", ExitBusy},
+		"full-cleanup":   {[]string{"full-cleanup", "--keep", "3", "--orphans", h, "--journal", "2weeks"}, "/usr/bin/paccache -r -k 3", ExitFailed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := orphanFake("a\n", "a 1-1\n")
+			var o Options
+			r := hookRunner{f, func(argv []string) {
+				if strings.HasPrefix(strings.Join(argv, " "), c.trigger) {
+					if err := os.WriteFile(o.PacmanDBLock, nil, 0o600); err != nil {
+						t.Error(err)
+					}
+				}
+			}}
+			o, out := rootOpts(t, r)
+			if code := Run(c.args, o); code != c.code {
+				t.Fatalf("exit %d, want %d:\n%s", code, c.code, out)
+			}
+			for _, s := range join(f.streams) {
+				if strings.Contains(s, "-Rns") {
+					t.Fatalf("ran %q while pacman was running", s)
+				}
+			}
+			if reason := skippedNames(t, out)["remove-orphans"]; reason != "pacman is running" {
+				t.Errorf("remove-orphans skipped with %q", reason)
+			}
+			if !strings.Contains(result(t, out)["error"].(string), "pacman is running") {
+				t.Errorf("result %v", result(t, out))
+			}
+			if name == "full-cleanup" && len(f.streams) != 4 {
+				t.Errorf("ran %q, want the other four steps", join(f.streams))
+			}
+		})
+	}
+}
+
 func TestRemoveOrphansNoneLeft(t *testing.T) {
 	f := newFake().on([]string{Pacman, "-Qdtq"}, reply{exit: 1})
 	o, out := rootOpts(t, f)

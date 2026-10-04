@@ -24,7 +24,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `paccache N` | `paccache -r -k N` | `N` ∈ `1`–`9` | `…paccache` (keep) |
 | `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
-| `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan; a mismatch emits the new plan and exits **3**, removing nothing | `…remove-orphans` (admin) |
+| `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan right before `-Rns`; a mismatch emits the new plan and exits **3**, a pacman running then exits **5**, both removing nothing | `…remove-orphans` (admin) |
 | `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Q`), in a sync repo (`-Si`), really missing files (`-Qk -- pkg`) and installed at exactly the version the first repo listing it has (`-Q` vs. `-Si` → `Version`), so a repair is never a partial upgrade or a downgrade. Any other package is skipped and listed, a version mismatch with the reason `repo has a different version (installed X, repo Y) — update the system first`. If nothing is left to reinstall and a version mismatch is among the reasons, it exits **3**. Then the whole transaction is checked: `pacman -Sp --noconfirm --print-format '%n %v' -- …` (stdout only) must list exactly the packages left, each at its installed version. A dependency it would install or upgrade too, a version that changed meanwhile or a package missing from it exits **3**, reinstalls nothing, and lists every package as skipped (the extra packages are named in the reasons and in `error`). Unparseable `-Sp` output or a failing `-Sp` exits 1. Note: the reinstall comes from the first repo (pacman.conf order) that lists the package, which then carries the installed version; that need not be the repo it was installed from. On CachyOS, a package installed from `core` is reinstalled from `cachyos-core-v4` when that repo lists the same version first: same version, that repo's build | `…repair` (admin) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
@@ -251,7 +251,8 @@ In order, before anything else:
   arbitrary journal windows, `paccache -k 0` smuggled through `paccache`, and
   disabling critical units directly, through an alias or through `Also=`.
 - TOCTOU between confirm and act. remove-orphans recomputes the plan and
-  requires the hash the user saw. repair and disable-unit recheck each target
+  requires the hash the user saw, right before `-Rns` and between two checks
+  that pacman isn't running (exit 5 if it is). repair and disable-unit recheck each target
   as root and skip anything that no longer qualifies; repair also skips a
   package whose repo version differs from the installed one and refuses a
   transaction (`-Sp`) that holds anything but the broken packages at their

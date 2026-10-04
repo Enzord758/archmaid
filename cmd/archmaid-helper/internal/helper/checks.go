@@ -136,13 +136,21 @@ func acquireLock(path, pacmanDBLock string, pacmanToo bool) (release func(), err
 	}
 	release = func() { f.Close() }
 	if pacmanToo {
-		if _, err := os.Lstat(pacmanDBLock); err == nil {
+		if err := pacmanIdle(pacmanDBLock); err != nil {
 			release()
-			return nil, fmt.Errorf("%w: pacman is running (%s exists)", errBusy, pacmanDBLock)
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			release()
-			return nil, fmt.Errorf("%w: cannot check %s: %v", errBusy, pacmanDBLock, err)
+			return nil, err
 		}
 	}
 	return release, nil
+}
+
+// pacmanIdle is nil when pacman's database lock doesn't exist, else an
+// errBusy error.
+func pacmanIdle(pacmanDBLock string) error {
+	if _, err := os.Lstat(pacmanDBLock); err == nil {
+		return fmt.Errorf("%w: pacman is running (%s exists)", errBusy, pacmanDBLock)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%w: cannot check %s: %v", errBusy, pacmanDBLock, err)
+	}
+	return nil
 }

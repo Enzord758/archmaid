@@ -420,36 +420,53 @@ func runRemoveOrphans(s *session, args []string) int {
 		return code
 	}
 	defer release()
-	ok, stale, msg := s.removeOrphans(1, 1, args[0])
-	switch {
-	case !ok:
-		return s.finish(ExitFailed, msg)
-	case stale:
-		return s.finish(ExitStale, msg)
-	}
-	return s.finish(ExitOK, "")
+	return s.finish(s.removeOrphans(1, 1, args[0]))
 }
 
 // removeOrphans recomputes the plan and, only if it still hashes to want,
-// removes the orphans. stale means it changed and nothing was removed.
-func (s *session) removeOrphans(n, of int, want string) (ok, stale bool, msg string) {
+// removes the orphans: ExitOK, ExitStale (it changed; nothing removed),
+// ExitBusy (pacman was running; nothing removed) or ExitFailed, with the
+// message for finish.
+//
+// The recompute sits between two checks that pacman isn't running, right
+// before -Rns: the lock check at the verb's start is minutes old by now in
+// full-cleanup (paccache ran in between), and a pacman running during the
+// recompute could change the database under it. What is left needs a root
+// pacman started by someone else that either runs a whole transaction
+// inside the recompute (between the checks), or starts in the moment
+// between the second check and -Rns taking pacman's lock itself
+// (docs/HANDOVER.md, landmines).
+func (s *session) removeOrphans(n, of int, want string) (int, string) {
+	busy := func(err error) (int, string) {
+		s.em.Progress(n, of, "Orphan removal skipped: pacman is running")
+		s.skip("remove-orphans", "pacman is running")
+		return ExitBusy, err.Error() + "; orphans were not removed"
+	}
+	if err := pacmanIdle(s.o.PacmanDBLock); err != nil {
+		return busy(err)
+	}
 	p, err := ComputePlan(s.o.Runner)
 	if err != nil {
-		return false, false, err.Error()
+		return ExitFailed, err.Error()
 	}
 	if p.Hash != want {
 		s.em.Progress(n, of, "Orphan removal skipped: the plan changed since confirm")
 		s.em.Plan(p) // the current plan, so the frontend can re-confirm
 		s.skip("remove-orphans", "the orphan plan changed since it was confirmed")
-		return true, true, "orphan plan changed since confirm; nothing removed"
+		return ExitStale, "orphan plan changed since confirm; nothing removed"
 	}
 	if len(p.Targets) == 0 {
 		s.em.Progress(n, of, "No orphaned packages")
 		s.skip("remove-orphans", "no orphaned packages")
-		return true, false, ""
+		return ExitOK, ""
 	}
-	ok, msg = s.step(n, of, fmt.Sprintf("Removing %d orphaned package(s)", len(p.Targets)), removeArgv(p.Targets))
-	return ok, false, msg
+	if err := pacmanIdle(s.o.PacmanDBLock); err != nil {
+		return busy(err)
+	}
+	if ok, msg := s.step(n, of, fmt.Sprintf("Removing %d orphaned package(s)", len(p.Targets)), removeArgv(p.Targets)); !ok {
+		return ExitFailed, msg
+	}
+	return ExitOK, ""
 }
 
 func runRepair(s *session, args []string) int {

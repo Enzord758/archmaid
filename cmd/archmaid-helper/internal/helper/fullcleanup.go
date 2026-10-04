@@ -106,11 +106,13 @@ func runFullCleanup(s *session, args []string) int {
 	for i, st := range steps {
 		n, of := i+1, len(steps)
 		if st.orphans {
-			ok, changed, msg := s.removeOrphans(n, of, c.orphans)
-			if !ok {
+			switch code, msg := s.removeOrphans(n, of, c.orphans); code {
+			case ExitOK:
+			case ExitStale:
+				stale = true
+			default: // failed, or pacman is running
 				failures = append(failures, msg)
 			}
-			stale = stale || changed
 			continue
 		}
 		if ok, msg := s.step(n, of, st.label, st.argv, st.okExits...); !ok {

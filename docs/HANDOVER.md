@@ -263,6 +263,16 @@ comments and `git log`; this is the "read before you touch it" list.
   `exec.CommandContext` + `WaitDelay` there: the pipe was closed 5 s after the
   cancel, and a remove-orphans that went on to finish was logged as a
   protocol error with its result lost.
+- **The helper's orphan removal has a millisecond TOCTOU left.**
+  `remove-orphans` (and full-cleanup's orphan step) recomputes the plan as
+  root right before `pacman -Rns`, between two checks that pacman's
+  `db.lck` doesn't exist (exit 5 if it does; the check at the verb's start
+  is minutes old by then in full-cleanup). The helper can't hold pacman's
+  lock for `-Rns` itself, so what is left needs a concurrent **root**
+  pacman started by someone else: one that runs a whole transaction inside
+  the recompute, or starts between the second check and `-Rns` taking the
+  lock. Even then `-Rns` refuses to remove a package that has become
+  required. Don't move the recompute earlier or drop either check.
 - **Logging policy.** Ordinary steps log only failures. `AlwaysLog` steps log
   success too, and a `SKIP … (declined)` entry when their confirm is declined:
   anything that removes or overwrites something, topgrade (the step that changes
