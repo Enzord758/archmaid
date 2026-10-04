@@ -28,9 +28,12 @@ const (
 	RowSkipped
 	RowAuthRefused
 	RowAborted
+	// RowNotRun: the action ended (an Abort) with the step still pending;
+	// the engine sends such steps no event (Finished.NotRun counts them).
+	RowNotRun
 )
 
-var rowStateNames = [...]string{"pending", "running", "ok", "failed", "skipped", "auth refused", "aborted"}
+var rowStateNames = [...]string{"pending", "running", "ok", "failed", "skipped", "auth refused", "aborted", "not run"}
 
 func (s RowState) String() string {
 	if s < 0 || int(s) >= len(rowStateNames) {
@@ -55,6 +58,8 @@ func (s RowState) Icon() string {
 		return "system-lock-screen-symbolic"
 	case RowAborted:
 		return "process-stop-symbolic"
+	case RowNotRun:
+		return "content-loading-symbolic"
 	}
 	return "radio-symbolic"
 }
@@ -89,6 +94,8 @@ func (r Row) Subtitle() string {
 		return "Not authorized"
 	case RowAborted:
 		return "Stopped · " + fmtElapsed(r.Elapsed)
+	case RowNotRun:
+		return "Not run"
 	}
 	return "Done · " + fmtElapsed(r.Elapsed)
 }
@@ -295,10 +302,19 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.Notice:
 			m.Notice = ev.Text
 			c.Status = true
+		case engine.ReportAccepted:
+			m.Notice = ev.Text
+			c.Status = true
 		case engine.Finished:
 			f := ev
 			m.Finished, m.Running, m.Prompt = &f, false, nil
 			c.Finished, c.Status, c.Opened = true, true, nil
+			for i := range m.Rows {
+				if m.Rows[i].State == RowPending {
+					m.Rows[i].State = RowNotRun
+					touch(i)
+				}
+			}
 		}
 	}
 	for i := range touched {

@@ -221,7 +221,7 @@ func TestAbortedRun(t *testing.T) {
 		engine.Aborted{ID: "a", Elapsed: 2 * time.Second},
 		engine.Finished{Outcome: engine.OutcomeAborted},
 	})
-	if m.Rows[0].State != RowAborted || m.Rows[0].Subtitle() != "Stopped · 2.0 s" || m.Rows[1].State != RowPending || m.Running {
+	if m.Rows[0].State != RowAborted || m.Rows[0].Subtitle() != "Stopped · 2.0 s" || m.Rows[1].State != RowNotRun || m.Running {
 		t.Errorf("rows %+v running %v", m.Rows, m.Running)
 	}
 }
@@ -236,10 +236,14 @@ func TestAuthAndStatusEvents(t *testing.T) {
 	if m.Auth != nil || m.Notice != "hi" {
 		t.Errorf("auth %v notice %q", m.Auth, m.Notice)
 	}
+	m.Apply([]engine.Event{engine.ReportAccepted{ID: 1, Saved: true, Text: "accepted"}})
+	if m.Notice != "accepted" {
+		t.Errorf("notice %q after ReportAccepted", m.Notice)
+	}
 }
 
 func TestRowStateText(t *testing.T) {
-	for s := RowPending; s <= RowAborted; s++ {
+	for s := RowPending; s <= RowNotRun; s++ {
 		if s.String() == "?" {
 			t.Errorf("state %d has no name", s)
 		}
