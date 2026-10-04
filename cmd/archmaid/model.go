@@ -109,8 +109,10 @@ type model struct {
 	aborted bool // queue aborted by declining a required confirm
 
 	// stepCancel cancels the running in-process step's ctx (see launch); an
-	// abort calls it so the step returns at once. nil when none is running.
-	stepCancel context.CancelFunc
+	// abort calls it so the step returns at once. Once the step's result has
+	// been taken it is called with errResultTaken, the one cause that is not
+	// an abort. nil when none is running.
+	stepCancel context.CancelCauseFunc
 	// auditFetch is the current action's AUR audit, started when the action
 	// was chosen so it runs behind the password prompt (see startAuditFetch
 	// and audit.Prefetch).

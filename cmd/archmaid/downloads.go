@@ -55,10 +55,14 @@ func downloadsOptions() downloads.Options {
 // An aborted run's result is dropped (stepSeq), and finishStep never logs
 // it, so a real run puts what it deleted on record itself: when it sees the
 // abort, and — should the abort land after it returned but before the model
-// took its result — from a context.AfterFunc that the result's commit
-// (called only when the result is taken) disarms. Either way cleanup.log gets
-// one entry naming exactly what was deleted, in store: both run off the
-// model's goroutine, so they must not look the store up themselves (logs).
+// took its result — from a context.AfterFunc. The AfterFunc logs only for an
+// abort (stepAborted): once the model has taken the result it cancels ctx
+// with errResultTaken, which the AfterFunc lets pass, so a result taken
+// without its commit run (refused, or gated behind a confirm) leaves no
+// false abort record. The commit just disarms it early. Either way
+// cleanup.log gets one entry naming exactly what was deleted, in store: both
+// run off the model's goroutine, so they must not look the store up
+// themselves (logs).
 func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context.Context, steps.Env) steps.Result {
 	return func(ctx context.Context, _ steps.Env) steps.Result {
 		downloadsRunning.Add(1)
@@ -79,7 +83,9 @@ func deleteOldDownloads(plan downloads.Plan, store *logstore.Store) func(context
 		downloadsRunning.Add(1) // until the AfterFunc has run or been disarmed
 		stop := context.AfterFunc(ctx, func() {
 			defer downloadsRunning.Done()
-			logAbortedDownloads(store, res.Output)
+			if stepAborted(ctx) {
+				logAbortedDownloads(store, res.Output)
+			}
 		})
 		res.Commit = func() error {
 			if stop() {

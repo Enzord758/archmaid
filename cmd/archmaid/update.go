@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -707,7 +708,7 @@ func (m *model) launch() tea.Cmd {
 		// finishes the step. seq ties the result to this launch; ctx is
 		// what an abort cancels.
 		m.proc = nil
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancelCause(context.Background())
 		m.stepCancel = cancel
 		seq, run := m.stepSeq, s.Run
 		if s.Prefetch == steps.PrefetchAURAudit && m.auditFetch != nil {
@@ -728,6 +729,17 @@ func (m *model) launch() tea.Cmd {
 type stepResultMsg struct {
 	seq int
 	steps.Result
+}
+
+// errResultTaken is the cause an in-process step's ctx is cancelled with
+// once the model has taken its result (handleStepResult). Every other cancel
+// is an abort.
+var errResultTaken = errors.New("step result taken")
+
+// stepAborted reports whether an in-process step's ctx was cancelled by an
+// abort, as opposed to released after its result was taken.
+func stepAborted(ctx context.Context) bool {
+	return ctx.Err() != nil && !errors.Is(context.Cause(ctx), errResultTaken)
 }
 
 // sigkillGrace is how long a child gets to honour SIGINT before it's forcibly
@@ -760,7 +772,7 @@ func (m *model) abortRunning() {
 		}
 	}
 	if m.stepCancel != nil {
-		m.stepCancel()
+		m.stepCancel(nil) // cause context.Canceled: an abort
 		m.stepCancel = nil
 	}
 	m.dropAuditFetch()
@@ -859,8 +871,16 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 	m.dropAuditFetch() // consumed (if this was the audit)
 	if err := msg.Check(); err != nil {
 		// A confirm meant for the step after this one would land on the
-		// inserted step instead: refuse the result rather than guess.
-		msg.Result = steps.Result{Output: msg.Output + "\narchmaid: " + err.Error(), Err: err}
+		// inserted step instead: refuse the result rather than guess, and
+		// fail closed. The step fails, nothing is inserted and Commit never
+		// runs, but the gate stands: with nothing inserted, ConfirmNext
+		// lands on the step it was meant for, so that step can only run
+		// once the user has said yes (and is skipped on no, as ever). The
+		// one other choice that never runs a gated step unconfirmed —
+		// skipping the rest of the queue — would throw away steps the
+		// result never meant to gate.
+		msg.Result = steps.Result{Output: msg.Output + "\narchmaid: " + err.Error(), Err: err,
+			ConfirmNext: msg.ConfirmNext}
 	}
 	if msg.Output != "" {
 		out := sanitize.String(strings.TrimRight(msg.Output, "\n"), sanitize.KeepSGR)
@@ -881,11 +901,12 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 	} else if msg.ConfirmNext == "" && msg.Commit != nil {
 		msg.Commit()
 	}
-	// Only now release the step's ctx: until commit has run, a cancelled ctx
-	// means an abort to the step (deleteOldDownloads logs its own outcome
-	// then, and commit is what tells it the result was taken after all).
+	// Only now release the step's ctx, saying why: errResultTaken. Any other
+	// cancel is an abort to the step (deleteOldDownloads logs its own outcome
+	// then), and the cause, not whether Commit ran, is what tells them apart:
+	// a refused or gated result leaves its Commit unrun.
 	if m.stepCancel != nil {
-		m.stepCancel()
+		m.stepCancel(errResultTaken)
 		m.stepCancel = nil
 	}
 	return m.finishStep(msg.Err)
