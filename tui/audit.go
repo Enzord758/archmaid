@@ -26,13 +26,15 @@ import (
 // A read-only check of the foreign packages (installed, but not from a sync
 // repo — i.e. AUR or locally built) against the AUR's RPC, looking for the
 // signals that matter for the maintainer-takeover pattern: a package that was
-// orphaned then adopted, a maintainer who changed since the last audit, an
-// unmaintained package, a very recent push, or a package that vanished from
-// the AUR entirely. It never touches the system; the only thing it writes is
-// the maintainer snapshot below (skipped in a dry run).
+// orphaned then adopted, a maintainer who changed since the last audit, a
+// co-maintainer added since then (a co-maintainer can push to the package's
+// git just like the maintainer), an unmaintained package, a very recent push,
+// or a package that vanished from the AUR entirely. It never touches the
+// system; the only thing it writes is the maintainer snapshot below (skipped
+// in a dry run).
 //
-// The RPC exposes the *current* maintainer only, not adoption history, so
-// "maintainer changed" is detected by diffing against a snapshot saved by the
+// The RPC exposes the *current* maintainer and co-maintainers only, not their
+// history, so a change is detected by diffing against a snapshot saved by the
 // previous audit. The first audit therefore just establishes the baseline.
 
 // aurRPCURL is the AUR RPC v5 "info" endpoint. A var so tests can point it at
@@ -64,14 +66,22 @@ type aurInfo struct {
 	LastModified int64
 	OutOfDate    *int64 // null unless flagged out of date
 	NumVotes     int
+	// CoMaintainers can push to the package like its maintainer. aurweb leaves
+	// the key out when there are none (like Depends), so absent reads as none.
+	CoMaintainers []string
 }
 
 // auditFinding is one package's audit result. high marks the signals worth
-// stopping for (a maintainer change/adoption); everything else is a glance.
+// stopping for (a maintainer change/adoption, an added co-maintainer);
+// everything else is a glance. maintainerChanged and coAdded say which of
+// those it was, for the gate's confirm.
 type auditFinding struct {
 	name  string
 	high  bool
 	flags []string
+
+	maintainerChanged bool
+	coAdded           []string // raw names, sorted
 }
 
 // line renders the finding. name stays raw in the struct (it keys the
@@ -173,9 +183,12 @@ func fetchAURInfoAt(ctx context.Context, rpcURL string, pkgs []string) (map[stri
 }
 
 // classify turns one package's AUR data (nil = the AUR doesn't know it) plus
-// its previous-audit maintainer into a finding. prev/hadPrev come from the
+// its previous-audit snapshot entry into a finding. prev/hadPrev come from the
 // snapshot; hadPrev is false for a package audited for the first time.
-func classify(name string, ai *aurInfo, prev string, hadPrev bool, now time.Time) auditFinding {
+// Co-maintainers are only compared when prev recorded them (prev.hasCo): an
+// entry saved before they were tracked is a baseline for that field, the same
+// way a package's first audit is for all of them.
+func classify(name string, ai *aurInfo, prev snapEntry, hadPrev bool, now time.Time) auditFinding {
 	f := auditFinding{name: name}
 	if ai == nil {
 		f.flags = append(f.flags, "not on the AUR (removed, renamed, or a local build)")
@@ -187,16 +200,26 @@ func classify(name string, ai *aurInfo, prev string, hadPrev bool, now time.Time
 	}
 	// Compare the raw values; only what's displayed is sanitized.
 	switch {
-	case hadPrev && prev == "" && cur != "":
-		f.high = true
+	case hadPrev && prev.maintainer == "" && cur != "":
+		f.high, f.maintainerChanged = true, true
 		f.flags = append(f.flags, fmt.Sprintf("adopted by %s (was orphaned)", aurField(cur)))
-	case hadPrev && prev != "" && cur == "":
-		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", aurField(prev)))
-	case hadPrev && prev != cur:
-		f.high = true
-		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", aurField(prev), aurField(cur)))
+	case hadPrev && prev.maintainer != "" && cur == "":
+		f.flags = append(f.flags, fmt.Sprintf("orphaned (was %s)", aurField(prev.maintainer)))
+	case hadPrev && prev.maintainer != cur:
+		f.high, f.maintainerChanged = true, true
+		f.flags = append(f.flags, fmt.Sprintf("maintainer changed: %s → %s", aurField(prev.maintainer), aurField(cur)))
 	case cur == "":
 		f.flags = append(f.flags, "orphaned")
+	}
+	if hadPrev && prev.hasCo {
+		added, removed := diffNames(prev.coMaintainers, ai.CoMaintainers)
+		if len(added) > 0 {
+			f.high, f.coAdded = true, added
+			f.flags = append(f.flags, coFlag(added, "added"))
+		}
+		if len(removed) > 0 {
+			f.flags = append(f.flags, coFlag(removed, "removed"))
+		}
 	}
 	if age := now.Sub(time.Unix(ai.LastModified, 0)); age < auditCooldown {
 		f.flags = append(f.flags, "modified "+ageString(age)+" ago")
@@ -208,6 +231,58 @@ func classify(name string, ai *aurInfo, prev string, hadPrev bool, now time.Time
 		f.flags = append(f.flags, "0 votes")
 	}
 	return f
+}
+
+// diffNames returns the names in cur but not in prev (added) and in prev but
+// not in cur (removed), each sorted and without duplicates. Raw values are
+// compared.
+func diffNames(prev, cur []string) (added, removed []string) {
+	p, c := nameSet(prev), nameSet(cur)
+	for n := range c {
+		if !p[n] {
+			added = append(added, n)
+		}
+	}
+	for n := range p {
+		if !c[n] {
+			removed = append(removed, n)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return added, removed
+}
+
+func nameSet(names []string) map[string]bool {
+	m := make(map[string]bool, len(names))
+	for _, n := range names {
+		m[n] = true
+	}
+	return m
+}
+
+// coFlag renders a co-maintainer change: "co-maintainer bob added",
+// "co-maintainers bob, carol removed".
+func coFlag(names []string, what string) string {
+	noun := "co-maintainer"
+	if len(names) > 1 {
+		noun += "s"
+	}
+	return noun + " " + nameList(names, 3) + " " + what
+}
+
+// nameList joins up to limit sanitized names, then "+N more", so a package with
+// a long co-maintainer list can't flood a report line or a popup.
+func nameList(names []string, limit int) string {
+	shown := make([]string, 0, min(len(names), limit))
+	for _, n := range names[:min(len(names), limit)] {
+		shown = append(shown, aurField(n))
+	}
+	s := strings.Join(shown, ", ")
+	if len(names) > limit {
+		s += fmt.Sprintf(" +%d more", len(names)-limit)
+	}
+	return s
 }
 
 // ageString renders a short duration for a "modified … ago" flag.
@@ -223,7 +298,7 @@ func ageString(d time.Duration) string {
 // companion (e.g. yay-debug, whatever repo its base came from), so it's
 // skipped rather than reported as missing. A "-debug" package that *is* on the
 // AUR is audited like any other.
-func classifyAll(pkgs []string, info map[string]aurInfo, prev map[string]string, hadBaseline bool, now time.Time) []auditFinding {
+func classifyAll(pkgs []string, info map[string]aurInfo, prev map[string]snapEntry, hadBaseline bool, now time.Time) []auditFinding {
 	var out []auditFinding
 	for _, name := range pkgs {
 		var ai *aurInfo
@@ -263,15 +338,96 @@ const (
 	baselineCorrupt
 )
 
-// loadBaseline reads the previous audit's name → maintainer map ("" =
-// orphaned). Only a file that doesn't exist reads as baselineMissing; any
-// other read error, invalid JSON, or a JSON null is baselineCorrupt.
-func loadBaseline() (map[string]string, baselineState) {
+// snapEntry is one package in the snapshot: its maintainer ("" = orphaned)
+// and its co-maintainers (sorted, raw).
+//
+// On disk it is {"maintainer": "alice", "comaintainers": ["bob"]}. Snapshots
+// written before co-maintainers were tracked hold a bare "alice" per package
+// instead; that still loads, as an entry with hasCo false, and so does an
+// object without "comaintainers". hasCo false means "co-maintainers never
+// recorded": classify then treats them as a baseline (no alarm, like a first
+// audit), and the next save records them. Without that, upgrading archmaid
+// would gate every package that has a co-maintainer. An entry saved with
+// hasCo false (a package the AUR didn't report, so its old entry is kept)
+// leaves "comaintainers" out, so it reads back the same way.
+type snapEntry struct {
+	maintainer    string
+	coMaintainers []string
+	hasCo         bool
+}
+
+type snapEntryJSON struct {
+	Maintainer    *string   `json:"maintainer"`
+	CoMaintainers *[]string `json:"comaintainers,omitempty"`
+}
+
+func (e snapEntry) MarshalJSON() ([]byte, error) {
+	j := snapEntryJSON{Maintainer: &e.maintainer}
+	if e.hasCo {
+		co := append([]string{}, e.coMaintainers...) // [] rather than null
+		j.CoMaintainers = &co
+	}
+	return json.Marshal(j)
+}
+
+// UnmarshalJSON accepts the current object and the legacy bare string. Any
+// other shape — null, a number, an object without "maintainer" — is an error,
+// which makes the whole snapshot baselineCorrupt.
+func (e *snapEntry) UnmarshalJSON(b []byte) error {
+	var legacy string
+	if len(b) > 0 && b[0] == '"' {
+		if err := json.Unmarshal(b, &legacy); err != nil {
+			return err
+		}
+		*e = snapEntry{maintainer: legacy}
+		return nil
+	}
+	if len(b) == 0 || b[0] != '{' {
+		return fmt.Errorf("snapshot entry is neither a maintainer nor an object: %.20s", b)
+	}
+	var j snapEntryJSON
+	if err := json.Unmarshal(b, &j); err != nil {
+		return err
+	}
+	if j.Maintainer == nil {
+		return errors.New("snapshot entry without a maintainer")
+	}
+	*e = snapEntry{maintainer: *j.Maintainer}
+	if j.CoMaintainers != nil {
+		e.coMaintainers, e.hasCo = sortedNames(*j.CoMaintainers), true
+	}
+	return nil
+}
+
+// entryFor is the snapshot entry for what the AUR reports now.
+func entryFor(ai aurInfo) snapEntry {
+	e := snapEntry{coMaintainers: sortedNames(ai.CoMaintainers), hasCo: true}
+	if ai.Maintainer != nil {
+		e.maintainer = *ai.Maintainer
+	}
+	return e
+}
+
+// sortedNames is names sorted, without duplicates (nil for none).
+func sortedNames(names []string) []string {
+	var out []string
+	for n := range nameSet(names) {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// loadBaseline reads the previous audit's name → snapshot entry map (see
+// snapEntry for the format, old and new). Only a file that doesn't exist
+// reads as baselineMissing; any other read error, invalid JSON, a JSON null
+// or an entry of the wrong shape is baselineCorrupt.
+func loadBaseline() (map[string]snapEntry, baselineState) {
 	return loadBaselineFrom(baselinePath())
 }
 
 // loadBaselineFrom is loadBaseline for an explicit snapshot path.
-func loadBaselineFrom(path string) (map[string]string, baselineState) {
+func loadBaselineFrom(path string) (map[string]snapEntry, baselineState) {
 	b, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
@@ -279,7 +435,7 @@ func loadBaselineFrom(path string) (map[string]string, baselineState) {
 	case err != nil:
 		return nil, baselineCorrupt
 	}
-	var m map[string]string
+	var m map[string]snapEntry
 	if json.Unmarshal(b, &m) != nil || m == nil {
 		return nil, baselineCorrupt
 	}
@@ -297,17 +453,15 @@ func snapshotFinding() auditFinding {
 }
 
 // nextBaseline is the snapshot to save: each audited package's current
-// maintainer, keeping the old value for any package the AUR didn't report
-// this time (a transient removal must not erase its history).
-func nextBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string) map[string]string {
-	next := make(map[string]string, len(pkgs))
+// maintainer and co-maintainers, keeping the old entry for any package the
+// AUR didn't report this time (a transient removal must not erase its
+// history). This is also where an entry from an old-format snapshot gets its
+// co-maintainers recorded.
+func nextBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEntry) map[string]snapEntry {
+	next := make(map[string]snapEntry, len(pkgs))
 	for _, name := range pkgs {
 		if ai, ok := info[name]; ok {
-			if ai.Maintainer != nil {
-				next[name] = *ai.Maintainer
-			} else {
-				next[name] = ""
-			}
+			next[name] = entryFor(ai)
 		} else if p, ok := prev[name]; ok {
 			next[name] = p
 		}
@@ -317,7 +471,7 @@ func nextBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string
 
 // saveBaseline records the audited packages' maintainers (see nextBaseline
 // and writeBaseline).
-func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]string) error {
+func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEntry) error {
 	return writeBaseline(nextBaseline(pkgs, info, prev))
 }
 
@@ -331,7 +485,7 @@ var errSnapshotLocked = errors.New("another archmaid is saving the AUR snapshot"
 // snapshot or the new one, never a torn file. A corrupt snapshot on disk is
 // first renamed to aur-maintainers.json.corrupt-<time>, kept for inspection
 // rather than overwritten. A held lock returns errSnapshotLocked unwritten.
-func writeBaseline(next map[string]string) error {
+func writeBaseline(next map[string]snapEntry) error {
 	b, err := json.MarshalIndent(next, "", "  ")
 	if err != nil {
 		return err
@@ -409,7 +563,7 @@ type auditResult struct {
 	// what the next snapshot is built from (see saveSnapshot)
 	pkgs []string
 	info map[string]aurInfo
-	prev map[string]string
+	prev map[string]snapEntry
 }
 
 // saveSnapshot advances the maintainer snapshot to what this audit saw.
@@ -417,8 +571,9 @@ type auditResult struct {
 // acknowledges a maintainer change. Saved too early (before the user has
 // answered the gate), a declined change would read as settled next run.
 //
-// With holdHigh, packages with a high finding keep their previous maintainer,
-// so they're flagged again until acknowledged, and a corrupt snapshot is left
+// With holdHigh, packages with a high finding keep their whole previous entry
+// (maintainer and co-maintainers), so they're flagged again until
+// acknowledged, and a corrupt snapshot is left
 // alone entirely (replacing it is itself the acknowledgement).
 func (r auditResult) saveSnapshot(holdHigh bool) error {
 	if holdHigh && r.baseline == baselineCorrupt {
@@ -559,8 +714,8 @@ func runAudit(now time.Time) discoveryMsg {
 
 // auditStep is the first step of Full Cleanup and of Run topgrade: the audit,
 // run in-process. It sits directly in front of topgrade so that a
-// high-severity finding (an adoption or maintainer change) can put a confirm
-// in front of the update — the one step that would build a taken-over AUR
+// high-severity finding (an adoption, a maintainer change or an added
+// co-maintainer) can put a confirm in front of the update — the one step that would build a taken-over AUR
 // package. Declining skips only the update; in Full Cleanup the rest of the
 // cleanup still runs. The audit can't *hold back* a single package; that's the
 // yay cooldown hook's job (see HANDOVER.md).
@@ -636,9 +791,9 @@ func auditStepResult(res auditResult, err error) stepResult {
 	if res.baseline == baselineCorrupt {
 		// Fail closed: with no readable snapshot, a takeover would go unseen.
 		r.confirmNext = "The AUR maintainer snapshot is unreadable, so maintainer changes can't be checked. Update anyway?"
-	} else if who := highNames(res.findings); who != "" {
+	} else if why := gateReason(res.findings); why != "" {
 		// Name the packages: the popup covers the report that explains it.
-		r.confirmNext = who + " changed maintainer since the last audit. Update anyway?"
+		r.confirmNext = why + " Update anyway?"
 	}
 	// Run by handleStepResult right away when nothing gates, otherwise only if
 	// the gated update is accepted: declining leaves the snapshot as it was,
@@ -647,14 +802,50 @@ func auditStepResult(res auditResult, err error) stepResult {
 	return r
 }
 
-// highNames names the high-severity packages for a confirm line, short enough
-// for a popup: "a", "a and b", or "3 AUR packages (a, b, …)". "" if none.
-func highNames(findings []auditFinding) string {
-	var names []string
+// gateReason is the sentence the gate's confirm opens with, naming the
+// high-severity packages and what changed ("" if nothing gates):
+//
+//	victim changed maintainer since the last audit.
+//	Since the last audit: foo: co-maintainer bob added.
+//	Since the last audit: victim changed maintainer; foo: co-maintainer bob added.
+//
+// With more than one package gaining co-maintainers it names just the
+// packages ("a and b added co-maintainers"), to stay popup-sized.
+func gateReason(findings []auditFinding) string {
+	var changed, coPkgs []string
+	var co auditFinding
 	for _, f := range findings {
-		if f.high {
-			names = append(names, aurField(f.name))
+		if f.maintainerChanged {
+			changed = append(changed, f.name)
 		}
+		if len(f.coAdded) > 0 {
+			coPkgs, co = append(coPkgs, f.name), f
+		}
+	}
+	if len(coPkgs) == 0 {
+		if len(changed) == 0 {
+			return ""
+		}
+		return packageNames(changed) + " changed maintainer since the last audit."
+	}
+	var parts []string
+	if len(changed) > 0 {
+		parts = append(parts, packageNames(changed)+" changed maintainer")
+	}
+	if len(coPkgs) == 1 {
+		parts = append(parts, aurField(co.name)+": "+coFlag(co.coAdded, "added"))
+	} else {
+		parts = append(parts, packageNames(coPkgs)+" added co-maintainers")
+	}
+	return "Since the last audit: " + strings.Join(parts, "; ") + "."
+}
+
+// packageNames names packages for a confirm line, short enough for a popup:
+// "a", "a and b", or "3 AUR packages (a, b, …)". "" if none.
+func packageNames(raw []string) string {
+	var names []string
+	for _, n := range raw {
+		names = append(names, aurField(n))
 	}
 	switch len(names) {
 	case 0:

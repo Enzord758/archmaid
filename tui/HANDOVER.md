@@ -137,9 +137,19 @@ comments and `git log`; this is the "read before you touch it" list.
   Unicode format characters (bidi overrides, zero-width). New paths that show foreign
   text should use it rather than a second filter.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
-  *current* maintainer, never adoption history. Consequence: the first audit only
-  records a baseline. It is archmaid's only network call. A dry run reads the
-  snapshot but never advances it.
+  *current* maintainer and co-maintainers, never their history. Consequence:
+  the first audit only records a baseline. It is archmaid's only network call.
+  A dry run reads the snapshot but never advances it.
+- **Co-maintainers gate like maintainers.** A co-maintainer can push to the
+  package's AUR git, so an *added* one is high (named in the gate: "foo:
+  co-maintainer bob added"), a removed one a glance. The RPC omits
+  `CoMaintainers` when there are none, so absent means none. The snapshot entry
+  is `{"maintainer": …, "comaintainers": [sorted]}`; files from before this
+  hold a bare `"maintainer"` string per package, which still loads (`snapEntry`
+  with `hasCo` false). No co-maintainer record = a baseline for that field
+  (no alarm, like a first audit), recorded by the next commit. Don't make it
+  alarm instead: the upgrade would gate every package with a co-maintainer.
+  Any other entry shape (null, a number, no `maintainer`) is corrupt.
 - **Saving the snapshot is the acknowledgement, so it happens only on accept.**
   `performAudit` never writes; callers run a commit. The audit step hands it to
   topgrade's gate as `step.onAccept`: "yes" saves (logged `ACCEPT`), "no" or an
@@ -169,7 +179,7 @@ comments and `git log`; this is the "read before you touch it" list.
   an abort and the end of the run cancel it (`dropAuditFetch`); three wrong
   passwords don't, because the queue still runs and the audit step (no sudo)
   still reports from it. A
-  high-severity finding (adoption or maintainer change) uses
+  high-severity finding (adoption, maintainer change, added co-maintainer) uses
   `stepResult.confirmNext` to put a named confirm in front of topgrade and make it
   optional, so "no" skips only the update and the cleanup carries on. An
   unreachable AUR fails the audit step but never gates. In-process steps run even

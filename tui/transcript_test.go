@@ -544,7 +544,7 @@ func (d *Driver) drainSnapshot() {
 		return
 	}
 	d.snap = s
-	var m map[string]string
+	var m map[string]snapEntry
 	if err := json.Unmarshal([]byte(s), &m); err != nil {
 		d.emit("snap", "unreadable")
 		return
@@ -556,7 +556,17 @@ func (d *Driver) drainSnapshot() {
 	sort.Strings(names)
 	var parts []string
 	for _, n := range names {
-		parts = append(parts, fmt.Sprintf("%s=%q", n, m[n]))
+		// name="maintainer", then +co[a,b] when there are co-maintainers, or
+		// +co? for an entry with no co-maintainer record (old format).
+		e := m[n]
+		p := fmt.Sprintf("%s=%q", n, e.maintainer)
+		switch {
+		case !e.hasCo:
+			p += "+co?"
+		case len(e.coMaintainers) > 0:
+			p += "+co[" + strings.Join(e.coMaintainers, ",") + "]"
+		}
+		parts = append(parts, p)
 	}
 	d.emit("snap", "%s", strings.Join(parts, " "))
 }

@@ -131,23 +131,23 @@ func TestRunAuditStepResults(t *testing.T) {
 	})
 }
 
-func TestHighNames(t *testing.T) {
+func TestGateReasonNamesMaintainerChanges(t *testing.T) {
 	f := func(names ...string) []auditFinding {
 		var out []auditFinding
 		for _, n := range names {
-			out = append(out, auditFinding{name: n, high: true})
+			out = append(out, auditFinding{name: n, high: true, maintainerChanged: true})
 		}
 		return append(out, auditFinding{name: "glance-only"}) // never named
 	}
 	cases := map[string][]auditFinding{
-		"":                         f(),
-		"a":                        f("a"),
-		"a and b":                  f("a", "b"),
-		"3 AUR packages (a, b, …)": f("a", "b", "c"),
+		"": f(),
+		"a changed maintainer since the last audit.":                        f("a"),
+		"a and b changed maintainer since the last audit.":                  f("a", "b"),
+		"3 AUR packages (a, b, …) changed maintainer since the last audit.": f("a", "b", "c"),
 	}
 	for want, in := range cases {
-		if got := highNames(in); got != want {
-			t.Errorf("highNames(%d high) = %q, want %q", len(in)-1, got, want)
+		if got := gateReason(in); got != want {
+			t.Errorf("gateReason(%d high) = %q, want %q", len(in)-1, got, want)
 		}
 	}
 }
@@ -290,7 +290,7 @@ func TestAuditStepDoesNotSaveByItself(t *testing.T) {
 		t.Fatal("running the step alone must not save the snapshot")
 	}
 	startAudit(t, harmlessTopgrade())
-	if snap, state := loadBaseline(); state != baselineOK || snap["steady"] != "alice" {
+	if snap, state := loadBaseline(); state != baselineOK || snap["steady"].maintainer != "alice" {
 		t.Fatalf("with nothing high the snapshot is saved at once, state=%d snapshot=%v", state, snap)
 	}
 }
@@ -300,7 +300,7 @@ func TestAuditStepDoesNotSaveByItself(t *testing.T) {
 func TestDecliningGateKeepsTheAlarm(t *testing.T) {
 	takeoverFixture(t)
 	update(startAudit(t, harmlessTopgrade()), key("n"))
-	if snap, _ := loadBaseline(); snap["victim"] != "bob" {
+	if snap, _ := loadBaseline(); snap["victim"].maintainer != "bob" {
 		t.Fatalf("declining must not record the new maintainer, snapshot = %v", snap)
 	}
 
@@ -318,7 +318,7 @@ func TestAcceptingGateRecordsTheChange(t *testing.T) {
 	if got.queue[1].status != statusRunning {
 		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
 	}
-	if snap, _ := loadBaseline(); snap["victim"] != "mallory" {
+	if snap, _ := loadBaseline(); snap["victim"].maintainer != "mallory" {
 		t.Fatalf("accepting should record the new maintainer, snapshot = %v", snap)
 	}
 	if log, _ := os.ReadFile(logPath(logCategoryAudit)); !strings.Contains(string(log), "ACCEPT: AUR maintainer changes accepted") {
@@ -337,7 +337,7 @@ func TestAcceptingGateInDryRunSavesNothing(t *testing.T) {
 	dryRun = true
 	defer func() { dryRun = false }()
 	update(startAudit(t, harmlessTopgrade()), key("y"))
-	if snap, _ := loadBaseline(); snap["victim"] != "bob" {
+	if snap, _ := loadBaseline(); snap["victim"].maintainer != "bob" {
 		t.Fatalf("a dry run must not advance the snapshot, snapshot = %v", snap)
 	}
 }
@@ -347,7 +347,7 @@ func TestAcceptingGateInDryRunSavesNothing(t *testing.T) {
 func TestGateWithoutUpdateDropsTheCommit(t *testing.T) {
 	takeoverFixture(t)
 	startAudit(t)
-	if snap, _ := loadBaseline(); snap["victim"] != "bob" {
+	if snap, _ := loadBaseline(); snap["victim"].maintainer != "bob" {
 		t.Fatalf("snapshot = %v, want it unchanged", snap)
 	}
 }

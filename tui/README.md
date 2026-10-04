@@ -56,11 +56,14 @@ straight over via `lipgloss`).
   (`screenServices`) of enabled-but-inactive services to disable: `systemctl list-units --all --state=inactive` plus one batched `is-enabled` (no `list-unit-files`, which costs ~430 ms; templates, instances and `●` not-found rows are dropped). "Nothing to do" routes to a notice.
 - **AUR audit** (`audit.go`) — a read-only check of the foreign packages
   (`pacman -Qqm`) against the AUR RPC, aimed at the adopt-an-orphan-then-push
-  takeover pattern. Flags: **adopted / maintainer changed** since the last audit
-  (high severity — the RPC only exposes the *current* maintainer, so this diffs
-  against a snapshot the previous audit saved to
-  `~/.local/state/archmaid/aur-maintainers.json`; the first audit just records
-  the baseline), orphaned, pushed to within 72h, flagged out of date, 0 votes,
+  takeover pattern. Flags: **adopted / maintainer changed / co-maintainer
+  added** since the last audit (high severity — a co-maintainer can push to the
+  package just like its maintainer; the RPC only exposes the *current*
+  maintainer and co-maintainers, so this diffs against a snapshot the previous
+  audit saved to `~/.local/state/archmaid/aur-maintainers.json`; the first
+  audit just records the baseline, and so does the first audit after upgrading
+  from a version that didn't record co-maintainers, for those), a removed
+  co-maintainer, orphaned, pushed to within 72h, flagged out of date, 0 votes,
   and not on the AUR at all (locally built `-debug` companions are ignored). It
   makes archmaid's only network call, never changes the system, and results
   also land in the `AUR audit` log category. A dry run reads the snapshot but
@@ -68,7 +71,7 @@ straight over via `lipgloss`).
   step**, directly in front of topgrade: a high-severity finding puts a
   confirm naming the package(s) in front of the update (defaults to No;
   declining skips only the update, and in Full Cleanup the rest of the
-  cleanup runs). A maintainer change is only
+  cleanup runs). A maintainer change or added co-maintainer is only
   recorded once accepted (that confirm, or `a` on the audit report), so until
   then it's flagged on every audit; an unreadable snapshot is flagged high
   too, never treated as a first audit. An unreachable AUR fails that step

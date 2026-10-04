@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -106,7 +107,7 @@ func TestClassify(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := classify("pkg", c.ai, c.prev, c.hadPrev, auditNow)
+			got := classify("pkg", c.ai, snapEntry{maintainer: c.prev, hasCo: true}, c.hadPrev, auditNow)
 			if got.high != c.wantHigh {
 				t.Errorf("high = %v, want %v (flags %v)", got.high, c.wantHigh, got.flags)
 			}
@@ -122,6 +123,69 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+// TestClassifyCoMaintainers: an added co-maintainer can push like the
+// maintainer, so it is high; a removed one is a glance. An entry without a
+// co-maintainer record (an old-format snapshot) is a baseline: no flag.
+func TestClassifyCoMaintainers(t *testing.T) {
+	old := aged(24 * 30)
+	cur := func(co ...string) *aurInfo {
+		return &aurInfo{Maintainer: strp("alice"), LastModified: old, NumVotes: 5, CoMaintainers: co}
+	}
+	rec := func(co ...string) snapEntry { return snapEntry{maintainer: "alice", coMaintainers: co, hasCo: true} }
+	cases := []struct {
+		name     string
+		ai       *aurInfo
+		prev     snapEntry
+		hadPrev  bool
+		wantHigh bool
+		wantCo   []string
+		want     []string
+	}{
+		{"unchanged", cur("bob"), rec("bob"), true, false, nil, nil},
+		{"order doesn't matter", cur("carol", "bob"), rec("bob", "carol"), true, false, nil, nil},
+		{"added", cur("bob", "mallory"), rec("bob"), true, true, []string{"mallory"}, []string{"co-maintainer mallory added"}},
+		{"first one added", cur("mallory"), rec(), true, true, []string{"mallory"}, []string{"co-maintainer mallory added"}},
+		{"several added", cur("x", "w", "v", "u"), rec(), true, true, []string{"u", "v", "w", "x"}, []string{"co-maintainers u, v, w +1 more added"}},
+		{"removed", cur(), rec("bob"), true, false, nil, []string{"co-maintainer bob removed"}},
+		{"swapped", cur("mallory"), rec("bob"), true, true, []string{"mallory"}, []string{"co-maintainer mallory added", "co-maintainer bob removed"}},
+		{"old-format entry is a baseline", cur("mallory"), snapEntry{maintainer: "alice"}, true, false, nil, nil},
+		{"no baseline never flags", cur("mallory"), rec(), false, false, nil, nil},
+		{"with a maintainer change", &aurInfo{Maintainer: strp("eve"), LastModified: old, NumVotes: 5, CoMaintainers: []string{"mallory"}}, rec(), true, true,
+			[]string{"mallory"}, []string{"maintainer changed: alice → eve", "co-maintainer mallory added"}},
+		{"escapes stripped for display", cur("mal\x1b]0;x\x07lory"), rec(), true, true, []string{"mal\x1b]0;x\x07lory"}, []string{"co-maintainer mallory added"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := classify("pkg", c.ai, c.prev, c.hadPrev, auditNow)
+			if got.high != c.wantHigh || !reflect.DeepEqual(got.coAdded, c.wantCo) || !reflect.DeepEqual(got.flags, c.want) {
+				t.Fatalf("high=%v coAdded=%q flags=%q, want high=%v coAdded=%q flags=%q", got.high, got.coAdded, got.flags, c.wantHigh, c.wantCo, c.want)
+			}
+		})
+	}
+}
+
+func TestGateReasonNamesCoMaintainers(t *testing.T) {
+	changed := auditFinding{name: "victim", high: true, maintainerChanged: true}
+	co := func(pkg string, names ...string) auditFinding {
+		return auditFinding{name: pkg, high: true, coAdded: names}
+	}
+	cases := []struct {
+		in   []auditFinding
+		want string
+	}{
+		{[]auditFinding{co("foo", "bob")}, "Since the last audit: foo: co-maintainer bob added."},
+		{[]auditFinding{co("foo", "bob", "carol")}, "Since the last audit: foo: co-maintainers bob, carol added."},
+		{[]auditFinding{changed, co("foo", "bob")}, "Since the last audit: victim changed maintainer; foo: co-maintainer bob added."},
+		{[]auditFinding{co("foo", "bob"), co("bar", "eve")}, "Since the last audit: foo and bar added co-maintainers."},
+		{[]auditFinding{co("f\x1b[2Joo", "b\x1b]0;x\x07ob")}, "Since the last audit: foo: co-maintainer bob added."},
+	}
+	for _, c := range cases {
+		if got := gateReason(c.in); got != c.want {
+			t.Errorf("gateReason = %q, want %q", got, c.want)
+		}
+	}
+}
+
 func TestClassifyAllSkipsUnknownDebugCompanionAndSortsHighFirst(t *testing.T) {
 	// yay-debug: a locally built split package the AUR has never heard of —
 	// skipped even though its base (yay) isn't foreign here. foo-debug *is* on
@@ -132,7 +196,7 @@ func TestClassifyAllSkipsUnknownDebugCompanionAndSortsHighFirst(t *testing.T) {
 		"foo-debug": {Name: "foo-debug", LastModified: aged(1000), NumVotes: 0, Maintainer: strp("f")}, // glance (0 votes)
 		"zzz":       {Name: "zzz", LastModified: aged(1000), NumVotes: 9, Maintainer: strp("new")},     // high (changed)
 	}
-	prev := map[string]string{"aaa": "a", "foo-debug": "f", "zzz": "old"}
+	prev := map[string]snapEntry{"aaa": {maintainer: "a"}, "foo-debug": {maintainer: "f"}, "zzz": {maintainer: "old"}}
 	got := classifyAll(pkgs, info, prev, true, auditNow)
 
 	var names []string
@@ -288,8 +352,8 @@ func TestAuditReportCarriesNoAURControlBytes(t *testing.T) {
 	if err := r.commit(); err != nil {
 		t.Fatal(err)
 	}
-	if snap, _ := loadBaseline(); snap["victim"] != evil {
-		t.Fatalf("the snapshot keeps the raw value for the next comparison, got %q", snap["victim"])
+	if snap, _ := loadBaseline(); snap["victim"].maintainer != evil {
+		t.Fatalf("the snapshot keeps the raw value for the next comparison, got %q", snap["victim"].maintainer)
 	}
 }
 
@@ -300,9 +364,16 @@ func TestBaselineRoundTripAndKeepsMissing(t *testing.T) {
 	if _, state := loadBaseline(); state != baselineMissing {
 		t.Fatalf("no snapshot should exist yet, state = %d", state)
 	}
-	prev := map[string]string{"gone": "carol", "kept": "old"}
-	info := map[string]aurInfo{"kept": {Name: "kept", Maintainer: strp("new")}, "orph": {Name: "orph"}}
-	if err := saveBaseline([]string{"kept", "orph", "gone"}, info, prev); err != nil {
+	prev := map[string]snapEntry{
+		"gone":     {maintainer: "carol", coMaintainers: []string{"dave"}, hasCo: true},
+		"old-gone": {maintainer: "erin"}, // from an old-format snapshot
+		"kept":     {maintainer: "old"},
+	}
+	info := map[string]aurInfo{
+		"kept": {Name: "kept", Maintainer: strp("new"), CoMaintainers: []string{"zed", "amy", "zed"}},
+		"orph": {Name: "orph"},
+	}
+	if err := saveBaseline([]string{"kept", "orph", "gone", "old-gone"}, info, prev); err != nil {
 		t.Fatal(err)
 	}
 
@@ -310,18 +381,50 @@ func TestBaselineRoundTripAndKeepsMissing(t *testing.T) {
 	if state != baselineOK {
 		t.Fatalf("snapshot not saved, state = %d", state)
 	}
-	want := map[string]string{"kept": "new", "orph": "", "gone": "carol"} // absent-from-AUR keeps its old value
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("baseline[%q] = %q, want %q", k, got[k], v)
+	want := map[string]snapEntry{
+		"kept":     {maintainer: "new", coMaintainers: []string{"amy", "zed"}, hasCo: true}, // sorted, deduplicated
+		"orph":     {maintainer: "", hasCo: true},                                           // none recorded is not "unknown"
+		"gone":     prev["gone"],                                                            // absent from the AUR: kept as it was
+		"old-gone": prev["old-gone"],                                                        // …still without a co-maintainer record
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("baseline = %+v\nwant       %+v", got, want)
+	}
+	b, _ := os.ReadFile(baselinePath())
+	for _, s := range []string{`"comaintainers": []`, `"amy",`} {
+		if !strings.Contains(string(b), s) {
+			t.Errorf("snapshot file lacks %s:\n%s", s, b)
 		}
+	}
+}
+
+// TestBaselineLoadsOldFormat: a snapshot from before co-maintainers were
+// tracked (name → maintainer) loads as OK, every entry without a co-maintainer
+// record; mixed files load too.
+func TestBaselineLoadsOldFormat(t *testing.T) {
+	auditEnv(t)
+	os.WriteFile(baselinePath(), []byte(`{"a": "alice", "o": "", "n": {"maintainer": "nina", "comaintainers": ["bob"]}, "x": {"maintainer": "xia"}}`), 0o600)
+	got, state := loadBaseline()
+	want := map[string]snapEntry{
+		"a": {maintainer: "alice"},
+		"o": {maintainer: ""},
+		"n": {maintainer: "nina", coMaintainers: []string{"bob"}, hasCo: true},
+		"x": {maintainer: "xia"}, // an object without the key is unrecorded too
+	}
+	if state != baselineOK || !reflect.DeepEqual(got, want) {
+		t.Fatalf("state = %d, baseline = %+v", state, got)
 	}
 }
 
 // TestBaselineCorruptFileIsNotMissing: an unreadable snapshot must never read
 // as "first audit" — that would silently re-baseline over a takeover.
 func TestBaselineCorruptFileIsNotMissing(t *testing.T) {
-	for name, content := range map[string]string{"invalid JSON": "{not json", "JSON null": "null", "empty": ""} {
+	for name, content := range map[string]string{
+		"invalid JSON": "{not json", "JSON null": "null", "empty": "",
+		"null entry": `{"p": null}`, "number entry": `{"p": 5}`,
+		"entry without maintainer":  `{"p": {"comaintainers": []}}`,
+		"co-maintainers not a list": `{"p": {"maintainer": "a", "comaintainers": "bob"}}`,
+	} {
 		t.Run(name, func(t *testing.T) {
 			auditEnv(t)
 			os.WriteFile(baselinePath(), []byte(content), 0o600)
@@ -355,7 +458,7 @@ func TestSaveBaselineIsAtomicAndPrivate(t *testing.T) {
 	if fi.Mode().Perm() != 0o600 {
 		t.Fatalf("snapshot mode = %v, want 0600", fi.Mode().Perm())
 	}
-	if got, _ := loadBaseline(); got["p"] != "bob" {
+	if got, _ := loadBaseline(); got["p"].maintainer != "bob" {
 		t.Fatalf("snapshot = %v, want the second save", got)
 	}
 	entries, _ := os.ReadDir(filepath.Dir(baselinePath()))
@@ -380,7 +483,7 @@ func TestSaveBaselineSkipsWhenLocked(t *testing.T) {
 	if !errors.Is(err, errSnapshotLocked) {
 		t.Fatalf("err = %v, want errSnapshotLocked", err)
 	}
-	if got, _ := loadBaseline(); got["p"] != "alice" {
+	if got, _ := loadBaseline(); got["p"].maintainer != "alice" {
 		t.Fatalf("a locked save must not write, snapshot = %v", got)
 	}
 	unlock()
@@ -415,7 +518,7 @@ func TestCorruptSnapshotFailsClosed(t *testing.T) {
 	if err := r.commit(); err != nil { // the gate is accepted
 		t.Fatal(err)
 	}
-	if got, state := loadBaseline(); state != baselineOK || got["steady"] != "alice" {
+	if got, state := loadBaseline(); state != baselineOK || got["steady"].maintainer != "alice" {
 		t.Fatalf("accepting should save a fresh baseline, state=%d snapshot=%v", state, got)
 	}
 	aside, _ := filepath.Glob(baselinePath() + ".corrupt-*")
@@ -534,7 +637,7 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	if msg.commit == nil || !strings.Contains(msg.report, "press a to accept") {
 		t.Fatalf("a high finding should be acceptable with a, commit=%v report:\n%s", msg.commit != nil, msg.report)
 	}
-	if snap, _ := loadBaseline(); snap["victim"] != "bob" || snap["fresh"] != "carol" {
+	if snap, _ := loadBaseline(); snap["victim"].maintainer != "bob" || snap["fresh"].maintainer != "carol" {
 		t.Fatalf("snapshot = %v, want victim held at bob and fresh recorded", snap)
 	}
 
@@ -556,7 +659,7 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	if got.screen != screenNotice || got.bg != screenAudit || !strings.Contains(got.notice, "accepted") || got.auditCommit != nil {
 		t.Fatalf("screen=%d bg=%d notice=%q commit=%v", got.screen, got.bg, got.notice, got.auditCommit != nil)
 	}
-	if snap, _ := loadBaseline(); snap["victim"] != "mallory" {
+	if snap, _ := loadBaseline(); snap["victim"].maintainer != "mallory" {
 		t.Fatalf("snapshot = %v, want victim accepted as mallory", snap)
 	}
 	if log, _ := os.ReadFile(logPath(logCategoryAudit)); !strings.Contains(string(log), "ACCEPT: AUR maintainer changes accepted") {
@@ -568,6 +671,145 @@ func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
 	}
 	if v := update(m, discoveryMsg{kind: "audit", report: third.report}).View(); strings.Contains(v, "a accept") {
 		t.Fatalf("no a hint without anything to accept:\n%s", v)
+	}
+}
+
+// ── co-maintainers ────────────────────────────────────────────────────────────
+
+// coFixture: victim gained mallory as a co-maintainer and steady lost carol,
+// both against a snapshot that recorded co-maintainers.
+func coFixture(t *testing.T) {
+	t.Helper()
+	auditEnv(t)
+	shimPacmanForeign(t, "steady\nvictim\n")
+	fakeAUR(t, map[string]aurInfo{
+		"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10},
+		"victim": {Name: "victim", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10, CoMaintainers: []string{"mallory", "bob"}},
+	})
+	saveBaseline([]string{"steady", "victim"}, map[string]aurInfo{
+		"steady": {Name: "steady", Maintainer: strp("alice"), CoMaintainers: []string{"carol"}},
+		"victim": {Name: "victim", Maintainer: strp("alice"), CoMaintainers: []string{"bob"}},
+	}, nil)
+}
+
+func coOf(t *testing.T, pkg string) []string {
+	t.Helper()
+	snap, state := loadBaseline()
+	if state != baselineOK || !snap[pkg].hasCo {
+		t.Fatalf("state = %d, %s = %+v, want co-maintainers recorded", state, pkg, snap[pkg])
+	}
+	return snap[pkg].coMaintainers
+}
+
+// TestCoMaintainerAddedGatesUpdate: an added co-maintainer gates topgrade by
+// name, a removed one is only a glance. The step saves nothing itself; only
+// the commit (run on "yes") records the new co-maintainer.
+func TestCoMaintainerAddedGatesUpdate(t *testing.T) {
+	coFixture(t)
+	r := runAuditStep(context.Background())
+	if r.confirmNext != "Since the last audit: victim: co-maintainer mallory added. Update anyway?" {
+		t.Fatalf("confirmNext = %q", r.confirmNext)
+	}
+	for _, want := range []string{"[HIGH] victim  co-maintainer mallory added", "[warn] steady  co-maintainer carol removed", "1 high, 1 glance, 0 clean"} {
+		if !strings.Contains(r.output, want) {
+			t.Fatalf("output lacks %q:\n%s", want, r.output)
+		}
+	}
+	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob"}) {
+		t.Fatalf("the audit alone must not record the change, victim co = %q", co)
+	}
+	if again := runAuditStep(context.Background()); again.confirmNext == "" {
+		t.Fatal("an unanswered gate must gate again")
+	}
+	if err := r.commit(); err != nil {
+		t.Fatal(err)
+	}
+	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob", "mallory"}) {
+		t.Fatalf("accepting should record the co-maintainers, victim co = %q", co)
+	}
+	if after := runAuditStep(context.Background()); after.confirmNext != "" {
+		t.Fatalf("an accepted co-maintainer must not gate again: %q", after.confirmNext)
+	}
+}
+
+// TestOldFormatSnapshotIsACoMaintainerBaseline: after upgrading from a
+// version that only recorded maintainers, co-maintainers are a baseline (no
+// gate, like a first audit) and get recorded by the commit; from then on an
+// added one gates. The old maintainers are still compared.
+func TestOldFormatSnapshotIsACoMaintainerBaseline(t *testing.T) {
+	auditEnv(t)
+	shimPacmanForeign(t, "steady\nvictim\n")
+	db := map[string]aurInfo{
+		"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10, CoMaintainers: []string{"carol"}},
+		"victim": {Name: "victim", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10, CoMaintainers: []string{"bob"}},
+	}
+	fakeAUR(t, db)
+	os.WriteFile(baselinePath(), []byte(`{"steady": "alice", "victim": "alice"}`), 0o600)
+
+	r := runAuditStep(context.Background())
+	if r.err != nil || r.confirmNext != "" || !strings.Contains(r.output, "0 high, 0 glance, 2 clean") {
+		t.Fatalf("err=%v confirmNext=%q, want no gate:\n%s", r.err, r.confirmNext, r.output)
+	}
+	if err := r.commit(); err != nil { // nothing gates: handleStepResult commits at once
+		t.Fatal(err)
+	}
+	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob"}) {
+		t.Fatalf("victim co = %q, want it recorded", co)
+	}
+
+	db["victim"] = aurInfo{Name: "victim", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10, CoMaintainers: []string{"bob", "mallory"}}
+	if r := runAuditStep(context.Background()); !strings.Contains(r.confirmNext, "victim: co-maintainer mallory added") {
+		t.Fatalf("confirmNext = %q, want the added co-maintainer to gate once recorded", r.confirmNext)
+	}
+
+	t.Run("maintainer change in an old-format snapshot still gates", func(t *testing.T) {
+		os.WriteFile(baselinePath(), []byte(`{"steady": "alice", "victim": "bob"}`), 0o600)
+		if r := runAuditStep(context.Background()); r.confirmNext != "victim changed maintainer since the last audit. Update anyway?" {
+			t.Fatalf("confirmNext = %q", r.confirmNext)
+		}
+	})
+	t.Run("the menu audit records them right away", func(t *testing.T) {
+		os.WriteFile(baselinePath(), []byte(`{"steady": "alice", "victim": "alice"}`), 0o600)
+		if msg := runAudit(auditNow); msg.commit != nil {
+			t.Fatalf("nothing should be high:\n%s", msg.report)
+		}
+		if co := coOf(t, "steady"); !reflect.DeepEqual(co, []string{"carol"}) {
+			t.Fatalf("steady co = %q", co)
+		}
+	})
+}
+
+// TestMenuAuditHoldsCoMaintainerUntilAccepted: like a maintainer change, an
+// added co-maintainer stays out of the snapshot until `a`, while the glance
+// (a removed co-maintainer) is recorded at once.
+func TestMenuAuditHoldsCoMaintainerUntilAccepted(t *testing.T) {
+	coFixture(t)
+	msg := runAudit(auditNow)
+	if msg.commit == nil || !strings.Contains(msg.report, "co-maintainer mallory added") {
+		t.Fatalf("commit=%v report:\n%s", msg.commit != nil, msg.report)
+	}
+	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob"}) {
+		t.Fatalf("victim co = %q, want it held", co)
+	}
+	if co := coOf(t, "steady"); len(co) != 0 {
+		t.Fatalf("steady co = %q, want the removal recorded", co)
+	}
+	if again := runAudit(auditNow); again.commit == nil {
+		t.Fatal("an unaccepted co-maintainer must be flagged again")
+	}
+
+	m := initialModel()
+	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.screen = screenDiscovering
+	m = update(m, msg)
+	if got := update(m, key("a")); !strings.Contains(got.notice, "accepted") {
+		t.Fatalf("notice = %q", got.notice)
+	}
+	if co := coOf(t, "victim"); !reflect.DeepEqual(co, []string{"bob", "mallory"}) {
+		t.Fatalf("victim co = %q, want mallory accepted", co)
+	}
+	if third := runAudit(auditNow); third.commit != nil {
+		t.Fatalf("an accepted co-maintainer must not be flagged again:\n%s", third.report)
 	}
 }
 
