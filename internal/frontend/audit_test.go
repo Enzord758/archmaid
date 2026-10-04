@@ -243,23 +243,48 @@ func TestPrefetcher(t *testing.T) {
 	}
 }
 
-// TestAuditFetchCancelled: a fetch cancelled before its step waits on it
-// ends the step at once, with an error.
+// TestAuditFetchCancelled: a fetch cancelled while the AUR sits on its
+// request, before its step waits on it, ends the step at once, with an
+// error, and hangs up on the AUR.
 func TestAuditFetchCancelled(t *testing.T) {
-	block := make(chan struct{})
-	t.Cleanup(func() { close(block) })
+	arrived := make(chan struct{}, 1)
+	gone := make(chan struct{})
+	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Read the form first: net/http only watches for the client hanging
+		// up (cancelling r.Context) once the request body is consumed.
+		r.ParseForm()
 		select {
-		case <-block:
+		case arrived <- struct{}{}:
+		default:
+		}
+		select {
+		case <-release:
 		case <-r.Context().Done():
+			close(gone)
 		}
 	}))
 	t.Cleanup(srv.Close)
+	// Registered after srv.Close, so it runs first: a handler still held
+	// when the test ends is let go before Close waits for it.
+	t.Cleanup(func() { close(release) })
+
 	f := StartAuditFetch(AuditConfig(testStore(t, false), AuditOptions{RPCURL: srv.URL, Foreign: foreign("a")}))
+	select {
+	case <-arrived:
+	case <-time.After(5 * time.Second):
+		f.Cancel()
+		t.Fatal("the fetch's request never reached the fake AUR")
+	}
 	f.Cancel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if r := f.Run(ctx); r.Err == nil || ctx.Err() != nil {
 		t.Fatalf("cancelled fetch: %+v (ctx %v)", r, ctx.Err())
+	}
+	select {
+	case <-gone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the cancelled fetch left its request open on the AUR")
 	}
 }

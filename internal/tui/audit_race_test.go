@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,16 +25,20 @@ import (
 // -race these tests fail on any such read; without it, on the wrong values.
 
 // gatedAUR points aurRPCURL at a server that signals each request's arrival,
-// then holds it until release is closed and answers it from db.
-func gatedAUR(t *testing.T, db map[string]aurInfo) (arrived <-chan struct{}, release chan struct{}) {
+// then holds it until release is called and answers it from db. release is
+// safe to call more than once; the test's end calls it too, before the
+// server's Close waits for the handlers, so a test that failed before
+// releasing them can't hang there.
+func gatedAUR(t *testing.T, db map[string]aurInfo) (arrived <-chan struct{}, release func()) {
 	t.Helper()
 	ch := make(chan struct{}, 16)
-	release = make(chan struct{})
+	gate := make(chan struct{})
+	release = sync.OnceFunc(func() { close(gate) })
 	serveAUR(t, func(w http.ResponseWriter, r *http.Request) {
 		r.ParseForm()
 		ch <- struct{}{}
 		select {
-		case <-release:
+		case <-gate:
 		case <-r.Context().Done():
 			return
 		}
@@ -45,6 +50,7 @@ func gatedAUR(t *testing.T, db map[string]aurInfo) (arrived <-chan struct{}, rel
 		}
 		json.NewEncoder(w).Encode(map[string]any{"type": "multiinfo", "results": results})
 	})
+	t.Cleanup(release) // after serveAUR's, so it runs before srv.Close
 	return ch, release
 }
 
@@ -78,7 +84,7 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 
 	var msg actions.Discovery
 	var sr steps.Result
-	gotMenu, gotStep, gotFetch, arrivals, released := false, false, false, 0, false
+	gotMenu, gotStep, gotFetch, arrivals := false, false, false, 0
 	deadline := time.Now().Add(10 * time.Second)
 	for i := 0; !(gotMenu && gotStep && gotFetch); i++ {
 		if time.Now().After(deadline) {
@@ -92,9 +98,8 @@ func TestAuditsReadNoSettingsOffTheModel(t *testing.T) {
 		dryRun = i%2 == 0
 		select {
 		case <-arrived:
-			if arrivals++; arrivals == 3 && !released {
-				close(release)
-				released = true
+			if arrivals++; arrivals == 3 {
+				release()
 			}
 		case msg = <-menuDone:
 			gotMenu = true
