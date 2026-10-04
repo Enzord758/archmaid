@@ -3,12 +3,13 @@
 # at a time, and assert on the dry-run log, the tape's text output and the shim
 # log. Optional args name the tapes to run (default: all).
 #
-# Safety: every run gets a throwaway HOME and a shim directory FIRST on PATH in
+# Safety: every run gets a throwaway HOME (and XDG_STATE_HOME) and a shim directory FIRST on PATH in
 # which every external command archmaid can run (sudo, pacman, systemctl, ...)
 # is a symlink to shim.sh, which only logs its argv and prints canned output.
 # --dryrun stubs every mutating step on top of that. Before each tape we check
 # the shims really shadow the real binaries, and afterwards that no mutating
-# shim was invoked.
+# shim was invoked. The real state dir is snapshotted first and must be
+# unchanged at the end (scripts/state-guard.sh).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."   # cmd/archmaid: the tapes run from here (they use ./archmaid, e2e/...)
@@ -17,13 +18,26 @@ E2E="$PWD/e2e"
 # Build with the real HOME so the Go build cache is reused.
 go build -trimpath -o archmaid .
 
-SHIMMED=(sudo pacman systemctl topgrade yay paccache journalctl hyprpm systemd-tmpfiles su)
-MUTATING=(sudo topgrade yay paccache journalctl hyprpm systemd-tmpfiles su)
+# The privileged binaries match internal/testenv's traps (su, sudo, pkexec,
+# runuser, faillock): none may run for real, and calling any is a failure.
+SHIMMED=(sudo pacman systemctl topgrade yay paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
+MUTATING=(sudo topgrade yay paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
 
 fail() { echo "FAIL: $*"; exit 1; }
 
+# The owner's real state dir must come out of the run unchanged (read-only
+# snapshot of names + sizes + mtimes; see scripts/state-guard.sh). Taken
+# before any HOME is swapped, compared on every exit.
+GUARD="$E2E/../../../scripts/state-guard.sh"
 SCRATCH_ROOT="$(mktemp -d)"
-trap 'rm -rf "$SCRATCH_ROOT"' EXIT
+"$GUARD" snapshot >"$SCRATCH_ROOT/state.before"
+finish() {
+	local rc=$?
+	"$GUARD" compare "$SCRATCH_ROOT/state.before" || rc=1
+	rm -rf "$SCRATCH_ROOT"
+	exit "$rc"
+}
+trap finish EXIT
 
 # run_tape NAME [VAR=VALUE...]: runs e2e/NAME.tape with a fresh HOME + shim dir,
 # leaving HOME_DIR, SHIM_LOG, TXT and CLEANUP_LOG for the caller's assertions.
@@ -41,7 +55,11 @@ run_tape() {
 	# The audit is the only step that could reach the network under --dryrun
 	# (and only if `pacman -Qqm` listed packages, which the shim never does);
 	# a dead proxy makes a stray lookup fail rather than succeed.
-	env HOME="$HOME_DIR" PATH="$shims:$PATH" SHIM_LOG="$SHIM_LOG" \
+	# Only HOME and XDG_STATE_HOME are swapped: VHS's headless browser runs
+	# under this env too and fails to start with a scratch XDG_CONFIG_HOME or
+	# XDG_CACHE_HOME.
+	env HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
+		PATH="$shims:$PATH" SHIM_LOG="$SHIM_LOG" \
 		HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
 		ALL_PROXY=http://127.0.0.1:9 "$@" \
 		vhs "e2e/$name.tape"
