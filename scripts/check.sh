@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The gate every commit must pass: race-enabled tests (run three times to shake
 # out flakes), go vet, gofmt, and coverage floors. Run from anywhere; it works
-# in the tui/ module. Leaves no files behind.
+# in the cmd/archmaid/ module. Leaves no files behind.
 #
 # Usage:
 #   scripts/check.sh
@@ -14,7 +14,7 @@ set -euo pipefail
 MIN_TOTAL=89.1   # whole package, measured after the askpass tests + view goldens
 MIN_ASKPASS=80   # askpass.go: it carries the sudo password
 
-cd "$(dirname "${BASH_SOURCE[0]}")/../tui"
+cd "$(dirname "${BASH_SOURCE[0]}")/../cmd/archmaid"
 
 echo "==> go test -race -count=3"
 go test -race -count=3 ./...

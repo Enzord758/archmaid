@@ -11,7 +11,7 @@
 # shim was invoked.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."   # tui module root
+cd "$(dirname "$0")/.."   # cmd/archmaid module root
 E2E="$PWD/e2e"
 
 # Build with the real HOME so the Go build cache is reused.

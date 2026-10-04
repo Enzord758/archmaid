@@ -1,6 +1,6 @@
 # Maintainer: TODO
 #
-# Builds the TUI (tui/) and the root helper (cmd/archmaid-helper/) from VCS.
+# Builds the TUI (cmd/archmaid/) and the root helper (cmd/archmaid-helper/) from VCS.
 # The helper is installed 0755 root:root at the fixed path its polkit policy
 # names. It is NEVER setuid: privilege comes only from pkexec.
 #
@@ -55,7 +55,7 @@ _goenv() {
 
 prepare() {
   _goenv
-  cd "$_pkgname/tui"
+  cd "$_pkgname/cmd/archmaid"
   go mod download -x
   # The helper is stdlib-only: nothing to download for it.
 }
@@ -63,7 +63,7 @@ prepare() {
 build() {
   _goenv
   mkdir -p "$srcdir/build"
-  cd "$srcdir/$_pkgname/tui"
+  cd "$srcdir/$_pkgname/cmd/archmaid"
   go build -o "$srcdir/build/archmaid" .
   cd "$srcdir/$_pkgname/cmd/archmaid-helper"
   go build -o "$srcdir/build/archmaid-helper" .

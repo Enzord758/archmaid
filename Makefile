@@ -1,9 +1,9 @@
 # Entry points for the checks CI runs. Run `make all` before pushing.
 #
-# P1 moves tui/ to cmd/archmaid/ and go.mod to the repo root: the module and
+# The TUI lives in cmd/archmaid/ (its own module until M2): the module and
 # helper paths live ONLY in the variables below (and in `env:` in the CI
 # workflow), so update them in that one spot.
-TUI_DIR    := tui
+TUI_DIR    := cmd/archmaid
 HELPER_DIR := cmd/archmaid-helper
 E2E_RUN    := $(TUI_DIR)/e2e/run.sh
 CHECK      := scripts/check.sh

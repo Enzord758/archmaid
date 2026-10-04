@@ -8,12 +8,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# P1 moves tui/ to cmd/archmaid/ and go.mod to the repo root: update the paths
+# Module and e2e paths: update them
 # here (and in the Makefile variables) in this one spot.
 env:
-  GO_MOD_FILE: tui/go.mod
-  GO_SUM_FILE: tui/go.sum
-  E2E_DIR: tui/e2e
+  GO_MOD_FILE: cmd/archmaid/go.mod
+  GO_SUM_FILE: cmd/archmaid/go.sum
+  E2E_DIR: cmd/archmaid/e2e
 
 jobs:
   core:
