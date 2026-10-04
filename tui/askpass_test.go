@@ -2,15 +2,19 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // The SUDO_ASKPASS round trip, over a real unix socket: the helper side
@@ -508,33 +512,178 @@ func askpassOverRunning(t *testing.T) (model, net.Conn) {
 	return m, server
 }
 
-// TestAskpassSubmitWritesPasswordToConn: enter writes the typed password plus
-// newline straight to the connection, closes it, clears the input and returns
-// to the screen underneath.
-func TestAskpassSubmitWritesPasswordToConn(t *testing.T) {
-	m, server := askpassOverRunning(t)
-	m = update(m, key("secret"))
+// submitAskpassKey types pw into the open askpass popup and presses enter. The
+// input locks while su checks the password; the returned cmd is that check.
+func submitAskpassKey(t *testing.T, m model, pw string) (model, tea.Cmd) {
+	t.Helper()
+	m = update(m, key(pw))
+	next, cmd := m.Update(key("enter"))
+	m = next.(model)
+	if !m.authInFlight || cmd == nil {
+		t.Fatalf("enter: authInFlight=%v cmd=%v, want the su check in flight", m.authInFlight, cmd != nil)
+	}
+	if m.password.Value() != "" {
+		t.Fatal("password still held in the input after submit")
+	}
+	if got := update(m, key("x")); got.password.Value() != "" || got.screen != screenPassword {
+		t.Fatal("keys reached the popup while su was checking")
+	}
+	return m, cmd
+}
 
-	// net.Pipe is synchronous: the write in Update blocks until it's read, so
-	// the reader has to be running before enter is pressed.
+// requireSuOnly checks the su shim ran as `su -s /usr/bin/true <user>` (no -c:
+// that runs the user's shell startup files) and that sudo never ran.
+func requireSuOnly(t *testing.T, dir string) {
+	t.Helper()
+	argv, err := os.ReadFile(filepath.Join(dir, "su.called"))
+	if err != nil {
+		t.Fatal("su was not invoked")
+	}
+	self, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.TrimSpace(string(argv)), "-s /usr/bin/true "+self.Username; got != want {
+		t.Fatalf("su argv = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "sudo.called")); err == nil {
+		t.Fatal("sudo ran: a password must pass su before sudo sees it")
+	}
+}
+
+// TestAskpassRightPasswordReachesConn: su accepts → the password plus newline
+// goes to the connection, which is closed; the popup closes back to the
+// running screen and the attempt count resets.
+func TestAskpassRightPasswordReachesConn(t *testing.T) {
+	dir := shimAuthPair(t, 0)
+	m, server := askpassOverRunning(t)
+	m.pwAttempts = 1
+	m, check := submitAskpassKey(t, m, "secret")
+
+	// net.Pipe is synchronous: the write blocks until it's read, so the
+	// reader has to be running before the check does.
 	got := make(chan string, 1)
 	go func() {
-		b, _ := io.ReadAll(server) // up to the model's Close
+		b, _ := io.ReadAll(server) // up to the close after the write
 		got <- string(b)
 	}()
-	m = update(m, key("enter"))
+	m = update(m, check())
 
 	if pw := recv(t, got, "the password"); pw != "secret\n" {
 		t.Fatalf("helper received %q, want %q", pw, "secret\n")
 	}
-	if m.askpassConn != nil {
-		t.Fatal("askpassConn not cleared after submit")
+	requireSuOnly(t, dir)
+	if m.authInFlight || m.askpassConn != nil || m.screen != screenRunning || m.pwAttempts != 0 {
+		t.Fatalf("authInFlight=%v conn set=%v screen=%d attempts=%d; want the popup closed over screenRunning, count reset",
+			m.authInFlight, m.askpassConn != nil, m.screen, m.pwAttempts)
 	}
-	if m.screen != screenRunning {
-		t.Fatalf("screen = %d, want screenRunning", m.screen)
+}
+
+// TestAskpassWrongPasswordNeverReachesConn: su rejects → nothing is written to
+// sudo's connection, which stays open; the popup stays up, unlocked, with the
+// attempts left.
+func TestAskpassWrongPasswordNeverReachesConn(t *testing.T) {
+	dir := shimAuthPair(t, 1)
+	m, server := askpassOverRunning(t)
+	m, check := submitAskpassKey(t, m, "wrong")
+	m = update(m, check())
+
+	requireSuOnly(t, dir)
+	server.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	if n, err := server.Read(make([]byte, 64)); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("helper read n=%d err=%v; want nothing written and the connection still open", n, err)
 	}
-	if m.password.Value() != "" {
-		t.Fatal("password still held in the input after submit")
+	if m.authInFlight || m.screen != screenPassword || m.askpassConn == nil {
+		t.Fatalf("authInFlight=%v screen=%d conn set=%v; want the popup still up, unlocked",
+			m.authInFlight, m.screen, m.askpassConn != nil)
+	}
+	if m.pwAttempts != 1 || !strings.Contains(m.pwErr, "2 attempts left") {
+		t.Fatalf("attempts=%d pwErr=%q, want 1 and 2 attempts left", m.pwAttempts, m.pwErr)
+	}
+}
+
+// TestAskpassLockoutNoticeShown: su's lockout notice replaces the generic
+// error.
+func TestAskpassLockoutNoticeShown(t *testing.T) {
+	m, _ := askpassOverRunning(t)
+	m.authInFlight = true
+	m = update(m, askpassResultMsg{conn: m.askpassConn, err: errors.New("denied"),
+		detail: "The account is locked due to 3 failed logins."})
+	if !strings.Contains(m.pwErr, "locked") {
+		t.Fatalf("pwErr = %q, want the lockout notice", m.pwErr)
+	}
+}
+
+// TestAskpassAttemptsCounted: wrong passwords in the popup count toward
+// maxSudoAttempts. At the limit the request is cancelled (closed unanswered,
+// so this sudo fails) and the queue's later sudo steps are skipped, as after
+// a failed prime.
+func TestAskpassAttemptsCounted(t *testing.T) {
+	shimAuthPair(t, 1)
+	m, server := askpassOverRunning(t)
+	for i := 1; i <= maxSudoAttempts; i++ {
+		var check tea.Cmd
+		m, check = submitAskpassKey(t, m, "wrong")
+		if i < maxSudoAttempts {
+			m = update(m, check())
+			if m.pwAttempts != i || m.askpassConn == nil {
+				t.Fatalf("after %d wrong: attempts=%d conn set=%v", i, m.pwAttempts, m.askpassConn != nil)
+			}
+			continue
+		}
+		got := make(chan error, 1)
+		go func() {
+			n, err := server.Read(make([]byte, 64))
+			if n != 0 {
+				err = fmt.Errorf("read %d bytes", n)
+			}
+			got <- err
+		}()
+		m = update(m, check())
+		if err := recv(t, got, "the cancel"); err != io.EOF {
+			t.Fatalf("helper read %v, want EOF (closed unanswered)", err)
+		}
+	}
+	if m.askpassConn != nil || m.screen != screenRunning || !m.sudoUnavailable {
+		t.Fatalf("conn set=%v screen=%d sudoUnavailable=%v; want the request cancelled, back on screenRunning, sudo steps skipped",
+			m.askpassConn != nil, m.screen, m.sudoUnavailable)
+	}
+}
+
+// TestAskpassLineBreakRejected: a password with a line break never reaches su
+// or the connection (sudo reads one line, so it would get a different password
+// than su checked), and doesn't count as an attempt.
+func TestAskpassLineBreakRejected(t *testing.T) {
+	dir := shimAuthPair(t, 0)
+	m, server := askpassOverRunning(t)
+	for _, pw := range []string{"good\nbad", "good\rbad"} {
+		next, cmd := m.submitAskpass(pw)
+		m = next.(model)
+		if cmd != nil || m.authInFlight {
+			t.Fatalf("%q: a check was started", pw)
+		}
+		if !strings.Contains(m.pwErr, "line break") || m.pwAttempts != 0 || m.askpassConn == nil {
+			t.Fatalf("%q: pwErr=%q attempts=%d conn set=%v; want it refused, uncounted, popup up",
+				pw, m.pwErr, m.pwAttempts, m.askpassConn != nil)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "su.called")); err == nil {
+		t.Fatal("su ran for a password with a line break")
+	}
+	server.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	if n, err := server.Read(make([]byte, 64)); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("helper read n=%d err=%v; want nothing written", n, err)
+	}
+}
+
+// TestAskpassStaleResultIgnored: a check result for a request that is no
+// longer open changes nothing.
+func TestAskpassStaleResultIgnored(t *testing.T) {
+	m, _ := askpassOverRunning(t)
+	other, _ := pipeConn(t)
+	got := update(m, askpassResultMsg{conn: other, err: errors.New("nope")})
+	if got.pwAttempts != 0 || got.askpassConn != m.askpassConn || got.screen != screenPassword {
+		t.Fatal("a stale result changed the open popup")
 	}
 }
 

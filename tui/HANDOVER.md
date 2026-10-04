@@ -44,8 +44,15 @@ comments and `git log`; this is the "read before you touch it" list.
 - **Auth is two-stage (`authSudo`).** One wrong `sudo -S -v` burns *two*
   `pam_faillock` failures (the wrong password plus sudo's retry hitting EOF), and
   `sudo -A` burns two as well — with Arch's `deny=3`, one typo from lockout. So
-  the password is validated with `su <user> -c true` first (single-shot, and su's
-  stack has no faillock on Arch); only a known-correct password reaches sudo.
+  the password is validated with `su -s /usr/bin/true <user>` first
+  (`suCheck`: single-shot, su's stack has no faillock on Arch, and `-s` keeps
+  the user's shell startup files out of it, which `su -c true` didn't); only a
+  known-correct password reaches sudo. The mid-run askpass popup does the same
+  (`answerAskpass`): a password su rejects is never written to sudo's
+  connection, the popup stays up with the attempts left, and the third failure
+  cancels the request and skips the queue's remaining sudo steps, like a
+  failed prime. A password with a line break is refused before su: sudo reads
+  one line, so it would get a different password than su checked.
 - **Nothing may prompt on the raw tty.** Sudo steps run `sudo -A`, and
   `SUDO_ASKPASS` routes any re-prompt back into the TUI as a popup. The password
   is passed straight through, never stored or logged. `sudo -n -v` is only the

@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // askpass routes sudo password prompts to a TUI popup instead of the tty. The
@@ -36,6 +38,30 @@ type askpassMsg struct {
 	prompt string
 	conn   net.Conn
 	peer   askpassPeer
+}
+
+// askpassResultMsg is the outcome of checking a password typed into the
+// askpass popup (see answerAskpass). conn ties it to the request it answers.
+type askpassResultMsg struct {
+	conn   net.Conn
+	err    error  // su rejected the password; nothing was written to conn
+	detail string // a lockout notice to show verbatim, if su printed one
+}
+
+// answerAskpass validates password with su before sudo sees it, like
+// authSudo's first stage, and writes it to conn only once it's known to be
+// right. A wrong answer to `sudo -A` burns two pam_faillock failures (deny=3
+// on Arch: one typo from lockout); a wrong su burns none. The password is
+// written straight through — never stored.
+func answerAskpass(conn net.Conn, password string) tea.Cmd {
+	return func() tea.Msg {
+		if detail, err := suCheck(password); err != nil {
+			return askpassResultMsg{conn: conn, err: err, detail: detail}
+		}
+		fmt.Fprintf(conn, "%s\n", password)
+		conn.Close()
+		return askpassResultMsg{conn: conn}
+	}
 }
 
 // askpassPeer is the process on the other end of an askpass connection: its

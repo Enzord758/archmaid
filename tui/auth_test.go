@@ -41,12 +41,9 @@ func TestAuthWrongPasswordNeverReachesSudo(t *testing.T) {
 	if msg.err == nil {
 		t.Fatal("su rejection must surface as an error")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "su.called")); err != nil {
-		t.Fatal("su was not invoked")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "sudo.called")); err == nil {
-		t.Fatal("sudo must NOT be invoked for a wrong password")
-	}
+	// su runs true in place of the user's shell (no -c: that still ran the
+	// shell's startup files), and sudo never runs.
+	requireSuOnly(t, dir)
 }
 
 // TestAuthCorrectPasswordMintsTicket: su accepts → sudo -S -v runs.

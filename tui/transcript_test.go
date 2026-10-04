@@ -460,7 +460,8 @@ func (d *Driver) answer() []tea.Msg {
 	return []tea.Msg{key(a.Reply[:1])}
 }
 
-var suUser = regexp.MustCompile(`^su \S+ `)
+// suUser matches su's user argument, with or without a `-s <shell>` before it.
+var suUser = regexp.MustCompile(`^su ((?:-s \S+ )?)\S+`)
 
 // drainExec emits the shim invocations logged since the last drain. Runs of
 // one command are sorted: a pipeline's processes start concurrently, so their
@@ -483,7 +484,7 @@ func (d *Driver) drainExec() {
 		i = j
 	}
 	for _, l := range lines {
-		d.emit("exec", "%s", suUser.ReplaceAllLiteralString(l, "su $USER "))
+		d.emit("exec", "%s", suUser.ReplaceAllString(l, "su ${1}$$USER"))
 	}
 }
 

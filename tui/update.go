@@ -139,6 +139,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case askpassMsg:
 		return m.handleAskpass(msg)
 
+	case askpassResultMsg:
+		return m.handleAskpassResult(msg)
+
 	case editorDoneMsg:
 		m.screen = screenMenu
 		return m, refreshStatusNow()
@@ -211,6 +214,62 @@ func (m model) handleAskpass(msg askpassMsg) (tea.Model, tea.Cmd) {
 	m.screen = screenPassword
 	m.password.Reset()
 	return m, m.password.Focus()
+}
+
+// submitAskpass checks the password typed into the askpass popup with su
+// before anything reaches sudo (answerAskpass), with the input locked while
+// PAM works, like the prime's first stage. A password with a line break is
+// refused outright: sudo reads one line, so it would get a different password
+// than su checked.
+func (m model) submitAskpass(pw string) (tea.Model, tea.Cmd) {
+	m.password.Reset() // don't hold the password in the input
+	if strings.ContainsAny(pw, "\r\n") {
+		m.pwErr = "A password can't contain a line break"
+		return m, nil
+	}
+	m.authInFlight = true
+	return m, answerAskpass(m.askpassConn, pw)
+}
+
+// handleAskpassResult closes the askpass popup once su accepted the password
+// (answerAskpass has already passed it to sudo). A rejected one leaves the
+// popup open with nothing sent, counting toward maxSudoAttempts like the
+// prime; at the limit the request is cancelled and, as after a failed prime,
+// the queue's remaining sudo steps are skipped.
+func (m model) handleAskpassResult(msg askpassResultMsg) (tea.Model, tea.Cmd) {
+	if msg.conn != m.askpassConn {
+		return m, nil // not the open request's answer
+	}
+	m.authInFlight = false
+	if msg.err == nil {
+		m.pwAttempts = 0
+		m.closeAskpass()
+		return m, nil
+	}
+	m.pwAttempts++
+	if m.pwAttempts >= maxSudoAttempts {
+		m.askpassConn.Close() // unanswered: this sudo fails, its step with it
+		m.sudoUnavailable = true
+		m.closeAskpass()
+		return m, nil
+	}
+	left := maxSudoAttempts - m.pwAttempts
+	m.pwErr = fmt.Sprintf("Incorrect password — %d attempt%s left", left, plural(left))
+	if msg.detail != "" {
+		m.pwErr = msg.detail // e.g. pam_faillock "account locked" notice
+	}
+	return m, nil
+}
+
+// closeAskpass drops the askpass popup's state and shows what was under it.
+func (m *model) closeAskpass() {
+	m.askpassConn = nil
+	m.askpassFrom = askpassRequester{}
+	m.password.Reset()
+	m.pwErr = ""
+	if m.screen == screenPassword {
+		m.screen = m.bg
+	}
 }
 
 // runningSudoStep returns the title of the step running right now, if it is a
@@ -289,11 +348,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "ctrl+c":
 			if m.askpassConn != nil {
 				m.askpassConn.Close() // cancel → sudo fails this attempt
-				m.askpassConn = nil
-				m.askpassFrom = askpassRequester{}
-				m.password.Reset()
-				m.pwErr = ""
-				m.screen = m.bg
+				m.closeAskpass()
 				return m, nil
 			}
 			m.password.Reset()
@@ -303,15 +358,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "enter":
 			if m.askpassConn != nil {
-				// pass the password straight through to sudo; never stored.
-				fmt.Fprintf(m.askpassConn, "%s\n", m.password.Value())
-				m.askpassConn.Close()
-				m.askpassConn = nil
-				m.askpassFrom = askpassRequester{}
-				m.password.Reset()
-				m.pwErr = ""
-				m.screen = m.bg
-				return m, nil
+				return m.submitAskpass(m.password.Value())
 			}
 			m.authInFlight = true
 			pw := m.password.Value()

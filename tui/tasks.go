@@ -414,27 +414,17 @@ func checkSudoCached() tea.Cmd {
 // up; measured live). With Arch's default `deny=3`, one mistyped in-app
 // password would leave the account one failure from lockout.
 //
-//  1. Validate via `su <user> -c true` — single-shot PAM, no retry loop (and
-//     on Arch, su's PAM stack doesn't include pam_faillock at all, so a wrong
-//     entry burns nothing).
+//  1. Validate with su (see suCheck) — single-shot PAM, burns nothing.
 //  2. Only a known-correct password reaches `sudo -S -v`, which then always
 //     succeeds: mints the ticket, burns nothing, and clears stale failures.
 //
 // Stderr is captured so a pam_faillock lockout notice ("account locked…")
-// can be surfaced verbatim instead of the generic wrong-password error.
+// can be surfaced verbatim instead of the generic wrong-password error. A
+// mid-run askpass popup validates the same way (see answerAskpass).
 func authSudo(password string) tea.Cmd {
 	return func() tea.Msg {
-		self, err := user.Current()
-		if err != nil {
-			return sudoResultMsg{err: err}
-		}
-
-		check := exec.Command("su", self.Username, "-c", "true")
-		check.Stdin = strings.NewReader(password + "\n")
-		var checkErr bytes.Buffer
-		check.Stderr = &checkErr
-		if err := check.Run(); err != nil {
-			return sudoResultMsg{err: err, detail: lockoutNotice(checkErr.String())}
+		if detail, err := suCheck(password); err != nil {
+			return sudoResultMsg{err: err, detail: detail}
 		}
 
 		cmd := exec.Command("sudo", "-S", "-v")
@@ -446,6 +436,27 @@ func authSudo(password string) tea.Cmd {
 		}
 		return sudoResultMsg{}
 	}
+}
+
+// suCheck validates password as the current user's with
+// `su -s /usr/bin/true <user>`: single-shot PAM with no retry loop, and on Arch
+// su's PAM stack doesn't include pam_faillock at all, so a wrong entry burns
+// nothing. -s runs true in place of the login shell, so none of the user's
+// shell startup files run (`su -c true` still had zsh read ~/.zshenv). On
+// failure, detail is a lockout notice from su's stderr, if there was one.
+func suCheck(password string) (detail string, err error) {
+	self, err := user.Current()
+	if err != nil {
+		return "", err
+	}
+	check := exec.Command("su", "-s", "/usr/bin/true", self.Username)
+	check.Stdin = strings.NewReader(password + "\n")
+	var stderr bytes.Buffer
+	check.Stderr = &stderr
+	if err := check.Run(); err != nil {
+		return lockoutNotice(stderr.String()), err
+	}
+	return "", nil
 }
 
 // lockoutNotice extracts a pam_faillock lockout message from PAM stderr, if
