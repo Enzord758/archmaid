@@ -13,12 +13,23 @@ import (
 
 type statusMsg string
 
+// statusNowMsg is a one-off refresh. Unlike statusMsg it never reschedules, so
+// there is only ever the one tick loop that Init starts.
+type statusNowMsg string
+
 // refreshStatus recomputes the disk/ram/cache line every few seconds so the
 // header stays live (the bit gum couldn't do without redrawing the world).
+// Only Init may start this loop; anything else wants refreshStatusNow.
 func refreshStatus() tea.Cmd {
 	return tea.Tick(4*time.Second, func(time.Time) tea.Msg {
 		return statusMsg(systemStatus())
 	})
+}
+
+// refreshStatusNow updates the line once, immediately — e.g. after a run so
+// the freed space shows without waiting for the next tick.
+func refreshStatusNow() tea.Cmd {
+	return func() tea.Msg { return statusNowMsg(systemStatus()) }
 }
 
 func systemStatus() string {

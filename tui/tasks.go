@@ -395,12 +395,16 @@ func lockoutNotice(stderr string) string {
 // sudoKeepAliveMsg drives the keep-alive loop that refreshes the cached sudo
 // timestamp while a queue runs, so a long step (topgrade) can't let it lapse
 // and force a later step to re-prompt on the tty.
-type sudoKeepAliveMsg struct{}
+//
+// gen ties a tick to the queue that started its loop (model.sudoGen): a queue
+// that ends or aborts leaves one tick pending for up to a minute, and if a new
+// queue starts meanwhile, that old tick must not keep a second loop alive.
+type sudoKeepAliveMsg struct{ gen int }
 
 const sudoKeepAliveInterval = 60 * time.Second
 
-func sudoTick() tea.Cmd {
-	return tea.Tick(sudoKeepAliveInterval, func(time.Time) tea.Msg { return sudoKeepAliveMsg{} })
+func sudoTick(gen int) tea.Cmd {
+	return tea.Tick(sudoKeepAliveInterval, func(time.Time) tea.Msg { return sudoKeepAliveMsg{gen: gen} })
 }
 
 // refreshSudo extends the cached timestamp non-interactively (a no-op if it has

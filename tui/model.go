@@ -82,6 +82,7 @@ type model struct {
 	authInFlight    bool     // prime submitted, waiting on PAM — input locked
 	sudoUnavailable bool     // set after maxSudoAttempts failures: skip sudo steps
 	sudoAlive       bool     // keep-alive loop active for the running queue
+	sudoGen         int      // generation of the live keep-alive loop; stale ticks are dropped
 	askpassConn     net.Conn // pending sudo askpass request (nil = prime-mode prompt)
 
 	// dynamic-action state

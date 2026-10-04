@@ -27,6 +27,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.status = string(msg)
 		return m, refreshStatus() // tick again in a few seconds
 
+	case statusNowMsg:
+		m.status = string(msg)
+		return m, nil // one-off: the Init loop keeps ticking on its own
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -117,10 +121,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case sudoKeepAliveMsg:
-		if !m.sudoAlive {
-			return m, nil // queue ended — stop refreshing
+		if !m.sudoAlive || msg.gen != m.sudoGen {
+			// queue ended — stop refreshing; or a tick from an earlier
+			// queue's loop, which must die so only the current one runs
+			return m, nil
 		}
-		return m, tea.Batch(refreshSudo(), sudoTick())
+		return m, tea.Batch(refreshSudo(), sudoTick(m.sudoGen))
 
 	case askpassMsg:
 		// A child's sudo wants a password — pop the prompt over the current
@@ -152,7 +158,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorDoneMsg:
 		m.screen = screenMenu
-		return m, refreshStatus()
+		return m, refreshStatusNow()
 
 	case streamMsg:
 		return m.handleStream(msg)
@@ -483,7 +489,8 @@ func (m *model) startQueue() tea.Cmd {
 	cmd := m.advance()
 	if !dryRun && !m.sudoAlive && queueNeedsSudo(m.queue) {
 		m.sudoAlive = true
-		return tea.Batch(cmd, sudoTick())
+		m.sudoGen++ // orphans the previous queue's loop if its tick is still pending
+		return tea.Batch(cmd, sudoTick(m.sudoGen))
 	}
 	return cmd
 }
@@ -504,7 +511,7 @@ func (m *model) advance() tea.Cmd {
 	if m.current >= len(m.queue) {
 		m.screen = screenSummary
 		m.sudoAlive = false // stop the keep-alive loop
-		return refreshStatus()
+		return refreshStatusNow()
 	}
 	s := m.queue[m.current].step
 	// Sudo auth was abandoned after too many wrong passwords: skip any step
