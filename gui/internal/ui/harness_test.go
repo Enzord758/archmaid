@@ -189,6 +189,8 @@ func runChild(scenario, path string) int {
 		action = actions.IDRepair
 	case "settings": // home refused, a folder and dry run kept, then a run
 		action = actions.IDRepair
+	case "settings-bad": // gui.json holds the home folder: refused on load
+		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
 	case "real-dry", "real-refused", "real-locked", "real-close": // realdriver_harness_test.go
@@ -261,6 +263,9 @@ func runChild(scenario, path string) int {
 						if scenario == "logs" {
 							browseLogs(w, rep, fail)
 							return
+						}
+						if scenario == "settings-bad" && w.set.dlError.Visible() {
+							rep.DlErrors = append(rep.DlErrors, w.set.dlError.Text())
 						}
 						if scenario == "settings" {
 							changeSettings(w, rep)
@@ -759,6 +764,20 @@ func TestGUISettings(t *testing.T) {
 	// The window's first Driver and the Start's fresh one, both with them.
 	if want := []string{want[1], want[1]}; !slices.Equal(rep.DriverOpts, want) || rep.DriverCloses != 2 {
 		t.Errorf("restarted: drivers %q (%d closed), want %q", rep.DriverOpts, rep.DriverCloses, want)
+	}
+
+	// A gui.json naming the home folder (edited by hand, or saved before a
+	// check): vetted on load, shown under the row, not used.
+	bad := t.TempDir()
+	if err := settings.Save(filepath.Join(bad, "archmaid", "gui.json"), settings.Settings{Downloads: os.Getenv("HOME"), DryRun: true}); err != nil {
+		t.Fatal(err)
+	}
+	rep, _ = child(t, "settings-bad", "XDG_CONFIG_HOME="+bad)
+	if len(rep.DlErrors) != 1 || !strings.Contains(rep.DlErrors[0], "home") {
+		t.Errorf("loaded folder errors %q: want the home folder refused", rep.DlErrors)
+	}
+	if want := []string{`dry=true downloads=""`, `dry=true downloads=""`}; !slices.Equal(rep.DriverOpts, want) {
+		t.Errorf("loaded a refused folder: drivers %q, want %q", rep.DriverOpts, want)
 	}
 }
 

@@ -9,8 +9,8 @@ import (
 
 // The Settings page: the downloads folder and dry run, kept in
 // $XDG_CONFIG_HOME/archmaid/gui.json (internal/settings). A change applies
-// to the next Start: startAction makes a fresh Driver when w.settings
-// differs from the one the current Driver was made with.
+// to the next Start: startAction makes a fresh Driver for every Start,
+// with w.settings.
 
 type settingsPage struct {
 	path      string
@@ -28,7 +28,16 @@ func (w *Window) newSettings() gtk.Widgetter {
 	}
 	w.set = p
 	s, loadErr := settings.Load(p.path)
-	w.settings = s
+	// A folder from the file is vetted as one typed in is: a refused one
+	// is shown with its reason and not used ("": discover), and the file
+	// is left as it is.
+	dlErr := ""
+	if folder, err := settings.CheckDownloads(s.Downloads, settings.ResolverOptions("")); err != nil {
+		dlErr = "Not used, so the folder is found instead: " + err.Error()
+		w.settings = settings.Settings{DryRun: s.DryRun}
+	} else {
+		w.settings = settings.Settings{DryRun: s.DryRun, Downloads: folder}
+	}
 
 	page := adw.NewPreferencesPage()
 	runs := adw.NewPreferencesGroup()
@@ -60,6 +69,7 @@ func (w *Window) newSettings() gtk.Widgetter {
 	dl.Add(p.downloads)
 	p.dlError = errorLabel()
 	dl.Add(p.dlError)
+	p.showDownloadsError(dlErr)
 	page.Add(dl)
 
 	p.problem = errorLabel()
