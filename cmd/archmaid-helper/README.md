@@ -24,7 +24,7 @@ pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
 | `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
 | `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan; a mismatch emits the new plan and exits **3**, removing nothing | `…remove-orphans` (admin) |
-| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Q`), in a sync repo (`-Si`), really missing files (`-Qk -- pkg`) and installed at exactly the version the first repo listing it has (`-Q` vs. `-Si` → `Version`), so a repair is never a partial upgrade or a downgrade. Any other package is skipped and listed, a version mismatch with the reason `repo has a different version (installed X, repo Y) — update the system first`. If nothing is left to reinstall and a version mismatch is among the reasons, it exits **3**. Then the whole transaction is checked: `pacman -Sp --noconfirm --print-format '%n %v' -- …` (stdout only) must list exactly the packages left, each at its installed version. A dependency it would install or upgrade too, a version that changed meanwhile or a package missing from it exits **3**, reinstalls nothing, and lists every package as skipped (the extra packages are named in the reasons and in `error`). Unparseable `-Sp` output or a failing `-Sp` exits 1 | `…repair` (admin) |
+| `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Q`), in a sync repo (`-Si`), really missing files (`-Qk -- pkg`) and installed at exactly the version the first repo listing it has (`-Q` vs. `-Si` → `Version`), so a repair is never a partial upgrade or a downgrade. Any other package is skipped and listed, a version mismatch with the reason `repo has a different version (installed X, repo Y) — update the system first`. If nothing is left to reinstall and a version mismatch is among the reasons, it exits **3**. Then the whole transaction is checked: `pacman -Sp --noconfirm --print-format '%n %v' -- …` (stdout only) must list exactly the packages left, each at its installed version. A dependency it would install or upgrade too, a version that changed meanwhile or a package missing from it exits **3**, reinstalls nothing, and lists every package as skipped (the extra packages are named in the reasons and in `error`). Unparseable `-Sp` output or a failing `-Sp` exits 1. Note: the reinstall comes from the first repo (pacman.conf order) that lists the package, which then carries the installed version; that need not be the repo it was installed from. On CachyOS, a package installed from `core` is reinstalled from `cachyos-core-v4` when that repo lists the same version first: same version, that repo's build | `…repair` (admin) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
 | `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_.@-]{1,250}\.service$`. A denylisted name, alias, sleep hook or `Also=` unit, a running `Also=` unit, or a trigger that would start the unit again exits **4**, and the whole request is refused (see "Companions and triggers"). A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
@@ -69,15 +69,16 @@ another.
 
 **Denylist** (`disable-unit`). A unit is denied if:
 
-- its name starts with `systemd-`, `polkit`, `getty@`, `NetworkManager`,
-  `sshd`, `coolercontrold` or `ly@`;
+- its name starts with `systemd-`, `polkit`, `getty@`, `serial-getty@`,
+  `NetworkManager`, `sshd`, `coolercontrold` or `ly@`;
 - its name without the type suffix is the system bus `dbus`, `dbus-broker` or
   `dbus-daemon`; one of the login managers `sddm`, `gdm`,
   `lightdm`, `ly`, `greetd`, `display-manager`; the security controls
   `firewalld`, `nftables`, `iptables`, `ip6tables`, `ufw`, `apparmor`,
-  `auditd`; or the sleep hooks `nvidia-suspend`, `nvidia-resume`,
-  `nvidia-hibernate`, `nvidia-suspend-then-hibernate` (so `firewalld.socket`
-  is denied as well as `firewalld.service`);
+  `auditd`; the sleep hooks `nvidia-suspend`, `nvidia-resume`,
+  `nvidia-hibernate`, `nvidia-suspend-then-hibernate`; or the power and
+  thermal managers `power-profiles-daemon`, `tlp`, `thermald`, `upower` (so
+  `firewalld.socket` is denied as well as `firewalld.service`);
 - it is wanted, required or upheld by a sleep unit: `sleep.target`,
   `suspend.target`, `hibernate.target`, `hybrid-sleep.target`,
   `suspend-then-hibernate.target` or the matching `systemd-*.service`.
@@ -95,7 +96,12 @@ drop-ins). `systemctl show` has no `Also=` property, and its `WantedBy` lists
 only loaded units, so it would miss `WantedBy=systemd-suspend.service`. Every
 `Alias=`, `WantedBy=`/`RequiredBy=`/`UpheldBy=` and `Also=` value counts, and
 list resets in drop-ins are ignored, so the helper reads too much rather than
-too little. `systemctl disable` also disables the units named in `Also=`, so
+too little. Lines are joined the way systemd joins them (a trailing `\`
+continues a line; a comment line inside a continuation is skipped, not
+joined). The helper splits values on whitespace only, so anything systemd
+would read differently is refused (exit 4) rather than guessed at: an
+`[Install]` value containing a quote, a backslash, `%` (a specifier) or `#`,
+or an `[Install]` line without `=`. `systemctl disable` also disables the units named in `Also=`, so
 those are checked the same way and their own `Also=` is followed too (at most
 1024 units). An `Also=` unit's `[Install]` is read whenever its `LoadState`
 isn't `not-found` (a masked one too), and failing to read it refuses. An

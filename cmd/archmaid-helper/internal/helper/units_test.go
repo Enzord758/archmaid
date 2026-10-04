@@ -57,6 +57,8 @@ func TestDisableUnitDenylistIsExit4(t *testing.T) {
 		"ufw.service", "apparmor.service", "auditd.service",
 		"nvidia-suspend.service", "nvidia-resume.service", "nvidia-hibernate.service",
 		"nvidia-suspend-then-hibernate.service",
+		"serial-getty@ttyS0.service", "power-profiles-daemon.service", "tlp.service",
+		"thermald.service", "upower.service",
 	} {
 		t.Run(u, func(t *testing.T) {
 			f := unitFake(map[string]string{"fine.service": show("fine.service", "fine.service", "enabled", "inactive")})
@@ -432,13 +434,71 @@ func TestDisableUnitOnlyReadsInstallOfUnitsItDisables(t *testing.T) {
 }
 
 func TestParseInstall(t *testing.T) {
-	got := parseInstall("# /usr/lib/systemd/system/a.service\n[Unit]\nAlso=no.service\n[Install]\n; c\n" +
+	got, err := parseInstall("# /usr/lib/systemd/system/a.service\n[Unit]\nAlso=no.service\nDescription=\"quoted\" 100% #1\n[Install]\n; c\n" +
 		"WantedBy=multi-user.target  graphical.target\nAlso = a.socket\n\n" +
-		"# /etc/systemd/system/a.service.d/o.conf\n[Install]\nAlso=\nAlso=b.socket \\\n c.socket\n[Service]\nAlso=no2.service\n")
+		"# /etc/systemd/system/a.service.d/o.conf\n[Install]\nAlso=\nAlso=b.socket \\\n c.socket\n[Service]\nAlso=no2.service\nExecStart=/bin/x\n")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if w := []string{"multi-user.target", "graphical.target"}; !slices.Equal(got["WantedBy"], w) {
 		t.Errorf("WantedBy = %q, want %q", got["WantedBy"], w)
 	}
 	if w := []string{"a.socket", "b.socket", "c.socket"}; !slices.Equal(got["Also"], w) {
 		t.Errorf("Also = %q, want %q (resets ignored, continuation joined)", got["Also"], w)
 	}
+}
+
+func TestParseInstallContinuation(t *testing.T) {
+	for name, c := range map[string]struct {
+		in   string
+		want []string
+	}{
+		// systemd skips a comment line inside a continuation; joining it
+		// would turn "#" into part of the value and hide c.socket.
+		"comment inside":   {"[Install]\nAlso=a.socket \\\n# b.socket \\\n; x\n c.socket\n", []string{"a.socket", "c.socket"}},
+		"several lines":    {"[Install]\nAlso=a.socket \\\n b.socket \\\n c.socket\n", []string{"a.socket", "b.socket", "c.socket"}},
+		"a lone backslash": {"[Install]\n\\\nAlso=a.socket\n", []string{"a.socket"}},
+		"continued at EOF": {"[Install]\nAlso=a.socket \\", []string{"a.socket"}},
+		"blank line ends":  {"[Install]\nAlso=a.socket \\\n\nAlso=b.socket\n", []string{"a.socket", "b.socket"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := parseInstall(c.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got["Also"], c.want) {
+				t.Errorf("Also = %q, want %q", got["Also"], c.want)
+			}
+		})
+	}
+}
+
+func TestParseInstallRefusesWhatItCantRead(t *testing.T) {
+	for name, in := range map[string]string{
+		"double quote":             "[Install]\nAlso=\"a b.socket\"\n",
+		"single quote":             "[Install]\nWantedBy='x.target'\n",
+		"backslash escape":         "[Install]\nAlso=a\\x2dsshd.socket\n",
+		"specifier":                "[Install]\nWantedBy=getty@%i.service\n",
+		"hash in mid-line":         "[Install]\nAlso=a.socket # sshd.socket\n",
+		"no =":                     "[Install]\nWantedBy multi-user.target\n",
+		"after continuation":       "[Install]\nAlso=a.socket \\\n \"b c\".socket\n",
+		"in a drop-in":             "[Install]\nWantedBy=a.target\n# /etc/x.d/o.conf\n[Install]\nAlias=%n\n",
+		"continued at EOF, no =":   "[Install]\nAlso \\",
+		"other [Install] keys too": "[Install]\nDefaultInstance=%H\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got, err := parseInstall(in); err == nil {
+				t.Errorf("parsed %q as %q, want an error", in, got)
+			}
+		})
+	}
+	t.Run("disable-unit refuses it", func(t *testing.T) {
+		f := installFake(
+			map[string]string{"a.service": idle("a.service")},
+			map[string]string{"a.service": "[Install]\nWantedBy=multi-user.target\nAlso=\"b.socket\"\n"},
+		)
+		if msg := refusedWithoutRunning(t, f, "a.service"); !strings.Contains(msg, "cannot vet") {
+			t.Errorf("error %q", msg)
+		}
+	})
 }

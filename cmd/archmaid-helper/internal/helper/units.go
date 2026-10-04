@@ -1,6 +1,7 @@
 package helper
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -123,6 +124,9 @@ func (s *session) vetInstall(todo []string, states map[string]unitState) (int, s
 		// carry an [Install] section, so only a missing one goes unread.
 		if st.load != "not-found" {
 			if err := s.readInstall(it.unit, &st); err != nil {
+				if errors.As(err, new(refusal)) { // read, but not something we can vet
+					return ExitRefused, fmt.Sprintf("refusing to disable %s: %v", it.from, err)
+				}
 				if companion {
 					return ExitRefused, fmt.Sprintf("refusing to disable %s: cannot read the [Install] section of its Also= unit %s: %v", it.from, it.unit, err)
 				}
@@ -269,7 +273,10 @@ func (s *session) readInstall(u string, st *unitState) error {
 	if exit != 0 {
 		return fmt.Errorf("systemctl cat %s exited %d: %s", u, exit, firstLine(errOut))
 	}
-	in := parseInstall(out)
+	in, err := parseInstall(out)
+	if err != nil {
+		return refuse("cannot vet the [Install] section of %s: %v", u, err)
+	}
 	st.names = append(st.names, in["Alias"]...)
 	st.wantedBy = append(st.wantedBy, in["WantedBy"]...)
 	st.wantedBy = append(st.wantedBy, in["RequiredBy"]...)
@@ -281,19 +288,20 @@ func (s *session) readInstall(u string, st *unitState) error {
 // parseInstall collects the [Install] values of every file in `systemctl
 // cat` output. It deliberately ignores list resets (an empty `Also=` in a
 // drop-in) and takes the union: over-reading can only refuse more.
-func parseInstall(cat string) map[string][]string {
+//
+// Lines are joined the way systemd joins them: a trailing backslash
+// continues the line, and a comment line inside a continuation is skipped,
+// not joined. The helper splits values on whitespace only, so anything
+// systemd would read differently is an error rather than a guess: an
+// [Install] value with a quote or a backslash (systemd unquotes and
+// unescapes), a % (a specifier), or a # (not a comment in mid-line: systemd
+// would read it as part of a name), and an [Install] line without "=".
+func parseInstall(cat string) (map[string][]string, error) {
 	m := map[string][]string{}
 	inInstall := false
 	var cont string
-	for l := range strings.SplitSeq(cat, "\n") {
-		l = strings.TrimSpace(l)
-		if cont != "" {
-			l, cont = cont+" "+l, ""
-		}
-		if strings.HasSuffix(l, `\`) {
-			cont = strings.TrimSuffix(l, `\`)
-			continue
-		}
+	inCont := false
+	line := func(l string) error {
 		switch {
 		case l == "", l[0] == '#', l[0] == ';':
 		case l[0] == '[':
@@ -301,13 +309,38 @@ func parseInstall(cat string) map[string][]string {
 		case inInstall:
 			k, v, ok := strings.Cut(l, "=")
 			if !ok {
-				continue
+				return fmt.Errorf("line %q has no \"=\"", l)
+			}
+			if strings.ContainsAny(v, "\"'\\%#") {
+				return fmt.Errorf("value %q contains a quote, backslash, %% or #", strings.TrimSpace(v))
 			}
 			k = strings.TrimSpace(k)
 			m[k] = append(m[k], strings.Fields(v)...)
 		}
+		return nil
 	}
-	return m
+	for l := range strings.SplitSeq(cat, "\n") {
+		l = strings.TrimSpace(l)
+		if inCont {
+			if l != "" && (l[0] == '#' || l[0] == ';') {
+				continue // a comment inside a continuation is skipped
+			}
+			l, cont, inCont = strings.TrimSpace(cont+" "+l), "", false
+		}
+		if strings.HasSuffix(l, `\`) {
+			cont, inCont = strings.TrimSuffix(l, `\`), true
+			continue
+		}
+		if err := line(l); err != nil {
+			return nil, err
+		}
+	}
+	if inCont {
+		if err := line(strings.TrimSpace(cont)); err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
 }
 
 // Units the helper never disables, whatever the caller asks. Exact entries
@@ -322,7 +355,7 @@ func parseInstall(cat string) map[string][]string {
 // is refused as systemd-logind.service.
 var (
 	unitDenyPrefixes = []string{
-		"systemd-", "polkit", "getty@", "NetworkManager", "sshd", "coolercontrold",
+		"systemd-", "polkit", "getty@", "serial-getty@", "NetworkManager", "sshd", "coolercontrold",
 		"ly@",
 	}
 	unitDenyExact = []string{
@@ -334,6 +367,8 @@ var (
 		"firewalld", "nftables", "iptables", "ip6tables", "ufw", "apparmor", "auditd",
 		// sleep handling
 		"nvidia-suspend", "nvidia-resume", "nvidia-hibernate", "nvidia-suspend-then-hibernate",
+		// power and thermal management (and the battery state desktops rely on)
+		"power-profiles-daemon", "tlp", "thermald", "upower",
 	}
 	// sleepUnits: a unit wanted or required by any of these runs around
 	// suspend/hibernate; disabling it can break resume.
