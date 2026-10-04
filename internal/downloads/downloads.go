@@ -17,7 +17,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
+
+	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
 // ── which folder is "Downloads" ──────────────────────────────────────────────
@@ -57,10 +58,9 @@ type Options struct {
 	XDGConfigHome string // $XDG_CONFIG_HOME
 
 	// Delete and display.
-	DryRun    bool                // report what would be deleted, delete nothing
-	Now       func() time.Time    // the clock for the age check (nil: time.Now); tests move it, as they can't set ctimes
-	Sanitize  func(string) string // strips unsafe text from names and paths (nil: drops control and format characters)
-	EntryHook func(name string)   // if set, runs before each entry is handled (before the abort check): a test seam
+	DryRun    bool              // report what would be deleted, delete nothing
+	Now       func() time.Time  // the clock for the age check (nil: time.Now); tests move it, as they can't set ctimes
+	EntryHook func(name string) // if set, runs before each entry is handled (before the abort check): a test seam
 }
 
 func (o Options) now() time.Time {
@@ -68,18 +68,6 @@ func (o Options) now() time.Time {
 		return o.Now()
 	}
 	return time.Now()
-}
-
-func (o Options) sanitize(s string) string {
-	if o.Sanitize != nil {
-		return o.Sanitize(s)
-	}
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
-			return -1
-		}
-		return r
-	}, s)
 }
 
 // homes is what the resolver knows about the home folder.
@@ -264,7 +252,6 @@ type Plan struct {
 	Shown string   // Dir as the user thinks of it (~/…), sanitized
 	Names []string // old entries, sorted; the folder itself is never one
 	id    dirID
-	san   func(string) string
 }
 
 // Scan lists the old entries of dir (resolved, see Resolve): those whose
@@ -290,7 +277,7 @@ func Scan(dir string, now time.Time, o Options) (Plan, error) {
 	if err != nil {
 		return Plan{}, errors.New("Couldn't read " + shown + ": " + PathErrCause(err))
 	}
-	return Plan{Dir: dir, Shown: shown, Names: names, id: id, san: o.sanitize}, nil
+	return Plan{Dir: dir, Shown: shown, Names: names, id: id}, nil
 }
 
 // Confirm asks about the entries by name: the first confirmList of them, then
@@ -303,7 +290,7 @@ func (p Plan) Confirm() string {
 			fmt.Fprintf(&b, "\n  …and %d more", len(p.Names)-i)
 			break
 		}
-		b.WriteString("\n  " + displayName(n, p.san))
+		b.WriteString("\n  " + sanitize.QuoteName(n, 60))
 	}
 	return b.String()
 }
@@ -498,11 +485,11 @@ func Delete(ctx context.Context, p Plan, o Options) (Result, error) {
 			o.EntryHook(name)
 		}
 		if ctx.Err() != nil {
-			fmt.Fprintf(&out, "stopped: aborted before %s\n", displayName(name, o.sanitize))
+			fmt.Fprintf(&out, "stopped: aborted before %s\n", sanitize.QuoteName(name, 60))
 			errs = append(errs, ctx.Err())
 			break
 		}
-		shownName := displayName(name, o.sanitize)
+		shownName := sanitize.QuoteName(name, 60)
 		switch {
 		case !entryIsOld(root.FS(), name, cutoff, b):
 			kept++
@@ -636,20 +623,6 @@ func PathErrCause(err error) string {
 	return err.Error()
 }
 
-// displayName renders an entry name on one line: a name with control
-// characters (a newline would forge extra list lines; escapes could restyle
-// the popup) or invalid UTF-8 is shown quoted with escapes, and a long one is
-// cut to fit the popup. sanitize judges what is unsafe.
-func displayName(name string, sanitize func(string) string) string {
-	if sanitize(name) != name || strings.ContainsAny(name, "\n\t") {
-		name = strconv.Quote(name)
-	}
-	if r := []rune(name); len(r) > 60 {
-		name = string(r[:59]) + "…"
-	}
-	return name
-}
-
 // displayPath shows a resolved path the way the user thinks of it: ~/… when
 // it's inside $HOME, sanitized since it comes from the environment.
 func displayPath(p string, o Options) string {
@@ -657,5 +630,5 @@ func displayPath(p string, o Options) string {
 		rel, _ := filepath.Rel(home, p)
 		p = "~/" + rel
 	}
-	return o.sanitize(p)
+	return sanitize.String(p, sanitize.Plain)
 }

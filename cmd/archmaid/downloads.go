@@ -45,7 +45,6 @@ func downloadsOptions() downloads.Options {
 		XDGConfigHome: os.Getenv("XDG_CONFIG_HOME"),
 		DryRun:        dryRun,
 		Now:           downloadsNow,
-		Sanitize:      func(s string) string { return sanitize.String(s, sanitize.Plain) },
 		EntryHook:     downloadsEntryHook,
 	}
 }

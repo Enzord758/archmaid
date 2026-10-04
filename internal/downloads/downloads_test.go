@@ -534,14 +534,14 @@ func TestDownloadsConfirmListsEntries(t *testing.T) {
 	for i := range 13 {
 		names = append(names, fmt.Sprintf("f%02d", i))
 	}
-	got := Plan{Shown: "~/Downloads", Names: names, san: Options{}.sanitize}.Confirm()
+	got := Plan{Shown: "~/Downloads", Names: names}.Confirm()
 	if !strings.Contains(got, "Delete 13 item(s) older than 30 days in ~/Downloads?") ||
 		!strings.Contains(got, "f09") || strings.Contains(got, "f10") ||
 		!strings.Contains(got, "…and 3 more") {
 		t.Fatalf("confirm = %q", got)
 	}
 
-	evil := Plan{Shown: "~/Downloads", Names: []string{"a\nb", "x\x1b]52;c;Zm9v\x07"}, san: Options{}.sanitize}.Confirm()
+	evil := Plan{Shown: "~/Downloads", Names: []string{"a\nb", "x\x1b]52;c;Zm9v\x07"}}.Confirm()
 	if strings.ContainsAny(strings.SplitN(evil, "\n\n", 2)[1], "\x1b\x07") ||
 		strings.Count(evil, "\n") != 3 {
 		t.Fatalf("unsafe name rendered raw: %q", evil)
