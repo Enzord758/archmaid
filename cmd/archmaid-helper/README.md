@@ -137,8 +137,13 @@ In order, before anything else:
    every inherited fd above 2 is closed. The Go runtime's own netpoller fds
    (eventpoll/eventfd) can't be told apart from inherited ones of the same
    kind, so those are set close-on-exec instead of closed.
-2. `SIGPIPE` is ignored. If the GUI dies, writes to stdout just fail and the
-   helper keeps draining the child, so pacman is never killed mid-transaction.
+2. `SIGPIPE`, `SIGINT`, `SIGHUP` and `SIGTERM` are ignored for the whole run,
+   so the helper always finishes and writes its `result` line. If the GUI dies,
+   writes to stdout just fail and the helper keeps draining the child, so
+   pacman is never killed mid-transaction. A Ctrl-C or a closed terminal
+   (`pkexec` from a shell) is ignored the same way. The dispositions are
+   `SIG_IGN`, so children inherit them. pacman still sets up its own
+   `SIGINT`/`SIGHUP` handling. Only root can stop the helper, with `SIGKILL`.
 3. Privilege, for every verb except `plan-orphans`: euid must be 0;
    `PKEXEC_UID` or `SUDO_UID` must be a decimal uid; `/proc/self/exe` must be
    exactly `/usr/lib/archmaid/archmaid-helper`. That file and every parent up

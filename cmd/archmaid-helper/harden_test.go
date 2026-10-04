@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -43,7 +44,48 @@ func TestMain(m *testing.M) {
 		json.NewEncoder(os.Stdout).Encode(r)
 		os.Exit(0)
 	}
+	if os.Getenv(signalChildEnv) == "1" {
+		ignoreSignals()
+		for _, sig := range ignoredSignals {
+			syscall.Kill(os.Getpid(), sig.(syscall.Signal))
+		}
+		// Still here. What does a child inherit? (cat reads its own status.)
+		out, _ := exec.Command("/usr/bin/cat", "/proc/self/status").Output()
+		for l := range strings.SplitSeq(string(out), "\n") {
+			if v, ok := strings.CutPrefix(l, "SigIgn:"); ok {
+				os.Stdout.WriteString(strings.TrimSpace(v))
+			}
+		}
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
+}
+
+// signalChild is the re-exec'd half of TestIgnoreSignals.
+const signalChildEnv = "ARCHMAID_HELPER_SIGNAL_CHILD"
+
+// TestIgnoreSignals: a terminal's Ctrl-C or hangup, a SIGTERM or a closed
+// pipe must not end the helper before its result line.
+func TestIgnoreSignals(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "-test.run=^$")
+	cmd.Env = []string{signalChildEnv + "=1"}
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("child did not survive its own signals: %v", err)
+	}
+	mask, err := strconv.ParseUint(string(out), 16, 64)
+	if err != nil {
+		t.Fatalf("SigIgn %q: %v", out, err)
+	}
+	for _, sig := range ignoredSignals {
+		if n := sig.(syscall.Signal); mask&(1<<(n-1)) == 0 {
+			t.Errorf("a child of the helper does not inherit SIG_IGN for %v (SigIgn %s)", sig, out)
+		}
+	}
 }
 
 func TestHardenProcess(t *testing.T) {
