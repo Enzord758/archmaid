@@ -19,12 +19,14 @@ var raceEnabled bool
 // ARCHMAID_PERF_GUARD=1 (scripts/check.sh then runs it as its own step), and
 // skips under -race or coverage, whose overhead isn't the code's. The
 // baselines are the medians of `go test -run '^$' -bench
-// 'StreamView|SystemStatus|ActivateFullCleanup' -count=6` on the dev machine
+// 'StreamView|SystemStatus|ActivateFullCleanup|ViewRunning' -count=6` on the dev machine
 // (Ryzen 7 7800X3D, 16 threads, go1.27.1); a benchmark fails only above 3×
 // its baseline. StreamView20k is the one that catches the quadratic
 // regression: it would be ~250× over. ActivateFullCleanup has a fixed 1 ms
 // limit instead: what it guards against is pacman running on the UI thread
 // again (the eager orphan query cost 130–200 ms), not a few microseconds.
+// ViewRunning (one Running-screen frame, a full output tail) has a fixed
+// 600 µs limit too: the frame is redrawn on every batch and spinner tick.
 // Re-measure and update the baselines when the code or the machine
 // legitimately changes.
 func TestPerfGuard(t *testing.T) {
@@ -45,6 +47,7 @@ func TestPerfGuard(t *testing.T) {
 		{"StreamView20k", 20600 * time.Microsecond, BenchmarkStreamView20k, 0},                          // limit 61.8 ms
 		{"SystemStatus", 28200 * time.Nanosecond, BenchmarkSystemStatus, 0},                             // limit 84.6 µs
 		{"ActivateFullCleanup", 4900 * time.Nanosecond, BenchmarkActivateFullCleanup, time.Millisecond}, // limit 1 ms (fixed)
+		{"ViewRunning", 154 * time.Microsecond, BenchmarkViewRunning, 600 * time.Microsecond},           // limit 600 µs (fixed); median of 6: 154 µs, 633 allocs
 	} {
 		t.Run(bc.name, func(t *testing.T) {
 			limit := factor * bc.baseline
