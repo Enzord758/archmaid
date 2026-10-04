@@ -388,6 +388,8 @@ func (w *Window) statusText() string {
 		}
 	case m.Busy != "":
 		parts = append(parts, m.Busy)
+	case m.Auth != nil && m.Auth.Kind == engine.WaitPolkit:
+		parts = append(parts, "Waiting for authorisation")
 	case m.Phase == engine.PhaseRunning:
 		parts = append(parts, "Running")
 	case m.Phase == engine.PhaseProbing:

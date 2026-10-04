@@ -73,6 +73,28 @@ type Row struct {
 	State               RowState
 	Elapsed             time.Duration
 	Err                 string
+	// Waiting: polkit's agent has the user's attention for this step (the
+	// root helper started through pkexec and nothing came back yet).
+	Waiting bool
+	// Faillock is the faillock count read before this helper step, if it
+	// was readable: a warning on the row when one more failure locks the
+	// account, the unlock time when it is locked.
+	Faillock *engine.FaillockState
+}
+
+// LastAttempt reports whether one more failed authorisation locks the
+// account.
+func LastAttempt(f engine.FaillockState) bool {
+	return !f.Locked && f.Deny > 0 && f.Failures == f.Deny-1
+}
+
+// lockText is the note for a locked account: when it unlocks, if
+// pam_faillock unlocks it on its own.
+func lockText(f engine.FaillockState) string {
+	if f.Unlock.IsZero() {
+		return "account locked"
+	}
+	return "account locked until " + f.Unlock.Local().Format("15:04")
 }
 
 // Subtitle is the row's second line: its state and time.
@@ -81,6 +103,12 @@ func (r Row) Subtitle() string {
 	case RowPending:
 		return ""
 	case RowRunning:
+		if r.Waiting {
+			if r.Faillock != nil && LastAttempt(*r.Faillock) {
+				return "Waiting for authorisation… · one more failure locks your account"
+			}
+			return "Waiting for authorisation…"
+		}
 		if r.Elapsed > 0 {
 			return "Running · " + fmtElapsed(r.Elapsed)
 		}
@@ -93,7 +121,13 @@ func (r Row) Subtitle() string {
 	case RowSkipped:
 		return "Skipped"
 	case RowAuthRefused:
-		return "Not authorized"
+		// A refused or cancelled polkit dialog, a locked account, three
+		// wrong passwords: the user's call or the account's state, not an
+		// error.
+		if r.Faillock != nil && r.Faillock.Locked {
+			return "Not authorised · " + lockText(*r.Faillock)
+		}
+		return "Not authorised"
 	case RowAborted:
 		return "Stopped · " + fmtElapsed(r.Elapsed)
 	case RowNotRun:
@@ -147,13 +181,17 @@ type Model struct {
 	Prompt   *Prompt // the open prompt, or nil
 	Stat     engine.StatusUpdated
 	Logs     []engine.LogWritten
-	// Auth is the open AuthWaiting, or nil.
-	//
-	// TODO(E6): polkit dialog → helper progress. AuthWaiting{WaitPolkit}
-	// should mark its step's row "Waiting for authorization" and
-	// FaillockState should warn before the attempt that locks the account;
-	// both need the real Driver to be exercised.
+	// Auth is the open AuthWaiting, or nil. A WaitPolkit one also marks
+	// its step's row Waiting until AuthResolved.
 	Auth *engine.AuthWaiting
+	// Faillock is the latest faillock count read (before a polkit helper
+	// step), or nil. pendingLock is it until the step it was read for
+	// starts or is refused, which then carries it.
+	Faillock    *engine.FaillockState
+	pendingLock *engine.FaillockState
+	// warned is the count last warned about in a toast, so each helper
+	// step doesn't repeat the same warning.
+	warned engine.FaillockState
 
 	// Lines counts every output line received; Dropped those the Driver or
 	// the pump dropped before they reached the view.
@@ -237,7 +275,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		switch ev := ev.(type) {
 		case engine.QueueStarted:
 			m.Action, m.DryRun, m.Running, m.Finished, m.Notice = ev.Action, ev.DryRun, true, nil, ""
-			m.Rows = m.Rows[:0]
+			m.Rows, m.Auth, m.pendingLock = m.Rows[:0], nil, nil
 			for _, s := range ev.Steps {
 				m.Rows = append(m.Rows, Row{ID: s.ID, Title: s.Title, NeedsPriv: s.NeedsPriv, Optional: s.Optional})
 			}
@@ -266,6 +304,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.StepStarted:
 			if i := m.row(ev.ID, ev.Index); i >= 0 {
 				m.Rows[i].State, m.Rows[i].Elapsed = RowRunning, 0
+				m.Rows[i].Faillock, m.pendingLock = m.pendingLock, nil
 				touch(i)
 				m.push("── " + m.Rows[i].Title)
 			}
@@ -282,6 +321,11 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.StepDone:
 			if i := m.row(ev.ID, ev.Index); i >= 0 {
 				m.Rows[i].State, m.Rows[i].Elapsed, m.Rows[i].Err = doneState(ev.Status), ev.Elapsed, ev.Err
+				m.Rows[i].Waiting = false
+				if m.pendingLock != nil {
+					// Refused without starting: the account is locked.
+					m.Rows[i].Faillock, m.pendingLock = m.pendingLock, nil
+				}
 				touch(i)
 			}
 		case engine.Aborted:
@@ -313,9 +357,33 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.AuthWaiting:
 			a := ev
 			m.Auth = &a
+			if ev.Kind == engine.WaitPolkit {
+				if i := m.row(ev.Step, -1); i >= 0 {
+					m.Rows[i].Waiting = true
+					touch(i)
+				}
+			}
 			c.Status = true
 		case engine.AuthResolved:
+			if a := m.Auth; a != nil && a.Kind == engine.WaitPolkit {
+				if i := m.row(a.Step, -1); i >= 0 && m.Rows[i].Waiting {
+					m.Rows[i].Waiting = false
+					touch(i)
+				}
+			}
 			m.Auth = nil
+			c.Status = true
+		case engine.FaillockState:
+			f := ev
+			m.Faillock, m.pendingLock = &f, &f
+			if (f.Locked || LastAttempt(f)) && f != m.warned {
+				m.warned = f
+				if f.Locked {
+					c.Toasts = append(c.Toasts, "Your "+lockText(f)+": archmaid won't ask for authorisation")
+				} else {
+					c.Toasts = append(c.Toasts, "One more failed authorisation locks your account")
+				}
+			}
 			c.Status = true
 		case engine.PhaseChanged:
 			m.Phase, m.Busy = ev.Phase, ev.Busy
