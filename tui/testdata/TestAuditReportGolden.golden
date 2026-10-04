@@ -11,9 +11,9 @@ AUR audit
 │ ⚠ orphaned-thing-git  orphaned · 0 votes                                   │
 │ ⚠ fresh-pkg           modified 5h ago                                      │
 │                                                                            │
+│ Flagged maintainers stay flagged on every audit until you've checked them  │
+│ and press a to accept.                                                     │
 │ Recent = pushed within 72h, the same window as the yay cooldown hook.      │
-│                                                                            │
-│                                                                            │
 │                                                                            │
 │                                                                            │
 │                                                                            │

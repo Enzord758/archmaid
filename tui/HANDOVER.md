@@ -77,6 +77,19 @@ comments and `git log`; this is the "read before you touch it" list.
   *current* maintainer, never adoption history. Consequence: the first audit only
   records a baseline. It is archmaid's only network call. A dry run reads the
   snapshot but never advances it.
+- **Saving the snapshot is the acknowledgement, so it happens only on accept.**
+  `performAudit` never writes; callers run a commit. Full Cleanup hands it to
+  topgrade's gate as `step.onAccept`: "yes" saves (logged `ACCEPT`), "no" or an
+  abort drops it, so the same change gates the next run too. With nothing high
+  it saves at once. The menu audit saves everything *except* the high findings
+  straight away; `a` on the report accepts those. Don't move the save back
+  into the audit: then one "no" spends the alarm for good.
+- **A corrupt snapshot fails closed.** Only a missing file is "first audit";
+  anything unreadable is a high finding that gates topgrade, and is only
+  replaced on accept (moved aside as `aur-maintainers.json.corrupt-<time>`).
+  Reading it as missing would silently re-baseline over a takeover. Writes are
+  atomic (0600 temp + fsync + rename + dir fsync) under a non-blocking flock on
+  `aur-maintainers.lock`; a held lock skips the save (logged `WARN`).
 - **Full Cleanup opens with the audit, directly in front of topgrade.** It runs
   as an in-process step (`step.run`, a `tea.Cmd` — not a shell command, and not
   signalable; an abort just drops its late result via `stepSeq`). A

@@ -231,10 +231,14 @@ func (m model) viewLog() string {
 // viewAudit has the same chrome as viewLog (header + title line + boxed pager
 // + hint), so resizeOutput's fixed row budget for the log viewer applies.
 func (m model) viewAudit() string {
+	hint := "↑/↓ scroll · q back"
+	if m.auditCommit != nil {
+		hint = "↑/↓ scroll · a accept maintainer changes · q back"
+	}
 	return m.header() + "\n" +
 		statusStyle.Render("AUR audit") + "\n" +
 		outputPaneStyle.Width(m.output.Width).Render(m.output.View()) + "\n" +
-		hintStyle.Render("↑/↓ scroll · q back")
+		hintStyle.Render(hint)
 }
 
 func (m model) viewNotice() string {

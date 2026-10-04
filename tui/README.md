@@ -66,7 +66,10 @@ straight over via `lipgloss`).
   doesn't advance it. **Full Cleanup runs it as its first step**, directly in
   front of topgrade: a high-severity finding puts a confirm naming the
   package(s) in front of the update (defaults to No; declining skips only the
-  update, and the rest of the cleanup runs). An unreachable AUR fails that step
+  update, and the rest of the cleanup runs). A maintainer change is only
+  recorded once accepted (that confirm, or `a` on the audit report), so until
+  then it's flagged on every audit; an unreadable snapshot is flagged high
+  too, never treated as a first audit. An unreachable AUR fails that step
   but doesn't gate anything. The 72h window matches the yay cooldown hook in
   `~/.config/yay/init.lua` (holds back AUR upgrades pushed to in the last 72h,
   logged to `~/.local/state/yay/cooldown.log`; `YAY_NO_COOLDOWN=1` bypasses it).

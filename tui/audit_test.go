@@ -301,7 +301,8 @@ func TestSaveBaselineSkipsWhenLocked(t *testing.T) {
 }
 
 // TestCorruptSnapshotFailsClosed: an unreadable snapshot is a high finding
-// that gates the update, and the bad file is kept aside, not overwritten.
+// that gates the update. Neither the audit nor the menu's partial save touch
+// it; accepting replaces it and keeps the bad file aside, not overwritten.
 func TestCorruptSnapshotFailsClosed(t *testing.T) {
 	auditEnv(t)
 	shimPacmanForeign(t, "steady\n")
@@ -314,6 +315,19 @@ func TestCorruptSnapshotFailsClosed(t *testing.T) {
 	}
 	if !strings.Contains(r.output, "[HIGH] maintainer snapshot") || !strings.Contains(r.output, "1 high, 0 glance, 1 clean") {
 		t.Fatalf("output:\n%s", r.output)
+	}
+	if menu := runAudit(auditNow); menu.commit == nil {
+		t.Fatal("the menu audit should offer `a` to replace the corrupt snapshot")
+	}
+	if b, _ := os.ReadFile(baselinePath()); string(b) != "{garbage" {
+		t.Fatalf("an unanswered audit must leave the corrupt snapshot alone, got %q", b)
+	}
+
+	if err := r.commit(); err != nil { // the gate is accepted
+		t.Fatal(err)
+	}
+	if got, state := loadBaseline(); state != baselineOK || got["steady"] != "alice" {
+		t.Fatalf("accepting should save a fresh baseline, state=%d snapshot=%v", state, got)
 	}
 	aside, _ := filepath.Glob(baselinePath() + ".corrupt-*")
 	if len(aside) != 1 {
@@ -407,6 +421,64 @@ func TestRunAuditNotices(t *testing.T) {
 	}
 	if _, err := os.Stat(baselinePath()); !os.IsNotExist(err) {
 		t.Fatal("a failed audit must not touch the snapshot")
+	}
+}
+
+// TestMenuAuditHoldsHighFindingsUntilAccepted: the menu audit records the
+// unflagged and glance-level maintainers right away, but keeps a maintainer
+// change out of the snapshot until `a` accepts it. Leaving with q keeps it
+// flagged.
+func TestMenuAuditHoldsHighFindingsUntilAccepted(t *testing.T) {
+	auditEnv(t)
+	shimPacmanForeign(t, "fresh\nsteady\nvictim\n")
+	fakeAUR(t, map[string]aurInfo{
+		"fresh":  {Name: "fresh", Maintainer: strp("carol"), LastModified: aged(24 * 90), NumVotes: 10},
+		"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10},
+		"victim": {Name: "victim", Maintainer: strp("mallory"), LastModified: aged(24 * 90), NumVotes: 10},
+	})
+	saveBaseline([]string{"steady", "victim"}, map[string]aurInfo{
+		"steady": {Name: "steady", Maintainer: strp("alice")},
+		"victim": {Name: "victim", Maintainer: strp("bob")},
+	}, nil)
+
+	msg := runAudit(auditNow)
+	if msg.commit == nil || !strings.Contains(msg.report, "press a to accept") {
+		t.Fatalf("a high finding should be acceptable with a, commit=%v report:\n%s", msg.commit != nil, msg.report)
+	}
+	if snap, _ := loadBaseline(); snap["victim"] != "bob" || snap["fresh"] != "carol" {
+		t.Fatalf("snapshot = %v, want victim held at bob and fresh recorded", snap)
+	}
+
+	m := initialModel()
+	m = update(m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m.screen = screenDiscovering
+	m = update(m, msg)
+	if !strings.Contains(m.View(), "a accept maintainer changes") {
+		t.Fatalf("audit screen should hint at a:\n%s", m.View())
+	}
+	if back := update(m, key("q")); back.auditCommit != nil {
+		t.Fatal("leaving the report must drop the pending accept")
+	}
+	if again := runAudit(auditNow); !strings.Contains(again.report, "bob → mallory") {
+		t.Fatalf("an unaccepted change must be flagged again:\n%s", again.report)
+	}
+
+	got := update(m, key("a"))
+	if got.screen != screenNotice || got.bg != screenAudit || !strings.Contains(got.notice, "accepted") || got.auditCommit != nil {
+		t.Fatalf("screen=%d bg=%d notice=%q commit=%v", got.screen, got.bg, got.notice, got.auditCommit != nil)
+	}
+	if snap, _ := loadBaseline(); snap["victim"] != "mallory" {
+		t.Fatalf("snapshot = %v, want victim accepted as mallory", snap)
+	}
+	if log, _ := os.ReadFile(logPath(logCategoryAudit)); !strings.Contains(string(log), "ACCEPT: AUR maintainer changes accepted") {
+		t.Fatalf("the accept should be on record:\n%s", log)
+	}
+	third := runAudit(auditNow)
+	if third.commit != nil || strings.Contains(third.report, "maintainer changed") {
+		t.Fatalf("an accepted change must not be flagged again:\n%s", third.report)
+	}
+	if v := update(m, discoveryMsg{kind: "audit", report: third.report}).View(); strings.Contains(v, "a accept") {
+		t.Fatalf("no a hint without anything to accept:\n%s", v)
 	}
 }
 

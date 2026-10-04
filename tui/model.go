@@ -99,6 +99,11 @@ type model struct {
 	logCat    logCategory // category currently open in screenLog
 	logReturn screen      // screen to return to on esc from screenLogPicker
 
+	// auditCommit accepts the open audit report's high findings into the
+	// maintainer snapshot (`a` on screenAudit); nil when there's nothing to
+	// accept. Leaving the screen drops it.
+	auditCommit func() error
+
 	// running-queue state
 	queue   []stepState
 	current int              // index into queue

@@ -28,6 +28,9 @@ type step struct {
 	// "no" means: skip just this step (optional) vs. abort the whole queue.
 	confirm  string
 	optional bool
+	// onAccept, if set, runs when confirm is answered yes, before the step
+	// launches (the audit's snapshot commit; see stepResult.commit).
+	onAccept func() error
 
 	// needsSudo steps are grouped so we can prime `sudo -v` once up front
 	// (see primeSudo) instead of prompting mid-run behind a spinner.
@@ -56,11 +59,16 @@ type step struct {
 // output pane and logged like a command's output; err fails the step.
 // confirmNext, if set, puts a confirm in front of the *next* step and makes
 // it optional, so declining skips just that step (the audit uses this to
-// gate topgrade on a high-severity finding).
+// gate topgrade on a high-severity finding). commit, if set, is deferred work
+// that must wait for that answer: it becomes the next step's onAccept, so it
+// runs only if the confirm is accepted and is dropped on "no" or an abort.
+// Without a confirmNext it runs as soon as the result arrives. (The audit's
+// snapshot save: see saveSnapshot.)
 type stepResult struct {
 	output      string
 	err         error
 	confirmNext string
+	commit      func() error
 }
 
 // stepCategory is s.category, defaulting to logCategoryCleanup when unset.
@@ -430,6 +438,8 @@ type discoveryMsg struct {
 	services []string
 	report   string // rendered AUR-audit report (audit)
 	notice   string // set when there's nothing to do
+	// commit (audit) accepts the report's high findings into the snapshot (`a`)
+	commit func() error
 }
 
 type editorDoneMsg struct{ err error }

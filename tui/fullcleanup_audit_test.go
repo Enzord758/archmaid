@@ -269,3 +269,84 @@ func TestAuditStepRunsInDryRunAndLogsOnce(t *testing.T) {
 		t.Fatalf("want exactly one DRYRUN entry and no AUDIT entry:\n%s", log)
 	}
 }
+
+// ── when the snapshot advances ────────────────────────────────────────────────
+//
+// Saving the snapshot is what acknowledges a maintainer change, so it waits
+// for the gate's answer: "yes" records it, "no" leaves the alarm armed.
+
+// TestAuditStepDoesNotSaveByItself: the step only computes; the save is a
+// commit the model runs (immediately here, since nothing is flagged high).
+func TestAuditStepDoesNotSaveByItself(t *testing.T) {
+	auditEnv(t)
+	shimPacmanForeign(t, "steady\n")
+	fakeAUR(t, map[string]aurInfo{"steady": {Name: "steady", Maintainer: strp("alice"), LastModified: aged(24 * 90), NumVotes: 10}})
+
+	if r := runAuditStep(); r.commit == nil {
+		t.Fatal("a real run's audit should hand back a snapshot commit")
+	}
+	if _, state := loadBaseline(); state != baselineMissing {
+		t.Fatal("running the step alone must not save the snapshot")
+	}
+	startAudit(t, harmlessTopgrade())
+	if snap, state := loadBaseline(); state != baselineOK || snap["steady"] != "alice" {
+		t.Fatalf("with nothing high the snapshot is saved at once, state=%d snapshot=%v", state, snap)
+	}
+}
+
+// TestDecliningGateKeepsTheAlarm: "no" leaves the snapshot as it was, so the
+// next Full Cleanup gates on the same change again.
+func TestDecliningGateKeepsTheAlarm(t *testing.T) {
+	takeoverFixture(t)
+	update(startAudit(t, harmlessTopgrade()), key("n"))
+	if snap, _ := loadBaseline(); snap["victim"] != "bob" {
+		t.Fatalf("declining must not record the new maintainer, snapshot = %v", snap)
+	}
+
+	again := startAudit(t, harmlessTopgrade())
+	if again.screen != screenConfirm || !strings.Contains(again.confirmMsg, "victim changed maintainer") {
+		t.Fatalf("the next run should gate again, screen=%d confirm=%q", again.screen, again.confirmMsg)
+	}
+}
+
+// TestAcceptingGateRecordsTheChange: "yes" saves the snapshot (on record in
+// audit.log) as topgrade launches, and the next run doesn't gate.
+func TestAcceptingGateRecordsTheChange(t *testing.T) {
+	takeoverFixture(t)
+	got := update(startAudit(t, harmlessTopgrade()), key("y"))
+	if got.queue[1].status != statusRunning {
+		t.Fatalf("topgrade should have launched, status=%d", got.queue[1].status)
+	}
+	if snap, _ := loadBaseline(); snap["victim"] != "mallory" {
+		t.Fatalf("accepting should record the new maintainer, snapshot = %v", snap)
+	}
+	if log, _ := os.ReadFile(logPath(logCategoryAudit)); !strings.Contains(string(log), "ACCEPT: AUR maintainer changes accepted") {
+		t.Fatalf("audit.log:\n%s", log)
+	}
+
+	again := startAudit(t, harmlessTopgrade())
+	if again.queue[1].step.confirm != "" || again.queue[1].status != statusRunning {
+		t.Fatalf("an accepted change must not gate again, confirm=%q status=%d", again.queue[1].step.confirm, again.queue[1].status)
+	}
+}
+
+// TestAcceptingGateInDryRunSavesNothing: a dry run has no commit to run.
+func TestAcceptingGateInDryRunSavesNothing(t *testing.T) {
+	takeoverFixture(t)
+	dryRun = true
+	defer func() { dryRun = false }()
+	update(startAudit(t, harmlessTopgrade()), key("y"))
+	if snap, _ := loadBaseline(); snap["victim"] != "bob" {
+		t.Fatalf("a dry run must not advance the snapshot, snapshot = %v", snap)
+	}
+}
+
+// TestGateWithoutUpdateDropsTheCommit: a high finding with no step after the
+// audit has nothing to gate, so nothing is accepted and nothing is saved.
+func TestGateWithoutUpdateDropsTheCommit(t *testing.T) {
+	takeoverFixture(t)
+	startAudit(t)
+	if snap, _ := loadBaseline(); snap["victim"] != "bob" {
+		t.Fatalf("snapshot = %v, want it unchanged", snap)
+	}
+}

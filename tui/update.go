@@ -110,6 +110,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.kind == "audit" {
+			m.auditCommit = msg.commit
 			m.screen = screenAudit
 			m.resizeOutput()
 			m.output.SetContent(msg.report)
@@ -344,7 +345,19 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case screenAudit:
 		switch msg.String() {
 		case "esc", "q":
+			m.auditCommit = nil // leaving without accepting keeps the changes flagged
 			m.screen = screenMenu
+		case "a":
+			if m.auditCommit == nil {
+				return m, nil
+			}
+			m.notice = "Maintainer changes accepted: they won't be flagged again."
+			if err := m.auditCommit(); err != nil {
+				m.notice = "Snapshot not saved (" + shortErr(err) + "): the changes stay flagged."
+			}
+			m.auditCommit = nil
+			m.bg = screenAudit
+			m.screen = screenNotice
 		default:
 			var cmd tea.Cmd
 			m.output, cmd = m.output.Update(msg)
@@ -626,6 +639,9 @@ func (m model) resolveConfirm() (tea.Model, tea.Cmd) {
 		m.screen = screenSummary
 		return m, nil
 	}
+	if s.step.onAccept != nil {
+		s.step.onAccept() // a failure is logged by the callee and doesn't block the step
+	}
 	cmd := m.launch()
 	return m, cmd
 }
@@ -663,6 +679,9 @@ func (m model) handleStepResult(msg stepResultMsg) (tea.Model, tea.Cmd) {
 		next := &m.queue[m.current+1].step
 		next.confirm = msg.confirmNext
 		next.optional = true // declining skips just that step, not the queue
+		next.onAccept = msg.commit
+	} else if msg.confirmNext == "" && msg.commit != nil {
+		msg.commit()
 	}
 	return m.finishStep(msg.err)
 }

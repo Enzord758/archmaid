@@ -345,6 +345,59 @@ type auditResult struct {
 	total    int // foreign packages checked
 	findings []auditFinding
 	baseline baselineState // the snapshot this audit was diffed against
+
+	// what the next snapshot is built from (see saveSnapshot)
+	pkgs []string
+	info map[string]aurInfo
+	prev map[string]string
+}
+
+// saveSnapshot advances the maintainer snapshot to what this audit saw.
+// performAudit never saves: the caller decides when, because saving is what
+// acknowledges a maintainer change. Saved too early (before the user has
+// answered the gate), a declined change would read as settled next run.
+//
+// With holdHigh, packages with a high finding keep their previous maintainer,
+// so they're flagged again until acknowledged, and a corrupt snapshot is left
+// alone entirely (replacing it is itself the acknowledgement).
+func (r auditResult) saveSnapshot(holdHigh bool) error {
+	if holdHigh && r.baseline == baselineCorrupt {
+		return nil
+	}
+	next := nextBaseline(r.pkgs, r.info, r.prev)
+	if holdHigh {
+		for _, f := range r.findings {
+			if !f.high {
+				continue
+			}
+			if p, ok := r.prev[f.name]; ok {
+				next[f.name] = p
+			} else {
+				delete(next, f.name)
+			}
+		}
+	}
+	return writeBaseline(next)
+}
+
+// snapshotCommit is the deferred save for an audit's caller to run (nil in a
+// dry run, which never writes the snapshot). It logs a failed save — the
+// changes then stay flagged next time — and, with accepting, records that the
+// user accepted flagged maintainer changes.
+func snapshotCommit(res auditResult, holdHigh, accepting bool) func() error {
+	if dryRun {
+		return nil
+	}
+	return func() error {
+		if err := res.saveSnapshot(holdHigh); err != nil {
+			appendLog(logCategoryAudit, "WARN", "AUR snapshot not saved: "+err.Error(), "")
+			return err
+		}
+		if accepting {
+			appendLog(logCategoryAudit, "ACCEPT", "AUR maintainer changes accepted; snapshot updated", "")
+		}
+		return nil
+	}
 }
 
 func (r auditResult) high() int {
@@ -370,11 +423,11 @@ func (r auditResult) clean() int {
 // errNoForeign means there was nothing to audit.
 var errNoForeign = errors.New("no foreign packages installed")
 
-// performAudit runs the audit and advances the maintainer snapshot (except in
-// a dry run, which reads it but never writes it). Shared by the menu action
-// and Full Cleanup's audit step. Any error other than errNoForeign is the AUR
-// lookup failing. A corrupt snapshot becomes a high-severity finding of its
-// own (see snapshotFinding).
+// performAudit runs the audit against the maintainer snapshot without
+// advancing it (see saveSnapshot). Shared by the menu action and Full
+// Cleanup's audit step. Any error other than errNoForeign is the AUR lookup
+// failing. A corrupt snapshot becomes a high-severity finding of its own (see
+// snapshotFinding).
 func performAudit(now time.Time) (auditResult, error) {
 	pkgs := foreignPackages()
 	if len(pkgs) == 0 {
@@ -389,12 +442,7 @@ func performAudit(now time.Time) (auditResult, error) {
 	if state == baselineCorrupt {
 		findings = append([]auditFinding{snapshotFinding()}, findings...)
 	}
-	if !dryRun {
-		if err := saveBaseline(pkgs, info, prev); err != nil {
-			appendLog(logCategoryAudit, "WARN", "AUR snapshot not saved: "+err.Error(), "")
-		}
-	}
-	return auditResult{total: len(pkgs), findings: findings, baseline: state}, nil
+	return auditResult{total: len(pkgs), findings: findings, baseline: state, pkgs: pkgs, info: info, prev: prev}, nil
 }
 
 // discoverAURAudit runs the audit off the UI thread and returns it as a
@@ -413,7 +461,17 @@ func runAudit(now time.Time) discoveryMsg {
 		return discoveryMsg{kind: "audit", notice: "Couldn't reach the AUR: " + shortErr(err)}
 	}
 	logAudit(res)
-	return discoveryMsg{kind: "audit", report: renderAudit(res)}
+	msg := discoveryMsg{kind: "audit", report: renderAudit(res)}
+	// Advance the snapshot for everything but the high findings (with none,
+	// that's all of it); those stay flagged until `a` on the audit screen
+	// runs msg.commit to acknowledge them.
+	if save := snapshotCommit(res, true, false); save != nil {
+		save()
+	}
+	if res.high() > 0 {
+		msg.commit = snapshotCommit(res, false, true)
+	}
+	return msg
 }
 
 // auditStep is Full Cleanup's first step: the audit, run in-process. It sits
@@ -449,6 +507,10 @@ func runAuditStep() stepResult {
 		// Name the packages: the popup covers the report that explains it.
 		r.confirmNext = who + " changed maintainer since the last audit. Update anyway?"
 	}
+	// Run by handleStepResult right away when nothing gates, otherwise only if
+	// the gated update is accepted: declining leaves the snapshot as it was,
+	// so the same change gates the next run too.
+	r.commit = snapshotCommit(res, false, r.confirmNext != "")
 	return r
 }
 
@@ -521,6 +583,9 @@ func auditText(res auditResult) string {
 	if note := baselineNote(res.baseline); note != "" {
 		b.WriteString("\n" + note + "\n")
 	}
+	if high > 0 && !dryRun {
+		b.WriteString("\nThe flagged maintainers are only recorded if you accept the update; declining keeps them flagged for the next audit.\n")
+	}
 	return b.String()
 }
 
@@ -530,7 +595,7 @@ func baselineNote(state baselineState) string {
 	case state == baselineCorrupt && dryRun:
 		return "The maintainer snapshot is unreadable (dry run: left as is) — maintainer changes can't be detected until it's replaced."
 	case state == baselineCorrupt:
-		return "The maintainer snapshot was unreadable, so maintainer changes couldn't be detected. It was kept as aur-maintainers.json.corrupt-<time> and a fresh baseline saved."
+		return "The maintainer snapshot is unreadable, so maintainer changes couldn't be detected. Accepting saves a fresh baseline and keeps the old file as aur-maintainers.json.corrupt-<time>."
 	case state == baselineMissing && dryRun:
 		return "No maintainer snapshot yet (dry run: not saved) — maintainer changes can't be detected until a real audit saves one."
 	case state == baselineMissing:
@@ -576,6 +641,9 @@ func renderAudit(res auditResult) string {
 	b.WriteString("\n")
 	if note := baselineNote(res.baseline); note != "" {
 		b.WriteString(statusStyle.Render(note) + "\n")
+	}
+	if high > 0 && !dryRun {
+		b.WriteString(statusStyle.Render("Flagged maintainers stay flagged on every audit until you've checked them and press a to accept.") + "\n")
 	}
 	b.WriteString(statusStyle.Render("Recent = pushed within 72h, the same window as the yay cooldown hook."))
 	return b.String()
