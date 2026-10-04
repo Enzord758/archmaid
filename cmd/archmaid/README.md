@@ -108,7 +108,7 @@ straight over via `lipgloss`).
 
 ## Dry run
 
-`go run . --dryrun` (or `./archmaid --dryrun`) makes every mutating step *report what
+`go run ./cmd/archmaid --dryrun` (or `./archmaid --dryrun`) makes every mutating step *report what
 it would do* instead of running it, logs **every** step (not just failures) to
 `~/.local/state/archmaid/dryrun/<category>.log`, and skips sudo entirely. Read-only
 discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
@@ -140,7 +140,7 @@ skipped. The confirm names the folder it picked.
 ## Status
 
 The app is feature-complete. Open items and the decisions not to undo are in
-[`HANDOVER.md`](HANDOVER.md); test gaps are in [`TESTING.md`](TESTING.md) →
+[`HANDOVER.md`](../../docs/HANDOVER.md); test gaps are in [`TESTING.md`](../../docs/TESTING.md) →
 Known gaps.
 
 ## Install
@@ -158,14 +158,14 @@ cd ..            # repo root
 Needs Go (`pacman -S go`).
 
 ```sh
-cd tui
+cd ../..        # repo root: the Go module root
 go mod tidy   # resolve the dependency graph + go.sum
-go build -o archmaid .
-go test ./...  # unit tests: dry-run safety, sudo retries, screen routing
-go run . --dryrun
+go build -o archmaid ./cmd/archmaid
+go test ./cmd/archmaid  # unit tests: dry-run safety, sudo retries, screen routing
+go run ./cmd/archmaid --dryrun
 ```
 
-See `TESTING.md` for the full test plan and how to drive the TUI headlessly.
+See [`docs/TESTING.md`](../../docs/TESTING.md) for the full test plan and how to drive the TUI headlessly.
 
 ## Logs
 

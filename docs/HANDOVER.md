@@ -4,7 +4,7 @@ The living orientation doc: where things are, the decisions you shouldn't undo
 without reading why, how to live-test safely, and what's still open. It is
 deliberately **not** a changelog — history is in `git log` (commit messages
 carry the root-causing and verification), tests are in `TESTING.md`, features
-are in `README.md`. Keep this file current-state only; rewrite entries rather
+are in `cmd/archmaid/README.md`. Keep this file current-state only; rewrite entries rather
 than appending dated ones.
 
 ## Status
@@ -14,7 +14,7 @@ end. The gate is `scripts/check.sh`: race tests, vet, gofmt and coverage
 floors (see `TESTING.md`). Verified live against a real Arch system: Full
 Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
 
-## Code map (`tui/`, `package main`)
+## Code map (`cmd/archmaid/`, `package main`)
 
 | File | Owns |
 |---|---|
@@ -282,7 +282,7 @@ Unit tests can't cover real PAM, real pacman or a real terminal. When you need
 to:
 
 - Drive the real binary with VHS or tmux under a **scratch `HOME`** and never
-  point it at the real `~/.local/state/archmaid` (see `e2e/run.sh`).
+  point it at the real `~/.local/state/archmaid` (see `cmd/archmaid/e2e/run.sh`).
 - Wrong-password flows: stay under faillock's `deny=3` — check
   `faillock --user $USER` first, pace attempts ~10 s apart so nothing is typed
   while auth is in flight, and expect the two-stage auth to burn nothing.

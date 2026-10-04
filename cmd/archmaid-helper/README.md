@@ -40,7 +40,7 @@ keeps the authorization for about five minutes. During that time **any process
 in the same login session** can run that verb again through `pkexec` without a
 prompt. polkit stores a process's temporary authorization against its logind
 session when it has one, so assume the whole session, not just the GUI.
-Question 3 in `tui/TESTING.md` is the live check of this. The authorization
+Question 3 in `docs/TESTING.md` is the live check of this. The authorization
 covers the action, not the arguments: approving `paccache 3` also allows
 `paccache 1`. A verb is "keep" only if it is acceptable for another process of
 the session to re-run it with any argument it accepts:
@@ -244,4 +244,4 @@ and skips the install check. It **refuses to run as root**, so it can never
 stand in for the real helper. Never package it.
 
 Live polkit and faillock behaviour can't be unit-tested. See
-`tui/TESTING.md` → "Manual verification".
+`docs/TESTING.md` → "Manual verification".

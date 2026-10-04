@@ -1,6 +1,6 @@
 # Arch package (archmaid-git)
 
-`PKGBUILD` builds the TUI (`tui/`) and the root helper
+`PKGBUILD` builds the TUI (`cmd/archmaid/`) and the root helper
 (`cmd/archmaid-helper/`) with `-buildmode=pie -trimpath -mod=readonly
 -modcacherw` and makepkg's CGO flags.
 

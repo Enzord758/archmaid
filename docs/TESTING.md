@@ -1,7 +1,7 @@
 # TESTING
 
 How archmaid is tested, the rules that keep the suite safe and deterministic,
-and how to add a test. For *what the app does* see `README.md`; for design
+and how to add a test. For *what the app does* see `cmd/archmaid/README.md`; for design
 decisions and open work see `HANDOVER.md`.
 
 ## Strategy
@@ -24,13 +24,13 @@ Keep new tests at the lowest layer that can prove the behaviour.
 ## Running the gate
 
 ```sh
-../scripts/check.sh                 # from tui/; or scripts/check.sh from the repo root
+scripts/check.sh                    # from the repo root (it cds there itself)
 ```
 
-Every commit must pass it. In order, it runs `go test -race -count=3 ./...`
-(three runs to shake out flakes), `go vet ./...`, the `gofmt -l .` check, then a
+Every commit must pass it. In order, it runs `go test -race -count=3` on `./cmd/archmaid`
+and `./cmd/archmaid-helper/...` (three runs to shake out flakes), `go vet ./...`, the `gofmt -l .` check, then a
 coverage run into a temporary profile (removed on exit) and enforces the floors
-set at the top of the script: `MIN_TOTAL` for the whole package and
+set at the top of the script: `MIN_TOTAL` for the whole `cmd/archmaid` package and
 `MIN_ASKPASS` for `askpass.go`, which carries the sudo password. Per-file
 coverage is computed from the profile itself. When coverage rises, raise the
 floor in the same commit; never lower one to make a change pass.
@@ -38,7 +38,7 @@ floor in the same commit; never lower one to make a change pass.
 ### Perf guard (opt-in)
 
 ```sh
-ARCHMAID_PERF_GUARD=1 ../scripts/check.sh   # the gate, then the perf guard
+ARCHMAID_PERF_GUARD=1 scripts/check.sh   # the gate, then the perf guard
 ```
 
 With `ARCHMAID_PERF_GUARD=1` set, the gate ends with one more step:
@@ -68,11 +68,10 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 
 | Target | Runs |
 |---|---|
-| `make gate` | `scripts/check.sh` (TUI module) |
-| `make helper-test` | `go test -race`, `go vet`, `gofmt -l` in `cmd/archmaid-helper` (its own module) |
-| `make e2e` | `bash tui/e2e/run.sh` (needs vhs, ttyd, ffmpeg) |
+| `make gate` | `scripts/check.sh` (TUI and helper, one module at the repo root) |
+| `make e2e` | `bash cmd/archmaid/e2e/run.sh` (needs vhs, ttyd, ffmpeg) |
 | `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (the gate, then the opt-in perf guard — see "Perf guard") |
-| `make all` | `gate` + `helper-test` — run before pushing |
+| `make all` | `gate` — run before pushing |
 
 ## CI
 
@@ -81,8 +80,8 @@ the same ref cancels the older run. Paths are in the workflow's `env:` block.
 
 | Job | Where | Runs |
 |---|---|---|
-| `core` | `archlinux:latest` container (some discovery tests expect Arch tooling) | `make all`: the gate plus the helper module. Go build and module caches keyed on `go.sum` and the Go version. |
-| `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `tui/e2e/*.txt` as an artifact on failure. |
+| `core` | `archlinux:latest` container (some discovery tests expect Arch tooling) | `make all`: the gate (TUI and helper). Go build and module caches keyed on `go.sum` and the Go version. |
+| `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `cmd/archmaid/e2e/*.txt` as an artifact on failure. |
 | `gui` | not yet | Placeholder in the workflow: headless weston, once the GUI module exists. |
 
 Stays manual (not in CI): a real Full Cleanup, sudo/faillock behaviour, the
@@ -92,18 +91,19 @@ sudo. See "Manual verification".
 ## Running
 
 ```sh
+# all from the repo root, the Go module root
 go test -race ./...                 # the quick loop — must be green
 go vet ./... && gofmt -l .          # must print nothing
-go test -run TestAbort ./...        # a subset by name
-go test ./... -run Golden -update   # regenerate goldens after a deliberate UI change
-go test -run TestTranscript ./...   # the transcripts; -update-transcripts rewrites them
-go test -run '^$' -bench StreamView -benchmem ./...   # UI cost of streaming 5k / 20k lines
-ARCHMAID_PERF_GUARD=1 go test -run TestPerfGuard -v ./...   # the opt-in perf guard alone
-bash e2e/run.sh                     # VHS e2e (needs vhs, ttyd, ffmpeg)
-go build -o archmaid . && ./archmaid --dryrun   # manual poke; logs go to ~/.local/state/archmaid/dryrun/
+go test -run TestAbort ./cmd/archmaid   # a subset by name
+go test ./cmd/archmaid -run Golden -update   # regenerate goldens after a deliberate UI change
+go test -run TestTranscript ./cmd/archmaid   # the transcripts; -update-transcripts rewrites them
+go test -run '^$' -bench StreamView -benchmem ./cmd/archmaid   # UI cost of streaming 5k / 20k lines
+ARCHMAID_PERF_GUARD=1 go test -run TestPerfGuard -v ./cmd/archmaid   # the opt-in perf guard alone
+bash cmd/archmaid/e2e/run.sh        # VHS e2e (needs vhs, ttyd, ffmpeg)
+go build -o archmaid ./cmd/archmaid && ./archmaid --dryrun   # manual poke; logs go to ~/.local/state/archmaid/dryrun/
 ```
 
-`go build ./...` (no `-o`) leaves a `tui` binary here; it's gitignored.
+A binary built into `cmd/archmaid/` is gitignored; the ones above land in the repo root, so delete them when done.
 Don't track a test count in docs — it rots on the next commit; `go test -list .`
 is the source of truth.
 
@@ -186,7 +186,7 @@ request count and batches; it also fails the test if a lookup isn't a POST.
 `auditEnv(t)` gives a private `HOME` + `logDir` for anything that persists.
 
 **Add or change a golden.** Write the test, run
-`go test ./... -run Golden -update`, then **read the diff** — it should be
+`go test ./cmd/archmaid -run Golden -update`, then **read the diff** — it should be
 exactly the change you intended — before committing the `.golden` file. Prefer
 a direct frame (`viewGolden(t, m)` on a `sizedModel()`, see `golden_test.go`):
 a live teatest program ticks the spinner and the input cursor, so its frames
@@ -201,16 +201,16 @@ signal-0 probe (see `abort_test.go`).
 
 `transcript_test.go` is the harness; `transcript_scenarios_test.go` holds the
 scenarios, each a menu action recorded to
-`testdata/transcripts/<action>_<case>.<mode>.golden` — `.dryrun` under
+`cmd/archmaid/testdata/transcripts/<action>_<case>.<mode>.golden` — `.dryrun` under
 `dryRun`, `.shim` run for real against shims. They characterize today's
 behaviour, bugs included: a fix that changes behaviour changes a golden, and
 the diff is the review.
 
 ```sh
-go test -run TestTranscript ./...                       # compare
-go test -run 'TestTranscript/fullcleanup_' ./...        # a subset
-go test -run TestTranscript ./... -update-transcripts   # rewrite, then read the diff
-go test -race -count=5 -run Transcript ./...            # must stay deterministic
+go test -run TestTranscript ./cmd/archmaid                       # compare
+go test -run 'TestTranscript/fullcleanup_' ./cmd/archmaid        # a subset
+go test -run TestTranscript ./cmd/archmaid -update-transcripts   # rewrite, then read the diff
+go test -race -count=5 -run Transcript ./cmd/archmaid            # must stay deterministic
 ```
 
 **Format.** One event per line, `<kind padded to 5> <fields>`:
@@ -304,12 +304,12 @@ the names.
 | `askpass_peer_test.go` | Who may have the password, against a fake process table: the step's own sudo (via yay, or a direct `sudo -A` step) is answered and named in the popup; refused are a wrong uid, a gone or reused helper pid, a helper that isn't archmaid, a parent that isn't sudo (a user process named sudo, a root process with another name, a readable exe elsewhere), a chain that misses the step or breaks, a reused step or ancestor pid, and a cycle. The model hangs up with no popup when no sudo step runs (menu, non-sudo step, finished, aborted) and on a second request while one is open; a refusal mid-step leaves a sanitized note in the output pane; the popup shows sudo's prompt only quoted and stripped of escapes. `readProcFS` against the real `/proc` (a root process's exe is unreadable to a user); the server reports the real `SO_PEERCRED` peer. |
 | `teatest_test.go` + `testdata/` | Headless-program goldens for the menu and the services multi-select. |
 | `golden_test.go` + `testdata/` | Direct `View()` goldens at 80×24: the summary for each outcome (ok, issues, skipped, aborted); the password popup over the menu (masked input, and with the attempts-left error); a confirm over the running checklist; a mid-run askpass prompt naming its requester; the log picker; the audit report; a notice; the discovering spinner. |
-| `e2e/*.tape` + `run.sh` + `shim.sh` | The real binary under `--dryrun`, one tape each, in a throwaway `HOME` with a shim dir first on `PATH` (every external command is a symlink to `shim.sh`, which only logs argv to a file and prints canned output; `run.sh` checks the shadowing first and that no mutating shim ran). `clear-cache`: asserts the `DRYRUN:` entry. `services`: toggles one of two shimmed units; the log names exactly that unit and `systemctl` only ever listed. `orphans`: Full Cleanup's confirm reads "2 … 3 total" (from the tape's `.txt`) and `orphans.log` has the dry-run removal. `abort`: ctrl+c on the blocked audit step, confirm; back on the menu, nothing logged. `bash e2e/run.sh services abort` runs a subset; generated `e2e/*.txt` is gitignored. |
+| `cmd/archmaid/e2e/*.tape` + `run.sh` + `shim.sh` | The real binary under `--dryrun`, one tape each, in a throwaway `HOME` with a shim dir first on `PATH` (every external command is a symlink to `shim.sh`, which only logs argv to a file and prints canned output; `run.sh` checks the shadowing first and that no mutating shim ran). `clear-cache`: asserts the `DRYRUN:` entry. `services`: toggles one of two shimmed units; the log names exactly that unit and `systemctl` only ever listed. `orphans`: Full Cleanup's confirm reads "2 … 3 total" (from the tape's `.txt`) and `orphans.log` has the dry-run removal. `abort`: ctrl+c on the blocked audit step, confirm; back on the menu, nothing logged. `bash cmd/archmaid/e2e/run.sh services abort` runs a subset; generated `cmd/archmaid/e2e/*.txt` is gitignored. |
 
 ## Manual verification
 
 Run by hand, as root, before the polkit path ships. Unit tests can't see real
-PAM. `archmaid-helper`'s own suite (`cd cmd/archmaid-helper && go test -race ./...`)
+PAM. `archmaid-helper`'s own suite (`go test -race ./cmd/archmaid-helper/...`)
 covers validation, argv, hashes, the denylist, locks and env scrubbing with a
 fake runner. It can't answer these questions, which decide the GUI's design:
 

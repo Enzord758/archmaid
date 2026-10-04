@@ -6,7 +6,7 @@ all from one menu. A [Bubble Tea](https://github.com/charmbracelet/bubbletea) TU
 with live output, in-TUI sudo, floating popups, orphan removal, and a `--dryrun`
 mode. Tokyo Night themed.
 
-The app lives in [`tui/`](tui/README.md).
+The app lives in [`cmd/archmaid/`](cmd/archmaid/README.md).
 
 ## Install
 
@@ -34,7 +34,7 @@ Full details in [`INSTALL.md`](INSTALL.md).
 | **Full Cleanup** (recommended) | Runs every step in sequence: audits your AUR packages first (if one changed maintainer or gained a co-maintainer since the last audit, it names it and asks before updating — declining skips just the update), updates the system via topgrade, trims the package cache to 3 versions (with an optional full wipe), looks for orphaned packages *after* the update (so it also catches the ones the update left behind) and, when there are any, asks before removing them — the confirm gives both the orphan count and the total `pacman -Rns` would take with their now-unneeded dependencies — then cleans the AUR cache, ages out temp files with `systemd-tmpfiles --clean` (by the system's tmpfiles.d rules — on Arch, 10 days in `/tmp` and 30 days in `/var/tmp`), vacuums logs older than 2 weeks, checks package integrity, and finally updates Hyprland plugins via hyprpm (if installed; last on purpose — hyprpm drops the sudo session on exit) |
 | Clear user cache | Deletes everything under `~/.cache` |
 | Repair broken packages | Finds packages with missing files (`pacman -Qkq`) and reinstalls them |
-| Delete old downloads | Deletes files and folders not changed in 30 days (by ctime, so a back-dated download isn't mistaken for an old one; a folder goes only if nothing inside it is new) from your downloads folder, listing them first — `--downloads <dir>`, `$ARCHMAID_DOWNLOADS`, your XDG download dir, `~/Downloads` or `~/Download`, whichever comes first; never `$HOME` itself (see [`tui/README.md`](tui/README.md#downloads-folder)) |
+| Delete old downloads | Deletes files and folders not changed in 30 days (by ctime, so a back-dated download isn't mistaken for an old one; a folder goes only if nothing inside it is new) from your downloads folder, listing them first — `--downloads <dir>`, `$ARCHMAID_DOWNLOADS`, your XDG download dir, `~/Downloads` or `~/Download`, whichever comes first; never `$HOME` itself (see [`cmd/archmaid/README.md`](cmd/archmaid/README.md#downloads-folder)) |
 | Run topgrade | Audits your AUR packages first, exactly as Full Cleanup does (a maintainer change or added co-maintainer since the last audit is named and asked about — declining skips the update), then runs a system update via topgrade, streaming its output live |
 | Disable unused services | Lists systemd services that are enabled but not currently running, and lets you multi-select which to disable |
 | Edit topgrade config | Opens `~/.config/topgrade.toml` in `$EDITOR`, creating it with sane defaults first if it doesn't exist |
@@ -62,8 +62,8 @@ directing design, reviewing behavior, and pulling the trigger on every decision
 that matters (what runs as root, what gets deleted, what ships). It is tested
 accordingly: a 100+ test suite run under the race detector, golden-frame UI
 tests, a VHS end-to-end harness, and live verification against a real Arch
-system — including the sudo/faillock edge cases (see `tui/TESTING.md`; the
+system — including the sudo/faillock edge cases (see `docs/TESTING.md`; the
 reasoning behind the risky parts is in the commit history and
-`tui/HANDOVER.md`). Read the code with the same
+`docs/HANDOVER.md`). Read the code with the same
 skepticism you'd apply to any code, and run `--dryrun` first if you want to see
 exactly what it would do to your system.
