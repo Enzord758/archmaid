@@ -177,6 +177,11 @@ func NewDriver(t *testing.T, shimLog string, script ...Answer) *Driver {
 		return func() tea.Msg { return tickMsg{} }
 	}
 	t.Cleanup(func() { tickFn = old })
+	// The real binary always wires askpass, so sudo steps run `sudo -A`; the
+	// wrapper is never invoked here (sudo is a shim), only named.
+	oldWrapper := askpassWrapper
+	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
+	t.Cleanup(func() { askpassWrapper = oldWrapper })
 
 	m := initialModel()
 	m.status = testStatus

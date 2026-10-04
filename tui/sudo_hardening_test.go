@@ -24,18 +24,46 @@ func shimEchoArgs(t *testing.T, name string) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
+// withAskpassWrapper wires askpass up for runStep for the test's duration.
+func withAskpassWrapper(t *testing.T, path string) {
+	t.Helper()
+	old := askpassWrapper
+	askpassWrapper = path
+	t.Cleanup(func() { askpassWrapper = old })
+}
+
 // TestSudoStepGetsDashA: a sudo step's argv is rewritten to `sudo -A <args>`.
 func TestSudoStepGetsDashA(t *testing.T) {
 	shimEchoArgs(t, "sudo")
+	withAskpassWrapper(t, "/wrapper")
 
 	ch := make(chan streamMsg, 8)
-	runStep(step{command: "sudo", args: []string{"paccache", "-r"}}, ch)
+	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch)
 	lines, err := drainStep(ch)
 	if err != nil {
 		t.Fatalf("shimmed sudo should exit 0, got %v", err)
 	}
 	if len(lines) != 1 || lines[0] != "-A paccache -r" {
 		t.Fatalf("sudo argv = %v, want [-A paccache -r]", lines)
+	}
+}
+
+// TestSudoStepWithoutAskpassGetsDashN: with askpass unwired (no
+// XDG_RUNTIME_DIR), -A would fall back to sudo.conf's `Path askpass` helper or
+// fail; the step runs `sudo -n` instead — the primed ticket or a clean failure,
+// never a prompt.
+func TestSudoStepWithoutAskpassGetsDashN(t *testing.T) {
+	shimEchoArgs(t, "sudo")
+	withAskpassWrapper(t, "")
+
+	ch := make(chan streamMsg, 8)
+	runStep(step{command: "sudo", args: []string{"paccache", "-r"}, needsSudo: true}, ch)
+	lines, err := drainStep(ch)
+	if err != nil {
+		t.Fatalf("shimmed sudo should exit 0, got %v", err)
+	}
+	if len(lines) != 1 || lines[0] != "-n paccache -r" {
+		t.Fatalf("sudo argv = %v, want [-n paccache -r]", lines)
 	}
 }
 

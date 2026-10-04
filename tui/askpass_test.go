@@ -129,22 +129,25 @@ func TestRunAskpass(t *testing.T) {
 	})
 }
 
-// askpassEnv gives startAskpassServer a private runtime dir and registers
-// SUDO_ASKPASS with t.Setenv, so the server's own os.Setenv is undone on
-// cleanup.
+// askpassEnv gives startAskpassServer a private runtime dir. SUDO_ASKPASS is
+// set to a sentinel, registered with t.Setenv, so a test can prove the server
+// leaves archmaid's own environment alone.
 func askpassEnv(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", dir)
-	t.Setenv("SUDO_ASKPASS", "")
+	t.Setenv("SUDO_ASKPASS", "/from/the/users/shell")
 	return dir
 }
 
-// TestAskpassServerWiresWrapperAndSocket: the server writes a private wrapper
-// that execs us in --askpass mode on its socket, points SUDO_ASKPASS at it,
-// delivers each prompt (newline trimmed) on reqs, and close() removes both.
+// TestAskpassServerWiresWrapperAndSocket: the server makes a private 0700
+// directory under XDG_RUNTIME_DIR holding its socket and a 0700 wrapper that
+// execs us in --askpass mode on that socket; it records the wrapper for runStep
+// in askpassWrapper but never sets SUDO_ASKPASS in our own environment; it
+// delivers each prompt (newline trimmed) on reqs, and close() removes the
+// directory and unwires askpassWrapper.
 func TestAskpassServerWiresWrapperAndSocket(t *testing.T) {
-	dir := askpassEnv(t)
+	runtimeDir := askpassEnv(t)
 	s := startAskpassServer()
 	closed := false
 	defer func() {
@@ -156,22 +159,28 @@ func TestAskpassServerWiresWrapperAndSocket(t *testing.T) {
 	if s.ln == nil {
 		t.Fatal("server not listening")
 	}
-	if filepath.Dir(s.sock) != dir || filepath.Dir(s.wrapper) != dir {
-		t.Fatalf("sock %q / wrapper %q not under XDG_RUNTIME_DIR %q", s.sock, s.wrapper, dir)
+	if filepath.Dir(s.dir) != runtimeDir || filepath.Dir(s.sock) != s.dir || filepath.Dir(s.wrapper) != s.dir {
+		t.Fatalf("dir %q / sock %q / wrapper %q: want sock and wrapper in a private dir under %q",
+			s.dir, s.sock, s.wrapper, runtimeDir)
 	}
-	fi, err := os.Stat(s.wrapper)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o700 {
-		t.Fatalf("wrapper mode = %v, want 0700", fi.Mode().Perm())
+	for path, want := range map[string]os.FileMode{s.dir: 0o700, s.wrapper: 0o700} {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm() != want {
+			t.Fatalf("%s mode = %v, want %v", path, fi.Mode().Perm(), want)
+		}
 	}
 	script, _ := os.ReadFile(s.wrapper)
-	if !strings.Contains(string(script), "--askpass") || !strings.Contains(string(script), s.sock) {
+	if !strings.Contains(string(script), "--askpass") || !strings.Contains(string(script), shellQuote(s.sock)) {
 		t.Fatalf("wrapper doesn't exec --askpass on the socket:\n%s", script)
 	}
-	if got := os.Getenv("SUDO_ASKPASS"); got != s.wrapper {
-		t.Fatalf("SUDO_ASKPASS = %q, want %q", got, s.wrapper)
+	if askpassWrapper != s.wrapper {
+		t.Fatalf("askpassWrapper = %q, want %q", askpassWrapper, s.wrapper)
+	}
+	if got := os.Getenv("SUDO_ASKPASS"); got != "/from/the/users/shell" {
+		t.Fatalf("SUDO_ASKPASS = %q: the server must not touch archmaid's own environment", got)
 	}
 
 	conn, err := net.Dial("unix", s.sock)
@@ -189,16 +198,17 @@ func TestAskpassServerWiresWrapperAndSocket(t *testing.T) {
 
 	s.close()
 	closed = true
-	for _, p := range []string{s.sock, s.wrapper} {
-		if _, err := os.Stat(p); !os.IsNotExist(err) {
-			t.Fatalf("%s still exists after close (err %v)", p, err)
-		}
+	if _, err := os.Stat(s.dir); !os.IsNotExist(err) {
+		t.Fatalf("%s still exists after close (err %v)", s.dir, err)
+	}
+	if askpassWrapper != "" {
+		t.Fatalf("askpassWrapper = %q after close, want it unwired", askpassWrapper)
 	}
 }
 
-// TestAskpassServerFallsBackToTempDir: with no XDG_RUNTIME_DIR the socket and
-// wrapper go in os.TempDir().
-func TestAskpassServerFallsBackToTempDir(t *testing.T) {
+// TestAskpassServerNeedsRuntimeDir: with no XDG_RUNTIME_DIR askpass stays
+// unwired — no fallback to the shared /tmp.
+func TestAskpassServerNeedsRuntimeDir(t *testing.T) {
 	askpassEnv(t)
 	tmp := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", "")
@@ -206,22 +216,34 @@ func TestAskpassServerFallsBackToTempDir(t *testing.T) {
 
 	s := startAskpassServer()
 	defer s.close()
-	if s.ln == nil || filepath.Dir(s.sock) != tmp || filepath.Dir(s.wrapper) != tmp {
-		t.Fatalf("listening=%v sock=%q wrapper=%q, want both under %q", s.ln != nil, s.sock, s.wrapper, tmp)
+	if s.ln != nil || s.dir != "" || askpassWrapper != "" {
+		t.Fatalf("listening=%v dir=%q askpassWrapper=%q, want askpass unwired", s.ln != nil, s.dir, askpassWrapper)
+	}
+	if entries, _ := os.ReadDir(tmp); len(entries) != 0 {
+		t.Fatalf("server left %d entries in TMPDIR", len(entries))
 	}
 }
 
-// TestAskpassServerBestEffort: when the socket or the wrapper can't be created
-// the server is left unwired (no listener, SUDO_ASKPASS untouched), and close()
-// is still safe — as it is on a zero server.
+// TestAskpassServerBestEffort: when the directory or the socket can't be
+// created the server is left unwired (no listener, askpassWrapper empty), and
+// close() is still safe — as it is on a zero server.
 func TestAskpassServerBestEffort(t *testing.T) {
 	t.Run("zero server", func(t *testing.T) {
 		(&askpassServer{}).close()
 	})
 
+	t.Run("runtime dir missing", func(t *testing.T) {
+		t.Setenv("XDG_RUNTIME_DIR", filepath.Join(askpassEnv(t), "gone"))
+		s := startAskpassServer()
+		if s.ln != nil || s.dir != "" || askpassWrapper != "" {
+			t.Fatalf("listening=%v dir=%q askpassWrapper=%q, want askpass unwired", s.ln != nil, s.dir, askpassWrapper)
+		}
+		s.close()
+	})
+
 	t.Run("socket path too long", func(t *testing.T) {
 		// sun_path is 108 bytes on Linux; Listen must fail.
-		long := filepath.Join(askpassEnv(t), strings.Repeat("d", 120))
+		long := filepath.Join(askpassEnv(t), strings.Repeat("d", 100))
 		if err := os.Mkdir(long, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -234,32 +256,200 @@ func TestAskpassServerBestEffort(t *testing.T) {
 		if s.ln != nil {
 			t.Fatal("listener set despite an over-long socket path")
 		}
-		if got := os.Getenv("SUDO_ASKPASS"); got != "" {
-			t.Fatalf("SUDO_ASKPASS = %q, want it left unset", got)
+		if askpassWrapper != "" {
+			t.Fatalf("askpassWrapper = %q, want it left unwired", askpassWrapper)
 		}
 		s.close()
+		if _, err := os.Stat(s.dir); !os.IsNotExist(err) {
+			t.Fatalf("private dir still exists after close (err %v)", err)
+		}
 	})
+}
 
-	t.Run("wrapper unwritable", func(t *testing.T) {
-		dir := askpassEnv(t)
-		// A directory squatting on the wrapper's path makes WriteFile fail.
-		wrapper := filepath.Join(dir, fmt.Sprintf("archmaid-askpass-%d.sh", os.Getpid()))
-		if err := os.Mkdir(wrapper, 0o700); err != nil {
+// TestAskpassWrapperQuoting: the wrapper survives paths a shell would
+// otherwise expand or split — a quote, $(…), backquotes, a backslash, spaces.
+// Go's %q would have left "$(…)" live inside double quotes. The script is run
+// by the real /bin/sh against a stand-in "archmaid" that prints its argv.
+func TestAskpassWrapperQuoting(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "it's $(touch pwned) `x` \\ dir")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "arch maid")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sock := filepath.Join(dir, "a'b\"c.sock")
+	wrapper := filepath.Join(t.TempDir(), "askpass.sh")
+	if err := os.WriteFile(wrapper, []byte(askpassScript(exe, sock)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(wrapper, "[sudo] password for $USER: ")
+	cmd.Dir = t.TempDir()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("wrapper failed: %v", err)
+	}
+	want := "--askpass\n" + sock + "\n[sudo] password for $USER: \n"
+	if string(out) != want {
+		t.Fatalf("argv =\n%q\nwant\n%q", out, want)
+	}
+	if _, err := os.Stat(filepath.Join(cmd.Dir, "pwned")); err == nil {
+		t.Fatal("the wrapper ran a command substitution from the path")
+	}
+}
+
+// TestAskpassStuckClientDoesNotBlock: a client that connects and never sends
+// its prompt neither delays the next client nor stays connected past the read
+// deadline.
+func TestAskpassStuckClientDoesNotBlock(t *testing.T) {
+	askpassEnv(t)
+	old := askpassReadTimeout
+	askpassReadTimeout = 300 * time.Millisecond
+	s := startAskpassServer()
+	askpassReadTimeout = old
+	defer s.close()
+	if s.ln == nil {
+		t.Fatal("server not listening")
+	}
+
+	stuck, err := net.Dial("unix", s.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stuck.Close()
+
+	next, err := net.Dial("unix", s.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	fmt.Fprintln(next, "Password:")
+	req := recv(t, s.reqs, "the second client's request")
+	req.conn.Close()
+	if req.prompt != "Password:" {
+		t.Fatalf("prompt = %q, want %q", req.prompt, "Password:")
+	}
+
+	requireHangup(t, stuck)
+}
+
+// requireHangup fails unless the server closes conn within askpassTimeout
+// without sending anything. A close with the client's bytes still unread
+// arrives as a reset rather than EOF; either counts, a timeout doesn't.
+func requireHangup(t *testing.T, conn net.Conn) {
+	t.Helper()
+	conn.SetReadDeadline(time.Now().Add(askpassTimeout))
+	n, err := conn.Read(make([]byte, 8))
+	if ne, ok := err.(net.Error); n != 0 || err == nil || (ok && ne.Timeout()) {
+		t.Fatalf("read n=%d err=%v, want the server to hang up", n, err)
+	}
+}
+
+// TestAskpassOversizedPromptDropped: a client that sends more than
+// maxAskpassPrompt without a newline is dropped, not delivered.
+func TestAskpassOversizedPromptDropped(t *testing.T) {
+	askpassEnv(t)
+	s := startAskpassServer()
+	defer s.close()
+
+	conn, err := net.Dial("unix", s.sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write([]byte(strings.Repeat("x", maxAskpassPrompt+10))); err != nil {
+		t.Fatal(err)
+	}
+	requireHangup(t, conn)
+	select {
+	case req := <-s.reqs:
+		req.conn.Close()
+		t.Fatalf("oversized prompt was delivered (%d bytes)", len(req.prompt))
+	default:
+	}
+}
+
+// TestAskpassCloseDropsUndelivered: a request still waiting for the model when
+// the server closes is hung up on rather than left blocked.
+func TestAskpassCloseDropsUndelivered(t *testing.T) {
+	askpassEnv(t)
+	s := startAskpassServer()
+	conn, err := net.Dial("unix", s.sock)
+	if err != nil {
+		s.close()
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	fmt.Fprintln(conn, "Password:")
+	s.close() // nobody ever reads s.reqs
+	requireHangup(t, conn)
+}
+
+// TestStepEnvCarriesAskpassOnlyForSudoSteps: only needsSudo steps get
+// SUDO_ASKPASS, pointing at our wrapper; every other step has it stripped, even
+// when archmaid inherited one from the user's shell. Without a wired askpass no
+// step gets one.
+func TestStepEnvCarriesAskpassOnlyForSudoSteps(t *testing.T) {
+	t.Setenv("SUDO_ASKPASS", "/from/the/users/shell")
+	old := askpassWrapper
+	t.Cleanup(func() { askpassWrapper = old })
+
+	askpassVals := func(env []string) []string {
+		var vals []string
+		for _, kv := range env {
+			if v, ok := strings.CutPrefix(kv, "SUDO_ASKPASS="); ok {
+				vals = append(vals, v)
+			}
+		}
+		return vals
+	}
+
+	askpassWrapper = "/run/user/1000/archmaid-askpass-x/askpass.sh"
+	if got := askpassVals(stepEnv(step{command: "topgrade", needsSudo: true})); len(got) != 1 || got[0] != askpassWrapper {
+		t.Fatalf("sudo step SUDO_ASKPASS = %v, want [%s]", got, askpassWrapper)
+	}
+	if got := askpassVals(stepEnv(step{command: "yay"})); len(got) != 0 {
+		t.Fatalf("non-sudo step SUDO_ASKPASS = %v, want none", got)
+	}
+	askpassWrapper = ""
+	if got := askpassVals(stepEnv(step{command: "sudo", needsSudo: true})); len(got) != 0 {
+		t.Fatalf("unwired askpass: sudo step SUDO_ASKPASS = %v, want none", got)
+	}
+}
+
+// TestStepChildSeesAskpassEnv: the env reaches the real child — a shimmed
+// topgrade (a needsSudo step) sees the wrapper, a plain step sees nothing.
+func TestStepChildSeesAskpassEnv(t *testing.T) {
+	t.Setenv("SUDO_ASKPASS", "/from/the/users/shell")
+	old := askpassWrapper
+	askpassWrapper = "/wrapper"
+	t.Cleanup(func() { askpassWrapper = old })
+
+	dir := t.TempDir()
+	script := "#!/bin/sh\nprintf '[%s]\\n' \"$SUDO_ASKPASS\"\n"
+	for _, name := range []string{"topgrade", "yay"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-		s := startAskpassServer()
-		if s.ln != nil {
-			t.Fatal("listener left open after the wrapper failed")
+	for _, c := range []struct {
+		s    step
+		want string
+	}{
+		{step{command: "topgrade", needsSudo: true}, "[/wrapper]"},
+		{step{command: "yay"}, "[]"},
+	} {
+		ch := make(chan streamMsg, 8)
+		runStep(c.s, ch)
+		lines, err := drainStep(ch)
+		if err != nil || len(lines) != 1 || lines[0] != c.want {
+			t.Fatalf("%s saw SUDO_ASKPASS %v (err %v), want %s", c.s.command, lines, err, c.want)
 		}
-		if got := os.Getenv("SUDO_ASKPASS"); got != "" {
-			t.Fatalf("SUDO_ASKPASS = %q, want it left unset", got)
-		}
-		s.close()
-		if _, err := os.Stat(s.sock); !os.IsNotExist(err) {
-			t.Fatalf("socket still exists after close (err %v)", err)
-		}
-	})
+	}
 }
 
 // TestAskpassEndToEnd runs the wrapper the way sudo would: it execs this test

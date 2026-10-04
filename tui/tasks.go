@@ -36,7 +36,8 @@ type step struct {
 	onAccept func() error
 
 	// needsSudo steps are grouped so we can prime `sudo -v` once up front
-	// (see primeSudo) instead of prompting mid-run behind a spinner.
+	// (see primeSudo) instead of prompting mid-run behind a spinner. They are
+	// also the only steps whose child gets SUDO_ASKPASS (see stepEnv).
 	needsSudo bool
 
 	// category buckets this step's log entries (see logPath); zero value
@@ -157,9 +158,17 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process
 	name, args := s.command, s.args
 	if name == "sudo" {
 		// -A: read the password via SUDO_ASKPASS (a TUI popup), never the tty.
-		args = append([]string{"-A"}, s.args...)
+		// Without our askpass, -A would fall back to sudo.conf's `Path
+		// askpass` (a GUI helper, if one is configured) or fail; -n instead
+		// relies on the primed ticket and fails cleanly when it's gone.
+		flag := "-n"
+		if s.needsSudo && askpassWrapper != "" {
+			flag = "-A"
+		}
+		args = append([]string{flag}, s.args...)
 	}
 	cmd := exec.Command(name, args...)
+	cmd.Env = stepEnv(s)
 
 	// Fold stderr into stdout through a single pipe (the bash `2>&1`).
 	pr, pw := io.Pipe()
@@ -196,6 +205,24 @@ func runStepUntil(s step, ch chan<- streamMsg, quit <-chan struct{}) *os.Process
 	}()
 
 	return cmd.Process
+}
+
+// stepEnv is the environment a step's child runs with: archmaid's own, without
+// any SUDO_ASKPASS, plus our askpass wrapper for steps that use sudo (sudo
+// steps, and topgrade, which runs sudo itself). Everything a step starts
+// inherits it, down to AUR build scripts, so the fewer steps that carry the
+// socket's location the better; one the user's shell exported is dropped too.
+func stepEnv(s step) []string {
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "SUDO_ASKPASS=") {
+			env = append(env, kv)
+		}
+	}
+	if s.needsSudo && askpassWrapper != "" {
+		env = append(env, "SUDO_ASKPASS="+askpassWrapper)
+	}
+	return env
 }
 
 // waitForStream turns the next channel message into a tea.Msg, stamped with

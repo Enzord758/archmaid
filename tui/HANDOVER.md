@@ -50,6 +50,19 @@ comments and `git log`; this is the "read before you touch it" list.
   `SUDO_ASKPASS` routes any re-prompt back into the TUI as a popup. The password
   is passed straight through, never stored or logged. `sudo -n -v` is only the
   cache probe and the 60 s keep-alive.
+- **`SUDO_ASKPASS` goes only to steps that use sudo.** It is never set in
+  archmaid's own environment: `stepEnv` gives it to `needsSudo` steps (sudo
+  steps and topgrade) and strips it from every other child, including a value
+  inherited from the user's shell. The socket and wrapper live in a private
+  0700 directory under `XDG_RUNTIME_DIR`. Without that variable askpass stays
+  off — no `/tmp` fallback — and sudo steps run `sudo -n` instead of `-A`:
+  with `SUDO_ASKPASS` unset, `sudo -A` falls back to sudo.conf's
+  `Path askpass` (on this machine seahorse's GUI ssh-askpass) or exits with
+  "no askpass program specified", so `-n` (the primed ticket, or a clean
+  failure) is the form that never prompts anywhere. This does **not** close
+  the threat for topgrade: everything it starts — yay, makepkg, a PKGBUILD's
+  `build()` — inherits `SUDO_ASKPASS` and can reach the socket. Full closure
+  comes with the P6 repo/AUR split.
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
   keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
   own final step.
