@@ -32,7 +32,12 @@ machine.**
    `~/.config/gtk-4.0` and the Downloads folder.
 4. **Leave the owner's session alone.** Don't kill or restart quickshell or
    dms, don't `systemctl --user enable/start` anything, and don't open
-   windows on the live desktop (run GUI tests headless).
+   windows on the live desktop (run GUI tests headless). The owner works on
+   this machine while you do: wrap any load generator, stress loop or
+   long-running helper in `timeout` (at most 60 s, at most 8 workers), and
+   before reporting confirm with `pgrep` that nothing you started is still
+   running. (An unbounded 32-way busy loop once outlived the agent that
+   started it.)
 5. **Tests follow `docs/TESTING.md`'s ground rules.** Every test package runs
    under `testenv.Run`, which traps the privileged binaries and isolates
    `HOME`.
