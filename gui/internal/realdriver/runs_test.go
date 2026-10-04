@@ -65,6 +65,16 @@ func runAction(t *testing.T, d engine.Driver, action string, confirm func(engine
 	}
 }
 
+// runOn runs action on a fresh Driver for o, as the window does per
+// Start, and closes it whatever happens (a failure included), so nothing
+// it started outlives the test.
+func runOn(t *testing.T, w *Wiring, o engine.Options, action string) engine.Outcome {
+	t.Helper()
+	d := w.New(o)
+	defer d.Close()
+	return runAction(t, d, action, nil)
+}
+
 // runDirs lists the state dir's run directories (stamped ones and the
 // dryrun slot), sorted.
 func runDirs(t *testing.T, root string) []string {
@@ -97,11 +107,9 @@ func TestRunDirs(t *testing.T) {
 
 	var stamps []string
 	for i := range logstore.KeepRuns + 1 {
-		d := w.New(base)
-		if out := runAction(t, d, actions.IDTopgrade, nil); out != engine.OutcomeCompleted {
+		if out := runOn(t, w, base, actions.IDTopgrade); out != engine.OutcomeCompleted {
 			t.Fatalf("run %d: outcome %v", i, out)
 		}
-		d.Close()
 		stamps = append(stamps, start.Add(time.Duration(i+2)*time.Minute).Format("20060102-1504"))
 		if got := runDirs(t, root); i < logstore.KeepRuns && !slices.Equal(got, stamps) {
 			t.Fatalf("after run %d: run dirs %q, want %q", i, got, stamps)
@@ -130,11 +138,9 @@ func TestRunDirs(t *testing.T) {
 
 	dry := base
 	dry.DryRun = true
-	d := w.New(dry)
-	if out := runAction(t, d, actions.IDTopgrade, nil); out != engine.OutcomeCompleted {
+	if out := runOn(t, w, dry, actions.IDTopgrade); out != engine.OutcomeCompleted {
 		t.Fatalf("dry run: outcome %v", out)
 	}
-	d.Close()
 	if got := runDirs(t, root); !slices.Equal(got, append(slices.Clone(want), "dryrun")) {
 		t.Errorf("after a dry run: run dirs %q, want %q and dryrun", got, want)
 	}
@@ -270,6 +276,7 @@ func TestAuditPrefetchCancelled(t *testing.T) {
 			w.cfg.Foreign = f.list
 			defer w.Close()
 			d := w.New(dryOptions(w))
+			defer d.Close() // also on a failure: nothing the Driver started outlives the test
 			gate := gateUp(t, d, f)
 			if how == "decline" {
 				d.Send(engine.Confirm{Prompt: gate, Yes: false})
