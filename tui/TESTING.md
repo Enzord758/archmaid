@@ -230,6 +230,95 @@ the names.
 | `golden_test.go` + `testdata/` | Direct `View()` goldens at 80×24: the summary for each outcome (ok, issues, skipped, aborted); the password popup over the menu (masked input, and with the attempts-left error); a confirm over the running checklist; the log picker; the audit report; a notice; the discovering spinner. |
 | `e2e/*.tape` + `run.sh` + `shim.sh` | The real binary under `--dryrun`, one tape each, in a throwaway `HOME` with a shim dir first on `PATH` (every external command is a symlink to `shim.sh`, which only logs argv to a file and prints canned output; `run.sh` checks the shadowing first and that no mutating shim ran). `clear-cache`: asserts the `DRYRUN:` entry. `services`: toggles one of two shimmed units; the log names exactly that unit and `systemctl` only ever listed. `orphans`: Full Cleanup's confirm reads "2 … 3 total" (from the tape's `.txt`) and `orphans.log` has the dry-run removal. `abort`: ctrl+c on the blocked audit step, confirm; back on the menu, nothing logged. `bash e2e/run.sh services abort` runs a subset; generated `e2e/*.txt` is gitignored. |
 
+## Manual verification
+
+Run by hand, as root, before the polkit path ships. Unit tests can't see real
+PAM. `archmaid-helper`'s own suite (`cd cmd/archmaid-helper && go test -race ./...`)
+covers validation, argv, hashes, the denylist, locks and env scrubbing with a
+fake runner. It can't answer these questions, which decide the GUI's design:
+
+1. How many `pam_faillock` failures does one wrong password in a polkit dialog
+   cost against Arch's `deny=3`? sudo costs 2 (see HANDOVER → two-stage auth).
+2. Does cancelling the dialog count as a failure?
+3. Is `auth_admin_keep` scoped to the requesting process (so one GUI process
+   can reuse it, but a fresh shell can't)?
+4. Does pkexec 127 pick an action by `exec.argv1`?
+
+To hand this to an agent with sudo instead, give it
+[`packaging/polkit/LIVE-TEST-AGENT.md`](../packaging/polkit/LIVE-TEST-AGENT.md).
+It runs the same cases without a tty.
+
+**Never use your own account.** Everything runs against a scratch user, so a
+lockout costs nothing.
+
+### Setup (as root)
+
+```sh
+useradd -m amtest && passwd amtest           # NOT in wheel
+cat >/usr/share/polkit-1/actions/org.archmaid.test.policy <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <action id="org.archmaid.test.true">
+    <description>archmaid test (auth_admin)</description><message>archmaid test: true</message>
+    <defaults><allow_any>no</allow_any><allow_inactive>no</allow_inactive><allow_active>auth_admin</allow_active></defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/true</annotate>
+  </action>
+  <action id="org.archmaid.test.keep">
+    <description>archmaid test (keep)</description><message>archmaid test: keep</message>
+    <defaults><allow_any>no</allow_any><allow_inactive>no</allow_inactive><allow_active>auth_admin_keep</allow_active></defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/true</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">keep</annotate>
+  </action>
+  <action id="org.archmaid.test.argv1">
+    <description>archmaid test (argv1, no auth)</description><message>archmaid test: argv1</message>
+    <defaults><allow_any>no</allow_any><allow_inactive>no</allow_inactive><allow_active>yes</allow_active></defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/true</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">argv1-match</annotate>
+  </action>
+</policyconfig>
+EOF
+cat >/etc/polkit-1/rules.d/49-amtest.rules <<'EOF'
+// amtest authenticates as itself, and only for org.archmaid.test.*
+polkit.addAdminRule(function(action, subject) {
+    if (subject.user == "amtest" && action.id.indexOf("org.archmaid.test.") == 0)
+        return ["unix-user:amtest"];
+});
+EOF
+faillock --user amtest --reset
+```
+
+Log in as `amtest` on **tty3** (an active local session). Before **each**
+case, check that `faillock --user amtest` shows 0 rows; reset if not. Leave
+at least 10 s between password attempts. After each case, record the faillock
+row count, `ls -l /run/faillock/amtest`, pkexec's exit code, and
+`journalctl -u polkit --since "-2min"`.
+
+| Case | On tty3 as amtest | Expect / learn |
+|---|---|---|
+| A | `pkexec /usr/bin/true`: one wrong password, then cancel (Ctrl-D) | failures for 1 wrong: 1 or 2? Does the agent re-prompt after a wrong one? |
+| B | `pkexec /usr/bin/true`: one wrong, then the right one | rc 0; does success reset the count to 0? |
+| C | three separate `pkexec /usr/bin/true`, each wrong; then a fourth with the right password | locked at 3? The 4th must fail (rc 127) while locked |
+| D | `printf 'wrong\n' \| sudo -S -k -v`, then `sudo -A -k -v` with an askpass that answers wrong once and then exits 1 | baseline: 2 each (amtest is not in sudoers; note whether sudo prompts at all) |
+| E | `su amtest -c true` with one wrong | 0 (su's stack has no faillock on Arch) |
+| F | in one shell, `pkexec /usr/bin/true keep` twice (right password once); then `bash -c 'pkexec /usr/bin/true keep'` | the second call doesn't prompt; does the fresh process prompt? pkexec's subject is its parent process |
+| G | `pkexec /usr/bin/true argv1-match`, then `pkexec /usr/bin/true nomatch` (right password) | first: no prompt, rc 0 (argv1 action). Second: falls through to `org.archmaid.test.true` (check the dialog/journal action id) |
+| H | `pkexec /usr/bin/true`, cancel straight away (Ctrl-D, then Ctrl-C in a second run) | does a cancel count as a failure? rc 126 vs 127 |
+
+### Cleanup (as root, always)
+
+```sh
+pkill -u amtest; userdel -r amtest
+rm -f /etc/polkit-1/rules.d/49-amtest.rules /usr/share/polkit-1/actions/org.archmaid.test.policy
+rm -f /run/faillock/amtest          # faillock --reset needs the user to exist
+pkaction | grep -c org.archmaid.test   # must print 0
+```
+
+Paste the results into HANDOVER's open items. They decide whether the GUI
+needs its own pre-validation (like the TUI's `su` stage), and whether
+`auth_admin_keep` verbs really save dialogs.
+
 ## Known gaps
 
 - **The audit gate was live-tested by hand, not automatically:** a dry-run Full
