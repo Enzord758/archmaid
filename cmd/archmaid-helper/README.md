@@ -68,9 +68,10 @@ another.
 
 **Denylist** (`disable-unit`). A unit is denied if:
 
-- its name starts with `systemd-`, `dbus`, `polkit`, `getty@`,
-  `NetworkManager`, `sshd`, `coolercontrold` or `ly@`;
-- its name without the type suffix is one of the login managers `sddm`, `gdm`,
+- its name starts with `systemd-`, `polkit`, `getty@`, `NetworkManager`,
+  `sshd`, `coolercontrold` or `ly@`;
+- its name without the type suffix is the system bus `dbus`, `dbus-broker` or
+  `dbus-daemon`; one of the login managers `sddm`, `gdm`,
   `lightdm`, `ly`, `greetd`, `display-manager`; the security controls
   `firewalld`, `nftables`, `iptables`, `ip6tables`, `ufw`, `apparmor`,
   `auditd`; or the sleep hooks `nvidia-suspend`, `nvidia-resume`,
@@ -82,7 +83,12 @@ another.
 
 The name check runs on the literal argument before any systemctl call. It runs
 again on the unit's `Id` and `Names` (`systemctl show`), so a denied unit can't
-be reached through an alias. For each unit it is about to disable, the helper
+be reached through an alias. The bus is matched by exact name, not by a `dbus`
+prefix, because ordinary services carry D-Bus activation aliases
+(`bluetooth.service` is also `dbus-org.bluez.service`, `avahi-daemon.service`
+is `dbus-org.freedesktop.Avahi.service`). Such an alias neither causes nor
+avoids a refusal: `dbus-org.freedesktop.login1.service` is still refused,
+because its `Id` is `systemd-logind.service`. For each unit it is about to disable, the helper
 then reads the `[Install]` section with `systemctl cat` (unit file plus
 drop-ins). `systemctl show` has no `Also=` property, and its `WantedBy` lists
 only loaded units, so it would miss `WantedBy=systemd-suspend.service`. Every

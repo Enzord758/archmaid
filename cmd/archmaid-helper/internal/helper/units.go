@@ -246,12 +246,21 @@ func parseInstall(cat string) map[string][]string {
 // Units the helper never disables, whatever the caller asks. Exact entries
 // are unit names without the type suffix, so they also cover e.g. a
 // .socket of the same name reached through Also=; prefixes match any name.
+//
+// The bus itself is denied by exact name, not by a "dbus" prefix: services
+// carry D-Bus activation aliases such as dbus-org.bluez.service
+// (bluetooth) or dbus-org.freedesktop.Avahi.service, and those must not
+// get an ordinary unit refused. The real unit behind such an alias is still
+// checked by its Id and other names, so dbus-org.freedesktop.login1.service
+// is refused as systemd-logind.service.
 var (
 	unitDenyPrefixes = []string{
-		"systemd-", "dbus", "polkit", "getty@", "NetworkManager", "sshd", "coolercontrold",
+		"systemd-", "polkit", "getty@", "NetworkManager", "sshd", "coolercontrold",
 		"ly@",
 	}
 	unitDenyExact = []string{
+		// the system bus (dbus.service is an alias of one of the other two)
+		"dbus", "dbus-broker", "dbus-daemon",
 		// login
 		"sddm", "gdm", "lightdm", "ly", "greetd", "display-manager",
 		// security controls

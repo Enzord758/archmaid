@@ -47,7 +47,8 @@ func TestDisableUnit(t *testing.T) {
 
 func TestDisableUnitDenylistIsExit4(t *testing.T) {
 	for _, u := range []string{
-		"systemd-resolved.service", "dbus.service", "dbus-broker.service", "polkit.service",
+		"systemd-resolved.service", "dbus.service", "dbus-broker.service",
+		"dbus-daemon.service", "polkit.service",
 		"getty@tty1.service", "sddm.service", "gdm.service", "lightdm.service", "ly.service",
 		"ly@tty2.service", "greetd.service", "display-manager.service",
 		"NetworkManager.service", "NetworkManager-wait-online.service",
@@ -80,6 +81,72 @@ func TestDisableUnitDenylistThroughAlias(t *testing.T) {
 	if len(f.streams) != 0 {
 		t.Errorf("ran %q", f.streams)
 	}
+}
+
+func TestDisableUnitDBusActivationAliasIsNotDenied(t *testing.T) {
+	// D-Bus activation aliases come both from the runtime Names and from
+	// the [Install] Alias= that disabling would remove.
+	for unit, alias := range map[string]string{
+		"bluetooth.service":    "dbus-org.bluez.service",
+		"avahi-daemon.service": "dbus-org.freedesktop.Avahi.service",
+	} {
+		for _, arg := range []string{unit, alias} {
+			t.Run(arg, func(t *testing.T) {
+				f := installFake(
+					map[string]string{arg: show(unit, unit+" "+alias, "enabled", "inactive")},
+					map[string]string{unit: "[Install]\nWantedBy=multi-user.target\nAlias=" + alias + "\n"},
+				)
+				f.on(unitCatArgv(alias), reply{out: "[Install]\nWantedBy=multi-user.target\nAlias=" + alias + "\n"})
+				o, out := rootOpts(t, f)
+				if code := Run([]string{"disable-unit", arg}, o); code != ExitOK {
+					t.Fatalf("exit %d:\n%s", code, out)
+				}
+				if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/systemctl disable --now -- " + arg}) {
+					t.Errorf("ran %q", got)
+				}
+			})
+		}
+	}
+}
+
+func TestDisableUnitDeniedRealUnitBehindHarmlessAlias(t *testing.T) {
+	t.Run("D-Bus activation alias of a denied unit", func(t *testing.T) {
+		// The literal name passes; its Id is systemd-logind.service.
+		f := unitFake(map[string]string{"dbus-org.freedesktop.login1.service": show(
+			"systemd-logind.service", "systemd-logind.service dbus-org.freedesktop.login1.service", "enabled", "inactive")})
+		if msg := refusedWithoutRunning(t, f, "dbus-org.freedesktop.login1.service"); !strings.Contains(msg, "systemd-logind.service") {
+			t.Errorf("error %q does not name the real unit", msg)
+		}
+	})
+	t.Run("denied unit with a harmless [Install] alias", func(t *testing.T) {
+		f := installFake(
+			map[string]string{"firewalld.service": idle("firewalld.service")},
+			map[string]string{"firewalld.service": "[Install]\nWantedBy=multi-user.target\nAlias=dbus-org.fedoraproject.FirewallD1.service\n"},
+		)
+		refusedWithoutRunning(t, f, "firewalld.service")
+	})
+	t.Run("denied unit asked for by its harmless alias", func(t *testing.T) {
+		f := installFake(
+			map[string]string{"dbus-org.fedoraproject.FirewallD1.service": show(
+				"firewalld.service", "firewalld.service dbus-org.fedoraproject.FirewallD1.service", "enabled", "inactive")},
+			map[string]string{"dbus-org.fedoraproject.FirewallD1.service": "[Install]\nAlias=dbus-org.fedoraproject.FirewallD1.service\n"},
+		)
+		refusedWithoutRunning(t, f, "dbus-org.fedoraproject.FirewallD1.service")
+	})
+	t.Run("the bus socket through Also=", func(t *testing.T) {
+		f := installFake(
+			map[string]string{"a.service": idle("a.service"), "dbus.socket": idle("dbus.socket")},
+			map[string]string{"a.service": "[Install]\nAlso=dbus.socket\n"},
+		)
+		refusedWithoutRunning(t, f, "a.service")
+	})
+	t.Run("a unit claiming the bus alias", func(t *testing.T) {
+		f := installFake(
+			map[string]string{"mybus.service": idle("mybus.service")},
+			map[string]string{"mybus.service": "[Install]\nAlias=dbus.service\n"},
+		)
+		refusedWithoutRunning(t, f, "mybus.service")
+	})
 }
 
 func TestDisableUnitValidation(t *testing.T) {
