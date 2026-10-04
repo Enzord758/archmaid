@@ -13,6 +13,9 @@ of this (CLAUDE.md rule 2). It is the first real run of:
 
 Part C needs Part B. Part A needs neither, so you can stop after any part.
 
+Everything is built from `refactor/p0` in a separate worktree,
+`~/archmaid-live` (S0). Your `~/archmaid` checkout stays on `main`, as it is.
+
 ## Before you start
 
 ### What can change, and what can't
@@ -25,6 +28,7 @@ Part C needs Part B. Part A needs neither, so you can stop after any part.
 | AUR build cache cleaned (`yay -Sc`), `/tmp` and `/var/tmp` aged per tmpfiles.d, journal entries older than 2 weeks deleted (gone for good) | No unit is enabled; no setuid file is installed |
 | Hyprland plugins updated (`hyprpm update`) | The DMS bar: the widget files are installed by Part B, but nothing shows until you enable the plugin (optional, last) |
 | `~/.local/state/archmaid`: new run folders (rotation keeps the 5 newest), `last-run.json` overwritten, the AUR snapshot and `audit-state.json` written | |
+| S0: a new git worktree, `~/archmaid-live` | `~/archmaid`'s working tree and its branch (`main`) |
 | Part B: the `archmaid-git` package (files listed in B2) | |
 | Part C: `~/.config/archmaid/gui.json` (the GUI's settings) | |
 
@@ -49,14 +53,17 @@ packaging/arch/README.md "What it installs"; gui/internal/settings (gui.json) --
 | Finish, results table | 10 min |
 | Rollback (when you want it) | 5 min |
 
-### Known gaps (not bugs to report)
+### If something goes wrong, and one open question
 
-- **The GUI writes one log folder per process.** Every real run of one GUI
-  window lands in the same run folder (named when the first one starts),
-  until Dev 4's fix lands. So C4's and C5's entries share one folder.
-- **A hang after the Driver closes is being fixed (Dev 1).** If the screen
-  ever stops responding (the TUI ignores keys, or the GUI window is gone but
-  the process hasn't exited after 30 s), from another terminal:
+- **If archmaid's engine stops on its own** (an internal error; a bug to
+  report), the TUI shows "archmaid's engine stopped unexpectedly: …" and any
+  key quits; the details follow on the terminal (stderr). The GUI shows the
+  same text in a toast and the status bar, closes its dialogs, marks the
+  running row "Stopped" and the pending ones "Not run", and its controls come
+  back. Either way, write down the text and send the stderr file back.
+- **If it ever stops responding anyway** (the TUI ignores keys, or the GUI
+  window is gone but the process hasn't exited after 30 s), from another
+  terminal:
 
   ```sh
   pkill archmaid
@@ -68,15 +75,19 @@ packaging/arch/README.md "What it installs"; gui/internal/settings (gui.json) --
   always finishes its verb (HANDOVER: "A Stop after the helper's start line
   can't stop it"). If the TUI's terminal is left garbled, type `reset`. Then
   write down what you saw and send it back.
-- **The GUI's AUR audit doesn't prefetch.** It looks up when its row runs,
-  not while the first dialog is up, so that row takes a few seconds.
 - **Unanswered: does a pkexec killed while its dialog is up cost a faillock
   failure?** (`docs/polkit-keep-session-check.md`, Part C.) This guide never
   presses Stop or closes the GUI while a polkit dialog is open.
 
-<!-- source: HANDOVER Open items "GUI on the real Driver: not yet run live"
-(one run directory per GUI process, Deps.Prefetch nil); gui/internal/realdriver
-package doc ("the log store: one per process"); task brief for the Dev 1 fix -->
+<!-- source: internal/tui/adapter.go engineStopped, view.go ("any key to
+quit; the details follow on the terminal"), TestEngineStoppedMidRun;
+gui/internal/runview/model.go EngineStopped, Model.Stop, Row.Subtitle;
+gui/internal/ui/window.go engineStopped, statusText; stopped_test.go,
+stopped_harness_test.go -->
+
+<!-- not gaps any more: the GUI makes a fresh Driver, so a fresh log store,
+per Start (window.go startAction, realdriver package doc, TestRunDirs), and
+prefetches the AUR audit behind the gate (Deps.Prefetch, TestAuditPrefetch) -->
 
 ### The faillock budget and the stop rule
 
@@ -122,16 +133,29 @@ TestGUIRealDriver real-locked -->
 Open two terminals in your graphical session. Terminal 1 runs archmaid;
 terminal 2 runs the checks.
 
+**S0. A worktree for the live run.** Your `~/archmaid` checkout is on
+`main`, the old code, and `refactor/p0` is checked out in another worktree,
+so it can't be switched to there. Give the live run its own detached
+worktree (terminal 1):
+
+```sh
+cd ~/archmaid && git fetch origin && git worktree add --detach ~/archmaid-live origin/refactor/p0
+```
+
+This changes nothing in `~/archmaid`'s working tree; Rollback removes the
+worktree again. Every path below is `~/archmaid-live`, not `~/archmaid`.
+
 **S1. The commit.** In terminal 1:
 
 ```sh
-cd ~/archmaid
+cd ~/archmaid-live
 git status --short
 git log -1 --format='%H %s'
 ```
 
 `git status --short` must print nothing (makepkg builds only committed
-state). Write down the hash: every build in this guide is of this commit.
+state). Write down the hash: every build in this guide is of this commit,
+and it is `origin/refactor/p0` as S0 fetched it.
 
 **S2. A scratch folder for the builds and the notes** (terminal 1; keep this
 terminal open, `$T` lives in it):
@@ -143,7 +167,8 @@ T=$(mktemp -d) && echo "$T"
 Write down the path.
 
 **S3. Back up the state folder.** The rotation keeps the 5 newest run
-folders, and this guide makes up to 2 new ones, so the oldest go:
+folders, and this guide makes up to 3 new ones (A4, C4, C5), so the oldest
+go:
 
 ```sh
 B=~/archmaid-state-backup-$(date +%Y%m%d-%H%M) && cp -a ~/.local/state/archmaid "$B" && ls "$B"
@@ -175,7 +200,7 @@ session). Without one, Part C's dialogs can't appear.
 ### A1. Build (terminal 1)
 
 ```sh
-cd ~/archmaid && go build -trimpath -o "$T/archmaid" ./cmd/archmaid && go version -m "$T/archmaid" | grep vcs
+cd ~/archmaid-live && go build -trimpath -o "$T/archmaid" ./cmd/archmaid && go version -m "$T/archmaid" | grep vcs
 ```
 
 Expected: `vcs.revision=` the S1 hash and `vcs.modified=false`. Run it by its
@@ -245,10 +270,10 @@ the end) and a `last-run.json` with `"action":"fullcleanup"`,
 (and the `.`/`total` lines): **no new run folder, no `last-run.json` in the
 root.**
 
-<!-- source: testdata/transcripts/fullcleanup_clean.dryrun.golden;
+<!-- source: internal/tui/testdata/transcripts/fullcleanup_clean.dryrun.golden;
 internal/engine/queue.go plan() (a dry run never probes; the gate);
 internal/actions/queues.go; internal/logstore lastRunPath; view.go viewRunning,
-viewSummary; e2e/orphans.tape -->
+viewSummary; cmd/archmaid/e2e/orphans.tape -->
 
 ### A4. One real Full Cleanup
 
@@ -279,9 +304,12 @@ What to watch, in order:
 3. **Askpass during topgrade.** Normally **no** popup: the ticket from step 1
    is kept alive every 60 s. If sudo asks anyway, a "🔒 sudo access
    required" popup appears over the output with three lines: `step`,
-   `caller` (the real binary that ran sudo) and sudo's own `prompt`, quoted.
+   `caller` (the real binary that ran sudo) and sudo's own `prompt`, quoted,
+   on one line and clipped to 48 characters (a longer one ends in `…`).
    Answer only if the caller is topgrade or yay; otherwise `esc` (topgrade's
-   sudo then fails) and write down the caller line.
+   sudo then fails; sudo counts the hang-up as a failed attempt, so check
+   `faillock` afterwards and apply the stop rule) and write down the caller
+   line.
 4. **Package cache:** `paccache -r` runs. "Delete ENTIRE package cache?":
    `n` is the recommended answer. `y` deletes every cached package file.
 5. **The orphan confirm.** The probe's output lists the orphans and
@@ -314,7 +342,7 @@ Expected: `"action":"fullcleanup"`, `"dry_run":false`, `"outcome":"ok"`
 
 <!-- source: internal/engine/queue.go plan/probed/authorized (the password
 prompt doubles as the gate), auth.go wrongPassword;
-testdata/transcripts/fullcleanup_uncached_password_ok.shim.golden,
+internal/tui/testdata/transcripts/fullcleanup_uncached_password_ok.shim.golden,
 fullcleanup_orphans_cascade_acceptall.shim.golden; view.go viewPassword,
 viewAskpassFrom, viewSummary; HANDOVER landmines "hyprpm runs last", "Orphans
 are found after the update", "The orphan confirm previews the -Rns cascade",
@@ -353,11 +381,12 @@ Ctrl-C everywhere else, for reference: on a password prompt it cancels
 (back to the menu, recorded `cancelled`); on an askpass popup it hangs up on
 sudo; on the abort popup it resumes.
 
-<!-- source: cmd/archmaid/update.go handleKey (screenRunning ctrl+c →
+<!-- source: internal/tui/update.go handleKey (screenRunning ctrl+c →
 abort confirm, screenAbortConfirm n/esc/ctrl+c/enter resume, screenMenu
 q/ctrl+c quit), adapter.go engineKey/finished (abort → menu);
-internal/engine/abort.go; cmd/archmaid/tasks.go sigkillGrace = 5 s;
-testdata/transcripts/fullcleanup_abort_topgrade.shim.golden; e2e/abort.tape -->
+internal/engine/abort.go; internal/tui/tasks.go sigkillGrace = 5 s;
+internal/tui/testdata/transcripts/fullcleanup_abort_topgrade.shim.golden;
+cmd/archmaid/e2e/abort.tape -->
 
 ### A6. Where to check the results
 
@@ -371,11 +400,11 @@ Run the `awk` line in terminal 1, where `$START_A` is set. Expected:
 - **One new run folder** `YYYYMMDD-HHMM` (the minute this TUI started),
   `drwx------`, files `-rw-------`. If there were already 5, the oldest is
   gone (that's the rotation; it is in the S3 backup).
-- In it: `audit.log` (`OK: AUR audit`, maybe `ACCEPT`); `topgrade.log`
-  (`OK: Topgrade completed` with the whole output; A5's aborted topgrade
-  leaves no entry); `cleanup.log` (`SKIP: Entire package cache removed
-  (declined)`, `OK: Temp files cleaned per tmpfiles.d rules`, `OK: Old logs
-  removed`, plus any failed step); `orphans.log` (`OK: Orphaned packages
+- In it: `audit.log` (`OK: AUR audit` twice, A4's and A5's, maybe
+  `ACCEPT`); `topgrade.log` (`OK: Topgrade completed` with the whole
+  output; A5's aborted topgrade leaves no entry); `cleanup.log` (`SKIP:
+  Entire package cache removed (declined)`, `OK: Temp files cleaned per
+  tmpfiles.d rules`, `OK: Old logs removed`, plus any failed step); `orphans.log` (`OK: Orphaned packages
   removed` with the output, or `SKIP: … (declined)`; nothing if there were
   no orphans). Steps that succeed and aren't in that list (paccache -r, yay,
   the integrity check, hyprpm) log nothing.
@@ -387,7 +416,7 @@ Run the `awk` line in terminal 1, where `$START_A` is set. Expected:
 <!-- source: HANDOVER "Logging policy" (only failures, AlwaysLog steps log OK
 and SKIP), "Live-testing safely" (pacman.log as the independent record);
 internal/logstore (Append format "[ts] KIND: label", 0700/0600, run stamp
-20060102-1504); cmd/archmaid/log.go (store fixed per process);
+20060102-1504); internal/tui/log.go (store fixed per process);
 fullcleanup_abort_topgrade golden (no topgrade log on abort) -->
 
 ## Part B: the root helper and polkit
@@ -395,8 +424,8 @@ fullcleanup_abort_topgrade golden (no topgrade log on abort) -->
 ### B1. Build the packages (no root)
 
 ```sh
-P=$(mktemp -d) && cp ~/archmaid/packaging/arch/PKGBUILD ~/archmaid/packaging/arch/archmaid.install "$P"/ && cd "$P" && \
-ARCHMAID_REPO="file://$HOME/archmaid" ARCHMAID_FRAGMENT="commit=$(git -C ~/archmaid rev-parse HEAD)" makepkg -s
+P=$(mktemp -d) && cp ~/archmaid-live/packaging/arch/PKGBUILD ~/archmaid-live/packaging/arch/archmaid.install "$P"/ && cd "$P" && \
+ARCHMAID_REPO="file://$HOME/archmaid-live" ARCHMAID_FRAGMENT="commit=$(git -C ~/archmaid-live rev-parse HEAD)" makepkg -s
 ```
 
 Run it in terminal 1, and write down `$P`. The scratch copy keeps `pkg/`
@@ -492,7 +521,7 @@ internal/helperclient/plan.go (PlanOrphans runs the helper as the user) -->
 ### C1. Build (terminal 1)
 
 ```sh
-cd ~/archmaid/gui && go build -trimpath -o "$T/archmaid-gui" ./cmd/archmaid-gui && go version -m "$T/archmaid-gui" | grep vcs
+cd ~/archmaid-live/gui && go build -trimpath -o "$T/archmaid-gui" ./cmd/archmaid-gui && go version -m "$T/archmaid-gui" | grep vcs
 ```
 
 Expected: the S1 hash, `vcs.modified=false`. A cold build takes several
@@ -514,6 +543,16 @@ to ask through the GUI's dialog. The window "archmaid" opens on
 **Overview**: the status line, **Last Run** (A5's record: aborted) and
 **Actions**. The header has the view switcher (Overview, Run,
 Logs, Settings) and Stop.
+
+Check that this is the real GUI, not the demo stub: the title is plain
+"archmaid" (not "archmaid (stub)"), there is **no** banner "Demo — the stub,
+changes nothing", and the status bar has no `STUB`. Only `--stub` starts the
+stub; no environment variable does. If you see any of the three, close the
+window and stop here.
+
+<!-- source: gui/cmd/archmaid-gui/main.go; gui/internal/ui/app.go
+(parseLaunch: --stub only; StubBanner, StubAppID); window.go title,
+statusText; launch_test.go -->
 
 ### C3. Dry run via Settings first
 
@@ -546,13 +585,15 @@ no = "Skip" for an Optional step); window.go statusText -->
 
 In the same window: **Overview** → "Full Cleanup (Recommended)" → Proceed.
 
-1. **AUR audit**, then **topgrade**. topgrade runs as you. When its sudo
-   asks, a dialog "sudo Asks for Your Password" appears: "Asked by
-   <binary>." plus sudo's prompt, with Cancel / Authenticate. Check that the
-   binary is topgrade's or yay's, then type the password. It may ask again
-   later in a long topgrade (polkit runs have no sudo keep-alive). A wrong
-   one here is checked with `su` and costs no faillock row; one isn't
-   planned.
+1. **AUR audit**, then **topgrade**. The audit's AUR lookup already ran
+   while the Proceed dialog was up, so its row should finish at once. topgrade
+   runs as you. When its sudo asks, a dialog "sudo Asks for Your Password"
+   appears: "Asked by <binary>." plus sudo's prompt on one line, clipped to
+   48 characters (a longer one ends in `…`), with Cancel / Authenticate.
+   Check that the binary is topgrade's or yay's, then type the password. It
+   may ask again later in a long topgrade (polkit runs have no sudo
+   keep-alive). A wrong one here is checked with `su` and costs no faillock
+   row; one isn't planned.
 2. **Package cache, the polkit dialog:** the row says "Waiting for
    authorisation…" and the status bar "Waiting for authorisation". Your
    polkit agent's dialog shows "Authentication is required to remove old
@@ -596,7 +637,9 @@ Expected: `"action":"fullcleanup"`, `"outcome":"incomplete"`,
 wipe), `"dry_run":false`; faillock **0 rows**.
 
 <!-- source: gui/internal/realdriver package doc (topgrade's sudo through the
-askpass Server; root steps through helperclient.Run/pkexec);
+askpass Server; root steps through helperclient.Run/pkexec; the AUR audit's
+prefetch behind the gate, TestAuditPrefetch); gui/internal/ui/dialogs.go
+passwordText (askpassPromptMax = 48);
 internal/engine/auth.go (AuthPolkit: faillock read before each helper step,
 AuthWaiting until granted or NotGranted), queue.go stepExited (NotGranted →
 AuthRefused, "SKIP … (privilege not granted)"), record() (incomplete);
@@ -630,7 +673,7 @@ and pacman isn't installing:
 
    Expected: nothing running, no `db.lck`, and `"action":"topgrade"`,
    `"outcome":"aborted"`. If the process is still there after 30 s, use the
-   recovery under Known gaps (the Dev 1 hang) and note it.
+   recovery under "If something goes wrong" (`pkill archmaid`) and note it.
 
 <!-- source: gui/internal/ui/window.go closeRequest (texts, Keep Running
 default, closes off the main thread); internal/driver/driver.go teardown(asked)
@@ -644,8 +687,12 @@ ls -la --time-style=full-iso ~/.local/state/archmaid ~/.local/state/archmaid/*/ 
 awk -v t="[$START_C" '$0 >= t' /var/log/pacman.log > "$T/pacman-C.txt"; wc -l "$T/pacman-C.txt"
 ```
 
-Expected: **one** new run folder for the whole GUI session (the known gap).
-C4's and C5's entries are both in it, and C5's aborted topgrade adds none.
+Expected: **two** new run folders, one per run, each named for the minute
+its run started: C4's (its entries, as in C4.8) and C5's. The GUI makes a
+fresh engine, and so a fresh log store, for every action it starts. C5's
+aborted topgrade logs nothing, but its audit row does (`OK: AUR audit` in
+`audit.log`), so its folder exists. If C4 and C5 started in the same minute,
+they share one folder. C3's dry run went to `dryrun/`, not here.
 `pacman-C.txt` holds topgrade's lines and the orphan removal, if you
 accepted it. The removal now runs as root through the helper, so it is
 logged as `Running 'pacman -Rns --noconfirm -- …'` too.
@@ -700,6 +747,7 @@ faillock rows: S4 ___ / after A4 ___ / after C4's cancel ___ / Finish ___
 | B3 pkaction | 9 actions; paccache keep, remove-orphans admin; argv1 set; nothing else | | |
 | B4 plan-orphans (optional) | start, plan, result ok; rc 0 | | |
 | C1 build | `vcs.revision` = S1 hash | | |
+| C2 real GUI | title "archmaid", no demo banner, no `STUB` | | |
 | C3 dry run | `DRY RUN`, no polkit or password dialog; Finished: completed | | |
 | C3 settings | dry run off; `gui.json` 600 | | |
 | C4 askpass | "sudo Asks for Your Password", "Asked by" = ___ ; times asked ___ | | |
@@ -710,7 +758,7 @@ faillock rows: S4 ___ / after A4 ___ / after C4's cancel ___ / Finish ___
 | C4 end | "Finished: completed"; Last Run "incomplete … (1)"; `incomplete`, `steps_refused` 1 | | |
 | C5 close | "Stop the run and quit?"; Keep Running continues | | |
 | C5 Stop and Quit | window gone, exits ≤ 5 s; nothing left; `topgrade`/`aborted` | | |
-| C6 run folder | one folder for C4 + C5 (known gap) | | |
+| C6 run folders | two new folders, C4's and C5's (one if both started in the same minute) | | |
 | C7 widget (optional) | warning tint, popout, opens the GUI | | |
 | Finish faillock | 0 rows | | |
 
@@ -752,6 +800,15 @@ password each, so type them carefully.
 3. **The GUI's settings:** `rm ~/.config/archmaid/gui.json && rmdir
    ~/.config/archmaid` (the folder didn't exist before this guide).
 4. **The scratch folders**, once you've sent the results: `rm -rf "$T" "$P"`.
+   Then the S0 worktree (`~/archmaid` itself stays as it is):
+
+   ```sh
+   cd ~ && git -C ~/archmaid worktree remove ~/archmaid-live
+   ```
+
+   If git refuses because the worktree has changes, look at
+   `git -C ~/archmaid-live status` first; the builds above write nothing
+   there.
 5. **The old binary:** nothing to restore. This guide never touched
    `~/.local/bin/archmaid`, and `command -v archmaid` still finds it.
    **But that build (commit 83ecad2, 2026-09-23) prunes the run history to

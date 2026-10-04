@@ -56,8 +56,9 @@ ARCHMAID_REPO="file://$HOME/archmaid" ARCHMAID_FRAGMENT="commit=$(git -C ~/archm
 ```
 
 The repo path is given explicitly (`git -C`), because the scratch directory
-isn't a git checkout. This is the build `docs/first-live-run.md` (Part B)
-uses. It leaves `archmaid-git-r<N>.<hash>-1-x86_64.pkg.tar.zst` and
+isn't a git checkout. `docs/first-live-run.md` (Part B) runs this same
+build with its own worktree, `~/archmaid-live` (its step S0), in place of
+`~/archmaid`. It leaves `archmaid-git-r<N>.<hash>-1-x86_64.pkg.tar.zst` and
 `archmaid-gui-git-…` in `$P`, where `<hash>` is the first 7 characters of
 the commit.
 
