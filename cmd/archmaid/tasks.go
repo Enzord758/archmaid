@@ -71,8 +71,8 @@ func actionEnv() actions.Env {
 		LookPath:      exec.LookPath,
 		RepairWorkers: repairScanWorkers,
 		AuditStep:     auditStep,
-		AuditReport: func(context.Context) actions.Discovery {
-			return menuAudit(time.Now(), cfg).discovery()
+		AuditReport: func(ctx context.Context) actions.Discovery {
+			return menuAudit(ctx, time.Now(), cfg).discovery()
 		},
 		Downloads: downloadsOptions,
 		DeleteDownloads: func(plan downloads.Plan) func(context.Context, steps.Env) steps.Result {

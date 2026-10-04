@@ -55,7 +55,9 @@ func saveBaseline(pkgs []string, info map[string]aurInfo, prev map[string]snapEn
 }
 
 // runAudit is the menu action's audit against the current settings.
-func runAudit(now time.Time) auditOutcome { return menuAudit(now, currentAuditConfig()) }
+func runAudit(now time.Time) auditOutcome {
+	return menuAudit(context.Background(), now, currentAuditConfig())
+}
 
 // runAuditStep is the audit step's run against the current settings.
 func runAuditStep(ctx context.Context) steps.Result { return auditStep().Run(ctx, steps.Env{}) }

@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
+	"io/fs"
 	"net/http"
+	"os"
 	"runtime"
 	"slices"
 	"testing"
@@ -116,4 +119,33 @@ func TestAbortCancelsAuditStep(t *testing.T) {
 		d.Close()
 	}
 	settleGoroutines(t, base, "3 aborted audits")
+}
+
+// TestCloseStopsMenuAudit: quitting while "Audit AUR packages" waits on
+// the AUR (the Driver's Close, as main does after the program) ends the
+// lookup at once and writes no snapshot. The menu audit used to run on
+// context.Background(), so Close waited for the audit's deadline, and the
+// audit could save its snapshot after the user had quit.
+func TestCloseStopsMenuAudit(t *testing.T) {
+	auditEnv(t)
+	shimPacmanForeign(t, "victim\n")
+	arrived := hangingAUR(t)
+	old := auditDeadline
+	auditDeadline = 3 * time.Second // the old code's wait, kept short
+	t.Cleanup(func() { auditDeadline = old })
+	base := runtime.NumGoroutine()
+
+	d := newDriver(engine.New(engine.Options{Env: actionEnv()}), nil)
+	d.Send(engine.Start{Action: actions.IDAURAudit})
+	waitArrived(t, arrived)
+
+	start := time.Now()
+	d.Close()
+	if el := time.Since(start); el > cancelSlack {
+		t.Fatalf("Close returned %s after it was called, want within %s", el, cancelSlack)
+	}
+	if _, err := os.Stat(baselinePath()); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the stopped audit wrote its snapshot (stat: %v)", err)
+	}
+	settleGoroutines(t, base, "a closed menu audit")
 }

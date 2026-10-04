@@ -80,9 +80,15 @@ func (o auditOutcome) discovery() actions.Discovery {
 }
 
 // menuAudit is the menu action's audit (actions.Env.AuditReport, with the
-// config captured on the model's goroutine; see actionEnv).
-func menuAudit(now time.Time, cfg audit.Config) auditOutcome {
-	res, err := audit.Run(context.Background(), cfg, now)
+// config captured before the program starts; see actionEnv). ctx is the
+// discovery's: an abort or the Driver's Close cancels it, which ends the
+// lookup at once, and an audit cancelled after its lookup still writes no
+// snapshot (no one will see its report).
+func menuAudit(ctx context.Context, now time.Time, cfg audit.Config) auditOutcome {
+	res, err := audit.Run(ctx, cfg, now)
+	if ctx.Err() != nil {
+		return auditOutcome{notice: "The AUR audit was stopped."}
+	}
 	switch {
 	case errors.Is(err, audit.ErrNoForeign):
 		return auditOutcome{notice: "No foreign (AUR or locally built) packages installed."}
