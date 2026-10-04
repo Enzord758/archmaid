@@ -83,6 +83,14 @@ if compgen -G 'internal/*/*.go' >/dev/null; then
 		fi
 	done
 fi
+# Test-only code stays out of the binaries: no main package may link the
+# testing package (privilege/privtest and testenv are for _test.go files).
+for pkg in $(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./cmd/...); do
+	if go list -deps "$pkg" | grep -qx 'testing'; then
+		echo "FAIL: $pkg links the testing package; test helpers belong in _test.go files"
+		exit 1
+	fi
+done
 
 echo "==> coverage"
 PROFILE="$(mktemp)" # removed by finish
