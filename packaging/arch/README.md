@@ -47,18 +47,24 @@ on the widget until the live run has passed.
 
 Only committed state is built, so commit first. Build in a scratch copy, so
 `pkg/` and `src/` stay out of the tree. Copy `archmaid.install` along with
-`PKGBUILD` (`install=` names it, and makepkg refuses to build without it). The
-checkout here is `~/archmaid`; use your own path if it lives elsewhere:
+`PKGBUILD` (`install=` names it, and makepkg refuses to build without it).
+
+Set `W` to the checkout whose commit you want to build, and check that it is
+the branch you mean. It must contain `packaging/arch/`; an old checkout on
+`main` from before the refactor doesn't, and its HEAD would build the old
+code. For the first live run this is `~/archmaid-live`
+(`docs/first-live-run.md`, step S0):
 
 ```sh
-P=$(mktemp -d) && cp ~/archmaid/packaging/arch/PKGBUILD ~/archmaid/packaging/arch/archmaid.install "$P"/ && cd "$P" && \
-ARCHMAID_REPO="file://$HOME/archmaid" ARCHMAID_FRAGMENT="commit=$(git -C ~/archmaid rev-parse HEAD)" makepkg -s
+W=~/archmaid-live && git -C "$W" log -1 --format='%h %s' && \
+P=$(mktemp -d) && cp "$W"/packaging/arch/PKGBUILD "$W"/packaging/arch/archmaid.install "$P"/ && cd "$P" && \
+ARCHMAID_REPO="file://$HOME/archmaid" ARCHMAID_FRAGMENT="commit=$(git -C "$W" rev-parse HEAD)" makepkg -s
 ```
 
-The repo path is given explicitly (`git -C`), because the scratch directory
-isn't a git checkout. `docs/first-live-run.md` (Part B) runs this same
-build with its own worktree, `~/archmaid-live` (its step S0), in place of
-`~/archmaid`. It leaves `archmaid-git-r<N>.<hash>-1-x86_64.pkg.tar.zst` and
+`ARCHMAID_REPO` is the repository makepkg clones: `~/archmaid` holds every
+branch, including the one `$W` checks out, so the commit is found there. The
+paths are given explicitly because the scratch directory isn't a git
+checkout. It leaves `archmaid-git-r<N>.<hash>-1-x86_64.pkg.tar.zst` and
 `archmaid-gui-git-…` in `$P`, where `<hash>` is the first 7 characters of
 the commit.
 
