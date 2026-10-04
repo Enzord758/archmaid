@@ -47,7 +47,7 @@ With `ARCHMAID_PERF_GUARD=1` set, the gate ends with one more step:
 `TestPerfGuard` (`perfguard_test.go`), run without `-race` or coverage (it
 skips itself under either, and without the variable). It runs
 `BenchmarkStreamView5k`, `BenchmarkStreamView20k`, `BenchmarkSystemStatus` and
-`BenchmarkActivateFullCleanup` through `testing.Benchmark` and fails if one is
+`BenchmarkActivateFullCleanup` and `BenchmarkViewRunning` through `testing.Benchmark` and fails if one is
 over 3× its baseline, or over its fixed limit where it has one (best of up to
 three runs, so a single noisy run doesn't fail it). `StreamView20k` is
 the one that catches the streaming pane going quadratic again (it would be
@@ -60,11 +60,33 @@ threads, go1.27.1), which is why the guard isn't in the default gate:
 | `StreamView20k` | 20.6 ms | 61.8 ms |
 | `SystemStatus` | 28.2 µs | 84.6 µs |
 | `ActivateFullCleanup` | 4.9 µs | 1 ms (fixed: it guards against pacman on the UI thread, 130–200 ms) |
+| `ViewRunning` | 154 µs (633 allocs) | 600 µs (fixed: one Running-screen frame mid-queue with a full 2000-line output tail) |
 
 Run it before and after touching `output.go`, `waitForStream`/`handleStream`, `proc.Next`,
 `View`, `status.go` or `activate`. On another machine, or after a deliberate change,
-re-measure with `go test -run '^$' -bench 'StreamView|SystemStatus|ActivateFullCleanup' -count=6
+re-measure with `go test -run '^$' -bench 'StreamView|SystemStatus|ActivateFullCleanup|ViewRunning' -count=6
 ./...` and update the baselines in the test.
+
+### Bench compare (CI, and `make bench`)
+
+The guard's absolute limits are the dev machine's, so they can't gate shared CI
+runners. `scripts/bench-compare.sh [BASE]` (`make bench BASE=<ref>`; default the
+merge-base with `origin/main`) is the machine-independent check: it builds the
+test binary of BASE (in a temporary worktree) and of the working tree, runs the
+same benchmarks six times each, alternating base and head so a slow stretch
+hits both, and compares them with benchstat (pinned in the script). It fails
+when:
+
+- a benchmark's sec/op is significantly slower (benchstat p < 0.05) by more than 25 %;
+- `SystemStatus` allocs/op rose at all (significant; it is deterministic, 68);
+- HEAD's best `ActivateFullCleanup` sample is over 1 ms or `ViewRunning` over
+  600 µs (backstop caps, the guard's fixed limits, for slow drift that no single
+  base-to-head comparison shows).
+
+Noise shows as `~` and passes. It takes about 40 s plus the build. Output
+(`old.txt`, `new.txt`, `benchstat.txt`/`.csv`) goes to `$BENCH_OUT`, a temp
+dir by default; `BENCH_COUNT` changes the sample count. If a benchmark is new on
+HEAD it has no base column and is checked only against its cap.
 
 ## Make targets
 
@@ -74,6 +96,7 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 |---|---|
 | `make gate` | `scripts/check.sh` (TUI and helper, one module at the repo root) |
 | `make e2e` | `bash cmd/archmaid/e2e/run.sh` (needs vhs, ttyd, ffmpeg) |
+| `make bench` | `scripts/bench-compare.sh $(BASE)`: HEAD against a base commit with benchstat — see "Bench compare" |
 | `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (the gate, then the opt-in perf guard — see "Perf guard") |
 | `make all` | `gate` — run before pushing |
 
@@ -86,6 +109,7 @@ the same ref cancels the older run. Paths are in the workflow's `env:` block.
 |---|---|---|
 | `core` | `archlinux:latest` container (some discovery tests expect Arch tooling) | `make all`: the gate (TUI and helper). Go build and module caches keyed on `go.sum` and the Go version. |
 | `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `cmd/archmaid/e2e/*.txt` as an artifact on failure. |
+| `bench` | `ubuntu-latest` + setup-go, full history | `scripts/bench-compare.sh <base>` on the one runner: the PR's merge-base (or a push's previous SHA) against HEAD, benchstat-compared; fails on a significant slowdown (see "Bench compare"); uploads `benchstat` (old/new results, report) as an artifact, always. About 1–2 minutes. |
 | `gui` | not yet | Placeholder in the workflow: headless weston, once the GUI module exists. |
 
 Stays manual (not in CI): a real Full Cleanup, sudo/faillock behaviour, the
@@ -434,7 +458,7 @@ the names.
 | `auth_test.go` | The prime's tea glue: through `authSudo` a wrong password never reaches `sudo` and su runs as `su -s /usr/bin/true <user>`, a correct one mints the ticket; a lockout detail is shown verbatim; submit locks the input and ignores all keys until the result arrives. |
 | `abort_test.go` | ctrl+c opens a confirm instead of quitting; "no" resumes with the child alive; "yes" really terminates a real child; late output after an abort is dropped, by its step sequence, so even once a new queue has started an aborted step's late line never reaches the new step's pane or log and its late done never finishes it; aborting a child blocked on a full stream leaves no goroutine behind (the model closes quit and stops the child). |
 | `stream_test.go` | The pump stamps every batch with its launch's seq; an aborted pump returns nil. The pane follows output only at the bottom: scrolled up, new batches don't yank it, and when the tail drops old lines the line being read stays on top. A 20k-line `AlwaysLog` step logs all 20k lines in order while the pane holds the newest 2000. `BenchmarkStreamView5k`/`20k`: Update + View cost of streaming a flood (guarded by `TestPerfGuard`, opt-in). |
-| `perfguard_test.go` | Opt-in (`ARCHMAID_PERF_GUARD=1`): the streaming and status-line benchmarks stay under 3× the dev machine's baselines, choosing Full Cleanup under 1 ms; see Perf guard above. |
+| `perfguard_test.go` | Opt-in (`ARCHMAID_PERF_GUARD=1`): the streaming and status-line benchmarks stay under 3× the dev machine's baselines, choosing Full Cleanup under 1 ms and a Running frame (`BenchmarkViewRunning`, `view_bench_test.go`) under 600 µs; see Perf guard above. |
 | `overlay_test.go` | Popups float, centered, over their background; ANSI-styled backgrounds keep their width; the abort dialog stays over the running screen. |
 | `resize_test.go` | The output pane never overflows the terminal (running queue, log viewer, resize while a popup is open); askpass prompts over another popup keep the real background; nested popups resolve to the right base screen. |
 | `services_test.go` | Services discovery through `actions.Menu`: against a `systemctl` shim serving the `internal/actions/testdata/systemctl_list_*.txt` fixture system, the batched `is-enabled` with its per-unit fallback picks the enabled-but-inactive units, none is a notice, and an equivalence test runs the old bash pipeline against the same system to prove both select the same units. |
