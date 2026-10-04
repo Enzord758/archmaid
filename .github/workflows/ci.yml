@@ -158,4 +158,4 @@ jobs:
           mkdir -p /home/builder/.cache/go-build /home/builder/go/pkg/mod
           chown -R builder:builder /home/builder
       - name: make gui-test (as builder)
-        run: runuser -u builder -- env HOME=/home/builder GSK_RENDERER=cairo make -C "$GITHUB_WORKSPACE" gui-test
+        run: runuser -u builder -- env HOME=/home/builder GSK_RENDERER=cairo HEADLESS_TIMEOUT=600 make -C "$GITHUB_WORKSPACE" gui-test

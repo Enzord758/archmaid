@@ -6,6 +6,10 @@
 #   gui/scripts/headless.sh go test -v -run Throughput ./internal/ui
 #   ARCHMAID_GUI_PERF=1 gui/scripts/headless.sh        # also enforce the budgets
 #
+# weston and the command are bounded by `timeout` (HEADLESS_TIMEOUT seconds,
+# default 60: the display tests take ~35 s here), so nothing outlives a run
+# on the owner's machine; CI raises it for its slower runner.
+#
 # It sets WAYLAND_DISPLAY to weston's socket as an absolute path (the tests'
 # testenv moves XDG_RUNTIME_DIR to a scratch dir), GDK_BACKEND=wayland, drops
 # DISPLAY (no X fallback onto a live session), runs the command on a private
@@ -15,6 +19,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+limit="${HEADLESS_TIMEOUT:-60}"
 if [[ $# -eq 0 ]]; then
 	set -- go test -count=1 -v ./internal/ui
 fi
@@ -27,7 +32,7 @@ export XDG_RUNTIME_DIR
 
 sock="archmaid-gui-headless"
 log="$XDG_RUNTIME_DIR/weston.log"
-weston --backend=headless --renderer="${WESTON_RENDERER:-pixman}" --no-config \
+timeout -k 5 "$limit" weston --backend=headless --renderer="${WESTON_RENDERER:-pixman}" --no-config \
 	--socket="$sock" --width=1280 --height=800 --idle-time=0 >"$log" 2>&1 &
 weston=$!
 trap 'kill "$weston" 2>/dev/null; wait "$weston" 2>/dev/null; rm -rf "$XDG_RUNTIME_DIR"' EXIT
@@ -68,4 +73,4 @@ CONF
 export WAYLAND_DISPLAY="$XDG_RUNTIME_DIR/$sock" GDK_BACKEND=wayland ARCHMAID_GUI_DISPLAY_TESTS=1
 export NO_AT_BRIDGE=1 GTK_A11Y=none ADW_DISABLE_PORTAL=1 GDK_DEBUG=no-portals
 unset DISPLAY DBUS_SESSION_BUS_ADDRESS HYPRLAND_INSTANCE_SIGNATURE
-dbus-run-session --config-file="$XDG_RUNTIME_DIR/bus.conf" -- "$@"
+timeout -k 5 "$limit" dbus-run-session --config-file="$XDG_RUNTIME_DIR/bus.conf" -- "$@"

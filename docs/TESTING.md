@@ -124,7 +124,9 @@ main thread) and read its JSON report. They skip unless
 `weston --backend=headless` (pixman) with its socket in a fresh temp runtime
 dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
-no service activation (no portal, at-spi or gvfs starts). Scenarios:
+no service activation (no portal, at-spi or gvfs starts). weston and the
+command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
+~35 s warm, CI sets 600), so nothing outlives the run. Scenarios:
 `fullcleanup` (the stub run end to end, each confirm answered through its
 dialog), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
 `close-midrun` (closing mid-run asks first, then closes), `idle` (first frame
