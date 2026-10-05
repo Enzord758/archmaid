@@ -134,7 +134,7 @@ func TestStepCannotReadTheTerminal(t *testing.T) {
 	leader, follower := ptyPair(t)
 	marker := filepath.Join(t.TempDir(), "probe")
 	cmd := exec.Command(os.Args[0], "-test.run=^TestTTYChild$", "-test.count=1")
-	cmd.Env = append(os.Environ(), envTTYChild+"="+marker, "TERM=xterm-256color")
+	cmd.Env = append(desktopEnv(), envTTYChild+"="+marker, "TERM=xterm-256color")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = follower, follower, follower
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err := cmd.Start(); err != nil {
@@ -203,6 +203,20 @@ func TestStepCannotReadTheTerminal(t *testing.T) {
 	if on, err := ttyguard.Exclusive(follower); err != nil || on {
 		t.Errorf("the terminal is still exclusive after the TUI exited: %v, %v", on, err)
 	}
+}
+
+// desktopEnv is this process's environment without what makes termenv treat
+// a terminal as a pipe: with CI set (GitHub Actions sets CI=true) it skips
+// its background-colour and cursor queries, which the test answers as a
+// terminal would. The child runs in a real pty, as on the owner's desktop.
+func desktopEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); k != "CI" && k != "NO_COLOR" {
+			env = append(env, kv)
+		}
+	}
+	return env
 }
 
 // copyScreen reads r into w until r fails (the pty closes).
