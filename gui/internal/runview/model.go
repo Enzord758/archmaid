@@ -7,6 +7,7 @@ package runview
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Enzord758/archmaid/gui/internal/plural"
@@ -68,6 +69,9 @@ func (s RowState) Icon() string {
 // Row is one checklist row: a step of the plan.
 type Row struct {
 	ID, Title string
+	// LogLabel is what the step's log entry calls it ("Old package cache
+	// cleaned"): a finished step's summary when its output had nothing.
+	LogLabel string
 	// NeedsPriv: the step needs root; Optional: "no" at its confirm skips
 	// it rather than ending the queue.
 	NeedsPriv, Optional bool
@@ -81,6 +85,32 @@ type Row struct {
 	// was readable: a warning on the row when one more failure locks the
 	// account, the unlock time when it is locked.
 	Faillock *engine.FaillockState
+	// Last is the step's last non-blank output line, as plain text (kept
+	// even after the line has left the view): its summary once it is done.
+	Last string
+}
+
+// Summary is the one line a finished step shows while its output is
+// collapsed (P8's timeline): a failed step's error, else its last output
+// line; a step that printed nothing reads as its log label. Steps that
+// didn't run say why, as their Subtitle does; a pending or running step
+// has no summary.
+func (r Row) Summary() string {
+	switch r.State {
+	case RowFailed:
+		if r.Err != "" {
+			return r.Err
+		}
+		return r.Last
+	case RowOK:
+		if r.Last != "" {
+			return r.Last
+		}
+		return r.LogLabel
+	case RowPending, RowRunning:
+		return ""
+	}
+	return r.Subtitle()
 }
 
 // LastAttempt reports whether one more failed authorisation locks the
@@ -157,6 +187,12 @@ type Change struct {
 	// lines join its tail; after that the view holds Model.Output().
 	OutRemove int
 	OutAppend []string
+	// Steps is the same output diff grouped by step, for a view that
+	// shows each step's output under its own header (P8's timeline): in
+	// order, each StepOut removes lines from the head of its step's group,
+	// then appends to its tail. The "── title" line a step starts with is
+	// not in it (the timeline draws its own header); every other line is.
+	Steps []StepOut
 	// Opened is the prompt opened in this batch and still open at its end;
 	// Closed are prompts closed by the engine (PromptClosed).
 	Opened *Prompt
@@ -200,18 +236,45 @@ type Model struct {
 	// Lines counts every output line received; Dropped those the Driver or
 	// the pump dropped before they reached the view.
 	Lines, Dropped int
+	// Started is when the current queue was planned (QueueStarted.Started).
+	Started time.Time
 
 	out ring
 	// view is the window [viewLo, viewHi) of the output sequence the
 	// widgets hold, as of the last Apply.
 	viewLo, viewHi int
+	// base is the first sequence number the view may show: a new run
+	// moves it to the end (Clear, QueueStarted), so the page starts empty.
+	base int
+	// runs is the view's lines grouped as they came: consecutive lines of
+	// one step (or one step's header), oldest first from runHead. It is
+	// what lets a line that has left the ring still be removed from its
+	// step's group.
+	runs    []run
+	runHead int
 }
 
 // NewModel is an empty Model.
 func NewModel() *Model { return &Model{out: ring{buf: make([]entry, OutputCap)}} }
 
 // Output is the lines the view holds, oldest first, as plain text.
-func (m *Model) Output() []string { return m.out.lines() }
+func (m *Model) Output() []string { return m.out.since(m.lowest()) }
+
+// lowest is the oldest sequence number the view can hold.
+func (m *Model) lowest() int { return max(m.out.total-len(m.out.buf), m.base) }
+
+// Clear empties the page for the next action (the owner's decision Q12):
+// no checklist rows and no output; the last run's output is in Logs. The
+// window calls it when it starts an action, so even an action that ends
+// in a notice before any queue doesn't show the last run's output.
+// QueueStarted clears the output too.
+func (m *Model) Clear() Change {
+	m.Rows = m.Rows[:0]
+	m.base = m.out.total
+	c := Change{Reset: true}
+	c.OutRemove, c.OutAppend, c.Steps = m.sync()
+	return c
+}
 
 // ViewLine is line i (0 = the oldest) of the view as of the last Apply,
 // with its colour spans; false when i is out of range.
@@ -279,16 +342,19 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		switch ev := ev.(type) {
 		case engine.QueueStarted:
 			m.Action, m.DryRun, m.Running, m.Finished, m.Notice, m.Stopped = ev.Action, ev.DryRun, true, nil, "", ""
-			m.Rows, m.Auth, m.pendingLock = m.Rows[:0], nil, nil
+			m.Rows, m.Auth, m.pendingLock, m.Started = m.Rows[:0], nil, nil, ev.Started
+			// A new run starts with an empty page (Q12); one action
+			// plans one queue (Repair's reinstall is inserted).
+			m.base = m.out.total
 			for _, s := range ev.Steps {
-				m.Rows = append(m.Rows, Row{ID: s.ID, Title: s.Title, NeedsPriv: s.NeedsPriv, Optional: s.Optional})
+				m.Rows = append(m.Rows, newRow(s))
 			}
 			c.Reset, c.Inserted = true, nil
 			clear(touched)
 			c.Status = true
 		case engine.StepInserted:
 			i := min(max(ev.Index, 0), len(m.Rows))
-			m.Rows = append(m.Rows[:i], append([]Row{{ID: ev.Step.ID, Title: ev.Step.Title, NeedsPriv: ev.Step.NeedsPriv, Optional: ev.Step.Optional}}, m.Rows[i:]...)...)
+			m.Rows = append(m.Rows[:i], append([]Row{newRow(ev.Step)}, m.Rows[i:]...)...)
 			shifted := map[int]bool{}
 			for j := range touched {
 				if j >= i {
@@ -303,6 +369,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.PlanChanged:
 			if i := m.row(ev.Step.ID, ev.Index); i >= 0 {
 				m.Rows[i].Title, m.Rows[i].NeedsPriv, m.Rows[i].Optional = ev.Step.Title, ev.Step.NeedsPriv, ev.Step.Optional
+				m.Rows[i].LogLabel = ev.Step.LogLabel
 				touch(i)
 			}
 		case engine.StepStarted:
@@ -310,16 +377,25 @@ func (m *Model) Apply(evs []engine.Event) Change {
 				m.Rows[i].State, m.Rows[i].Elapsed = RowRunning, 0
 				m.Rows[i].Faillock, m.pendingLock = m.pendingLock, nil
 				touch(i)
-				m.push("── " + m.Rows[i].Title)
+				head := "── " + m.Rows[i].Title
+				m.out.push(entry{raw: head, text: head, step: ev.ID, head: true})
 			}
 		case engine.OutputChunk:
 			if ev.Dropped > 0 {
 				m.Dropped += ev.Dropped
-				m.push("… " + plural.N(ev.Dropped, "line", "lines") + " not shown (they are in the log)")
+				note := "… " + plural.N(ev.Dropped, "line", "lines") + " not shown (they are in the log)"
+				m.out.push(entry{raw: note, text: note, step: ev.ID})
 			}
 			m.Lines += len(ev.Lines) + ev.Dropped
 			for _, l := range ev.Lines {
-				m.out.push(entry{raw: l, text: StripSGR(l)})
+				m.out.push(entry{raw: l, text: StripSGR(l), step: ev.ID})
+			}
+			if last := m.lastText(len(ev.Lines)); last != "" {
+				// Not touched: the summary shows only once the step is
+				// done, and StepDone touches the row then.
+				if i := m.row(ev.ID, ev.Index); i >= 0 {
+					m.Rows[i].Last = last
+				}
 			}
 			c.Status = true
 		case engine.StepDone:
@@ -427,8 +503,24 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		c.Rows = append(c.Rows, i)
 	}
 	slices.Sort(c.Rows)
-	c.OutRemove, c.OutAppend = m.sync()
+	c.OutRemove, c.OutAppend, c.Steps = m.sync()
 	return c
+}
+
+// lastText is the last non-blank text among the newest n lines pushed (at
+// most the ring's size), "" when all are blank; it looks from the newest
+// back, so a flood costs one check.
+func (m *Model) lastText(n int) string {
+	for i := 1; i <= min(n, len(m.out.buf)); i++ {
+		if t := m.out.buf[(m.out.total-i)%len(m.out.buf)].text; strings.TrimSpace(t) != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+func newRow(s engine.PlanStep) Row {
+	return Row{ID: s.ID, Title: s.Title, LogLabel: s.LogLabel, NeedsPriv: s.NeedsPriv, Optional: s.Optional}
 }
 
 // EngineStopped is what the GUI says when the Driver's events end without
@@ -507,23 +599,92 @@ func doneState(s steps.Status) RowState {
 	return RowPending
 }
 
-// push adds a line archmaid wrote itself (a step header, a drop notice):
-// plain text, no SGR parsing.
-func (m *Model) push(line string) { m.out.push(entry{raw: line, text: line}) }
+// StepOut is one step's part of an output diff (Change.Steps): Remove
+// lines leave the head of the step's group, then Append lines (a sub-slice
+// of Change.OutAppend) join its tail. ID is the step's ID ("" for a line
+// outside any step).
+type StepOut struct {
+	ID     string
+	Remove int
+	Append []string
+}
+
+// run is consecutive view lines of one step: its header line (head) or
+// its output.
+type run struct {
+	step string
+	head bool
+	n    int
+}
 
 // sync is the output diff since the last Apply: the view drops the lines
-// that left the ring and gains the new ones that are still in it, so a
-// batch bigger than OutputCap never inserts a line only to remove it.
-func (m *Model) sync() (remove int, add []string) {
+// that left the ring (or the run, base) and gains the new ones that are
+// still in it, so a batch bigger than OutputCap never inserts a line only
+// to remove it. grouped is the same diff by step.
+func (m *Model) sync() (remove int, add []string, grouped []StepOut) {
 	hi := m.out.total
-	lo := max(hi-OutputCap, 0)
+	lo := min(m.lowest(), hi)
 	remove = min(max(lo-m.viewLo, 0), m.viewHi-m.viewLo)
 	from := max(m.viewHi, lo)
 	if from < hi {
 		add = m.out.since(from)
 	}
 	m.viewLo, m.viewHi = lo, hi
-	return remove, add
+	grouped = m.popRuns(remove, grouped)
+	return remove, add, m.pushRuns(from, add, grouped)
+}
+
+// popRuns takes n lines off the head of the view's runs and adds their
+// removal, by step, to out (a step's header line isn't in the grouped
+// diff).
+func (m *Model) popRuns(n int, out []StepOut) []StepOut {
+	for n > 0 && m.runHead < len(m.runs) {
+		r := &m.runs[m.runHead]
+		k := min(n, r.n)
+		if !r.head {
+			if l := len(out) - 1; l >= 0 && out[l].ID == r.step && out[l].Append == nil {
+				out[l].Remove += k
+			} else {
+				out = append(out, StepOut{ID: r.step, Remove: k})
+			}
+		}
+		r.n -= k
+		n -= k
+		if r.n == 0 {
+			m.runHead++
+		}
+	}
+	if m.runHead > 64 && m.runHead*2 > len(m.runs) {
+		m.runs = append(m.runs[:0], m.runs[m.runHead:]...)
+		m.runHead = 0
+	}
+	return out
+}
+
+// pushRuns records add (the lines from sequence number from on, all still
+// in the ring) as runs, and adds their appends, by step, to out.
+func (m *Model) pushRuns(from int, add []string, out []StepOut) []StepOut {
+	for i := 0; i < len(add); {
+		e := m.out.buf[(from+i)%len(m.out.buf)]
+		j := i + 1
+		for j < len(add) {
+			f := m.out.buf[(from+j)%len(m.out.buf)]
+			if f.step != e.step || f.head != e.head {
+				break
+			}
+			j++
+		}
+		if l := len(m.runs) - 1; l >= m.runHead && m.runs[l].step == e.step && m.runs[l].head == e.head {
+			m.runs[l].n += j - i
+		} else {
+			m.runs = append(m.runs, run{step: e.step, head: e.head, n: j - i})
+		}
+		if !e.head {
+			out = append(out, StepOut{ID: e.step, Append: add[i:j:j]})
+		}
+		i = j
+	}
+	return out
 }
 
 // ring holds the last len(buf) lines of a sequence of total lines.
@@ -535,7 +696,12 @@ type ring struct {
 // entry is an output line: raw as it came (SGR kept) and its plain text.
 // The spans are parsed from raw only when a row shows the line (ViewLine),
 // so a flood pays for stripping, not for styling 10k lines nobody sees.
-type entry struct{ raw, text string }
+// step is the ID of the step it belongs to; head marks the "── title"
+// line a step starts with.
+type entry struct {
+	raw, text, step string
+	head            bool
+}
 
 func (r *ring) push(e entry) {
 	r.buf[r.total%len(r.buf)] = e
@@ -551,5 +717,3 @@ func (r *ring) since(from int) []string {
 	}
 	return out
 }
-
-func (r *ring) lines() []string { return r.since(max(r.total-len(r.buf), 0)) }
