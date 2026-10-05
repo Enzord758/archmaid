@@ -23,8 +23,12 @@ Files: `packaging/dms/archmaid/` (`plugin.json`, `ArchmaidWidget.qml`,
 **Pill**: icon `cleaning_services` plus the pending count (hidden at 0 or unknown).
 Tint: error colour (red) for an unacknowledged high AUR finding or `outcome: failed`;
 warning (orange) for `incomplete` (root steps refused), `aborted`, `cancelled`, or a last
-run older than 14 days; dimmed when no file is readable. **Popout**: those issues, last
-run, updates, audit and up to 5 findings, and two buttons: Run Full Cleanup, Log folder.
+run older than 14 days; dimmed when no file is readable. **Popout** (the GUI's Workbench
+sections, DMS's chrome): **LAST RUN** (the action's name, an outcome tag `OK`/`FAILED`/
+`INCOMPLETE`/`ABORTED`/`CANCELLED` tinted primary/error/warning/warning/muted, "Mon 5 Oct,
+00:45 · 17 h ago", and the failed, refused or stale note), **UPDATES** (the count, checked
+when) and **AUR** (packages audited, up to 5 high findings, "+N more"), numbers in DMS's
+mono font; and two buttons: Run Full Cleanup (primary), Log folder.
 Bar only: no control-center tile.
 
 **Robustness**: a missing, empty, torn, wrong-`v` or wrongly typed file parses to "no

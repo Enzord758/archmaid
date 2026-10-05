@@ -49,6 +49,31 @@ PluginComponent {
         }
     }
     readonly property string pillText: summary.updates !== null && summary.updates > 0 ? String(summary.updates) : ""
+    // The popout's three sections (state.js popout: strings and numbers).
+    readonly property var view: State.popout(summary, now)
+
+    // tone maps state.js's colour roles to the DMS theme.
+    function tone(role) {
+        switch (role) {
+        case "primary":
+            return Theme.primary;
+        case "error":
+            return Theme.error;
+        case "warning":
+            return Theme.warning;
+        default:
+            return Theme.surfaceVariantText;
+        }
+    }
+
+    // A section's small uppercase heading, as the GUI's kickers.
+    component Kicker: StyledText {
+        textFormat: Text.PlainText // fixed strings, plain like every text here
+        font.pixelSize: Theme.fontSizeSmall
+        font.capitalization: Font.AllUppercase
+        font.letterSpacing: 1.2
+        color: Theme.surfaceVariantText
+    }
 
     popoutWidth: 340
     popoutHeight: 0
@@ -169,62 +194,178 @@ PluginComponent {
                 root.probeTools();
             }
 
+            // Workbench's sections, in its order: LAST RUN, UPDATES, AUR.
+            // The chrome stays DMS's; numbers are mono, as the GUI's meters.
             Column {
                 width: parent.width
-                spacing: Theme.spacingS
+                spacing: Theme.spacingM
 
-                Repeater {
-                    model: root.summary.issues
+                Column {
+                    width: parent.width
+                    spacing: Theme.spacingXS
+
+                    Kicker {
+                        text: "Last run"
+                    }
                     StyledText {
                         textFormat: Text.PlainText // state-file strings are data, never markup
-                        required property var modelData
-                        width: parent.width
-                        text: modelData.text
-                        wrapMode: Text.WordWrap
+                        visible: root.view.lastRun === null
+                        text: "No run recorded yet"
                         font.pixelSize: Theme.fontSizeMedium
-                        color: (modelData.kind === "aur" || modelData.kind === "failed") ? Theme.error : Theme.warning
+                        color: Theme.surfaceVariantText
+                    }
+                    Row {
+                        visible: root.view.lastRun !== null
+                        width: parent.width
+                        spacing: Theme.spacingS
+
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            width: Math.min(implicitWidth, parent.width - chip.width - parent.spacing)
+                            elide: Text.ElideRight
+                            text: root.view.lastRun ? root.view.lastRun.action : ""
+                            font.pixelSize: Theme.fontSizeLarge
+                            font.weight: Font.Medium
+                            color: Theme.surfaceText
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        // The outcome tag: OK, FAILED, INCOMPLETE, ABORTED, CANCELLED.
+                        Rectangle {
+                            id: chip
+                            readonly property color ink: root.tone(root.view.lastRun ? root.view.lastRun.tint : "muted")
+                            width: tagText.implicitWidth + 2 * Theme.spacingS
+                            height: tagText.implicitHeight + Theme.spacingXS
+                            radius: Theme.spacingXS
+                            color: Theme.withAlpha(ink, 0.16)
+                            border.width: 1
+                            border.color: Theme.withAlpha(ink, 0.5)
+                            anchors.verticalCenter: parent.verticalCenter
+
+                            StyledText {
+                                textFormat: Text.PlainText // state-file strings are data, never markup
+                                id: tagText
+                                anchors.centerIn: parent
+                                text: root.view.lastRun ? root.view.lastRun.tag : ""
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.weight: Font.Medium
+                                font.letterSpacing: 0.8
+                                color: chip.ink
+                            }
+                        }
+                    }
+                    StyledText {
+                        textFormat: Text.PlainText // state-file strings are data, never markup
+                        visible: root.view.lastRun !== null
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        text: root.view.lastRun ? root.view.lastRun.stamp : ""
+                        font.pixelSize: Theme.fontSizeMedium
+                        color: Theme.surfaceText
+                    }
+                    Repeater {
+                        model: root.view.lastRun ? root.view.lastRun.notes : []
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            required property var modelData
+                            width: parent.width
+                            wrapMode: Text.WordWrap
+                            text: modelData.text
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: root.tone(modelData.tint)
+                        }
                     }
                 }
 
-                StyledText {
-                    textFormat: Text.PlainText // state-file strings are data, never markup
-                    visible: root.lastRun !== null
+                Column {
                     width: parent.width
-                    wrapMode: Text.WordWrap
-                    color: Theme.surfaceText
-                    font.pixelSize: Theme.fontSizeMedium
-                    text: root.lastRun ? ("Last run: " + root.lastRun.action + ", " + root.lastRun.outcome + ", " + State.ago(root.lastRun.finished, root.now)) : ""
+                    spacing: Theme.spacingXS
+
+                    Kicker {
+                        text: "Updates"
+                    }
+                    Row {
+                        width: parent.width
+                        spacing: Theme.spacingS
+
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            visible: root.view.updates.count !== null
+                            text: root.view.updates.count !== null ? String(root.view.updates.count) : ""
+                            font.family: Theme.monoFontFamily
+                            font.pixelSize: Theme.fontSizeXLarge
+                            color: root.view.updates.count > 0 ? Theme.primary : Theme.surfaceText
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            text: root.view.updates.note
+                            font.pixelSize: Theme.fontSizeMedium
+                            color: root.view.updates.count !== null ? Theme.surfaceText : Theme.surfaceVariantText
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
                 }
 
-                StyledText {
-                    textFormat: Text.PlainText // state-file strings are data, never markup
-                    visible: root.summary.updates !== null
+                Column {
                     width: parent.width
-                    color: Theme.surfaceText
-                    font.pixelSize: Theme.fontSizeMedium
-                    text: root.updates ? ("Pending updates: " + root.summary.updates + " (checked " + State.ago(root.updates.checked, root.now) + ")") : ""
-                }
+                    spacing: Theme.spacingXS
 
-                StyledText {
-                    textFormat: Text.PlainText // state-file strings are data, never markup
-                    visible: root.audit !== null
-                    width: parent.width
-                    wrapMode: Text.WordWrap
-                    color: Theme.surfaceText
-                    font.pixelSize: Theme.fontSizeMedium
-                    text: root.audit ? ("AUR audit: " + root.audit.packages + " packages" + (root.audit.checked !== null ? ", " + State.ago(root.audit.checked, root.now) : "")) : ""
-                }
+                    Kicker {
+                        text: "AUR"
+                    }
+                    Row {
+                        width: parent.width
+                        spacing: Theme.spacingS
 
-                Repeater {
-                    model: root.audit ? root.audit.high.slice(0, 5) : []
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            visible: root.view.aur.packages !== null
+                            text: root.view.aur.packages !== null ? String(root.view.aur.packages) : ""
+                            font.family: Theme.monoFontFamily
+                            font.pixelSize: Theme.fontSizeXLarge
+                            color: Theme.surfaceText
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            text: root.view.aur.note
+                            font.pixelSize: Theme.fontSizeMedium
+                            color: root.view.aur.packages !== null ? Theme.surfaceText : Theme.surfaceVariantText
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+                    }
+                    // The high findings, one row each: the package (mono) and why.
+                    Repeater {
+                        model: root.view.aur.high
+                        Row {
+                            required property var modelData
+                            width: parent.width
+                            spacing: Theme.spacingS
+
+                            StyledText {
+                                textFormat: Text.PlainText // state-file strings are data, never markup
+                                id: pkgText
+                                text: modelData.pkg
+                                font.family: Theme.monoFontFamily
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.error
+                            }
+                            StyledText {
+                                textFormat: Text.PlainText // state-file strings are data, never markup
+                                width: parent.width - pkgText.width - parent.spacing
+                                wrapMode: Text.WordWrap
+                                text: modelData.reason
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceText
+                            }
+                        }
+                    }
                     StyledText {
                         textFormat: Text.PlainText // state-file strings are data, never markup
-                        required property var modelData
-                        width: parent.width
-                        wrapMode: Text.WordWrap
-                        color: Theme.error
+                        visible: root.view.aur.more > 0
+                        text: "+" + root.view.aur.more + " more in archmaid's audit"
                         font.pixelSize: Theme.fontSizeSmall
-                        text: modelData.pkg + ": " + modelData.reason
+                        color: Theme.surfaceVariantText
                     }
                 }
 
@@ -249,7 +390,10 @@ PluginComponent {
                         }
                     }
                     DankButton {
+                        // Secondary: Run Full Cleanup keeps DMS's primary button colours.
                         text: "Log folder"
+                        backgroundColor: Theme.surfaceContainerHigh
+                        textColor: Theme.surfaceText
                         onClicked: root.openLogFolder()
                     }
                 }

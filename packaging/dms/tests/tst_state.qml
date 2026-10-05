@@ -111,6 +111,101 @@ TestCase {
         compare(State.ago(t0, t0 - 1000), "just now");
     }
 
+    function test_outcomeTagAndTint() {
+        const want = [["ok", "OK", "primary"], ["failed", "FAILED", "error"], ["incomplete", "INCOMPLETE", "warning"],
+                      ["aborted", "ABORTED", "warning"], ["cancelled", "CANCELLED", "muted"], ["unknown", "UNKNOWN", "muted"]];
+        for (let i = 0; i < want.length; i++) {
+            compare(State.outcomeTag(want[i][0]), want[i][1], want[i][0]);
+            compare(State.outcomeTint(want[i][0]), want[i][2], want[i][0]);
+        }
+        // Every outcome the parser keeps has its own tag.
+        for (let i = 0; i < State.KNOWN_OUTCOMES.length; i++)
+            verify(State.outcomeTag(State.KNOWN_OUTCOMES[i]) !== "UNKNOWN", State.KNOWN_OUTCOMES[i]);
+        compare(State.outcomeTag("constructor"), "UNKNOWN");
+        compare(State.outcomeTint(undefined), "muted");
+    }
+
+    function test_actionLabel() {
+        const ids = F.fx.runnable.split(",");
+        verify(ids.length >= 7, F.fx.runnable);
+        for (let i = 0; i < ids.length; i++)
+            verify(State.actionLabel(ids[i]) !== ids[i], "no name for the runnable action " + ids[i]);
+        compare(State.actionLabel("fullcleanup"), "Full Cleanup");
+        compare(State.actionLabel("brand-new"), "brand-new");
+        compare(State.actionLabel(""), "Unknown action");
+        compare(State.actionLabel("toString"), "toString");
+    }
+
+    function test_stamp() {
+        const then = new Date(2026, 9, 5, 0, 45).getTime(); // a Monday, local time
+        compare(State.stamp(then, then + 17 * 3600000), "Mon 5 Oct, 00:45 · 17 h ago");
+        compare(State.stamp(then, then + 2 * day), "Mon 5 Oct, 00:45 · 2 days ago");
+        const eve = new Date(2025, 11, 31, 23, 59).getTime();
+        compare(State.stamp(eve, new Date(2026, 0, 1, 8, 0).getTime()), "Wed 31 Dec 2025, 23:59 · 8 h ago");
+        const morning = new Date(2026, 2, 9, 7, 5).getTime();
+        compare(State.stamp(morning, morning), "Mon 9 Mar, 07:05 · just now");
+    }
+
+    function test_popout() {
+        const ok = State.popout(sum(F.fx.lastOK, F.fx.auditHigh, F.fx.updates3, t0 + 2 * 3600000), t0 + 2 * 3600000);
+        compare(ok.lastRun.action, "Full Cleanup");
+        compare(ok.lastRun.tag, "OK");
+        compare(ok.lastRun.tint, "primary");
+        verify(ok.lastRun.stamp.endsWith(" · 2 h ago"), ok.lastRun.stamp);
+        compare(ok.lastRun.notes.length, 0);
+        compare(ok.updates.count, 3);
+        verify(ok.updates.note.startsWith("pending · checked "), ok.updates.note);
+        compare(ok.aur.packages, 27);
+        compare(ok.aur.note, "packages · checked 2 h ago");
+        compare(ok.aur.high.length, 2);
+        compare(ok.aur.high[0].pkg, "foo");
+        compare(ok.aur.more, 0);
+
+        // A failed run, past the stale mark: both notes, the AUR count stays in the AUR section.
+        const late = t0 + 20 * day;
+        const f = State.popout(sum(F.fx.lastFailed, F.fx.auditHigh, null, late), late);
+        compare(f.lastRun.tag, "FAILED");
+        compare(f.lastRun.tint, "error");
+        compare(f.lastRun.notes.map(n => n.text), ["Last run failed (2 steps)", "No cleanup for 20 days"]);
+        compare(f.lastRun.notes.map(n => n.tint), ["error", "warning"]);
+        compare(f.updates.count, null);
+        compare(f.updates.note, "Not checked yet");
+
+        const c = State.popout(sum(F.fx.lastCancelled, null, null, t0), t0);
+        compare(c.lastRun.tag, "CANCELLED");
+        compare(c.lastRun.tint, "muted");
+        compare(c.lastRun.notes.length, 0);
+        compare(c.aur.packages, null);
+        compare(c.aur.note, "No audit yet");
+
+        const inc = State.popout(sum(F.fx.lastIncomplete, null, null, t0), t0);
+        compare(inc.lastRun.tint, "warning");
+        compare(inc.lastRun.notes.length, 1);
+        compare(inc.lastRun.notes[0].tint, "warning");
+
+        // No record: no LAST RUN; an old updates count is "not checked for".
+        const u = State.parseUpdates(F.fx.updates3);
+        const old = State.popout(State.summarize(null, null, u, u.checked + 5 * day), u.checked + 5 * day);
+        compare(old.lastRun, null);
+        compare(old.updates.count, null);
+        compare(old.updates.note, "Not checked for 5 days");
+        const none = State.popout(State.summarize(null, null, State.parseUpdates(F.fx.updatesNone), t0), t0);
+        compare(none.updates.count, 0);
+        verify(none.updates.note.startsWith("up to date · checked "), none.updates.note);
+
+        // Five findings listed, the rest counted; one package is singular.
+        const many = State.popout(sum(null, F.fx.auditMany, null, t0), t0);
+        compare(many.aur.high.length, 5);
+        compare(many.aur.more, 2);
+        compare(many.aur.note, "package · checked just now");
+
+        // Nothing readable at all: every section says so.
+        const empty = State.popout(State.summarize(null, null, null, t0), t0);
+        compare(empty.lastRun, null);
+        compare(empty.updates.note, "Not checked yet");
+        compare(empty.aur.note, "No audit yet");
+    }
+
     function test_launchPlan() {
         compare(State.launchPlan(true, "kitty", true).argv, ["archmaid-gui"]);
         compare(State.launchPlan(false, "kitty", true).argv, ["kitty", "-e", "archmaid"]);

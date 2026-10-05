@@ -126,7 +126,7 @@ function summarize(lastRun, audit, updates, now) {
     var warns = [];
 
     if (!lastRun && !audit && !updates)
-        return { level: "nodata", issues: [], updates: null, lastRun: null, audit: null };
+        return { level: "nodata", issues: [], updates: null, updatesChecked: null, lastRun: null, audit: null };
 
     if (audit && audit.highCount > 0)
         errors.push({ kind: "aur", text: audit.highCount + (audit.highCount === 1 ? " AUR warning" : " AUR warnings") });
@@ -158,9 +158,113 @@ function summarize(lastRun, audit, updates, now) {
         level: errors.length > 0 ? "error" : (warns.length > 0 ? "warn" : "ok"),
         issues: errors.concat(warns),
         updates: count,
+        updatesChecked: updates ? updates.checked : null,
         lastRun: lastRun,
         audit: audit
     };
+}
+
+function _own(map, key) {
+    return typeof key === "string" && Object.prototype.hasOwnProperty.call(map, key);
+}
+
+var OUTCOME_TAGS = { ok: "OK", failed: "FAILED", incomplete: "INCOMPLETE", aborted: "ABORTED", cancelled: "CANCELLED" };
+var OUTCOME_TINTS = { ok: "primary", failed: "error", incomplete: "warning", aborted: "warning", cancelled: "muted" };
+
+// outcomeTag(outcome): the LAST RUN chip's text, as the GUI's tag.
+function outcomeTag(outcome) {
+    return _own(OUTCOME_TAGS, outcome) ? OUTCOME_TAGS[outcome] : "UNKNOWN";
+}
+
+// outcomeTint(outcome): the chip's colour role, "primary", "error",
+// "warning" or "muted"; the widget maps it to Theme.primary, Theme.error,
+// Theme.warning and Theme.surfaceVariantText. A cancelled run ran nothing,
+// so it is muted, not a warning colour.
+function outcomeTint(outcome) {
+    return _own(OUTCOME_TINTS, outcome) ? OUTCOME_TINTS[outcome] : "muted";
+}
+
+// The runnable actions' names as the GUI's Overview shows them; the record
+// holds the ID. dms_test.go checks every runnable action of
+// internal/actions has one. An unknown ID shows as itself.
+var ACTION_LABELS = {
+    fullcleanup: "Full Cleanup",
+    usercache: "Clear user cache",
+    repair: "Repair broken packages",
+    downloads: "Delete old downloads",
+    topgrade: "Run topgrade",
+    services: "Disable unused services",
+    auraudit: "Audit AUR packages"
+};
+
+function actionLabel(id) {
+    if (_own(ACTION_LABELS, id))
+        return ACTION_LABELS[id];
+    return (typeof id === "string" && id.length > 0) ? id : "Unknown action";
+}
+
+var DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+var MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function _pad2(n) {
+    return (n < 10 ? "0" : "") + n;
+}
+
+// stamp(then, now): "Mon 5 Oct, 00:45 · 17 h ago", local time, English
+// names whatever the locale (the GUI's wording). The year is added when it
+// isn't now's: "Wed 31 Dec 2025, 23:59 · 8 h ago".
+function stamp(then, now) {
+    var d = new Date(then);
+    var s = DAY_NAMES[d.getDay()] + " " + d.getDate() + " " + MONTH_NAMES[d.getMonth()];
+    if (d.getFullYear() !== new Date(now).getFullYear())
+        s += " " + d.getFullYear();
+    return s + ", " + _pad2(d.getHours()) + ":" + _pad2(d.getMinutes()) + " · " + ago(then, now);
+}
+
+var SHOWN_HIGH = 5; // AUR findings listed in the popout; the rest are counted
+
+// popout(s, now): the popout's three sections, in Workbench's order, from
+// summarize's result s. Plain strings and numbers only.
+//   lastRun  null (no record) or {action, tag, tint, stamp, notes:[{text, tint}]}
+//            (a note: the failed steps "error", refused steps or staleness "warning")
+//   updates  {count (number|null), note}
+//   aur      {packages (number|null), note, high:[{pkg,reason}], more}
+function popout(s, now) {
+    var p = {
+        lastRun: null,
+        updates: { count: null, note: "Not checked yet" },
+        aur: { packages: null, note: "No audit yet", high: [], more: 0 }
+    };
+    var r = s.lastRun;
+    if (r) {
+        var notes = [];
+        for (var i = 0; i < s.issues.length; i++) {
+            var k = s.issues[i].kind;
+            if (k === "failed" || k === "incomplete" || k === "stale")
+                notes.push({ text: s.issues[i].text, tint: k === "failed" ? "error" : "warning" });
+        }
+        p.lastRun = {
+            action: actionLabel(r.action),
+            tag: outcomeTag(r.outcome),
+            tint: outcomeTint(r.outcome),
+            stamp: stamp(r.finished, now),
+            notes: notes
+        };
+    }
+    if (s.updates !== null) {
+        p.updates.count = s.updates;
+        p.updates.note = (s.updates === 0 ? "up to date" : "pending") + " · checked " + ago(s.updatesChecked, now);
+    } else if (s.updatesChecked !== null && s.updatesChecked !== undefined) {
+        p.updates.note = "Not checked for " + plural(Math.floor(_ageDays(s.updatesChecked, now)), "day", "days");
+    }
+    var a = s.audit;
+    if (a) {
+        p.aur.packages = a.packages;
+        p.aur.note = (a.packages === 1 ? "package" : "packages") + (a.checked !== null ? " · checked " + ago(a.checked, now) : "");
+        p.aur.high = a.high.slice(0, SHOWN_HIGH);
+        p.aur.more = a.highCount - p.aur.high.length;
+    }
+    return p;
 }
 
 // plural(n, one, many): "1 step", "2 steps" (the GUI's plural.N).

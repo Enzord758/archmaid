@@ -721,17 +721,21 @@ answers...)`. Run with `-update-transcripts` and read the new golden line by lin
   them into a generated `fixtures.js` beside a copy of `archmaid/state.js` and
   `tests/tst_state.qml`, and runs them with `qmltestrunner` (offscreen). It covers parsing,
   neutral "no data" on missing/torn/wrong-version/dry-run input, levels, the 14-day and
-  3-day rules and the launcher choice. Skipped when `qmltestrunner` is missing. It prefers
+  3-day rules, the launcher choice, and the popout's sections (`popout`: the outcome tag
+  and its tint, `stamp`'s "Mon 5 Oct, 00:45 · 17 h ago", the notes, the updates and AUR
+  lines, five findings and "+N more"); a name for every runnable action of
+  `internal/actions` (`actionLabel`). Skipped when `qmltestrunner` is missing. It prefers
   `/usr/lib/qt6/bin/qmltestrunner`, because `/usr/bin/qmltestrunner` on this machine is a
   stale build that exits 1 silently.
 - `TestUpdatesScript` (count, none, failure leaves no file, 0600/0700) and `TestManifest`.
-- Not in the gate: loading the QML in a real quickshell. Do it by hand in a scratch dir that
-  holds `shell.qml` plus stub `Common/`, `Widgets/`, `Modules/Plugins/` modules (qmldir files
-  with `Theme`, `Proc`, `DankIcon`, `StyledText`, `DankButton`, `PluginComponent`,
-  `PopoutComponent`), a `Loader` of `ArchmaidWidget.qml`, and
-  `WIDGET_DIR=<packaging/dms/archmaid> XDG_STATE_HOME=<scratch> TERMINAL=kitty timeout 20 qs -p <scratch>`.
-  That is a separate quickshell instance (own config id, no window); never touch the running
-  DMS. Last result: widget, both pills and the popout instantiate; the three files are read.
+- `TestWidgetTextIsPlain`: every `StyledText` in the widget sets `textFormat: Text.PlainText`.
+- Not in the gate: loading the widget in a real DMS. Do it **in the test VM** (DMS installed
+  from the owner's dotfiles), never on the owner's machine: any quickshell instance there can
+  open windows on the live desktop. In the VM, install `packaging/dms/archmaid` as a DMS
+  plugin, put a scratch `last-run.json`, `audit-state.json` and `updates-cache.json` in the
+  state dir (or let a real run write them), and check: both pills, the popout's LAST RUN /
+  UPDATES / AUR sections with the outcome tag (OK primary, FAILED error, INCOMPLETE and
+  ABORTED warning, CANCELLED muted), mono numbers, the findings, and both buttons.
 
 ## Coverage map
 

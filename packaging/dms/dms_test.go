@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/logstore"
 )
@@ -150,6 +151,18 @@ func TestManifest(t *testing.T) {
 	}
 }
 
+// runnableIDs: the IDs of internal/actions' menu entries that run steps or
+// a discovery, comma-separated.
+func runnableIDs() string {
+	var ids []string
+	for _, a := range actions.Menu {
+		if a.Steps != nil || a.Discover != nil {
+			ids = append(ids, a.ID)
+		}
+	}
+	return strings.Join(ids, ",")
+}
+
 // TestStateJS runs tests/tst_state.qml over fixtures made by the real writers.
 func TestStateJS(t *testing.T) {
 	// /usr/lib/qt6/bin first: /usr/bin/qmltestrunner can be a stale build that
@@ -179,6 +192,12 @@ func TestStateJS(t *testing.T) {
 			High: []audit.StateFinding{{Pkg: "foo", Reason: "maintainer alice → mallory"}, {Pkg: "bar", Reason: "adopted by x"}}}),
 		"updates3":    updatesFile(t, "a\nb\nc\n", 0),
 		"updatesNone": updatesFile(t, "", 2),
+		"auditMany": auditState(t, audit.State{V: 1, Checked: t0, Packages: 1, SnapshotPresent: true, SnapshotReadable: true,
+			High: []audit.StateFinding{{Pkg: "p1", Reason: "r"}, {Pkg: "p2", Reason: "r"}, {Pkg: "p3", Reason: "r"},
+				{Pkg: "p4", Reason: "r"}, {Pkg: "p5", Reason: "r"}, {Pkg: "p6", Reason: "r"}, {Pkg: "p7", Reason: "r"}}}),
+		// Every action that runs (and so can be last-run.json's action):
+		// the popout must have a name for each.
+		"runnable": runnableIDs(),
 	}
 	if !strings.Contains(fx["auditClean"], `"high": []`) {
 		t.Fatalf("audit writer changed shape: %s", fx["auditClean"])
