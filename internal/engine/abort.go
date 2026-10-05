@@ -39,8 +39,7 @@ func (s *Session) abort(o *Output) {
 		r.stepSeq = 0
 		s.dropAskpass(o)
 		if r.polkitWait {
-			r.polkitWait = false
-			o.event(AuthResolved{})
+			s.resolvePolkit(o, AuthResolved{})
 		}
 		st.status = steps.Aborted
 		o.event(Aborted{ID: st.step.ID, Index: r.cur, Elapsed: s.now().Sub(r.stepAt)})

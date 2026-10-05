@@ -201,8 +201,7 @@ func (s *Session) privilegeGranted(o *Output, in PrivilegeGranted) {
 	if s.current(in.Seq) == nil || !s.run.polkitWait {
 		return
 	}
-	s.run.polkitWait = false
-	o.event(AuthResolved{Granted: true})
+	s.resolvePolkit(o, AuthResolved{Granted: true})
 }
 
 // endPolkitWait resolves a polkit wait the step's exit ends: granted unless
@@ -211,6 +210,5 @@ func (s *Session) endPolkitWait(o *Output, notGranted bool) {
 	if !s.run.polkitWait {
 		return
 	}
-	s.run.polkitWait = false
-	o.event(AuthResolved{Granted: !notGranted})
+	s.resolvePolkit(o, AuthResolved{Granted: !notGranted})
 }

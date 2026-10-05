@@ -111,9 +111,16 @@ type HookDone struct {
 // verified caller, or Refused says why the peer failed the check — the
 // Session then hangs up and notes it in the step's output. Prompt is sudo's
 // prompt text, raw (the Session sanitizes it).
+//
+// Polkit marks a request from polkit's text agent instead (the GUI's
+// helper steps, see the Driver's Deps.Agent): the agent has checked it is
+// for one of archmaid's helper actions and for the current user. It is
+// answered only while a polkit helper step waits for authorisation, and
+// the Driver su-checks the password before it reaches the agent.
 type AskpassRequest struct {
 	Req                        uint64
 	Prompt, Requester, Refused string
+	Polkit                     bool
 }
 
 // AskpassAnswered answers AnswerAskpass: OK when su accepted the password

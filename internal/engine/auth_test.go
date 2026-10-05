@@ -444,3 +444,84 @@ func TestSessionPolkitDryRunAsksNothing(t *testing.T) {
 	}
 	effect[StartStep](t, o)
 }
+
+// polkit's text agent asks while the helper step waits (AskpassRequest
+// with Polkit): the polkit wait is set aside (AuthResolved{}) while the
+// user is asked, the Driver gets the su-checked answer, and the wait
+// reopens until PrivilegeGranted. A wrong password asks again with the
+// attempts left. An agent request at any other time, or a plain sudo one
+// during the helper step, is hung up.
+func TestSessionPolkitAgentAsks(t *testing.T) {
+	h := newHarness(t, Options{Auth: AuthPolkit}, queue("q", sudo(child("t", "topgrade")), helper("h", "verb-h")))
+	h.start("q")
+	tseq := h.seq()
+	if o := h.handle(AskpassRequest{Req: 1, Prompt: "Password: ", Polkit: true}); !reflect.DeepEqual(o.Effects, []Effect{HangUpAskpass{Req: 1}}) {
+		t.Fatalf("an agent request during a sudo step: %#v", o)
+	}
+	h.handle(StepExited{Seq: tseq})
+	h.handle(FaillockRead{Deny: 3})
+	seq := h.seq()
+	if o := h.handle(AskpassRequest{Req: 2, Prompt: "[sudo] password: ", Requester: "x (pid 1)"}); !reflect.DeepEqual(o.Effects, []Effect{HangUpAskpass{Req: 2}}) {
+		t.Fatalf("a sudo request during the helper step: %#v", o)
+	}
+	o := h.handle(AskpassRequest{Req: 3, Prompt: "Password: ", Requester: "polkit, for org.archmaid.helper.full-cleanup", Polkit: true})
+	if got := event[AuthResolved](t, o); got != (AuthResolved{}) {
+		t.Errorf("the polkit wait wasn't set aside: %+v", got)
+	}
+	np := event[NeedsPassword](t, o)
+	if np.Kind != PasswordAskpass || np.Step != "h" || np.Requester != "polkit, for org.archmaid.helper.full-cleanup" || np.AttemptsLeft != 3 {
+		t.Fatalf("NeedsPassword = %+v", np)
+	}
+	o = h.password("wrong")
+	if got := effect[AnswerAskpass](t, o); got.Req != 3 {
+		t.Errorf("AnswerAskpass = %+v", got)
+	}
+	o = h.handle(AskpassAnswered{Req: 3})
+	if np := event[NeedsPassword](t, o); np.AttemptsLeft != 2 || np.Error == "" {
+		t.Errorf("re-ask = %+v", np)
+	}
+	h.password("hunter2")
+	o = h.handle(AskpassAnswered{Req: 3, OK: true})
+	if want := []Event{AuthResolved{Granted: true}, AuthWaiting{Kind: WaitPolkit, Step: "h"}}; !reflect.DeepEqual(o.Events, want) {
+		t.Errorf("answered: %#v, want the polkit wait reopened", o.Events)
+	}
+	o = h.handle(PrivilegeGranted{Seq: seq})
+	if got := event[AuthResolved](t, o); got != (AuthResolved{Granted: true}) {
+		t.Errorf("AuthResolved = %+v", got)
+	}
+	if fin := event[Finished](t, h.handle(StepExited{Seq: seq})); fin.Outcome != OutcomeCompleted || fin.Errs != 0 {
+		t.Errorf("Finished = %+v", fin)
+	}
+	enginetest.CheckContract(t, h.evs)
+}
+
+// The helper step ends (refused) while the agent's prompt is open: the
+// prompt closes, the wait (set aside) isn't resolved twice, and an Abort
+// in the middle of a prompt keeps the contract too.
+func TestSessionPolkitAgentEnds(t *testing.T) {
+	for _, end := range []string{"exit", "abort", "cancel"} {
+		h := newHarness(t, Options{Auth: AuthPolkit}, queue("q", helper("h", "verb-h"), child("b", "true")))
+		h.start("q")
+		h.handle(FaillockRead{Deny: 3})
+		seq := h.seq()
+		np := event[NeedsPassword](t, h.handle(AskpassRequest{Req: 1, Prompt: "Password: ", Polkit: true}))
+		switch end {
+		case "exit":
+			o := h.handle(StepExited{Seq: seq, Err: errors.New("exit status 127"), NotGranted: true})
+			if got := event[PromptClosed](t, o); got.ID != np.ID {
+				t.Errorf("%s: PromptClosed = %+v", end, got)
+			}
+			h.ok()
+		case "abort":
+			h.abort()
+		case "cancel":
+			o := h.cancel(np.ID)
+			if !reflect.DeepEqual(o.Effects, []Effect{HangUpAskpass{Req: 1}}) || !reflect.DeepEqual(o.Events, []Event{AuthWaiting{Kind: WaitPolkit, Step: "h"}}) {
+				t.Errorf("%s: %#v", end, o)
+			}
+			h.handle(StepExited{Seq: seq, Err: errors.New("exit status 127"), NotGranted: true})
+			h.ok()
+		}
+		enginetest.CheckContract(t, h.evs)
+	}
+}

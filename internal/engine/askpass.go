@@ -17,12 +17,22 @@ import (
 // hangs up and gives up on sudo for the rest of the queue. Cancelling the
 // prompt hangs up (sudo counts that attempt as failed); the step's end
 // withdraws an open prompt (PromptClosed).
+//
+// polkit's text agent asks the same way (AskpassRequest.Polkit, the GUI's
+// helper steps): only while a helper step waits for polkit, with the
+// polkit wait set aside while the prompt is up (pausePolkit) and reopened
+// after it (resumePolkit).
 
 // askpass is the open askpass request.
 type askpass struct {
 	req                     uint64
 	step, requester, prompt string
 	checking                bool // an AnswerAskpass is in flight
+	// polkit: polkit's text agent asks for the waiting helper step
+	// (AskpassRequest.Polkit). Its prompt sets the step's polkit wait
+	// aside (pausePolkit) and reopens it once the prompt is over
+	// (resumePolkit), so an AuthWaiting is never open under a prompt.
+	polkit bool
 }
 
 // askpassRequest vets a request and, if it may be ours, asks for the
@@ -33,9 +43,17 @@ func (s *Session) askpassRequest(o *Output, in AskpassRequest) {
 	if r != nil && r.stepSeq != 0 {
 		st = r.running()
 	}
-	if st == nil || !st.step.NeedsPriv || st.step.Run != nil || s.polkitStep(st.step) {
+	ours := st != nil && st.step.NeedsPriv && st.step.Run == nil && !s.polkitStep(st.step)
+	if in.Polkit {
+		// polkit's agent: only for the helper step waiting for it.
+		ours = st != nil && s.polkitStep(st.step) && r.polkitWait
+	}
+	if !ours {
 		o.effect(HangUpAskpass{Req: in.Req}) // nothing of ours is asking
 		return
+	}
+	if in.Polkit && r.ask == nil && in.Refused == "" {
+		s.pausePolkit(o)
 	}
 	switch {
 	case r.ask != nil:
@@ -48,7 +66,7 @@ func (s *Session) askpassRequest(o *Output, in AskpassRequest) {
 		return
 	}
 	r.ask = &askpass{
-		req: in.Req, step: st.step.ID,
+		req: in.Req, step: st.step.ID, polkit: in.Polkit,
 		requester: sanitize.OneLine(in.Requester),
 		prompt:    sanitize.Clip(sanitize.OneLine(in.Prompt), maxPrompt),
 	}
@@ -96,6 +114,7 @@ func (s *Session) cancelAskpass(o *Output) {
 	r.prompt = 0
 	o.effect(HangUpAskpass{Req: r.ask.req})
 	r.ask = nil
+	s.resumePolkit(o)
 }
 
 // askpassAnswered takes the check's verdict for the open request.
@@ -108,6 +127,7 @@ func (s *Session) askpassAnswered(o *Output, in AskpassAnswered) {
 	if in.OK {
 		r.attempts, r.ask = 0, nil
 		o.event(AuthResolved{Granted: true})
+		s.resumePolkit(o) // polkit still has to grant it
 		return
 	}
 	r.attempts++
@@ -121,6 +141,7 @@ func (s *Session) askpassAnswered(o *Output, in AskpassAnswered) {
 	// refused, as after a failed prime.
 	o.effect(HangUpAskpass{Req: r.ask.req})
 	r.ask, r.sudoGone = nil, true
+	s.resumePolkit(o)
 }
 
 // dropAskpass withdraws the open request when its step ends: the prompt
@@ -141,4 +162,41 @@ func (s *Session) dropAskpass(o *Output) {
 	}
 	o.effect(HangUpAskpass{Req: a.req})
 	r.ask = nil
+}
+
+// pausePolkit sets the running helper step's polkit wait aside while
+// polkit's agent asks for the password: AuthResolved closes the
+// AuthWaiting{WaitPolkit} (an AuthWaiting is never open under a prompt),
+// and polkitWait stays set: the step still waits for polkit.
+func (s *Session) pausePolkit(o *Output) {
+	r := s.run
+	if r.polkitWait && !r.polkitPaused {
+		r.polkitPaused = true
+		o.event(AuthResolved{})
+	}
+}
+
+// resumePolkit reopens a paused polkit wait once the agent's prompt is
+// over, while the step still waits for polkit's verdict.
+func (s *Session) resumePolkit(o *Output) {
+	r := s.run
+	if !r.polkitWait || !r.polkitPaused {
+		return
+	}
+	r.polkitPaused = false
+	if st := r.running(); st != nil {
+		o.event(AuthWaiting{Kind: WaitPolkit, Step: st.step.ID})
+	}
+}
+
+// resolvePolkit ends the running step's polkit wait with ev, unless the
+// wait is paused (its AuthResolved is out already).
+func (s *Session) resolvePolkit(o *Output, ev AuthResolved) {
+	r := s.run
+	r.polkitWait = false
+	if r.polkitPaused {
+		r.polkitPaused = false
+		return
+	}
+	o.event(ev)
 }

@@ -46,6 +46,7 @@ type run struct {
 	faillockFor    faillockWait       // what a ReadFaillock in flight goes on to
 	acceptedLaunch bool               // the helper step waiting on it was confirmed
 	polkitWait     bool               // AuthWaiting{WaitPolkit} is open for the running step
+	polkitPaused   bool               // ... but set aside under polkit's agent's prompt (askpass.go)
 	ask            *askpass           // the open askpass request (askpass.go), or nil
 
 	// A pick list (NeedsSelection) and what it showed, or nil.
