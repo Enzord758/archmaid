@@ -299,6 +299,7 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 | `make e2e` | `bash cmd/archmaid/e2e/run.sh` (needs vhs, ttyd, ffmpeg) |
 | `make bench` | `scripts/bench-compare.sh $(BASE)`: HEAD against a base commit with benchstat — see "Bench compare" |
 | `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (the gate, then the opt-in perf guard — see "Perf guard") |
+| `make perf-baseline` | `scripts/perf-baseline.sh`: re-measures the baselines (TUI/sysstat/sanitize/runview benchmarks, `TestPerfGuard`, the GUI's first frame, idle RSS and throughput headless, stripped binary sizes) into `$PERF_OUT`'s `summary.txt`. It refuses (exit 3) unless the machine is quiet: load ≤ `PERF_MAX_LOAD` (an eighth of the CPUs), no `qemu-system`, no other gate or test run. `PERF_COUNT=1 PERF_FORCE=1` is a smoke test marked NOT A BASELINE. The Repair scan, services discovery and the installed GUI's idle CPU need the real system: measured by hand. |
 | `make gui` | in `gui/`: build, vet, gofmt, `runview` tests under `-race`, `go test ./...` (display tests skip) |
 | `make gui-test` | `gui`, then the display tests under `gui/scripts/headless.sh` (needs weston) |
 | `make all` | `gate` — run before pushing |

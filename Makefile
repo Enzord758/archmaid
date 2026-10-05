@@ -9,7 +9,7 @@ E2E_RUN    := $(TUI_DIR)/e2e/run.sh
 CHECK      := scripts/check.sh
 GUI_DIR    := gui
 
-.PHONY: all gate e2e perf bench gui gui-test
+.PHONY: all gate e2e perf perf-baseline bench gui gui-test
 
 all: gate
 
@@ -26,6 +26,13 @@ e2e:
 # the dev machine's, which is why the default gate leaves it out.
 perf:
 	ARCHMAID_PERF_GUARD=1 $(CHECK)
+
+# Re-measure the plan's perf baselines (benchmarks, perf guard, GUI first
+# frame/RAM/throughput, binary sizes) on a quiet machine only: it refuses
+# (exit 3) under load, with a VM or another gate running. PERF_COUNT=1
+# PERF_FORCE=1 is a smoke test. See scripts/perf-baseline.sh.
+perf-baseline:
+	scripts/perf-baseline.sh
 
 # Benchmark HEAD (the working tree) against BASE (default: merge-base with
 # origin/main) on this machine and fail on a significant slowdown; the CI bench
