@@ -21,6 +21,10 @@ import (
 // Window is the main window: a view stack of the Overview, Run, Logs and
 // Settings pages. Every method runs on the GTK main thread.
 type Window struct {
+	// agentNotice says why polkit's own dialog asks this run (no agent of
+	// archmaid's; Options.Notices), shown with the polkit wait.
+	agentNotice string
+
 	app  *adw.Application
 	win  *adw.ApplicationWindow
 	opts Options
@@ -200,6 +204,17 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.win.SetContent(w.toasts)
 	w.win.ConnectCloseRequest(w.closeRequest)
 
+	if w.opts.Notices != nil {
+		w.opts.Notices(func(n string) {
+			post(func() {
+				if w.closed {
+					return
+				}
+				w.agentNotice = n
+				w.status.SetText(w.statusText())
+			})
+		})
+	}
 	w.newDriver()
 	return w
 }
@@ -259,7 +274,7 @@ func (w *Window) startAction(id string) {
 	// when the window opened or the last run ended), and the Settings
 	// page's changes apply to it.
 	w.replaceDriver()
-	w.busy, w.current, w.model.Stopped = true, id, ""
+	w.busy, w.current, w.model.Stopped, w.agentNotice = true, id, "", ""
 	w.stopBtn.SetSensitive(true)
 	w.stack.SetVisibleChildName("run")
 	w.updateOverview()
@@ -466,7 +481,11 @@ func (w *Window) statusText() string {
 	case m.Busy != "":
 		parts = append(parts, m.Busy)
 	case m.Auth != nil && m.Auth.Kind == engine.WaitPolkit:
-		parts = append(parts, "Waiting for authorisation")
+		s := "Waiting for authorisation"
+		if w.agentNotice != "" {
+			s += " (" + w.agentNotice + ")"
+		}
+		parts = append(parts, s)
 	case m.Phase == engine.PhaseRunning:
 		parts = append(parts, "Running")
 	case m.Phase == engine.PhaseProbing:

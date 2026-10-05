@@ -51,6 +51,12 @@ type Options struct {
 	// StateDir is archmaid's state directory, read only (last-run.json,
 	// the run logs); "" is logstore's default, ~/.local/state/archmaid.
 	StateDir string
+	// KeepsPassword: the Driver keeps the run's first password (the real
+	// one does); its password dialogs say so (KeptNote).
+	KeepsPassword bool
+	// Notices, when set, is handed the window's notice setter: what to
+	// show when polkit's own dialog has to ask (realdriver's SetNotice).
+	Notices func(set func(string))
 	// hook, when set, sees the window once it is built (the headless
 	// harness drives it from there).
 	hook func(*Window)
@@ -147,7 +153,7 @@ func mainReal(args []string) int {
 		fmt.Fprintln(os.Stderr, "archmaid-gui:", err)
 		return 1
 	}
-	return Run(args, Options{NewDriver: wr.New, Engine: base})
+	return Run(args, Options{NewDriver: wr.New, Engine: base, KeepsPassword: true, Notices: wr.SetNotice})
 }
 
 // stubDriver is the stub's NewDriver for an ARCHMAID_GUI_SCRIPT value

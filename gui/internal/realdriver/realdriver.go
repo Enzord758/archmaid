@@ -37,6 +37,7 @@ package realdriver
 import (
 	"context"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -101,6 +102,11 @@ type Config struct {
 	// Now is read once per Driver (New) to stamp its run directory; nil
 	// is time.Now. Log entries are stamped with the real time.
 	Now func() time.Time
+
+	// TTYAgent is pkttyagent's path for the helper steps' polkit prompts
+	// (agent.go); "" looks it up on PATH, "-" runs without one (polkit
+	// asks through the desktop's agent).
+	TTYAgent string
 }
 
 // Wiring makes the GUI's real Drivers. It owns the askpass Server; Close
@@ -112,6 +118,9 @@ type Wiring struct {
 	// deleting counts downloads deletions (and their pending abort
 	// records) still in flight; Close waits for them.
 	deleting frontend.Deletions
+
+	mu       sync.Mutex
+	onNotice func(string) // SetNotice
 }
 
 // Start makes a Wiring and starts its askpass Server. Best effort, as the
@@ -182,7 +191,12 @@ func (w *Wiring) New(o engine.Options) engine.Driver {
 		// shell still has the shell's, and sudo would prompt there.
 		Detach: true,
 		Report: w.cfg.Report,
+		// One password per run: the first the user gives answers the
+		// run's later sudo and polkit prompts (driver/keep.go).
+		KeepPassword: true,
 	}
+	agents := make(chan driver.AgentPrompt)
+	deps.Agent, deps.Helper = agents, w.helper(agents)
 	if w.srv != nil {
 		deps.Priv = privilege.Sudo{Wrapper: w.srv.Wrapper()}
 		deps.Askpass = w.srv.Requests()

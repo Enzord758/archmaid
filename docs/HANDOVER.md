@@ -260,6 +260,45 @@ comments and `git log`; this is the "read before you touch it" list.
   then checks out. The popup's caller line is what gives that away: genuine
   requests come from topgrade or yay, that one from whatever ran sudo inside
   the build (typically `/usr/bin/bash`).
+- **The GUI keeps the run's password (one prompt per run).** The owner's
+  rule: a GUI run asks for the password once and keeps it in memory for
+  that run only. The trust model:
+  - *What it is:* the first password the user types in a GUI run, at
+    topgrade's askpass prompt or at polkit's (below), once su has accepted
+    it. It lives in `privilege.KeptPassword`: one mmap'd, mlocked,
+    MADV_DONTDUMP page outside the Go heap, never written anywhere, never
+    logged. Answers use a short-lived copy that is cleared at once. The
+    `engine.Secret` string the user's answer arrived in is the existing
+    accepted residual ("The GUI password's last copy").
+  - *Who gets it, without asking:* (1) a sudo askpass request that
+    `Request.Verify` passed against the running step's child (our uid, our
+    helper, run by sudo, inside that child's tree), whose step is a
+    `NeedsPriv` child, and whose helper is in that child's session (Detach
+    makes every step a session leader); under polkit that is topgrade only.
+    (2) polkit, through pkttyagent registered for archmaid-gui's own
+    process (`gui/internal/polkitagent`), only while a helper step runs,
+    only for an `org.archmaid.helper.*` action, and only for the current
+    user's identity (an identity menu picks the user's entry or refuses).
+    Anything else gets the normal dialog or is refused; never the kept
+    password.
+  - *How long:* until the run ends, however it ends (Finished of any
+    outcome, Stop, Close: Stop and Quit, a signal; `KillNow`), and at most
+    60 min (`Deps.KeepFor`). Every Driver is one run; nothing carries over.
+  - *Faillock:* every kept answer is su-checked first (su has no
+    pam_faillock on Arch), as typed answers are. A kept password su refuses,
+    a sudo process that asks a second time (it refused what it got), or a
+    polkit failure drops it for the rest of the run (`Fail`), and that
+    request goes to the user. So a known-bad password is never sent twice,
+    and a wrong one costs at most the one attempt it always did.
+  - *polkit:* `--notify-fd` makes the registration precede pkexec (whose
+    subject is archmaid-gui, its caller), and polkitd prefers the
+    process-scoped agent to polkit-gnome. The password is written to the
+    agent's pty only once the listener has turned echo off (it flushes
+    earlier input). Without pkttyagent, or if it can't register, polkit
+    asks through the desktop's agent as before, and the status line says
+    so. pkttyagent runs in a session of its own on our pty (`Setsid`,
+    `Setctty`): it lives in the GUI module, outside TestNoSetsid's scan,
+    and is never a step's child. The TUI keeps none of this.
 - **Repair scans as the user first, and asks for sudo only to recheck what it
   flagged.** Repair's discovery (`internal/actions`, `discoverRepair`) lists
   the installed packages (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as

@@ -1,0 +1,472 @@
+// Package polkitagent runs polkit's own text agent, pkttyagent, for
+// archmaid-gui's helper calls, so their polkit prompt reaches the GUI (and
+// its kept password, internal/driver's Deps.KeepPassword) instead of the
+// desktop's agent.
+//
+// Before a helper step runs pkexec, Start registers pkttyagent for the
+// GUI's own process (--process <pid>,<start time>): pkexec's subject is its
+// caller, archmaid-gui, and polkitd prefers an agent registered for that
+// process over the session's (polkit-gnome). Start returns once pkttyagent
+// says it is registered (--notify-fd), so the registration always comes
+// before pkexec's request. pkttyagent runs on a pty that this package owns
+// (as its controlling terminal), and this package reads what it writes
+// there: polkit's text listener's banner, identity menu and PAM prompt
+// (polkitagenttextlistener.c, polkit 127):
+//
+//	==== AUTHENTICATING FOR <action id> ====
+//	<message>
+//	Authenticating as: <name> | <gecos> (<name>)
+//	Password:                       (the PAM prompt, no newline)
+//	==== AUTHENTICATION COMPLETE ==== | ==== AUTHENTICATION FAILED ====
+//
+// or, with several admin identities, "Multiple identities can be used for
+// authentication:", " N.  <identity>" lines and "Choose identity to
+// authenticate as (1-N): " instead of "Authenticating as".
+//
+// A prompt is passed on (Prompts, as a driver.AgentPrompt) only when it
+// authenticates one of archmaid's helper actions (ActionPrefix) as the
+// current user: the menu's choice is the current user's entry, or none.
+// Anything else is refused: pkttyagent is stopped, so polkit's request
+// fails, and nothing is ever written to it. The password, when the Driver
+// answers, is written to the pty only once pkttyagent has turned echo off.
+package polkitagent
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+	"unsafe"
+
+	"github.com/Enzord758/archmaid/internal/driver"
+)
+
+// ActionPrefix starts every polkit action of archmaid's root helper.
+const ActionPrefix = "org.archmaid.helper."
+
+// Options configure Start.
+type Options struct {
+	// Path is pkttyagent's; "" looks it up on PATH.
+	Path string
+	// Pid and Start are the subject the agent registers for: the GUI's own
+	// process and its start time (proc.Info.Start, clock ticks since
+	// boot, as polkit reads it).
+	Pid   int
+	Start uint64
+	// User is the current user's name: the only identity it answers for.
+	User string
+	// Register bounds the wait for the registration (default 5 s).
+	Register time.Duration
+}
+
+// ErrRefused is a prompt's Err when the agent refused it (not archmaid's
+// action, not the current user) or it was cancelled.
+var ErrRefused = errors.New("polkit agent: request refused")
+
+// Agent is one running pkttyagent.
+type Agent struct {
+	opts    Options
+	cmd     *exec.Cmd
+	master  *os.File
+	prompts chan driver.AgentPrompt
+	exited  chan struct{} // closed once pkttyagent has exited and is reaped
+	stop    chan struct{} // closed by Stop
+	once    sync.Once
+	read    chan struct{} // closed once the reader has ended
+
+	mu  sync.Mutex
+	cur *Prompt // the prompt answered, awaiting polkit's verdict
+}
+
+// Start registers pkttyagent for opts' process and returns once it is
+// registered. An error means there is no agent of ours (pkttyagent is
+// missing, can't register, or took too long): polkit then asks through
+// the desktop's agent, as before.
+func Start(opts Options) (*Agent, error) {
+	path := opts.Path
+	if path == "" {
+		var err error
+		if path, err = exec.LookPath("pkttyagent"); err != nil {
+			return nil, fmt.Errorf("pkttyagent isn't installed: %w", err)
+		}
+	}
+	if opts.Register <= 0 {
+		opts.Register = 5 * time.Second
+	}
+	if opts.Pid <= 0 || opts.Start == 0 || opts.User == "" {
+		return nil, errors.New("polkit agent: no subject or user")
+	}
+	master, slave, err := openPTY()
+	if err != nil {
+		return nil, err
+	}
+	notifyR, notifyW, err := os.Pipe()
+	if err != nil {
+		master.Close()
+		slave.Close()
+		return nil, err
+	}
+	cmd := exec.Command(path, "--process", fmt.Sprintf("%d,%d", opts.Pid, opts.Start), "--notify-fd", "3")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = slave, slave, slave
+	cmd.ExtraFiles = []*os.File{notifyW}
+	// The listener's strings are not translated, PAM's prompt is: keep
+	// it all in C.
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	// A session of its own whose controlling terminal is our pty: the text
+	// listener reads and writes ctermid().
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	err = cmd.Start()
+	slave.Close()
+	notifyW.Close()
+	if err != nil {
+		master.Close()
+		notifyR.Close()
+		return nil, fmt.Errorf("can't start pkttyagent: %w", err)
+	}
+	a := &Agent{opts: opts, cmd: cmd, master: master, prompts: make(chan driver.AgentPrompt),
+		exited: make(chan struct{}), stop: make(chan struct{}), read: make(chan struct{})}
+	go func() {
+		_ = cmd.Wait()
+		close(a.exited)
+	}()
+	var tail strings.Builder // what it said before registering (errors)
+	lines := make(chan string, 16)
+	go a.reader(lines)
+
+	registered := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, notifyR) // EOF: closed (registered) or exited
+		notifyR.Close()
+		close(registered)
+	}()
+	timeout := time.NewTimer(opts.Register)
+	defer timeout.Stop()
+	for {
+		select {
+		case l := <-lines:
+			if tail.Len() < 400 {
+				tail.WriteString(l + " ")
+			}
+			continue
+		case <-registered:
+		case <-timeout.C:
+			go discard(lines)
+			a.Stop()
+			return nil, errors.New("pkttyagent didn't register in time")
+		}
+		break
+	}
+	// A failed registration closes the fd by exiting.
+	select {
+	case <-a.exited:
+		for l := range lines { // what it said, up to its end
+			if tail.Len() < 400 {
+				tail.WriteString(l + " ")
+			}
+		}
+		a.Stop()
+		return nil, fmt.Errorf("pkttyagent couldn't register: %s", strings.TrimSpace(tail.String()))
+	case <-time.After(100 * time.Millisecond):
+	}
+	go a.drain(lines)
+	return a, nil
+}
+
+func discard(lines <-chan string) {
+	for range lines {
+	}
+}
+
+// Prompts delivers the prompts the agent passes on.
+func (a *Agent) Prompts() <-chan driver.AgentPrompt { return a.prompts }
+
+// Stop ends pkttyagent (SIGTERM, SIGKILL a second later) and waits for it;
+// an open prompt ends with ErrRefused. Safe to call more than once.
+func (a *Agent) Stop() {
+	a.once.Do(func() {
+		close(a.stop)
+		_ = a.cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-a.exited:
+		case <-time.After(time.Second):
+			_ = a.cmd.Process.Kill()
+			<-a.exited
+		}
+		a.master.Close()
+		<-a.read
+		a.finish(ErrRefused)
+	})
+}
+
+// refuse ends pkttyagent so polkit's request fails.
+func (a *Agent) refuse() { go a.Stop() }
+
+// finish ends the answered prompt with err, if one waits.
+func (a *Agent) finish(err error) {
+	a.mu.Lock()
+	p := a.cur
+	a.cur = nil
+	a.mu.Unlock()
+	if p != nil {
+		p.end(err)
+	}
+}
+
+// escapes are the terminal control sequences the listener colours with.
+var escapes = regexp.MustCompile("\x1b\\[[0-9;?]*[A-Za-z]")
+
+// promptQuiet is how long a partial line must stand, with nothing more
+// coming, to count as a prompt (the listener writes and flushes a prompt
+// at once, and then waits).
+const promptQuiet = 50 * time.Millisecond
+
+// reader splits pkttyagent's output into lines, plus a partial line that
+// stood for promptQuiet with nothing more coming (a prompt), marked with a
+// leading \x00.
+func (a *Agent) reader(out chan<- string) {
+	defer close(a.read)
+	defer close(out)
+	chunks := make(chan []byte)
+	go func() {
+		defer close(chunks)
+		buf := make([]byte, 4096)
+		defer clear(buf)
+		for {
+			n, err := a.master.Read(buf)
+			if n > 0 {
+				chunks <- append([]byte(nil), buf[:n]...)
+				clear(buf[:n])
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	var line []byte
+	quiet := time.NewTimer(time.Hour)
+	quiet.Stop()
+	defer quiet.Stop()
+	for {
+		select {
+		case chunk, ok := <-chunks:
+			if !ok {
+				return
+			}
+			for _, b := range chunk {
+				switch b {
+				case '\r':
+				case '\n':
+					out <- escapes.ReplaceAllString(string(line), "")
+					line = line[:0]
+				default:
+					line = append(line, b)
+				}
+			}
+			clear(chunk)
+			quiet.Stop()
+			if len(line) > 0 {
+				quiet.Reset(promptQuiet)
+			}
+		case <-quiet.C:
+			if s := escapes.ReplaceAllString(string(line), ""); s != "" {
+				out <- "\x00" + s
+			}
+			line = line[:0]
+		}
+	}
+}
+
+var menuLine = regexp.MustCompile(`^ (\d+)\.  (.*)$`)
+
+// drain reads the lines after registration: one request at a time.
+func (a *Agent) drain(lines <-chan string) {
+	var (
+		action   string
+		identity bool // the identity is settled: the current user's
+		menu     map[string]int
+		refused  bool // pkttyagent is being stopped: ignore the rest
+	)
+	reset := func() { action, identity, menu = "", false, nil }
+	refuse := func() {
+		refused = true
+		a.refuse()
+	}
+	for l := range lines {
+		partial := strings.HasPrefix(l, "\x00")
+		l = strings.TrimPrefix(l, "\x00")
+		switch {
+		case refused:
+		case strings.HasPrefix(l, "==== AUTHENTICATING FOR ") && strings.HasSuffix(l, " ===="):
+			reset()
+			action = strings.TrimSuffix(strings.TrimPrefix(l, "==== AUTHENTICATING FOR "), " ====")
+			if !strings.HasPrefix(action, ActionPrefix) || strings.ContainsAny(action, " \t") {
+				refuse() // not archmaid's: nothing is sent, polkit fails it
+			}
+		case action == "":
+			// before a request: nothing to do
+		case l == "==== AUTHENTICATION COMPLETE ====":
+			a.finish(nil)
+			reset()
+		case l == "==== AUTHENTICATION FAILED ====", l == "==== AUTHENTICATION CANCELED ====", l == "Cancelled":
+			a.finish(errors.New("polkit: authentication failed"))
+			reset()
+		case l == "Multiple identities can be used for authentication:":
+			menu = map[string]int{}
+		case menu != nil && !identity && menuLine.MatchString(l):
+			m := menuLine.FindStringSubmatch(l)
+			n, _ := strconv.Atoi(m[1])
+			menu[m[2]] = n
+		case partial && menu != nil && !identity && strings.HasPrefix(l, "Choose identity to authenticate as"):
+			n := 0
+			for who, i := range menu {
+				if a.isUser(who) {
+					n = i
+				}
+			}
+			if n == 0 {
+				refuse() // the current user can't authenticate it
+				continue
+			}
+			identity = true
+			_, _ = a.master.WriteString(strconv.Itoa(n) + "\n")
+		case strings.HasPrefix(l, "Authenticating as: "):
+			if !a.isUser(strings.TrimPrefix(l, "Authenticating as: ")) {
+				refuse()
+				continue
+			}
+			identity = true
+		case partial && identity:
+			p := &Prompt{a: a, action: action, text: l, done: make(chan struct{})}
+			identity = false // one prompt per request
+			select {
+			case a.prompts <- p:
+			case <-a.stop:
+				refused = true
+			}
+		}
+	}
+	// pkttyagent is gone.
+	a.finish(errors.New("polkit agent: pkttyagent exited"))
+}
+
+// isUser reports whether the listener's identity string names the current
+// user: "<name>", or "<gecos> (<name>)".
+func (a *Agent) isUser(who string) bool {
+	return who == a.opts.User || strings.HasSuffix(who, " ("+a.opts.User+")")
+}
+
+// Prompt is pkttyagent asking for the password (driver.AgentPrompt).
+type Prompt struct {
+	a            *Agent
+	action, text string
+	answered     sync.Once
+	done         chan struct{}
+	endOnce      sync.Once
+	err          error
+}
+
+var _ driver.AgentPrompt = (*Prompt)(nil)
+
+func (p *Prompt) Action() string        { return p.action }
+func (p *Prompt) Prompt() string        { return p.text }
+func (p *Prompt) Done() <-chan struct{} { return p.done }
+
+// Err is polkit's verdict, once Done is closed.
+func (p *Prompt) Err() error {
+	select {
+	case <-p.done:
+		return p.err
+	default:
+		return nil
+	}
+}
+
+func (p *Prompt) end(err error) {
+	p.endOnce.Do(func() {
+		p.err = err
+		close(p.done)
+	})
+}
+
+// Cancel refuses the prompt: pkttyagent is stopped, polkit fails it.
+func (p *Prompt) Cancel() {
+	p.end(ErrRefused)
+	p.a.refuse()
+}
+
+// Answer writes pw and a newline to pkttyagent, once it has turned echo
+// off (the listener flushes what came before: TCSAFLUSH). Once only.
+func (p *Prompt) Answer(pw []byte) error {
+	err := errors.New("polkit agent: answered already")
+	p.answered.Do(func() {
+		a := p.a
+		select {
+		case <-a.stop:
+			err = ErrRefused
+			return
+		default:
+		}
+		a.mu.Lock()
+		a.cur = p
+		a.mu.Unlock()
+		if err = a.waitNoEcho(2 * time.Second); err != nil {
+			a.refuse()
+			return
+		}
+		line := make([]byte, len(pw)+1)
+		copy(line, pw)
+		line[len(pw)] = '\n'
+		_, err = a.master.Write(line)
+		clear(line)
+	})
+	return err
+}
+
+// waitNoEcho waits until the pty's echo is off.
+func (a *Agent) waitNoEcho(within time.Duration) error {
+	deadline := time.Now().Add(within)
+	for {
+		var t syscall.Termios
+		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, a.master.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&t))); errno != 0 {
+			return errno
+		}
+		if t.Lflag&syscall.ECHO == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("polkit agent: the terminal never turned echo off")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// openPTY opens a new pty pair: the master, and its terminal.
+func openPTY() (master, slave *os.File, err error) {
+	master, err = os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	var unlock int32
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), syscall.TIOCSPTLCK, uintptr(unsafe.Pointer(&unlock))); errno != 0 {
+		master.Close()
+		return nil, nil, errno
+	}
+	var n uint32
+	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), syscall.TIOCGPTN, uintptr(unsafe.Pointer(&n))); errno != 0 {
+		master.Close()
+		return nil, nil, errno
+	}
+	slave, err = os.OpenFile("/dev/pts/"+strconv.Itoa(int(n)), os.O_RDWR|syscall.O_NOCTTY|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		master.Close()
+		return nil, nil, err
+	}
+	return master, slave, nil
+}

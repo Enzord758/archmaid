@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -31,6 +32,7 @@ import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/Enzord758/archmaid/gui/internal/polkitagent/agenttest"
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/actions"
@@ -129,6 +131,7 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 		StateDir:   os.Getenv("ARCHMAID_GUI_STATE"),
 		RuntimeDir: shims,
 		Faillock:   func() engine.FaillockRead { return lock },
+		TTYAgent:   os.Getenv("ARCHMAID_GUI_TTYAGENT"),
 		PlanOrphans: func(context.Context) (steps.OrphanPlan, error) {
 			return steps.OrphanPlan{Hash: helperclient.PlanHash(direct, cascade), Direct: direct, Cascade: cascade}, nil
 		},
@@ -203,7 +206,23 @@ printf '%s\n' "$*" >> ` + q(dir+"/pkexec.log") + `
 [ "$1" = ` + helperclient.HelperPath + ` ] || exit 126
 verb=$2
 case " ` + strings.Join(o.refuse, " ") + ` " in *" $verb "*) exit 127;; esac
-` + map[bool]string{true: "echo $$ > " + q(dir+"/pkexec.pid") + "\nexec sleep 30\n"}[o.pkexecWait] + `sleep 0.3
+` + map[bool]string{true: "echo $$ > " + q(dir+"/pkexec.pid") + "\nexec sleep 30\n"}[o.pkexecWait] + `
+# polkit: the agent registered for archmaid-gui (the pkttyagent shim) asks
+# if one runs; otherwise the desktop's agent (polkit-gnome) would have,
+# which gnome.log records.
+agent=$(cat ` + q(dir+"/agent.pid") + ` 2>/dev/null)
+if [ -n "$agent" ] && kill -0 "$agent" 2>/dev/null; then
+	rm -f ` + q(dir+"/result") + `
+	printf 'org.archmaid.helper.%s' "$verb" > ` + q(dir+"/request.tmp") + `
+	mv ` + q(dir+"/request.tmp") + ` ` + q(dir+"/request") + `
+	i=0
+	while [ ! -f ` + q(dir+"/result") + ` ] && [ $i -lt 1500 ] && kill -0 "$agent" 2>/dev/null; do sleep 0.02; i=$((i+1)); done
+	[ "$(cat ` + q(dir+"/result") + ` 2>/dev/null)" = ok ] || exit 127
+else
+	printf '%s\n' "$verb" >> ` + q(dir+"/gnome.log") + `
+	sleep 1.2 # a user at the desktop's dialog
+fi
+sleep 0.3
 printf '{"v":1,"t":"start","verb":"%s","version":"0.1.0"}\n' "$verb"
 if [ "$verb" = full-cleanup ]; then
 	parts=
@@ -250,6 +269,8 @@ fi
 	switch o.topgrade {
 	case "sudo":
 		topgrade += "sudo pacman -Syu || exit 1\n"
+	case "sudo2": // two sudo processes, as topgrade's own and yay's
+		topgrade += "sudo pacman -Syu || exit 1\nsudo pacman -S --needed base || exit 1\n"
 	case "hang":
 		// It leaves a sleep behind that ignores SIGINT, as a tool's
 		// background helper might: stopping the step must take it too.
@@ -262,7 +283,7 @@ fi
 		yay += "case \" $* \" in *' --aur '*) ;; *) sudo pacman -Sc || exit 1 ;; esac\n"
 	}
 	yay += "echo 'yay shim: cache cleaned'\n"
-	for name, body := range map[string]string{"pkexec": pkexec, "sudo": sudo, "su": su, "topgrade": topgrade, "yay": yay} {
+	for name, body := range map[string]string{"pkexec": pkexec, "sudo": sudo, "su": su, "topgrade": topgrade, "yay": yay, "pkttyagent": agenttest.Shim} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -270,7 +291,12 @@ fi
 	if err := os.WriteFile(filepath.Join(dir, helperStandIn), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return dir, []string{envShims + "=" + dir, "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH")}
+	me, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir, []string{envShims + "=" + dir, "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"AGENT_DIR=" + dir, "AGENT_USER=" + me.Username, "AGENT_WANT=" + shimPw}
 }
 
 func readLines(t *testing.T, path string) []string {
@@ -685,6 +711,62 @@ func TestGUIStopAndQuit(t *testing.T) {
 		r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
 		if err != nil || r.Action != actions.IDTopgrade || r.Outcome != logstore.OutcomeOK {
 			t.Errorf("last-run.json: %+v, %v; want the finished topgrade's own record", r, err)
+		}
+	})
+}
+
+// TestGUIOnePassword: the GUI asks for the password once per run.
+//
+//   - one-password: a whole Full Cleanup whose topgrade runs sudo twice
+//     (two sudo processes, each its own askpass request) and whose root
+//     steps make the one pkexec call: polkit asks the pkttyagent shim
+//     registered for archmaid-gui, never the desktop's agent. The user is
+//     asked once (topgrade's first sudo; the dialog says the password is
+//     kept for this run only); topgrade's second sudo and polkit get the
+//     kept password.
+//   - agent-missing: no pkttyagent of ours (its path doesn't exist): polkit
+//     asks through the desktop's agent, as before, and the status line and
+//     the step's output say so; the run completes.
+func TestGUIOnePassword(t *testing.T) {
+	needDisplay(t)
+
+	t.Run("one-password", func(t *testing.T) {
+		dir, env := installShims(t, shimOpts{topgrade: "sudo2"})
+		rep, _ := child(t, "real-one-password", env...)
+		if rep.Outcome != "completed" || !slices.Contains(rep.Rows, steps.IDTopgrade+"=ok") {
+			t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
+		}
+		if len(rep.PwBodies) != 1 || !strings.Contains(rep.PwBodies[0], KeptNote) {
+			t.Errorf("password dialogs %q: want exactly one, saying the password is kept for this run", rep.PwBodies)
+		}
+		if got := readLines(t, filepath.Join(dir, "sudo.got")); !slices.Equal(got, []string{shimPw, shimPw}) {
+			t.Errorf("sudo got %q, want the password at both prompts", got)
+		}
+		if got := readLines(t, filepath.Join(dir, "agent.got")); !slices.Equal(got, []string{shimPw}) {
+			t.Errorf("polkit's agent got %q, want the kept password", got)
+		}
+		if calls := readLines(t, filepath.Join(dir, "pkexec.log")); len(calls) != 1 {
+			t.Errorf("pkexec calls %q, want one", calls)
+		}
+		if g := readLines(t, filepath.Join(dir, "gnome.log")); g != nil {
+			t.Errorf("the desktop's polkit agent asked for %q", g)
+		}
+	})
+
+	t.Run("agent-missing", func(t *testing.T) {
+		dir, env := installShims(t, shimOpts{})
+		rep, _ := child(t, "real-agent-missing", append(env, "ARCHMAID_GUI_TTYAGENT="+filepath.Join(dir, "no-such-pkttyagent"))...)
+		if rep.Outcome != "completed" {
+			t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
+		}
+		if g := readLines(t, filepath.Join(dir, "gnome.log")); len(g) != 1 {
+			t.Errorf("the desktop's agent asked for %q, want the one call", g)
+		}
+		if !hasRow(rep.Statuses, "Waiting for authorisation (polkit's own dialog asks: ") {
+			t.Errorf("the status line never said polkit's own dialog asks: %q", rep.Statuses)
+		}
+		if g := readLines(t, filepath.Join(dir, "agent.got")); g != nil {
+			t.Errorf("an agent was answered: %q", g)
 		}
 	})
 }

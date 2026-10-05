@@ -111,8 +111,10 @@ type report struct {
 	// The window's title, the stub's banner if revealed, and the status
 	// line, at the first frame.
 	Title, Banner, FirstStatus string
-	// EndStatus is the status line once the run finished.
+	// EndStatus is the status line once the run finished; Statuses every
+	// status line shown, once.
 	EndStatus string
+	Statuses  []string
 	// Geometry is real-small's orphan dialog as shown (headingGeometry).
 	Geometry string
 	// Outcomes is every run's outcome, in order (real-runs runs several).
@@ -270,7 +272,8 @@ func runChild(scenario, path string) int {
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
 	case "engine-stops-askpass": // ... with sudo's askpass dialog open, typed in
 		action = stub.IDFullCleanupAskpass
-	case "real-dry", "real-refused", "real-locked", "real-close", "real-tty", "real-small": // realdriver_harness_test.go
+	case "real-dry", "real-refused", "real-locked", "real-close", "real-tty", "real-small", // realdriver_harness_test.go
+		"real-one-password", "real-agent-missing":
 	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
 		action = actions.IDTopgrade
 	case "real-askpass": // topgrade's sudo asks through the relay
@@ -291,6 +294,7 @@ func runChild(scenario, path string) int {
 	if strings.HasPrefix(scenario, "real-") {
 		wiring = startRealWiring(fail)
 		opts.Engine = wiring.Options()
+		opts.KeepsPassword, opts.Notices = true, wiring.SetNotice // as mainReal
 	} else {
 		opts.Stub = true // as Main runs it for --stub
 	}
@@ -446,6 +450,9 @@ func runChild(scenario, path string) int {
 						fail("the password entry wasn't wiped and forgotten after the answer")
 					}
 				})
+			}
+			if s := w.status.Text(); !slices.Contains(rep.Statuses, s) {
+				rep.Statuses = append(rep.Statuses, s)
 			}
 			if !stopped && len(w.model.Rows) > 1 && w.model.Rows[1].State == runview.RowRunning && childStarted(scenario) {
 				switch scenario {

@@ -144,11 +144,18 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 	return box
 }
 
+// KeptNote is what a password dialog adds on the real Driver, which keeps
+// the run's first password (driver.Deps.KeepPassword).
+const KeptNote = "archmaid keeps it in memory for this run only, so the run doesn't ask again."
+
 // passwordDialog asks for the sudo password: up front (with the gate it
 // stands in for as its heading), or for sudo's askpass mid-step (naming
 // who asked). "Cancel" is CancelPrompt.
 func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	heading, body := passwordText(p)
+	if w.opts.KeepsPassword {
+		body += "\n\n" + KeptNote
+	}
 	d := adw.NewAlertDialog(heading, body)
 	d.AddResponse("cancel", "Cancel")
 	d.AddResponse("ok", "Authenticate")
