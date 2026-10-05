@@ -39,6 +39,10 @@ finish() {
 }
 trap finish EXIT
 
+# The browser retry must retry VHS's browser failure once and nothing else:
+# prove it on a stub vhs first (well under a second).
+"$E2E/browser-retry-selftest.sh"
+
 # run_tape NAME [VAR=VALUE...]: runs e2e/NAME.tape with a fresh HOME + shim dir,
 # leaving HOME_DIR, SHIM_LOG, TXT and CLEANUP_LOG for the caller's assertions.
 run_tape() {
@@ -58,7 +62,9 @@ run_tape() {
 	# Only HOME and XDG_STATE_HOME are swapped: VHS's headless browser runs
 	# under this env too and fails to start with a scratch XDG_CONFIG_HOME or
 	# XDG_CACHE_HOME.
-	env HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
+	# browser-retry.sh runs it once more only if VHS's headless browser
+	# never started (a runner flake, before the tape typed anything).
+	"$E2E/browser-retry.sh" env HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
 		PATH="$shims:$PATH" SHIM_LOG="$SHIM_LOG" \
 		HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
 		ALL_PROXY=http://127.0.0.1:9 "$@" \
