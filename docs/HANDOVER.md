@@ -178,6 +178,18 @@ comments and `git log`; this is the "read before you touch it" list.
   struct that outlives the call (`privilege.Request` holds no password).
   `sudo -n -v` is only the cache probe and the 60 s keep-alive
   (`Sudo.Probe`, `Sudo.Refresh`).
+- **The TUI is not dumpable (`tui.DisableCoreDumps`).** The typed password
+  lives in Go strings until the GC reuses them, so `main` calls
+  `prctl(PR_SET_DUMPABLE, 0)`: no core file can hold it, and other
+  processes of the user can't read the TUI's memory or ptrace-guarded
+  `/proc` entries. Only after the `--askpass` relay dispatch: the askpass
+  Server reads its client's `/proc/<pid>/exe` to verify it, so the relay
+  must stay dumpable. Nothing else reads the TUI's own `/proc` (the Server
+  reads its clients', sudo's and the step's; step children are dumpable
+  again after exec). `TestDisableCoreDumps`, `TestAskpassSocketHonestNotDumpable`
+  and the pty TUI test (`TestTTYChild` calls it as main does) hold it.
+  The root helper is left dumpable on purpose: no password ever reaches
+  it, and its `/proc` and any core of it are root's already.
 - **No step child may open the TUI's terminal (`internal/ttyguard`).** A
   child's stdin is `/dev/null`, but it can still open `/dev/tty` itself:
   topgrade's `git pull` over HTTPS without credentials did (live VM run),

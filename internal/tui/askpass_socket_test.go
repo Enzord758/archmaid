@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -382,7 +383,23 @@ func sockScript(dir string, withSudo bool) string {
 // prompt names the step's shell as sudo's caller; a wrong password is
 // asked again with nothing written; the right one reaches sudo exactly,
 // and the run goes on to its end.
-func TestAskpassSocketHonest(t *testing.T) {
+func TestAskpassSocketHonest(t *testing.T) { askpassHonest(t) }
+
+// The same with the TUI's process not dumpable, as main makes it
+// (DisableCoreDumps): the Server still verifies its client, which reads
+// only the client's, sudo's and the step's /proc, never its own.
+func TestAskpassSocketHonestNotDumpable(t *testing.T) {
+	if err := DisableCoreDumps(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _, _ = syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_SET_DUMPABLE, 1, 0) })
+	if d, _, _ := syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_GET_DUMPABLE, 0, 0); d != 0 {
+		t.Fatalf("still dumpable (%d)", d)
+	}
+	askpassHonest(t)
+}
+
+func askpassHonest(t *testing.T) {
 	r := newSockRig(t, true)
 	pid := r.start()
 

@@ -26,6 +26,12 @@ func main() {
 	if !start {
 		os.Exit(code)
 	}
+	// Not dumpable from here on: no core file can hold the password typed
+	// into the TUI. Only now, never in the --askpass relay above, whose
+	// /proc the askpass Server must read (tui.DisableCoreDumps).
+	if err := tui.DisableCoreDumps(); err != nil {
+		fmt.Fprintln(os.Stderr, "archmaid: warning: can't turn core dumps off:", err)
+	}
 	tui.Configure(f.dryRun, f.downloads)
 
 	// A missing piece of the actions' wiring would otherwise panic mid-action.

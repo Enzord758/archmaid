@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"sync/atomic"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -77,6 +78,26 @@ func Run(drv engine.Driver) error {
 // termGuard is the terminal Run holds, for editConfig to pause around the
 // editor; nil outside Run.
 var termGuard atomic.Pointer[ttyguard.Guard]
+
+// DisableCoreDumps marks the process non-dumpable (PR_SET_DUMPABLE 0):
+// the password typed into the TUI lives in Go strings until the GC reuses
+// their memory (docs/HANDOVER.md), and a crash would otherwise write it to
+// a core file the user can read back (systemd-coredump, coredumpctl).
+// Being non-dumpable also makes the process's /proc entries root's, so
+// other processes of the user can't ptrace it or read its memory.
+//
+// main calls it once it knows it runs the TUI, never in the --askpass
+// relay: the askpass Server reads its client's /proc/<pid>/exe to verify
+// it, which only works while the client stays dumpable. Nothing reads the
+// TUI's own /proc from another unprivileged process (the Server reads its
+// clients', sudo's and the step's; children are dumpable again after
+// exec), and the process can still read its own /proc/self.
+func DisableCoreDumps() error {
+	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_SET_DUMPABLE, 0, 0); errno != 0 {
+		return errno
+	}
+	return nil
+}
 
 // Finish runs once the program has ended and the Driver is closed: it
 // writes what the Driver reported to w (the alt screen owned the terminal

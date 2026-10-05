@@ -55,6 +55,11 @@ func TestTTYChild(t *testing.T) {
 		return []steps.Step{{ID: "probe", Title: "Probing the terminal…", LogLabel: "probe",
 			Argv: []string{"sh", "-c", ttyProbe, "sh", marker}}}
 	}}}
+	// As main: not dumpable from here on, so the terminal hold and the run
+	// are tested the way the binary runs them.
+	if err := DisableCoreDumps(); err != nil {
+		t.Fatal(err)
+	}
 	Configure(false, "")
 	drv := NewDriver(engine.New(engine.Options{Env: ActionEnv()}), nil)
 	err := Run(drv)
