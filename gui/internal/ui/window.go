@@ -503,15 +503,21 @@ func (w *Window) closeRequest() bool {
 		d.SetResponseAppearance("quit", adw.ResponseDestructive)
 		d.SetDefaultResponse("cancel")
 		d.SetCloseResponse("cancel")
+		// Act on the response, never on the dialog's closed signal: a
+		// clicked button closes the dialog first and emits its response
+		// after (libadwaita's AdwAlertDialog), so at "closed" the answer
+		// isn't known yet; a close by Escape or by the window emits the
+		// close response, "cancel". The window is then closed directly
+		// (closeRequest), not through win.Close, which libadwaita may
+		// still turn into closing a dialog. Every response comes exactly
+		// once, the run over or not: Stop and Quit always quits.
 		d.ConnectResponse(func(resp string) {
-			w.quitting = resp == "quit"
-		})
-		// Close the window once the dialog is gone: while a dialog is up,
-		// libadwaita turns the window's close into closing the dialog.
-		d.ConnectClosed(func() {
-			w.quitDialog = nil
-			if w.quitting {
-				w.win.Close()
+			if w.quitDialog == d {
+				w.quitDialog = nil
+			}
+			if resp == "quit" && !w.closed {
+				w.quitting = true
+				w.closeRequest()
 			}
 		})
 		w.quitDialog = d

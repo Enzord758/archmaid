@@ -159,7 +159,13 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	list.Append(entry)
 	d.SetExtraChild(list)
 
+	forget := func() {
+		if w.pwEntry == entry {
+			w.pwEntry = nil
+		}
+	}
 	respond := func(resp string) {
+		defer forget()
 		if resp != "ok" {
 			wipeEditable(entry)
 			w.answer(p.ID, func() engine.Command { return engine.CancelPrompt{Prompt: p.ID} })
@@ -182,12 +188,16 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	d.ConnectResponse(respond)
 	// However it closes — answered, or withdrawn by the engine
 	// (PromptClosed, the engine stopping: ForceClose with no response) —
-	// the entry is wiped and forgotten.
+	// the entry is wiped and forgotten. Not at "closed" itself: a clicked
+	// button closes the dialog first and emits its response after
+	// (libadwaita's AdwAlertDialog), so wiping there sent an empty
+	// password for every click on Authenticate. The response, if any,
+	// comes in the same call, before this idle runs; respond wipes too.
 	d.ConnectClosed(func() {
-		wipeEditable(entry)
-		if w.pwEntry == entry {
-			w.pwEntry = nil
-		}
+		post(func() {
+			wipeEditable(entry)
+			forget()
+		})
 	})
 	entry.ConnectEntryActivated(func() {
 		if entry.TextLength() == 0 {

@@ -141,25 +141,40 @@ func runsClock() func() time.Time {
 // childStarted: for the scenarios that stop a hanging topgrade (real-close,
 // real-close-topgrade, real-sigint, real-sighup), the topgrade shim has
 // written its pid and its leftover's (so the parent can check both are
-// gone); true for every other scenario.
+// gone); for real-close-finished, the topgrade shim has started; true for
+// every other scenario.
 func childStarted(scenario string) bool {
+	file := "topgrade.bg"
 	switch scenario {
 	case "real-close", "real-close-topgrade", "real-sigint", "real-sighup", "real-sigint-twice":
+	case "real-close-finished":
+		file = "topgrade.pid"
 	default:
 		return true
 	}
-	_, err := os.Stat(filepath.Join(os.Getenv(envShims), "topgrade.bg"))
+	_, err := os.Stat(filepath.Join(os.Getenv(envShims), file))
+	return err == nil
+}
+
+// pkexecWaiting: the pkexec shim (shimOpts.pkexecWait) has started and
+// waits, as pkexec does while its polkit dialog is up.
+func pkexecWaiting() bool {
+	_, err := os.Stat(filepath.Join(os.Getenv(envShims), "pkexec.pid"))
 	return err == nil
 }
 
 // shimOpts: refuse are the helper verbs pkexec refuses (exit 127, as for a
 // dismissed dialog); topgrade is what the topgrade shim does after its
-// first line: "" exits 0, "sudo" runs sudo, "hang" sleeps; yay "sudo" has
-// the yay shim run `sudo pacman -Sc`, as yay -Sc does.
+// first line: "" exits 0, "sudo" runs sudo, "hang" sleeps, "slow" exits 0
+// a second later; yay "sudo" has the yay shim run `sudo pacman -Sc`, as yay
+// -Sc does; pkexecWait has pkexec write its pid and then wait without a
+// start line, as pkexec does while its polkit dialog is up, until it is
+// killed.
 type shimOpts struct {
-	refuse   []string
-	topgrade string
-	yay      string
+	refuse     []string
+	topgrade   string
+	yay        string
+	pkexecWait bool
 }
 
 // installShims writes the shims into a fresh dir and returns it, with the
@@ -173,7 +188,7 @@ printf '%s\n' "$*" >> ` + q(dir+"/pkexec.log") + `
 [ "$1" = ` + helperclient.HelperPath + ` ] || exit 126
 verb=$2
 case " ` + strings.Join(o.refuse, " ") + ` " in *" $verb "*) exit 127;; esac
-sleep 0.3
+` + map[bool]string{true: "echo $$ > " + q(dir+"/pkexec.pid") + "\nexec sleep 30\n"}[o.pkexecWait] + `sleep 0.3
 printf '{"v":1,"t":"start","verb":"%s","version":"0.1.0"}\n' "$verb"
 if [ "$verb" = full-cleanup ]; then
 	parts=
@@ -223,6 +238,8 @@ fi
 		// It leaves a sleep behind that ignores SIGINT, as a tool's
 		// background helper might: stopping the step must take it too.
 		topgrade += "(trap '' INT; exec sleep 30) >/dev/null 2>&1 &\necho $! > " + q(dir+"/topgrade.bg") + "\nexec sleep 30\n"
+	case "slow":
+		topgrade += "sleep 1\n"
 	}
 	yay := "#!/bin/sh\necho $$ > " + q(dir+"/yay.pid") + "\n"
 	if o.yay == "sudo" {
@@ -576,6 +593,64 @@ func TestGUISignalTwice(t *testing.T) {
 	if err != nil || r.Action != actions.IDTopgrade || r.Outcome != "aborted" {
 		t.Errorf("last-run.json: %+v, %v; want topgrade aborted, written before the exit", r, err)
 	}
+}
+
+// Stop and Quit, clicked as a user clicks it (libadwaita closes the dialog
+// before it emits the response):
+//
+//   - close-polkit: while Full Cleanup's helper step waits for the polkit
+//     dialog (pkexec started, no start line yet): the GUI exits, the run
+//     is recorded aborted, and the waiting pkexec is killed;
+//   - close-finished: the question was asked mid-topgrade, and topgrade
+//     ended before it was answered: the GUI still quits, and the run's own
+//     record stays.
+//
+// Before, the window took the dialog's close for a "Keep Running" (the
+// response came after it) and stayed up: no record, pkexec kept waiting.
+func TestGUIStopAndQuit(t *testing.T) {
+	needDisplay(t)
+
+	t.Run("close-polkit", func(t *testing.T) {
+		dir, env := installShims(t, shimOpts{pkexecWait: true})
+		state := t.TempDir()
+		rep, _ := child(t, "real-close-polkit", append(env, "ARCHMAID_GUI_STATE="+state)...)
+		if rep.Outcome != "" {
+			t.Errorf("the run finished (%q) before the GUI quit", rep.Outcome)
+		}
+		pid := readLines(t, filepath.Join(dir, "pkexec.pid"))
+		if len(pid) != 1 {
+			t.Fatalf("pkexec shim pid %q: it never waited", pid)
+		}
+		n, _ := strconv.Atoi(pid[0])
+		deadline := time.Now().Add(time.Second)
+		for !ended(n) && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if !ended(n) {
+			t.Errorf("the waiting pkexec (pid %d) outlived the GUI", n)
+			_ = syscall.Kill(n, syscall.SIGKILL)
+		}
+		if calls := readLines(t, filepath.Join(dir, "pkexec.log")); len(calls) != 1 {
+			t.Errorf("pkexec calls %q, want the one that waited", calls)
+		}
+		r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
+		if err != nil || r.Action != actions.IDFullCleanup || r.Outcome != logstore.OutcomeAborted {
+			t.Errorf("last-run.json: %+v, %v; want full-cleanup aborted", r, err)
+		}
+	})
+
+	t.Run("close-finished", func(t *testing.T) {
+		_, env := installShims(t, shimOpts{topgrade: "slow"})
+		state := t.TempDir()
+		rep, _ := child(t, "real-close-finished", append(env, "ARCHMAID_GUI_STATE="+state)...)
+		if rep.Outcome != "completed" {
+			t.Errorf("outcome %q, want the run to complete under the question", rep.Outcome)
+		}
+		r, err := logstore.New(logstore.Options{Dir: state}).ReadLastRun()
+		if err != nil || r.Action != actions.IDTopgrade || r.Outcome != logstore.OutcomeOK {
+			t.Errorf("last-run.json: %+v, %v; want the finished topgrade's own record", r, err)
+		}
+	})
 }
 
 // ended: pid is gone, or a zombie (its parent, the test binary as

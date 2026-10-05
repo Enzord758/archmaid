@@ -239,9 +239,18 @@ comments and `git log`; this is the "read before you touch it" list.
   (so `Driver.Close` can't deadlock against it), and closing the window hides
   it, closes the Driver off the main thread (a real Driver may wait out its
   kill grace), then destroys it; `Run` closes the Driver again after the loop
-  in case `app.Quit` ended it. While an `AdwDialog` is up, libadwaita turns the
-  window's close into closing the dialog, so the close-mid-run dialog closes
-  the window from its `closed` signal, not from `response`.
+  in case `app.Quit` ended it. **An `AdwAlertDialog` closes before it
+  responds:** a clicked button runs `adw_dialog_close` (its `closed` signal)
+  and only then emits `response`; Escape or the window's close emit the
+  close response from `closed`. So act on `response`, never on `closed`:
+  the close-mid-run dialog's Stop and Quit calls `closeRequest` directly
+  from its response (it once waited for `closed`, saw no answer yet, and
+  the window stayed up with no record and pkexec still waiting), and the
+  password dialog wipes its entry at `closed` only from an idle, after the
+  response has read it (wiping at `closed` sent an empty password for a
+  click on Authenticate). The harness clicks the buttons
+  (`findButton`); `Emit("response")` then `ForceClose` is the reverse
+  order and hid both bugs.
 - **The GUI password's last copy (accepted risk).** `engine.Secret` is a Go
   string (E0 is frozen), so the password typed into the GUI ends in one
   immutable string that can't be zeroed and stays in the heap until the GC

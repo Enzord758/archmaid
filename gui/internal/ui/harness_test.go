@@ -220,6 +220,9 @@ func runChild(scenario, path string) int {
 		action, cancelPassword = actions.IDTopgrade, true
 	case "real-close-topgrade": // Run topgrade, then Stop and Quit mid-topgrade
 		action = actions.IDTopgrade
+	case "real-close-finished": // the question asked mid-topgrade, answered after its end
+		action = actions.IDTopgrade
+	case "real-close-polkit": // Full Cleanup; Stop and Quit while pkexec waits
 	case "real-sigint", "real-sighup", "real-sigint-twice": // Run topgrade, then the signal mid-topgrade
 		action = actions.IDTopgrade
 	default:
@@ -355,8 +358,16 @@ func runChild(scenario, path string) int {
 						resp = "accept"
 					}
 					entry := w.pwEntry
-					d.Emit("response", resp)
-					d.ForceClose()
+					// Click the response's button, as a user does:
+					// libadwaita closes the dialog, then emits the
+					// response.
+					if b := findButton(&d.Widget, d.ResponseLabel(resp)); b != nil {
+						b.Emit("clicked")
+					} else {
+						fail("prompt %d has no %q button", id, d.ResponseLabel(resp))
+						d.Emit("response", resp)
+						d.ForceClose()
+					}
 					if p.Password != nil && (entry.TextLength() != 0 || w.pwEntry != nil) {
 						fail("the password entry wasn't wiped and forgotten after the answer")
 					}
@@ -396,15 +407,29 @@ func runChild(scenario, path string) int {
 							_ = syscall.Kill(os.Getpid(), sig)
 						}()
 					}
-				case "close-midrun", "real-close", "real-close-topgrade":
+				case "close-midrun", "real-close", "real-close-topgrade", "real-close-finished":
 					stopped = true
 					w.win.Close()
 					if w.quitDialog == nil || w.closed {
 						fail("closing mid-run didn't ask first")
 						return
 					}
-					glib.TimeoutAdd(30, func() { w.quitDialog.Emit("response", "quit"); w.quitDialog.ForceClose() })
+					if scenario == "real-close-finished" {
+						return // answered once the run has finished
+					}
+					glib.TimeoutAdd(30, func() { stopAndQuit(w, fail) })
 				}
+			}
+			// real-close-polkit: Stop and Quit while the helper step's
+			// pkexec waits for the polkit dialog.
+			if !stopped && scenario == "real-close-polkit" && w.model.Auth != nil && w.model.Auth.Kind == engine.WaitPolkit && pkexecWaiting() {
+				stopped = true
+				w.win.Close()
+				if w.quitDialog == nil || w.closed {
+					fail("closing during the polkit wait didn't ask first")
+					return
+				}
+				glib.TimeoutAdd(30, func() { stopAndQuit(w, fail) })
 			}
 			if c.Finished {
 				measuring = false
@@ -466,6 +491,17 @@ func runChild(scenario, path string) int {
 							fail("closing after the engine stopped didn't close the window")
 						}
 					})
+					return
+				}
+				if scenario == "real-close-finished" {
+					// The run ended under the open question: Stop and
+					// Quit must still quit.
+					if w.quitDialog == nil {
+						fail("the quit dialog went with the run's end")
+						closeSoon()
+						return
+					}
+					glib.TimeoutAdd(50, func() { stopAndQuit(w, fail) })
 					return
 				}
 				closeSoon()
@@ -544,6 +580,45 @@ func changeSettings(w *Window, rep *report) {
 	if p.problem.Visible() {
 		rep.Problem = p.problem.Text()
 	}
+}
+
+// stopAndQuit answers the open "Stop the run and quit?" the way a user
+// does: it clicks its Stop and Quit button (libadwaita then closes the
+// dialog first and emits its response after, which Emit("response") and
+// ForceClose in that order never showed). The window must then go: if it
+// is still up a second later, that fails and the harness closes it so
+// the child still ends.
+func stopAndQuit(w *Window, fail func(string, ...any)) {
+	d := w.quitDialog
+	if d == nil {
+		fail("no Stop the run and quit? dialog to answer")
+		return
+	}
+	b := findButton(&d.Widget, "Stop and Quit")
+	if b == nil {
+		fail("the quit dialog has no Stop and Quit button")
+		return
+	}
+	b.Emit("clicked")
+	glib.TimeoutAdd(1000, func() {
+		if !w.closed {
+			fail("Stop and Quit left the window open")
+			w.quitOnSignal()
+		}
+	})
+}
+
+// findButton is the button under root labelled label, or nil.
+func findButton(root *gtk.Widget, label string) *gtk.Button {
+	for c := root.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+		if b, ok := c.(*gtk.Button); ok && b.Label() == label {
+			return b
+		}
+		if b := findButton(gtk.BaseWidget(c), label); b != nil {
+			return b
+		}
+	}
+	return nil
 }
 
 func countLabels(root *gtk.Widget) (labels, coloured int) {

@@ -27,7 +27,7 @@ limit="${HEADLESS_TIMEOUT:-60}"
 # and the instance check, the rest.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
-	real='^TestGUIRealDriver$'
+	real='^TestGUI(RealDriver|StopAndQuit)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance)$'
 	"$self" go test -count=1 -v -run "$long" ./internal/ui
 	"$self" go test -count=1 -v -run "$real" ./internal/ui
