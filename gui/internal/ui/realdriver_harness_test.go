@@ -779,6 +779,13 @@ func TestGUIOnePassword(t *testing.T) {
 		if g := readLines(t, filepath.Join(dir, "gnome.log")); g != nil {
 			t.Errorf("the desktop's polkit agent asked for %q", g)
 		}
+		// The GUI stays dumpable (xdg-desktop-portal opens its
+		// /proc/<pid>/root) and writes no core (RLIMIT_CORE 1). The relay
+		// is made non-dumpable before it gets the password: privilege's
+		// TestAskpassEndToEnd.
+		if rep.Dumpable != 1 || rep.CoreLimit != 1 {
+			t.Errorf("dumpable %d, RLIMIT_CORE %d; want 1 (the portal needs it) and 1 (no core)", rep.Dumpable, rep.CoreLimit)
+		}
 	})
 
 	t.Run("foreign-first", func(t *testing.T) {

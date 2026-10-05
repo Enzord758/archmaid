@@ -111,6 +111,10 @@ type report struct {
 	// The window's title, the stub's banner if revealed, and the status
 	// line, at the first frame.
 	Title, Banner, FirstStatus string
+	// Dumpable (prctl PR_GET_DUMPABLE) and CoreLimit (RLIMIT_CORE's soft
+	// limit) in a real-Driver child, set up as main does.
+	Dumpable  int
+	CoreLimit uint64
 	// EndStatus is the status line once the run finished; Statuses every
 	// status line shown, once.
 	EndStatus string
@@ -292,6 +296,11 @@ func runChild(scenario, path string) int {
 	}
 	var wiring *realdriver.Wiring
 	if strings.HasPrefix(scenario, "real-") {
+		// As archmaid-gui's main: no core files, and still dumpable.
+		if err := NoCoreFiles(); err != nil {
+			fail("NoCoreFiles: %v", err)
+		}
+		rep.Dumpable, rep.CoreLimit = dumpable(), coreRlimit()
 		wiring = startRealWiring(fail)
 		opts.Engine = wiring.Options()
 		opts.KeepsPassword, opts.Notices = true, wiring.SetNotice // as mainReal
