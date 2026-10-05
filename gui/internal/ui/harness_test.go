@@ -111,6 +111,9 @@ type report struct {
 	// The window's title, the stub's banner if revealed, and the status
 	// line, at the first frame.
 	Title, Banner, FirstStatus string
+	// Launched is what the window asked its Launcher for (recordLauncher's
+	// Calls): nothing is opened in a test.
+	Launched []string
 	// Dumpable (prctl PR_GET_DUMPABLE) and CoreLimit (RLIMIT_CORE's soft
 	// limit) in a real-Driver child, set up as main does.
 	Dumpable  int
@@ -242,7 +245,9 @@ func runChild(scenario, path string) int {
 	// Most scenarios start a menu action from the Overview against the
 	// stub's Catalog; the flood and password ones play a single script.
 	var script stub.Script
-	opts := Options{Flags: gio.ApplicationNonUnique, StateDir: os.Getenv("ARCHMAID_GUI_STATE")}
+	launcher := &recordLauncher{Choose: os.Getenv("ARCHMAID_GUI_CHOOSE")}
+	// Nothing in a test opens an app or a portal dialog.
+	opts := Options{Flags: gio.ApplicationNonUnique, StateDir: os.Getenv("ARCHMAID_GUI_STATE"), Launcher: launcher}
 	action, answerNo, password := actions.IDFullCleanup, false, "hunter2"
 	cancelPassword := false
 	switch scenario {
@@ -622,6 +627,7 @@ func runChild(scenario, path string) int {
 	}
 
 	code := Run([]string{"archmaid-gui-test"}, opts)
+	rep.Launched = launcher.Calls()
 	styleMu.Lock()
 	for _, e := range styleErrors {
 		fail("style.css: %s", e)

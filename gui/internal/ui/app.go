@@ -57,6 +57,9 @@ type Options struct {
 	// Notices, when set, is handed the window's notice setter: what to
 	// show when polkit's own dialog has to ask (realdriver's SetNotice).
 	Notices func(set func(string))
+	// Launcher opens files and folders and asks for a folder; nil is the
+	// desktop's (gtk.FileLauncher, gtk.FileDialog). The harness records.
+	Launcher Launcher
 	// hook, when set, sees the window once it is built (the headless
 	// harness drives it from there).
 	hook func(*Window)

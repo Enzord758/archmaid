@@ -68,6 +68,8 @@ type Window struct {
 	// headless harness to tick and type into.
 	checks  []*gtk.CheckButton
 	pwEntry *adw.PasswordEntryRow
+	// launcher opens files and folders (Options.Launcher).
+	launcher Launcher
 	// pwCaller is the open password dialog's caller line (the harness reads it).
 	pwCaller *gtk.Label
 	// busy: a Start was sent and its Finished hasn't come. quitting: the
@@ -104,6 +106,10 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*adw.AlertDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
 	w.win.AddCSSClass(scopeClass) // style.css's scope
+	w.launcher = opts.Launcher
+	if w.launcher == nil {
+		w.launcher = gtkLauncher{parent: &w.win.Window, report: func(err error) { w.toast("Couldn't open it: " + err.Error()) }}
+	}
 	w.win.SetTitle(w.title())
 	w.win.SetDefaultSize(960, 640)
 
