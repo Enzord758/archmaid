@@ -178,6 +178,15 @@ comments and `git log`; this is the "read before you touch it" list.
   struct that outlives the call (`privilege.Request` holds no password).
   `sudo -n -v` is only the cache probe and the 60 s keep-alive
   (`Sudo.Probe`, `Sudo.Refresh`).
+- **The TUI drops its sudo ticket on exit (owner's decision M1).** `main`
+  calls `tui.DropSudoTicket` after `Finish` on every path: `sudo -n -k`
+  (`privilege.DropTicket`: by name on PATH, `SUDO_ASKPASS` dropped, stdin
+  `/dev/null`, bounded at 3 s, its failure only reported), so your next
+  manual `sudo` in that terminal asks again. Bubble Tea ends on q, SIGINT
+  and SIGTERM; `tui.Run` makes SIGHUP quit it too instead of killing the
+  process, so the drop runs then as well. A dry run primes nothing and
+  drops nothing (so the e2e tapes, all dry runs, never see it).
+  `TestTUIDropsTicketOnExit` holds every path, `TestDropTicket*` the call.
 - **The TUI is not dumpable (`tui.DisableCoreDumps`).** The typed password
   lives in Go strings until the GC reuses them, so `main` calls
   `prctl(PR_SET_DUMPABLE, 0)`: no core file can hold it, and other

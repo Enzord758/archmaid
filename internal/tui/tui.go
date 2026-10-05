@@ -8,9 +8,11 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sync/atomic"
 	"syscall"
 
@@ -71,8 +73,37 @@ func Run(drv engine.Driver) error {
 	m.eng = newEngineState(drv)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	go forwardEvents(drv.Events(), p.Send)
+	// Bubble Tea ends the program on SIGINT and SIGTERM; SIGHUP (the
+	// terminal closing, or a kill -HUP) quits it too, instead of killing
+	// the process, so main's exit path (Finish, DropSudoTicket) still runs.
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer func() {
+		signal.Stop(hup) // first: no signal is sent on the closed channel
+		close(hup)
+	}()
+	go func() {
+		if _, ok := <-hup; ok {
+			p.Quit()
+		}
+	}()
 	_, err = p.Run()
 	return err
+}
+
+// DropSudoTicket runs `sudo -n -k` once the TUI is done, however it ended
+// (q, a signal, an error), so the ticket it primed and kept alive doesn't
+// outlive it: the next sudo in that terminal asks again (the owner's
+// decision M1). It never prompts and never holds the exit up (see
+// privilege.DropTicket); a failure is only reported. A dry run primed no
+// ticket and runs no sudo, so it leaves the ticket alone.
+func DropSudoTicket(w io.Writer) {
+	if dryRun {
+		return
+	}
+	if err := privilege.DropTicket(context.Background()); err != nil {
+		fmt.Fprintln(w, "archmaid: couldn't drop the sudo ticket (sudo -n -k):", err)
+	}
 }
 
 // termGuard is the terminal Run holds, for editConfig to pause around the

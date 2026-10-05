@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+	"time"
 
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -87,6 +88,26 @@ func (Sudo) Authenticate(ctx context.Context, pw string) (detail string, err err
 // no-op once it has lapsed: a step's `sudo -A` then asks through askpass.
 func (Sudo) Refresh(ctx context.Context) {
 	_ = exec.CommandContext(ctx, "sudo", "-n", "-v").Run()
+}
+
+// dropTimeout bounds DropTicket: the TUI calls it on its way out, which it
+// must never hold up.
+const dropTimeout = 3 * time.Second
+
+// DropTicket runs `sudo -n -k`, invalidating the sudo ticket the TUI primed
+// and kept alive, so the next sudo in that terminal asks again (the owner's
+// decision M1). It can never prompt: -n, and -k needs no password anyway;
+// SUDO_ASKPASS is dropped from its environment, stdin is /dev/null, and it
+// is bounded by dropTimeout. sudo is found on PATH like the other calls here
+// (internal/testenv traps it there). Its error is the caller's to ignore: a
+// failed drop must never block an exit.
+func DropTicket(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, dropTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "-k")
+	cmd.Env = Sudo{}.Env(false)
+	cmd.WaitDelay = time.Second
+	return cmd.Run()
 }
 
 // Command is how argv runs as a step's child. A sudo command gets -A — read

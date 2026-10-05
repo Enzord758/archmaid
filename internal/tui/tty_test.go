@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"testing"
 	"time"
 	"unsafe"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -29,6 +32,9 @@ import (
 // that tries to open /dev/tty and read from it.
 
 const envTTYChild = "ARCHMAID_TTY_CHILD" // the marker file the probe writes
+
+// envTTYShims is a dir the child puts first on PATH (its sudo shim).
+const envTTYShims = "ARCHMAID_TTY_SHIMS"
 
 // ttyProbe is the step's child: it records whether it could open the
 // terminal, and what it read there, then waits to be aborted. (A failed
@@ -49,6 +55,9 @@ func TestTTYChild(t *testing.T) {
 	if marker == "" {
 		t.Skip("run by TestStepCannotReadTheTerminal")
 	}
+	if shims := os.Getenv(envTTYShims); shims != "" {
+		t.Setenv("PATH", shims+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
 	old := actions.Menu
 	defer func() { actions.Menu = old }()
 	actions.Menu = []actions.Action{{ID: "tty", Label: "TTY probe", Steps: func(actions.Env) []steps.Step {
@@ -63,8 +72,11 @@ func TestTTYChild(t *testing.T) {
 	Configure(false, "")
 	drv := NewDriver(engine.New(engine.Options{Env: ActionEnv()}), nil)
 	err := Run(drv)
+	// main's exit path, whatever ended the program.
 	drv.Close()
-	if err != nil {
+	Finish(os.Stderr)
+	DropSudoTicket(os.Stderr)
+	if err != nil && !errors.Is(err, tea.ErrInterrupted) {
 		t.Fatal(err)
 	}
 }
@@ -131,82 +143,150 @@ func waitFor(t *testing.T, scr *ptyScreen, what string, cond func() bool) {
 	t.Fatalf("timed out waiting for %s; screen:\n%q", what, scr.String())
 }
 
+// tuiChild is the real TUI (TestTTYChild) running as the session leader of
+// a pty, with a sudo shim first on PATH that logs its argv to sudoLog.
+type tuiChild struct {
+	t                *testing.T
+	leader, follower *os.File
+	cmd              *exec.Cmd
+	scr              *ptyScreen
+	exited           chan struct{}
+	waitErr          error
+	marker, sudoLog  string
+}
+
+// startTUIChild starts the TUI child and waits for its menu.
+func startTUIChild(t *testing.T) *tuiChild {
+	t.Helper()
+	c := &tuiChild{t: t, scr: &ptyScreen{}, exited: make(chan struct{})}
+	c.leader, c.follower = ptyPair(t)
+	dir := t.TempDir()
+	c.marker, c.sudoLog = filepath.Join(dir, "probe"), filepath.Join(dir, "sudo.log")
+	shims := filepath.Join(dir, "bin")
+	if err := os.Mkdir(shims, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sudo := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + c.sudoLog + "'\n"
+	if err := os.WriteFile(filepath.Join(shims, "sudo"), []byte(sudo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c.cmd = exec.Command(os.Args[0], "-test.run=^TestTTYChild$", "-test.count=1")
+	// The child puts the shims first on PATH itself: its own testenv puts
+	// the traps first when it starts.
+	c.cmd.Env = append(desktopEnv(), envTTYChild+"="+c.marker, envTTYShims+"="+shims, "TERM=xterm-256color")
+	c.cmd.Stdin, c.cmd.Stdout, c.cmd.Stderr = c.follower, c.follower, c.follower
+	c.cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
+	if err := c.cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { c.waitErr = c.cmd.Wait(); close(c.exited) }()
+	t.Cleanup(func() {
+		// Whatever happens, nothing of the TUI's session outlives the test.
+		_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+		select {
+		case <-c.exited:
+		case <-time.After(5 * time.Second):
+		}
+	})
+	go func() { _, _ = copyScreen(c.scr, c.leader) }()
+	// termenv asks the terminal for its background colour and the cursor
+	// (OSC 11, DSR) and waits up to 5 s for answers: answer as a terminal.
+	waitFor(t, c.scr, "the terminal queries", func() bool { return c.scr.has("\x1b[6n") })
+	c.key("\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[1;1R")
+	waitFor(t, c.scr, "the menu", func() bool { return c.scr.has("TTY probe") })
+	return c
+}
+
+func (c *tuiChild) key(k string) {
+	if _, err := c.leader.Write([]byte(k)); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+// quit presses q until the TUI exits.
+func (c *tuiChild) quit() {
+	c.t.Helper()
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); {
+		c.key("q")
+		select {
+		case <-c.exited:
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+	}
+	c.t.Fatalf("the TUI never quit; screen:\n%q", c.scr.String())
+}
+
+// awaitExit waits for the TUI to exit by itself.
+func (c *tuiChild) awaitExit(why string) {
+	c.t.Helper()
+	select {
+	case <-c.exited:
+	case <-time.After(15 * time.Second):
+		c.t.Fatalf("the TUI never exited after %s; screen:\n%q", why, c.scr.String())
+	}
+}
+
 // TestStepCannotReadTheTerminal: under the real TUI in a terminal, a step's
 // child can't open the terminal (it is refused, as with no terminal at all),
 // every key still reaches the TUI (ctrl+c opens the abort question, y
 // aborts, q quits), and the terminal is released once the TUI exits.
 func TestStepCannotReadTheTerminal(t *testing.T) {
-	leader, follower := ptyPair(t)
-	marker := filepath.Join(t.TempDir(), "probe")
-	cmd := exec.Command(os.Args[0], "-test.run=^TestTTYChild$", "-test.count=1")
-	cmd.Env = append(desktopEnv(), envTTYChild+"="+marker, "TERM=xterm-256color")
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = follower, follower, follower
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	exited := make(chan struct{})
-	var waitErr error
-	go func() { waitErr = cmd.Wait(); close(exited) }()
-	t.Cleanup(func() {
-		// Whatever happens, nothing of the TUI's session outlives the test.
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		select {
-		case <-exited:
-		case <-time.After(5 * time.Second):
-		}
-	})
-	var scr ptyScreen
-	go func() { _, _ = copyScreen(&scr, leader) }()
-	key := func(k string) {
-		if _, err := leader.Write([]byte(k)); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	// termenv asks the terminal for its background colour and the cursor
-	// (OSC 11, DSR) and waits up to 5 s for answers: answer as a terminal.
-	waitFor(t, &scr, "the terminal queries", func() bool { return scr.has("\x1b[6n") })
-	key("\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[1;1R")
-	waitFor(t, &scr, "the menu", func() bool { return scr.has("TTY probe") })
-	key("\r")
-	waitFor(t, &scr, "the probe", func() bool { _, err := os.Stat(marker); return err == nil })
-	waitFor(t, &scr, "the probe's verdict", func() bool { b, _ := os.ReadFile(marker); return len(b) > 0 })
-	key("hello\r") // what a user might type: it must not reach the probe
+	c := startTUIChild(t)
+	scr, marker := c.scr, c.marker
+	c.key("\r")
+	waitFor(t, scr, "the probe", func() bool { _, err := os.Stat(marker); return err == nil })
+	waitFor(t, scr, "the probe's verdict", func() bool { b, _ := os.ReadFile(marker); return len(b) > 0 })
+	c.key("hello\r") // what a user might type: it must not reach the probe
 	b, _ := os.ReadFile(marker)
 	if got := strings.TrimSpace(string(b)); got != "refused" {
 		t.Errorf("the step's child opened the TUI's terminal: %q", got)
 	}
 
-	key("\x03")
-	waitFor(t, &scr, "the abort question", func() bool { return scr.has("Abort the running step") })
-	key("y")
-	waitFor(t, &scr, "the end of the run", func() bool {
+	c.key("\x03")
+	waitFor(t, scr, "the abort question", func() bool { return scr.has("Abort the running step") })
+	c.key("y")
+	waitFor(t, scr, "the end of the run", func() bool {
 		scr.mu.Lock()
 		defer scr.mu.Unlock()
 		s := scr.buf.String()
 		return strings.Count(s, "TTY probe") > 1 && strings.LastIndex(s, "TTY probe") > strings.LastIndex(s, "Abort the running step")
 	})
-	quit := false
-	for end := time.Now().Add(10 * time.Second); !quit && time.Now().Before(end); {
-		key("q")
-		select {
-		case <-exited:
-			quit = true
-		case <-time.After(300 * time.Millisecond):
-		}
-	}
-	if !quit {
-		t.Fatalf("the TUI never quit; screen:\n%q", scr.String())
-	}
-	if waitErr != nil {
-		t.Errorf("the TUI exited with %v; screen:\n%q", waitErr, scr.String())
+	c.quit()
+	if c.waitErr != nil {
+		t.Errorf("the TUI exited with %v; screen:\n%q", c.waitErr, scr.String())
 	}
 	if b, _ := os.ReadFile(marker); strings.Contains(string(b), "read:") {
 		t.Errorf("the step's child read keys: %q", b)
 	}
-	if on, err := ttyguard.Exclusive(follower); err != nil || on {
+	if on, err := ttyguard.Exclusive(c.follower); err != nil || on {
 		t.Errorf("the terminal is still exclusive after the TUI exited: %v, %v", on, err)
+	}
+}
+
+// TestTUIDropsTicketOnExit: however the TUI ends (q, SIGTERM, SIGINT,
+// SIGHUP), main's exit path runs and drops the sudo ticket with exactly
+// `sudo -n -k`, once (the owner's decision M1).
+func TestTUIDropsTicketOnExit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sig  syscall.Signal
+	}{{"q", 0}, {"SIGTERM", syscall.SIGTERM}, {"SIGINT", syscall.SIGINT}, {"SIGHUP", syscall.SIGHUP}} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := startTUIChild(t)
+			if tc.sig == 0 {
+				c.quit()
+			} else {
+				if err := c.cmd.Process.Signal(tc.sig); err != nil {
+					t.Fatal(err)
+				}
+				c.awaitExit(tc.name)
+			}
+			b, _ := os.ReadFile(c.sudoLog)
+			if got := strings.TrimSpace(string(b)); got != "-n -k" {
+				t.Errorf("sudo ran %q on exit, want exactly \"-n -k\" once; screen:\n%q", got, c.scr.String())
+			}
+		})
 	}
 }
 

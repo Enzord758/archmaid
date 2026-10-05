@@ -56,6 +56,9 @@ func main() {
 	// What the Driver reported, then an aborted downloads deletion finishing
 	// its current entry and logging what it deleted: don't cut that short.
 	tui.Finish(os.Stderr)
+	// However the TUI ended: its sudo ticket goes with it (never prompts,
+	// never blocks the exit).
+	tui.DropSudoTicket(os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		tui.StopAskpass(srv) // os.Exit skips the defer: remove the socket and wrapper

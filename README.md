@@ -100,7 +100,9 @@ binary would shadow the package's.
   to re-authenticate mid-run, the popup comes back and names the program
   that asked. Before anything reaches `sudo`, archmaid checks the password
   with `su`, so a typo costs no `pam_faillock` attempt. The password is
-  never stored or logged.
+  never stored or logged. The TUI drops its sudo ticket on exit (`sudo -n
+  -k`, however it ends): your next manual `sudo` in that terminal asks
+  again.
 - **GUI.** Full Cleanup's root steps ask polkit once. topgrade's own `sudo`
   calls ask through the GUI's password dialog, once per `sudo` that asks.
   The GUI reads the faillock state first: on a locked account it doesn't
