@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
@@ -57,6 +58,10 @@ type Options struct {
 	// Notices, when set, is handed the window's notice setter: what to
 	// show when polkit's own dialog has to ask (realdriver's SetNotice).
 	Notices func(set func(string))
+	// Confirm, when set, is an action the window starts as soon as it is
+	// up (--confirm fullcleanup), which opens straight into its confirm:
+	// nothing runs before Proceed (the gate is its first question).
+	Confirm string
 	// Launcher opens files and folders and asks for a folder; nil is the
 	// desktop's (gtk.FileLauncher, gtk.FileDialog). The harness records.
 	Launcher Launcher
@@ -107,17 +112,23 @@ func Main(args []string) int {
 		return 2
 	}
 	if !l.stub {
-		return mainReal(l.args)
+		return mainReal(l.args, l.confirm)
 	}
-	return Run(l.args, Options{Stub: true, NewDriver: stubDriver(l.script)})
+	return Run(l.args, Options{Stub: true, NewDriver: stubDriver(l.script), Confirm: l.confirm})
 }
 
 // launch is what the command line asks for.
 type launch struct {
-	args   []string // for GApplication: without --stub
+	args   []string // for GApplication: without --stub and --confirm
 	stub   bool
 	script string // ARCHMAID_GUI_SCRIPT, with stub only
+	// confirm is --confirm's action: the window opens into its confirm.
+	confirm string
 }
+
+// confirmable are the actions --confirm takes: only Full Cleanup for now
+// (the DMS widget's Run Full Cleanup).
+var confirmable = []string{actions.IDFullCleanup}
 
 // parseLaunch takes --stub out of args (GApplication would refuse it).
 // The stub runs only for --stub; ARCHMAID_GUI_SCRIPT is read only then,
@@ -125,9 +136,25 @@ type launch struct {
 func parseLaunch(args []string, getenv func(string) string) (launch, error) {
 	var l launch
 	l.args = make([]string, 0, len(args))
-	for i, a := range args {
-		if i > 0 && a == "--stub" {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case i > 0 && a == "--stub":
 			l.stub = true
+			continue
+		case i > 0 && (a == "--confirm" || strings.HasPrefix(a, "--confirm=")):
+			v, given := strings.CutPrefix(a, "--confirm=")
+			if !given {
+				if i+1 >= len(args) {
+					return launch{}, fmt.Errorf("--confirm needs an action (%s)", strings.Join(confirmable, ", "))
+				}
+				i++
+				v = args[i]
+			}
+			if !slices.Contains(confirmable, v) || l.confirm != "" {
+				return launch{}, fmt.Errorf("--confirm %q: want one of %s, once", v, strings.Join(confirmable, ", "))
+			}
+			l.confirm = v
 			continue
 		}
 		l.args = append(l.args, a)
@@ -144,7 +171,7 @@ func parseLaunch(args []string, getenv func(string) string) (launch, error) {
 
 // mainReal runs the window on the real Driver. The Wiring outlives every
 // Driver: Run closes the last one before it returns.
-func mainReal(args []string) int {
+func mainReal(args []string, confirm string) int {
 	wr := realdriver.Start(realdriver.Config{
 		Report: func(err error) { fmt.Fprintln(os.Stderr, "archmaid-gui:", err) },
 	})
@@ -156,7 +183,7 @@ func mainReal(args []string) int {
 		fmt.Fprintln(os.Stderr, "archmaid-gui:", err)
 		return 1
 	}
-	return Run(args, Options{NewDriver: wr.New, Engine: base, KeepsPassword: true, Notices: wr.SetNotice})
+	return Run(args, Options{NewDriver: wr.New, Engine: base, KeepsPassword: true, Notices: wr.SetNotice, Confirm: confirm})
 }
 
 // stubDriver is the stub's NewDriver for an ARCHMAID_GUI_SCRIPT value
@@ -208,6 +235,9 @@ func Run(args []string, opts Options) int {
 			opts.hook(w)
 		}
 		w.win.Present()
+		if id := opts.Confirm; id != "" {
+			post(func() { w.startAction(id) })
+		}
 	})
 	// SIGINT, SIGTERM and SIGHUP are Stop and Quit (signals.go): the run is
 	// aborted and recorded, its children stopped, then Run returns 128 +

@@ -36,6 +36,19 @@ func TestParseLaunch(t *testing.T) {
 			t.Errorf("--stub with script %q = %+v, %v", s, l, err)
 		}
 	}
+	// --confirm takes fullcleanup only, once, as --confirm X or --confirm=X.
+	for _, args := range [][]string{{"archmaid-gui", "--confirm", "fullcleanup"}, {"archmaid-gui", "--confirm=fullcleanup", "--stub"}} {
+		l, err := parseLaunch(args, env(nil))
+		if err != nil || l.confirm != "fullcleanup" || !slices.Equal(l.args, []string{"archmaid-gui"}) {
+			t.Errorf("%q = %+v, %v", args, l, err)
+		}
+	}
+	for _, args := range [][]string{{"archmaid-gui", "--confirm"}, {"archmaid-gui", "--confirm", "topgrade"}, {"archmaid-gui", "--confirm=bogus"},
+		{"archmaid-gui", "--confirm", ""}, {"archmaid-gui", "--confirm", "fullcleanup", "--confirm", "fullcleanup"}} {
+		if l, err := parseLaunch(args, env(nil)); err == nil {
+			t.Errorf("%q = %+v, want refused", args, l)
+		}
+	}
 	for _, s := range []string{"0", "no", " ", "Flood", "bogus"} {
 		if l, err := parseLaunch([]string{"archmaid-gui", "--stub"}, env(map[string]string{ScriptEnv: s})); err == nil {
 			t.Errorf("--stub with script %q = %+v, want refused", s, l)

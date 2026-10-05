@@ -15,6 +15,7 @@ package ui
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -104,10 +105,13 @@ type report struct {
 	MenuSub  string   // the started row's subtitle right after the click
 	Page     string   // the page up after starting an action
 	LastRun  []string // the Overview's last run: title, then issues
-	LogRows  []string // the Logs page's "run/category" rows
-	LogShown string   // the log opened, and its lines
-	LogLines []string
-	Notice   string
+	// LastTag and LastTone are the last run's outcome tag and its tone
+	// class (am-tag-ok, -warn, -danger, -neutral).
+	LastTag, LastTone string
+	LogRows           []string // the Logs page's "run/category" rows
+	LogShown          string   // the log opened, and its lines
+	LogLines          []string
+	Notice            string
 
 	// The Logs page's list while searching for ARCHMAID_GUI_LOGSEARCH,
 	// and with its first section folded (logs_harness_test.go).
@@ -292,6 +296,9 @@ func runChild(scenario, path string) int {
 	case "settings-bad": // gui.json holds the home folder: refused on load
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
+	case "dry-first": // Full Cleanup from the hero's Dry run first
+	case "confirm-flag": // --confirm fullcleanup: the window opens into the gate; "no"
+		answerNo = true
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
 	case "engine-stops-askpass": // ... with sudo's askpass dialog open, typed in
 		action = stub.IDFullCleanupAskpass
@@ -312,6 +319,9 @@ func runChild(scenario, path string) int {
 		action = actions.IDTopgrade
 	default:
 		fail("unknown scenario %q", scenario)
+	}
+	if scenario == "confirm-flag" {
+		opts.Confirm = actions.IDFullCleanup
 	}
 	var wiring *realdriver.Wiring
 	if strings.HasPrefix(scenario, "real-") {
@@ -383,8 +393,17 @@ func runChild(scenario, path string) int {
 							w.win.Close()
 							return
 						}
-						for _, e := range overview.Entries() {
-							rep.Menu = append(rep.Menu, e.ID)
+						// The Overview's actions: the hero and the cells.
+						for _, c := range overview.Cards() {
+							if r := w.menu[c.ID]; r != nil && r.cell != nil {
+								rep.Menu = append(rep.Menu, c.ID)
+							}
+						}
+						rep.LastTag = w.lastTag.Text()
+						for _, c := range []string{"am-tag-ok", "am-tag-warn", "am-tag-danger", "am-tag-neutral"} {
+							if w.lastTag.HasCSSClass(c) {
+								rep.LastTone = c
+							}
 						}
 						rep.LastRun = append([]string{w.lastRun.Title}, w.lastRun.Issues...)
 						rep.Title, rep.FirstStatus = w.win.Title(), w.status.Text()
@@ -402,13 +421,23 @@ func runChild(scenario, path string) int {
 							changeSettings(w, rep)
 						}
 						started, measuring = time.Now(), true
-						// Start it the way a user does: its Overview row.
+						if scenario == "confirm-flag" {
+							// Started by --confirm itself, at once.
+							rep.Page = w.stack.VisibleChildName()
+							return
+						}
+						// Start it the way a user does: its Overview cell (the
+						// hero's Run, or its Dry run first).
 						if r, ok := w.menu[action]; ok {
-							r.row.Emit("activated")
+							if scenario == "dry-first" {
+								w.dryFirst.Emit("clicked")
+							} else {
+								r.start()
+							}
 							if rep.Page = w.stack.VisibleChildName(); rep.Page != "run" {
 								fail("starting %s left the %q page up", action, rep.Page)
 							}
-							rep.MenuSub = r.row.Subtitle()
+							rep.MenuSub = r.sub.Label()
 						} else {
 							w.startAction(action)
 						}
@@ -576,6 +605,9 @@ func runChild(scenario, path string) int {
 				rep.Pump = w.pump.Stats()
 				rep.Toasts = w.toasted
 				rep.EndStatus = w.status.Text()
+				if scenario == "confirm-flag" {
+					rep.Page = w.stack.VisibleChildName()
+				}
 				rep.Meters = w.shell.meters.text()
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
@@ -601,20 +633,20 @@ func runChild(scenario, path string) int {
 							w.set.dryRun.SetActive(true)
 						}
 						rep.Rows = nil
-						w.menu[action].row.Emit("activated")
+						w.menu[action].start()
 					})
 					return
 				}
 				if strings.HasPrefix(scenario, "engine-stops") && len(rep.Outcomes) == 1 {
 					rep.Controls = fmt.Sprintf("busy=%v stop=%v menu=%v dialogs=%d status=%q",
-						w.busy, w.stopBtn.Sensitive(), w.menu[actions.IDFullCleanup].row.Sensitive(), len(w.dialogs), w.status.Text())
+						w.busy, w.stopBtn.Visible() && w.stopBtn.Sensitive(), w.menu[actions.IDFullCleanup].cell.Sensitive(), len(w.dialogs), w.status.Text())
 					if typed != nil {
 						rep.Withdrawn = fmt.Sprintf("len=%d kept=%v", typed.TextLength(), w.pwEntry != nil)
 					}
 					if scenario == "engine-stops-rerun" {
 						glib.TimeoutAdd(50, func() {
 							rep.Rows = nil
-							w.menu[action].row.Emit("activated")
+							w.menu[action].start()
 						})
 						return
 					}
@@ -985,7 +1017,7 @@ func TestGUIAudit(t *testing.T) {
 func TestGUIOverviewStarts(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "repair")
-	want := []string{"fullcleanup", "usercache", "repair", "downloads", "topgrade", "services", "auraudit", "viewlog"}
+	want := []string{"fullcleanup", "usercache", "repair", "downloads", "topgrade", "services", "auraudit"}
 	if !slices.Equal(rep.Menu, want) {
 		t.Errorf("menu %q, want %q", rep.Menu, want)
 	}
@@ -997,6 +1029,62 @@ func TestGUIOverviewStarts(t *testing.T) {
 	}
 	if len(rep.LastRun) != 1 || rep.LastRun[0] != "No run recorded yet" {
 		t.Errorf("last run %q with an empty state dir", rep.LastRun)
+	}
+}
+
+// TestGUIDryFirst: the hero's Dry run first runs Full Cleanup as a dry run
+// on that Driver only; the saved settings (gui.json) stay as they were,
+// and the next Driver is a real one again.
+func TestGUIDryFirst(t *testing.T) {
+	needDisplay(t)
+	cfg := t.TempDir()
+	rep, _ := child(t, "dry-first", "XDG_CONFIG_HOME="+cfg)
+	if want := []string{`dry=false downloads=""`, `dry=true downloads=""`}; !slices.Equal(rep.DriverOpts, want) {
+		t.Errorf("drivers %q, want the window's real one, then a dry one for the run", rep.DriverOpts)
+	}
+	if rep.Outcome != "completed" || rep.Page != "run" {
+		t.Errorf("outcome %q page %q", rep.Outcome, rep.Page)
+	}
+	if _, err := os.Stat(filepath.Join(cfg, "archmaid", "gui.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("Dry run first saved the settings: %v", err)
+	}
+}
+
+// TestGUIConfirmFlag: --confirm fullcleanup opens the window straight into
+// Full Cleanup's confirm (the gate); nothing runs before the answer, and
+// "no" ends it cancelled.
+func TestGUIConfirmFlag(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "confirm-flag")
+	if !slices.Equal(rep.Sent, []string{"confirm 1 false"}) || rep.Outcome != "cancelled" || rep.Page != "run" {
+		t.Errorf("sent %q outcome %q page %q; want the gate first, declined, cancelled", rep.Sent, rep.Outcome, rep.Page)
+	}
+	for _, r := range rep.Rows {
+		if !strings.HasSuffix(r, "=pending") && !strings.HasSuffix(r, "=not run") {
+			t.Errorf("a step ran before Proceed: %s", r)
+		}
+	}
+}
+
+// TestGUILastRunTones: the last run's tag and tone: a failed run is FAILED
+// in the danger tone; a cancelled one is CANCELLED and neutral (grey), as
+// the DMS widget draws it, not a warning.
+func TestGUILastRunTones(t *testing.T) {
+	needDisplay(t)
+	for _, tc := range []struct{ outcome, tag, tone string }{
+		{logstore.OutcomeFailed, "FAILED", "am-tag-danger"},
+		{logstore.OutcomeCancelled, "CANCELLED", "am-tag-neutral"},
+		{logstore.OutcomeOK, "OK", "am-tag-ok"},
+	} {
+		dir := t.TempDir()
+		now := time.Now()
+		if err := logstore.New(logstore.Options{Dir: dir}).WriteLastRun(logstore.RunRecord{Action: actions.IDFullCleanup, Outcome: tc.outcome, Started: now, Finished: now}); err != nil {
+			t.Fatal(err)
+		}
+		rep, _ := child(t, "repair", "ARCHMAID_GUI_STATE="+dir)
+		if rep.LastTag != tc.tag || rep.LastTone != tc.tone {
+			t.Errorf("%s: tag %q tone %q, want %q %q", tc.outcome, rep.LastTag, rep.LastTone, tc.tag, tc.tone)
+		}
 	}
 }
 

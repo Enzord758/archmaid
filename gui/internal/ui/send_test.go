@@ -58,7 +58,7 @@ func sendWindow(drivers ...engine.Driver) *Window {
 		drivers = drivers[1:]
 		return d
 	}
-	w.newDriver()
+	w.newDriver(false)
 	return w
 }
 
@@ -94,7 +94,7 @@ func TestSendStaysWithItsDriver(t *testing.T) {
 	defer closeSendWindow(w)
 
 	w.send(engine.Confirm{Prompt: 1, Yes: true})
-	w.replaceDriver() // a Start within the retries' second
+	w.replaceDriver(false) // a Start within the retries' second
 	runMainLoop(1200 * time.Millisecond)
 	if got := fresh.sent(); len(got) != 0 {
 		t.Errorf("the fresh Driver got %q: a command for the dead one", got)

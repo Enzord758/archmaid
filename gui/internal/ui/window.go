@@ -80,15 +80,20 @@ type Window struct {
 	busy, quitting, closed bool
 	closeOnce              sync.Once
 
-	// The Overview page: the status header, the last run, the menu rows by
-	// action ID. current is the action last started.
-	statLabel *gtk.Label
-	lastRow   *adw.ActionRow
-	lastIcon  *gtk.Image
-	lastRun   overview.LastRun
-	menu      map[string]*menuRow
-	current   string
-	logs      *logsPage
+	// The Overview page: the hero (its steps, Dry run first), the last
+	// run's cell, the cells, the actions by ID. current is the action last
+	// started.
+	heroSteps  *gtk.FlowBox
+	dryFirst   *gtk.Button
+	cells      *gtk.FlowBox
+	lastIcon   *gtk.Image
+	lastTitle  *gtk.Label
+	lastTag    *gtk.Label
+	lastIssues *gtk.Label
+	lastRun    overview.LastRun
+	menu       map[string]*menuRow
+	current    string
+	logs       *logsPage
 	// shownOverview is what the Overview's widgets show (nil: not drawn).
 	shownOverview *overviewState
 
@@ -207,15 +212,21 @@ func newWindow(app *adw.Application, opts Options) *Window {
 			})
 		})
 	}
-	w.newDriver()
+	w.newDriver(false)
 	return w
 }
 
-// newDriver makes the Driver (and its pump) for w.settings.
-func (w *Window) newDriver() {
+// newDriver makes the Driver (and its pump) for w.settings; dry makes
+// it a dry run whatever they say (Dry run first: this Driver only, the
+// saved settings untouched).
+func (w *Window) newDriver(dry bool) {
 	w.gen++
 	gen := w.gen
-	w.drv = w.opts.NewDriver(w.settings.Apply(w.opts.Engine))
+	s := w.settings
+	if dry {
+		s.DryRun = true
+	}
+	w.drv = w.opts.NewDriver(s.Apply(w.opts.Engine))
 	po := w.opts.Pump
 	po.Ended = func() {
 		// A Driver the window closed (replaced, or the window closing)
@@ -250,14 +261,21 @@ func (w *Window) engineStopped() {
 // current settings. It waits for the old pump, which posts without
 // blocking, so it never waits on this thread; an idle Driver has no child
 // to stop, so its Close is quick.
-func (w *Window) replaceDriver() {
+func (w *Window) replaceDriver(dry bool) {
 	w.drv.Close()
 	<-w.pump.Done()
-	w.newDriver()
+	w.newDriver(dry)
 }
 
 // startAction starts action id (a menu row) and shows the Run page.
-func (w *Window) startAction(id string) {
+func (w *Window) startAction(id string) { w.start(id, false) }
+
+// startDry starts action id as a dry run this once (the hero's Dry run
+// first): its Driver is made with dry run on; the Settings page and
+// gui.json are left as they are.
+func (w *Window) startDry(id string) { w.start(id, true) }
+
+func (w *Window) start(id string, dry bool) {
 	if w.busy || w.closed {
 		return
 	}
@@ -265,7 +283,7 @@ func (w *Window) startAction(id string) {
 	// run, so each real run gets its own run directory, stamped now (not
 	// when the window opened or the last run ended), and the Settings
 	// page's changes apply to it.
-	w.replaceDriver()
+	w.replaceDriver(dry)
 	w.current, w.model.Stopped, w.agentNotice = id, "", ""
 	w.setBusy(true)
 	w.stack.SetVisibleChildName("run")

@@ -153,6 +153,9 @@ func (w *Window) buildShell() {
 	}
 	shortSetters := func(bp *adw.Breakpoint) {
 		bp.AddSetter(sh.meters.box, "visible", false)
+		if w.heroSteps.Visible() { // the hero's plan, when there is one
+			bp.AddSetter(w.heroSteps, "visible", false)
+		}
 	}
 	narrow := adw.NewBreakpoint(adw.BreakpointConditionParse(narrowWidth))
 	narrowSetters(narrow)

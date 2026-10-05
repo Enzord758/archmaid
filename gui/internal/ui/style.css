@@ -71,3 +71,49 @@
 .archmaid levelbar.am-meter-bar trough > block { min-height: 2px; border-radius: 0; }
 .archmaid levelbar.am-meter-bar trough > block.filled { background-color: @accent_bg_color; }
 .archmaid levelbar.am-meter-bar trough > block.empty { background-color: @am_rail; }
+
+/* The Overview (P8 row 10): the hero, the hairline grid of cells, tags. */
+@define-color am_mark alpha(@window_fg_color, 0.45);
+.archmaid .am-overview { margin: 18px; }
+.archmaid .am-hero {
+  padding: 20px;
+  background-color: @card_bg_color;
+  border: 1px solid @am_rail;
+}
+.archmaid .am-hero-title { font-size: 32px; font-weight: 800; font-family: "Barlow Condensed", "Adwaita Sans", sans-serif; }
+.archmaid .am-step-num { font-family: "JetBrains Mono", monospace; color: @am_muted; }
+.archmaid .am-grid { background-color: @am_rail; border: 1px solid @am_rail; }
+.archmaid .am-grid > flowboxchild { padding: 0; }
+.archmaid .am-cell {
+  padding: 14px;
+  border-radius: 0;
+  background-color: @card_bg_color;
+}
+.archmaid .am-cell-title { font-weight: 700; }
+.archmaid .am-cell-desc, .archmaid .am-cell-sub { color: @am_muted; }
+.archmaid .am-tag {
+  font-size: smaller;
+  font-family: "JetBrains Mono", monospace;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+}
+.archmaid .am-tag-root { color: @am_warn; }
+.archmaid .am-tag-asks { color: @am_running; }
+.archmaid .am-tag-ok { color: @am_ok; }
+.archmaid .am-tag-warn { color: @am_warn; }
+.archmaid .am-tag-danger { color: @am_danger; }
+.archmaid .am-tag-neutral { color: @am_muted; }
+
+/* Corner registration marks (spec 1.10, Q10): only on the hero, the
+   primary buttons and the dialogs. Eight 1 px strokes at the corners. */
+.archmaid .am-blueprint {
+  background-image:
+    linear-gradient(@am_mark, @am_mark), linear-gradient(@am_mark, @am_mark),
+    linear-gradient(@am_mark, @am_mark), linear-gradient(@am_mark, @am_mark),
+    linear-gradient(@am_mark, @am_mark), linear-gradient(@am_mark, @am_mark),
+    linear-gradient(@am_mark, @am_mark), linear-gradient(@am_mark, @am_mark);
+  background-size: 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px, 10px 1px, 1px 10px;
+  background-position: left top, left top, right top, right top, left bottom, left bottom, right bottom, right bottom;
+  background-repeat: no-repeat;
+}
+.archmaid .am-hero.am-blueprint { background-color: @card_bg_color; }

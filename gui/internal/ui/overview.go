@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -8,112 +9,332 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
+	"github.com/Enzord758/archmaid/gui/internal/plural"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/logstore"
 )
 
-// The Overview page: the status header, the last run (last-run.json, read
-// only) and the menu. Choosing an action sends Start and shows the Run
-// page; View log shows the Logs page.
+// The Overview page (P8 row 10; spec 1.2): the Full Cleanup hero (its
+// plan, Run and Dry run first), the last run (last-run.json, read only),
+// and the other actions as cells. A cell starts its action and shows the
+// Run page. View log is gone: the Logs page covers it.
 
+// menuRow is one action on the Overview: its entry, the button that
+// starts it (the hero's Run for Full Cleanup), the line under it that
+// says it runs, and its spinner.
 type menuRow struct {
 	entry overview.Entry
-	row   *adw.ActionRow
+	cell  *gtk.Button
+	sub   *gtk.Label
 	spin  *adw.Spinner
+	// row is a compatibility handle for View log only (no cell): the
+	// harness's browseLogs still activates it until it calls showLogs.
+	row *adw.ActionRow
+}
+
+// start activates the action as a click on its cell does.
+func (r *menuRow) start() {
+	if r.cell != nil {
+		r.cell.Emit("clicked")
+	} else if r.row != nil {
+		r.row.Emit("activated")
+	}
 }
 
 func (w *Window) newOverview() gtk.Widgetter {
-	page := adw.NewPreferencesPage()
-
-	w.statLabel = gtk.NewLabel("")
-	w.statLabel.AddCSSClass("dim-label")
-	w.statLabel.SetVisible(false)
-	head := adw.NewPreferencesGroup()
-	head.Add(w.statLabel)
-	page.Add(head)
-
-	last := adw.NewPreferencesGroup()
-	last.SetTitle("Last Run")
-	w.lastRow = adw.NewActionRow()
-	w.lastRow.SetUseMarkup(false)
-	w.lastIcon = gtk.NewImage()
-	w.lastRow.AddPrefix(w.lastIcon)
-	last.Add(w.lastRow)
-	page.Add(last)
-
-	menu := adw.NewPreferencesGroup()
-	menu.SetTitle("Actions")
 	w.menu = map[string]*menuRow{}
-	for _, e := range overview.Entries() {
-		r := &menuRow{entry: e, row: adw.NewActionRow(), spin: adw.NewSpinner()}
-		r.row.SetUseMarkup(false)
-		r.row.SetTitle(e.Label)
-		r.row.AddPrefix(gtk.NewImageFromIconName(e.Icon))
-		r.spin.SetVisible(false)
-		r.row.AddSuffix(r.spin)
-		r.row.AddSuffix(gtk.NewImageFromIconName("go-next-symbolic"))
-		r.row.SetActivatable(true)
-		r.row.ConnectActivated(func() { w.choose(e) })
-		menu.Add(r.row)
-		w.menu[e.ID] = r
+	box := gtk.NewBox(gtk.OrientationVertical, 18)
+	box.AddCSSClass("am-overview")
+	box.Append(w.newHero())
+
+	w.cells = gtk.NewFlowBox()
+	w.cells.SetSelectionMode(gtk.SelectionNone)
+	w.cells.SetHomogeneous(true)
+	w.cells.SetMinChildrenPerLine(1)
+	w.cells.SetMaxChildrenPerLine(4)
+	w.cells.SetColumnSpacing(1)
+	w.cells.SetRowSpacing(1)
+	w.cells.AddCSSClass("am-grid")
+	w.cells.Append(w.newLastRun())
+	for _, c := range overview.Cards() {
+		if c.ID == actions.IDFullCleanup {
+			continue // the hero
+		}
+		w.cells.Append(w.newCell(c))
 	}
-	page.Add(menu)
+	// View log has no cell; its handle stays for the harness (menuRow.row).
+	for _, e := range overview.Entries() {
+		if e.Kind == overview.KindLogs {
+			r := &menuRow{entry: e, row: adw.NewActionRow(), spin: adw.NewSpinner(), sub: gtk.NewLabel("")}
+			r.row.ConnectActivated(w.showLogs)
+			w.menu[e.ID] = r
+		}
+	}
+	box.Append(w.cells)
+
+	scroll := gtk.NewScrolledWindow()
+	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	scroll.SetChild(box)
 	w.refreshLastRun()
-	return page
+	return scroll
 }
 
-// choose is a menu row: start its action, or show the Logs page.
-func (w *Window) choose(e overview.Entry) {
-	switch e.Kind {
-	case overview.KindLogs:
-		w.showLogs()
-	default:
-		w.startAction(e.ID)
+// newHero is Full Cleanup's cell: kicker, title, description, its plan as
+// numbered steps, Run and Dry run first.
+func (w *Window) newHero() gtk.Widgetter {
+	card := cardByID(actions.IDFullCleanup)
+	hero := gtk.NewBox(gtk.OrientationVertical, 10)
+	hero.AddCSSClass("am-hero")
+	hero.AddCSSClass("am-blueprint")
+
+	preview, ok := w.planPreview(actions.IDFullCleanup)
+	kicker := gtk.NewLabel(heroKicker(preview, ok))
+	kicker.SetXAlign(0)
+	kicker.AddCSSClass("am-kicker")
+	title := gtk.NewLabel("Full Cleanup")
+	title.SetXAlign(0)
+	title.AddCSSClass("am-hero-title")
+	desc := gtk.NewLabel(card.Desc)
+	desc.SetXAlign(0)
+	desc.SetWrap(true)
+	desc.AddCSSClass("am-hero-desc")
+	hero.Append(kicker)
+	hero.Append(title)
+	hero.Append(desc)
+
+	w.heroSteps = gtk.NewFlowBox()
+	w.heroSteps.SetSelectionMode(gtk.SelectionNone)
+	w.heroSteps.SetMinChildrenPerLine(1)
+	w.heroSteps.SetMaxChildrenPerLine(2)
+	w.heroSteps.SetHomogeneous(true)
+	w.heroSteps.SetFocusable(false)
+	if ok {
+		for i, s := range preview.Steps {
+			line := gtk.NewBox(gtk.OrientationHorizontal, 8)
+			n := gtk.NewLabel(fmt.Sprintf("%02d", i+1))
+			n.AddCSSClass("am-step-num")
+			t := gtk.NewLabel(s.Title)
+			t.SetXAlign(0)
+			t.SetEllipsize(3) // pango.EllipsizeEnd: a step title in a narrow column
+			t.SetHExpand(true)
+			line.Append(n)
+			line.Append(t)
+			if s.Asks {
+				line.Append(tag("asks", "am-tag-asks"))
+			}
+			if s.Root {
+				line.Append(tag("root", "am-tag-root"))
+			}
+			w.heroSteps.Append(line)
+		}
 	}
+	w.heroSteps.SetVisible(ok)
+	hero.Append(w.heroSteps)
+
+	run := gtk.NewButtonWithLabel("Run Full Cleanup")
+	run.AddCSSClass("suggested-action")
+	run.AddCSSClass("am-blueprint")
+	run.ConnectClicked(func() { w.startAction(actions.IDFullCleanup) })
+	dry := gtk.NewButtonWithLabel("Dry run first")
+	dry.SetTooltipText("Runs it as a dry run this once: nothing on the system changes. Settings stay as they are.")
+	dry.ConnectClicked(func() { w.startDry(actions.IDFullCleanup) })
+	w.dryFirst = dry
+	spin := adw.NewSpinner()
+	spin.SetVisible(false)
+	sub := gtk.NewLabel("")
+	sub.AddCSSClass("am-cell-sub")
+	buttons := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	buttons.Append(run)
+	buttons.Append(dry)
+	buttons.Append(spin)
+	buttons.Append(sub)
+	hero.Append(buttons)
+	w.menu[actions.IDFullCleanup] = &menuRow{entry: card.Entry, cell: run, sub: sub, spin: spin}
+	return hero
+}
+
+// heroKicker is the hero's kicker (spec 1.11).
+func heroKicker(p overview.Preview, ok bool) string {
+	if !ok {
+		return "Recommended"
+	}
+	return "Recommended · " + plural.N(len(p.Steps), "step", "steps") + " · root steps in one authorisation"
+}
+
+// cardByID is action id's Overview card (its menu entry when it has none).
+func cardByID(id string) overview.Card {
+	for _, c := range overview.Cards() {
+		if c.ID == id {
+			return c
+		}
+	}
+	return overview.Card{Entry: overview.Entry{ID: id, Label: overview.Label(id)}}
+}
+
+// planPreview is action id's plan under the window's own Env (the polkit
+// plan on the real Driver), or ok false when there is none to show: an
+// action that discovers its steps, or an Env without the actions' wiring
+// (the stub's).
+func (w *Window) planPreview(id string) (overview.Preview, bool) {
+	env := w.opts.Engine.Env
+	if env.Validate() != nil {
+		return overview.Preview{}, false
+	}
+	return overview.PlanPreview(env, id)
+}
+
+// tag is a small label tag ("root", "asks").
+func tag(text, class string) *gtk.Label {
+	l := gtk.NewLabel(text)
+	l.AddCSSClass("am-tag")
+	l.AddCSSClass(class)
+	return l
+}
+
+// newCell is an action's cell: a button holding its icon, the root tag,
+// the title, the description and the running line.
+func (w *Window) newCell(c overview.Card) gtk.Widgetter {
+	head := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	head.Append(gtk.NewImageFromIconName(c.Icon))
+	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
+	spacer.SetHExpand(true)
+	head.Append(spacer)
+	spin := adw.NewSpinner()
+	spin.SetVisible(false)
+	head.Append(spin)
+	if c.Root {
+		head.Append(tag("root", "am-tag-root"))
+	}
+	title := gtk.NewLabel(c.Label)
+	title.SetXAlign(0)
+	title.SetWrap(true)
+	title.AddCSSClass("am-cell-title")
+	desc := gtk.NewLabel(c.Desc)
+	desc.SetXAlign(0)
+	desc.SetWrap(true)
+	desc.AddCSSClass("am-cell-desc")
+	// Wrapped labels ask for their whole text's width; a modest natural
+	// width lets the grid put two or more cells on a line.
+	title.SetMaxWidthChars(24)
+	desc.SetMaxWidthChars(30)
+	sub := gtk.NewLabel("")
+	sub.SetXAlign(0)
+	sub.AddCSSClass("am-cell-sub")
+	sub.SetVisible(false)
+	inner := gtk.NewBox(gtk.OrientationVertical, 6)
+	inner.Append(head)
+	inner.Append(title)
+	inner.Append(desc)
+	inner.Append(sub)
+	b := gtk.NewButton()
+	b.SetChild(inner)
+	b.AddCSSClass("am-cell")
+	b.AddCSSClass("flat")
+	id := c.ID
+	b.ConnectClicked(func() { w.startAction(id) })
+	w.menu[c.ID] = &menuRow{entry: c.Entry, cell: b, sub: sub, spin: spin}
+	return b
+}
+
+// newLastRun is the last run's cell (spec 1.2): kicker, action, outcome
+// tag, when, and its issues.
+func (w *Window) newLastRun() gtk.Widgetter {
+	box := gtk.NewBox(gtk.OrientationVertical, 6)
+	box.AddCSSClass("am-cell")
+	box.AddCSSClass("am-last-run")
+	kicker := gtk.NewLabel("LAST RUN")
+	kicker.SetXAlign(0)
+	kicker.AddCSSClass("am-kicker")
+	head := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	w.lastIcon = gtk.NewImage()
+	w.lastTitle = gtk.NewLabel("")
+	w.lastTitle.SetXAlign(0)
+	w.lastTitle.SetWrap(true)
+	w.lastTitle.SetHExpand(true)
+	w.lastTitle.AddCSSClass("am-cell-title")
+	w.lastTag = tag("", "am-tag-ok")
+	head.Append(w.lastIcon)
+	head.Append(w.lastTitle)
+	head.Append(w.lastTag)
+	w.lastIssues = gtk.NewLabel("")
+	w.lastIssues.SetXAlign(0)
+	w.lastIssues.SetWrap(true)
+	w.lastIssues.AddCSSClass("am-cell-desc")
+	w.lastTitle.SetMaxWidthChars(24)
+	w.lastIssues.SetMaxWidthChars(30)
+	box.Append(kicker)
+	box.Append(head)
+	box.Append(w.lastIssues)
+	return box
+}
+
+// lastTone is how the last run's outcome is drawn: its icon, tag text and
+// tone class. A cancelled run is neutral (grey), as the DMS widget draws
+// it: nothing ran, nothing to warn about.
+func lastTone(lr overview.LastRun) (icon, text, class string) {
+	if lr.Record != nil && lr.Record.Outcome == logstore.OutcomeCancelled {
+		return "content-loading-symbolic", "CANCELLED", "am-tag-neutral"
+	}
+	switch lr.Level {
+	case overview.LevelNone:
+		return "content-loading-symbolic", "", "am-tag-neutral"
+	case overview.LevelWarn:
+		t := "WARN"
+		if lr.Record != nil {
+			t = strings.ToUpper(lr.Record.Outcome)
+		}
+		return "dialog-warning-symbolic", t, "am-tag-warn"
+	case overview.LevelError:
+		t := "FAILED"
+		if lr.Record != nil {
+			t = strings.ToUpper(lr.Record.Outcome)
+		}
+		return "dialog-error-symbolic", t, "am-tag-danger"
+	}
+	return "emblem-ok-symbolic", "OK", "am-tag-ok"
 }
 
 // refreshLastRun rereads last-run.json (at start and after each run).
 func (w *Window) refreshLastRun() {
 	lr := overview.ReadLastRun(w.opts.StateDir, time.Now())
 	w.lastRun = lr
-	w.lastRow.SetTitle(lr.Title)
-	w.lastRow.SetSubtitle(strings.Join(lr.Issues, "\n"))
-	icon := "emblem-ok-symbolic"
-	w.lastIcon.RemoveCSSClass("error")
-	w.lastIcon.RemoveCSSClass("warning")
-	switch lr.Level {
-	case overview.LevelNone:
-		icon = "content-loading-symbolic"
-	case overview.LevelWarn:
-		icon = "dialog-warning-symbolic"
-		w.lastIcon.AddCSSClass("warning")
-	case overview.LevelError:
-		icon = "dialog-error-symbolic"
-		w.lastIcon.AddCSSClass("error")
-	}
+	w.lastTitle.SetText(lr.Title)
+	w.lastIssues.SetText(strings.Join(lr.Issues, "\n"))
+	w.lastIssues.SetVisible(len(lr.Issues) > 0)
+	icon, text, class := lastTone(lr)
 	w.lastIcon.SetFromIconName(icon)
+	for _, c := range []string{"am-tag-ok", "am-tag-warn", "am-tag-danger", "am-tag-neutral"} {
+		w.lastIcon.RemoveCSSClass(c)
+		w.lastTag.RemoveCSSClass(c)
+	}
+	w.lastIcon.AddCSSClass(class)
+	w.lastTag.AddCSSClass(class)
+	w.lastTag.SetText(text)
+	w.lastTag.SetVisible(text != "")
 }
 
 // overviewState is what the Overview's widgets show, so a flush that
 // changes none of it (an output flood) costs a compare, not ~30 widget
 // calls.
 type overviewState struct {
-	stat, current, busyText string
-	busy                    bool
-	phase                   engine.Phase
+	current, busyText string
+	busy              bool
+	phase             engine.Phase
 }
 
-// updateOverview redraws the header and the menu rows, when what they show
-// changed.
+// updateOverview redraws the cells' running lines and sensitivity, when
+// what they show changed.
 func (w *Window) updateOverview() {
-	st := overviewState{overview.StatusLine(w.model.Stat.Status), w.current, w.model.Busy, w.busy, w.model.Phase}
+	st := overviewState{w.current, w.model.Busy, w.busy, w.model.Phase}
 	if w.shownOverview != nil && *w.shownOverview == st {
 		return
 	}
 	w.shownOverview = &st
-	line := st.stat
-	w.statLabel.SetText(line)
-	w.statLabel.SetVisible(line != "")
 	for id, r := range w.menu {
+		if r.cell == nil {
+			continue
+		}
 		running := w.busy && id == w.current
 		r.spin.SetVisible(running)
 		sub := ""
@@ -125,8 +346,10 @@ func (w *Window) updateOverview() {
 		} else if running {
 			sub = "Running"
 		}
-		r.row.SetSubtitle(sub)
-		// One action at a time; the Logs page stays reachable.
-		r.row.SetSensitive(!w.busy || r.entry.Kind == overview.KindLogs)
+		r.sub.SetText(sub)
+		r.sub.SetVisible(sub != "")
+		// One action at a time.
+		r.cell.SetSensitive(!w.busy)
 	}
+	w.dryFirst.SetSensitive(!w.busy)
 }
