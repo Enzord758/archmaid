@@ -729,13 +729,18 @@ answers...)`. Run with `-update-transcripts` and read the new golden line by lin
   stale build that exits 1 silently.
 - `TestUpdatesScript` (count, none, failure leaves no file, 0600/0700) and `TestManifest`.
 - `TestWidgetTextIsPlain`: every `StyledText` in the widget sets `textFormat: Text.PlainText`.
+- `TestPopoutReloadsOnOpen`: the popout re-reads the state files on every open (a
+  `Connections` on its `parentPopout`'s `shouldBeVisible`; DMS loads the content once), and the
+  bar keeps its 60 s reload timer. Both read the widget's source: it can't load outside DMS.
 - Not in the gate: loading the widget in a real DMS. Do it **in the test VM** (DMS installed
   from the owner's dotfiles), never on the owner's machine: any quickshell instance there can
   open windows on the live desktop. In the VM, install `packaging/dms/archmaid` as a DMS
   plugin, put a scratch `last-run.json`, `audit-state.json` and `updates-cache.json` in the
   state dir (or let a real run write them), and check: both pills, the popout's LAST RUN /
   UPDATES / AUR sections with the outcome tag (OK primary, FAILED error, INCOMPLETE and
-  ABORTED warning, CANCELLED muted), mono numbers, the findings, and both buttons.
+  ABORTED warning, CANCELLED muted), mono numbers, the findings, and both buttons. Then, with
+  the popout closed, rewrite one state file (a new outcome): reopening must show it at once,
+  not after the 60 s timer.
 
 ## Coverage map
 

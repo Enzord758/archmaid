@@ -132,7 +132,8 @@ PluginComponent {
     }
 
     // The writers replace files by rename, so re-reading on a timer is
-    // simpler and sturdier than watching inodes. Three small files per minute.
+    // simpler and sturdier than watching inodes. Three small files per minute
+    // keep the bar pill current; the popout re-reads on every open too.
     Timer {
         interval: 60000
         running: true
@@ -189,9 +190,23 @@ PluginComponent {
             detailsText: root.level === "nodata" ? "No data yet. Run archmaid once." : ""
             showCloseButton: true
 
+            // Every open shows the files as they are now. DMS loads this
+            // content once and keeps it, so Component.onCompleted only
+            // covers the first open; the popout (parentPopout, a
+            // DankPopout) sets shouldBeVisible on every open.
             Component.onCompleted: {
                 root.reloadAll();
                 root.probeTools();
+            }
+            Connections {
+                target: pop.parentPopout
+                ignoreUnknownSignals: true
+                function onShouldBeVisibleChanged() {
+                    if (pop.parentPopout && pop.parentPopout.shouldBeVisible) {
+                        root.reloadAll();
+                        root.probeTools();
+                    }
+                }
             }
 
             // Workbench's sections, in its order: LAST RUN, UPDATES, AUR.

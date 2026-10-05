@@ -37,7 +37,8 @@ dry-run record is ignored. `last-run.json` is one record overwritten per run, so
 14-day rule measures the age of the last run of any kind; after a failed or incomplete
 run the outcome warning stands in for "last successful cleanup" (not recoverable from
 one record). A pending count older than 3 days is shown as unknown. Files are re-read
-every 60 s (the writers replace files by rename).
+every 60 s for the pill (the writers replace files by rename) and on every popout open,
+so the popout always shows the files as they are.
 
 **Run Full Cleanup** starts `archmaid-gui` if it is on PATH; otherwise `$TERMINAL -e
 archmaid` (`$TERMINAL` may carry arguments, split on spaces, never a shell); if
