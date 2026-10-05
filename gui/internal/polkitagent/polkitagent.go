@@ -46,6 +46,7 @@ import (
 	"unsafe"
 
 	"github.com/Enzord758/archmaid/internal/driver"
+	"github.com/Enzord758/archmaid/internal/proc"
 )
 
 // ActionPrefix starts every polkit action of archmaid's root helper.
@@ -81,8 +82,64 @@ type Agent struct {
 	once    sync.Once
 	read    chan struct{} // closed once the reader has ended
 
+	tty string // the terminal's path (/dev/pts/N)
+
 	mu  sync.Mutex
 	cur *Prompt // the prompt answered, awaiting polkit's verdict
+}
+
+// lockTTY makes the agent's terminal exclusive (TIOCEXCL): any new open of
+// it, by name or as /dev/tty, fails with EBUSY for a process without
+// CAP_SYS_ADMIN. The pty belongs to the user, so without this any process
+// of the same uid (something an AUR build left running, say) could open
+// /dev/pts/N and race pkttyagent for the password line written to it.
+func lockTTY(slave *os.File) error { return ioctl(slave, syscall.TIOCEXCL, nil) }
+
+// inAgentSession reports whether pid is in pkttyagent's session, whose
+// controlling terminal is the agent's (pkttyagent leads it: Setsid).
+func (a *Agent) inAgentSession(pid int) bool {
+	info, err := proc.Read(pid)
+	return err != nil || info.Session == a.cmd.Process.Pid // unreadable: assume so
+}
+
+// ErrTTYShared: a process other than pkttyagent holds the agent's
+// terminal, so a password written to it could be read by that process.
+var ErrTTYShared = errors.New("polkit agent: another process holds its terminal")
+
+// otherHolders lists the processes, besides pkttyagent, that hold the
+// agent's terminal open, as far as /proc shows (our uid's processes; root's
+// fd tables are unreadable, and root is trusted). After lockTTY nobody can
+// open it any more, so one that holds it now opened it before the lock and
+// still does.
+func (a *Agent) otherHolders() []int {
+	ents, err := os.ReadDir("/proc")
+	if err != nil {
+		return []int{-1} // can't tell: assume the worst
+	}
+	var pids []int
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || pid == a.cmd.Process.Pid {
+			continue
+		}
+		fds, err := os.ReadDir("/proc/" + e.Name() + "/fd")
+		if err != nil {
+			continue
+		}
+		for _, fd := range fds {
+			l, err := os.Readlink("/proc/" + e.Name() + "/fd/" + fd.Name())
+			if err != nil {
+				continue
+			}
+			// By name, or as /dev/tty from inside pkttyagent's session
+			// (the terminal is that session's controlling terminal).
+			if l == a.tty || l == "/dev/tty" && a.inAgentSession(pid) {
+				pids = append(pids, pid)
+				break
+			}
+		}
+	}
+	return pids
 }
 
 // Start registers pkttyagent for opts' process and returns once it is
@@ -123,14 +180,16 @@ func Start(opts Options) (*Agent, error) {
 	// listener reads and writes ctermid().
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	err = cmd.Start()
-	slave.Close()
 	notifyW.Close()
 	if err != nil {
+		slave.Close()
 		master.Close()
 		notifyR.Close()
 		return nil, fmt.Errorf("can't start pkttyagent: %w", err)
 	}
-	a := &Agent{opts: opts, cmd: cmd, master: master, prompts: make(chan driver.AgentPrompt),
+	// Our copy of the terminal stays open until the registration: then it
+	// is made exclusive and closed (lockTTY).
+	a := &Agent{opts: opts, cmd: cmd, master: master, tty: slave.Name(), prompts: make(chan driver.AgentPrompt),
 		exited: make(chan struct{}), stop: make(chan struct{}), read: make(chan struct{})}
 	go func() {
 		_ = cmd.Wait()
@@ -158,10 +217,20 @@ func Start(opts Options) (*Agent, error) {
 		case <-registered:
 		case <-timeout.C:
 			go discard(lines)
+			slave.Close()
 			a.Stop()
 			return nil, errors.New("pkttyagent didn't register in time")
 		}
 		break
+	}
+	// The text listener opened its terminal before it registered and never
+	// opens it again: from now on nobody else may (lockTTY).
+	err = lockTTY(slave)
+	slave.Close()
+	if err != nil {
+		go discard(lines)
+		a.Stop()
+		return nil, fmt.Errorf("polkit agent: can't make its terminal exclusive: %w", err)
 	}
 	// A failed registration closes the fd by exiting.
 	select {
@@ -420,6 +489,11 @@ func (p *Prompt) Answer(pw []byte) error {
 			a.refuse()
 			return
 		}
+		if pids := a.otherHolders(); len(pids) > 0 {
+			err = fmt.Errorf("%w (pid %v)", ErrTTYShared, pids)
+			a.refuse()
+			return
+		}
 		line := make([]byte, len(pw)+1)
 		copy(line, pw)
 		line[len(pw)] = '\n'
@@ -434,8 +508,8 @@ func (a *Agent) waitNoEcho(within time.Duration) error {
 	deadline := time.Now().Add(within)
 	for {
 		var t syscall.Termios
-		if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, a.master.Fd(), syscall.TCGETS, uintptr(unsafe.Pointer(&t))); errno != 0 {
-			return errno
+		if err := ioctl(a.master, syscall.TCGETS, unsafe.Pointer(&t)); err != nil {
+			return err
 		}
 		if t.Lflag&syscall.ECHO == 0 {
 			return nil
@@ -447,6 +521,27 @@ func (a *Agent) waitNoEcho(within time.Duration) error {
 	}
 }
 
+// ioctl runs an ioctl on f without f.Fd(): Fd puts the file in blocking
+// mode, after which Close no longer interrupts a Read in progress, and
+// Stop would wait for the reader until every holder of the terminal let
+// go of it.
+func ioctl(f *os.File, req uintptr, arg unsafe.Pointer) error {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var errno syscall.Errno
+	if err := rc.Control(func(fd uintptr) {
+		_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, fd, req, uintptr(arg))
+	}); err != nil {
+		return err
+	}
+	if errno != 0 {
+		return errno
+	}
+	return nil
+}
+
 // openPTY opens a new pty pair: the master, and its terminal.
 func openPTY() (master, slave *os.File, err error) {
 	master, err = os.OpenFile("/dev/ptmx", os.O_RDWR|syscall.O_NOCTTY|syscall.O_CLOEXEC, 0)
@@ -454,14 +549,14 @@ func openPTY() (master, slave *os.File, err error) {
 		return nil, nil, err
 	}
 	var unlock int32
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), syscall.TIOCSPTLCK, uintptr(unsafe.Pointer(&unlock))); errno != 0 {
+	if err := ioctl(master, syscall.TIOCSPTLCK, unsafe.Pointer(&unlock)); err != nil {
 		master.Close()
-		return nil, nil, errno
+		return nil, nil, err
 	}
 	var n uint32
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, master.Fd(), syscall.TIOCGPTN, uintptr(unsafe.Pointer(&n))); errno != 0 {
+	if err := ioctl(master, syscall.TIOCGPTN, unsafe.Pointer(&n)); err != nil {
 		master.Close()
-		return nil, nil, errno
+		return nil, nil, err
 	}
 	slave, err = os.OpenFile("/dev/pts/"+strconv.Itoa(int(n)), os.O_RDWR|syscall.O_NOCTTY|syscall.O_CLOEXEC, 0)
 	if err != nil {
