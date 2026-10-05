@@ -1,3 +1,5 @@
+//go:build shots
+
 package ui
 
 // #cgo pkg-config: gtk4
@@ -40,10 +42,15 @@ import (
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 )
 
+// shotsBuilt: this test binary can take screenshots (built with -tags
+// shots; shot_noshots_test.go is the other side).
+const shotsBuilt = true
+
 // savePNG writes widget (a realized window, as GTK draws it now) to path
 // as a PNG: the headless harness's screenshots (shots_test.go). gotk4
 // can't hand render nodes over (they aren't GObjects), so this goes
-// through C. Nothing in the app calls it.
+// through C. Built only with -tags shots (headless.sh's screenshot group
+// and ARCHMAID_GUI_SHOTS), so the shipped binary carries none of it.
 func savePNG(widget coreglib.Objector, path string) error {
 	cpath := C.CString(path)
 	defer C.free(unsafe.Pointer(cpath))

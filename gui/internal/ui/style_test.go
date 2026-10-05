@@ -31,6 +31,7 @@ func TestStateClass(t *testing.T) {
 // of the idle Overview is that colour, so nothing of ours overrides it.
 func TestGUIDMSColoursWin(t *testing.T) {
 	needDisplay(t)
+	needShots(t)
 	cfg, shots := t.TempDir(), t.TempDir()
 	css := ""
 	for _, name := range []string{"window_bg_color", "view_bg_color", "headerbar_bg_color", "card_bg_color", "sidebar_bg_color", "dialog_bg_color"} {

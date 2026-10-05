@@ -8,6 +8,10 @@ package ui
 // GUI with the mockup (Dev 5), and for a before/after of every P8 row:
 //
 //	ARCHMAID_GUI_SHOTS=$(mktemp -d) gui/scripts/headless.sh
+//
+// The capture (shot.go) is built only with -tags shots: headless.sh adds
+// it to every group when ARCHMAID_GUI_SHOTS is set, and always to the
+// group that runs TestGUIShots and TestGUIDMSColoursWin.
 
 import (
 	"bytes"
@@ -41,6 +45,15 @@ func shoot(w *Window, scenario, what string) {
 	_ = savePNG(w.win, filepath.Join(dir, scenario+"-"+what+".png"))
 }
 
+// needShots skips a test that reads screenshots in a binary built without
+// -tags shots.
+func needShots(t *testing.T) {
+	t.Helper()
+	if !shotsBuilt {
+		t.Skip("needs screenshots: build with -tags shots (headless.sh's engine-stops group does)")
+	}
+}
+
 // pngSize is a PNG's width and height from its IHDR, or ok false.
 func pngSize(b []byte) (w, h int, ok bool) {
 	if len(b) < 24 || !bytes.Equal(b[:8], []byte("\x89PNG\r\n\x1a\n")) || string(b[12:16]) != "IHDR" {
@@ -53,6 +66,7 @@ func pngSize(b []byte) (w, h int, ok bool) {
 // writes its start, prompt and end shots as PNGs of the window's size.
 func TestGUIShots(t *testing.T) {
 	needDisplay(t)
+	needShots(t)
 	dir := t.TempDir()
 	t.Setenv(shotsEnv, dir)
 	child(t, "usercache-no")

@@ -30,10 +30,15 @@ if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
 	real='^TestGUI(RealDriver|StopAndQuit|SmallWindow|OnePassword)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin)$'
-	"$self" go test -count=1 -v -run "$long" ./internal/ui
-	"$self" go test -count=1 -v -run "$real" ./internal/ui
-	"$self" go test -count=1 -v -run "$stops" ./internal/ui
-	exec "$self" go test -count=1 -v -skip "$long|$real|$stops" ./internal/ui
+	# The screenshot capture (shot.go) is built only with -tags shots:
+	# always for the group that tests it, and for every group when
+	# ARCHMAID_GUI_SHOTS asks for screenshots.
+	tags=()
+	[[ -n "${ARCHMAID_GUI_SHOTS:-}" ]] && tags=(-tags shots)
+	"$self" go test "${tags[@]}" -count=1 -v -run "$long" ./internal/ui
+	"$self" go test "${tags[@]}" -count=1 -v -run "$real" ./internal/ui
+	"$self" go test -tags shots -count=1 -v -run "$stops" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$stops" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and
