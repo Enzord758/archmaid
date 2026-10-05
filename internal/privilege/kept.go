@@ -192,8 +192,7 @@ func (r *Request) AnswerBytes(ctx context.Context, pw []byte) (detail string, er
 	line := make([]byte, len(pw)+1)
 	copy(line, pw)
 	line[len(pw)] = '\n'
-	_, _ = r.conn.Write(line)
+	r.deliver(line)
 	clear(line)
-	r.conn.Close()
 	return "", nil
 }

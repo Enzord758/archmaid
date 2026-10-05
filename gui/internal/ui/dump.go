@@ -12,9 +12,10 @@ import "syscall"
 // user. What reads ours still can: polkitd and pkttyagent read stat,
 // status and cgroup (mode 0444) for pkexec's subject and the agent's
 // --process, and archmaid itself reads its own. The askpass relay mode
-// (archmaid-gui --askpass) must stay dumpable: the GUI reads that
-// process's exe to verify it (privilege.Request.Verify), so main calls
-// this only after the relay dispatch.
+// (archmaid-gui --askpass) must stay dumpable until the GUI has verified
+// it (privilege.Request.Verify reads its exe), so main calls this only
+// after the relay dispatch; the relay makes itself non-dumpable in the
+// askpass handshake, before the password reaches it (privilege.ReadAnswer).
 func NoCoreDumps() error {
 	if _, _, errno := syscall.RawSyscall(syscall.SYS_PRCTL, syscall.PR_SET_DUMPABLE, 0, 0); errno != 0 {
 		return errno

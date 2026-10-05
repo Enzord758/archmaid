@@ -275,8 +275,11 @@ comments and `git log`; this is the "read before you touch it" list.
     with a heap copy in it. It also makes the GUI's `/proc/<pid>` root-owned;
     what reads it still can (polkitd and pkttyagent read `stat`, `status`
     and `cgroup`, all mode 0444, per polkit 127's polkitunixprocess.c and
-    pkexec.c). The relay mode (`archmaid-gui --askpass`) stays dumpable on
-    purpose: the GUI reads its `exe` to verify it.
+    pkexec.c). The relay mode (`archmaid-gui --askpass`, and the TUI's)
+    must be dumpable while the UI verifies it (it reads its `exe`), so
+    `Request.Answer` runs a handshake: it says "verified", the relay makes
+    itself non-dumpable (`hardenRelay`) and acknowledges, and only then is
+    the password sent (`privilege.ReadAnswer`). No ack, no password.
   - *Who gets it, without asking:* (1) a sudo askpass request that
     `Request.Verify` passed against the running step's child (our uid, our
     helper, run by sudo, inside that child's tree), whose step is a

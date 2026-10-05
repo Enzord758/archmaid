@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/Enzord758/archmaid/internal/privilege/internal/seam"
 	"github.com/Enzord758/archmaid/internal/proc"
 )
@@ -244,6 +246,9 @@ type Request struct {
 	conn net.Conn
 	// verified is set by a Verify that passed; Answer requires it.
 	verified atomic.Bool
+	// beforeSend, for tests, runs after the relay acknowledged the
+	// handshake and before the password is written.
+	beforeSend func()
 }
 
 // newRequest wraps a connection that carries one request, as a Server
@@ -302,10 +307,80 @@ func (r *Request) Answer(pw string) (detail string, err error) {
 	}
 	// A write that fails means the helper (and so its sudo) is gone; that
 	// sudo's step reports the failure, so the answer itself still counts.
-	fmt.Fprintf(r.conn, "%s\n", pw)
-	r.conn.Close()
+	line := make([]byte, len(pw)+1)
+	copy(line, pw)
+	line[len(pw)] = '\n'
+	r.deliver(line)
+	clear(line)
 	return "", nil
 }
+
+// The handshake before a password goes to the askpass relay (RunClient):
+// the server says the request is verified; the relay, which had to stay
+// dumpable until then (Verify reads its /proc exe), makes itself
+// non-dumpable and acknowledges; only then is the password sent. So the
+// relay never holds a password while a core dump or a same-uid ptrace
+// could read it.
+const (
+	verifiedLine = "verified\n"
+	ackLine      = "ok\n"
+)
+
+// handshakeTimeout bounds the wait for the relay's acknowledgement.
+const handshakeTimeout = 5 * time.Second
+
+// deliver runs the handshake and writes line (the password and its
+// newline) to the relay, then hangs up. Without the acknowledgement
+// nothing is written.
+func (r *Request) deliver(line []byte) {
+	defer r.conn.Close()
+	if _, err := io.WriteString(r.conn, verifiedLine); err != nil {
+		return
+	}
+	_ = r.conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	ack := make([]byte, len(ackLine))
+	if _, err := io.ReadFull(r.conn, ack); err != nil || string(ack) != ackLine {
+		return
+	}
+	_ = r.conn.SetReadDeadline(time.Time{})
+	if r.beforeSend != nil {
+		r.beforeSend()
+	}
+	_, _ = r.conn.Write(line)
+}
+
+// errHandshake: the server didn't open with the verified line.
+var errHandshake = errors.New("askpass: no handshake from the UI")
+
+// ReadAnswer is the relay's side of an answer: it reads the server's
+// verified line, runs harden (RunClient: no core dumps from here on; nil
+// for none), acknowledges, and returns the password line, newline
+// included. An error means no password came: cancelled, or the UI went
+// away.
+func ReadAnswer(conn io.ReadWriter, harden func() error) (string, error) {
+	br := bufio.NewReader(conn)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		return "", err
+	}
+	if line != verifiedLine {
+		return "", errHandshake
+	}
+	if harden != nil {
+		if err := harden(); err != nil {
+			return "", err
+		}
+	}
+	if _, err := io.WriteString(conn, ackLine); err != nil {
+		return "", err
+	}
+	return br.ReadString('\n')
+}
+
+// hardenRelay makes the relay non-dumpable before it takes the password
+// (prctl PR_SET_DUMPABLE, 0). A variable so this package's in-process
+// tests of RunClient don't turn their own test binary non-dumpable.
+var hardenRelay = func() error { return unix.Prctl(unix.PR_SET_DUMPABLE, 0, 0, 0, 0) }
 
 // Cancel hangs up without answering; sudo counts that as a failed attempt
 // (the helper exits 1), but no PAM failure is burnt.
@@ -322,7 +397,7 @@ func RunClient(sock, prompt string) int {
 	}
 	defer conn.Close()
 	fmt.Fprintln(conn, prompt) // tell the UI what sudo is asking
-	pw, err := bufio.NewReader(conn).ReadString('\n')
+	pw, err := ReadAnswer(conn, hardenRelay)
 	if err != nil {
 		return 1 // the UI closed the connection unanswered → cancel
 	}

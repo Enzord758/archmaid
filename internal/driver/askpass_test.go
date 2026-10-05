@@ -1,7 +1,6 @@
 package driver
 
 import (
-	"bufio"
 	"errors"
 	"net"
 	"os"
@@ -37,7 +36,7 @@ func newAskpassClient(t *testing.T, prompt string, peer privilege.Peer) *askpass
 	server, client := net.Pipe()
 	c := &askpassClient{req: privtest.NewRequest(server, prompt, peer), got: make(chan string, 1), peer: peer}
 	go func() {
-		line, _ := bufio.NewReader(client).ReadString('\n')
+		line, _ := privilege.ReadAnswer(client, nil) // the relay's side, handshake and all
 		client.Close()
 		c.got <- line
 	}()

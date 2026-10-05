@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -47,10 +49,14 @@ func fakeUI(t *testing.T, answer bool) (sock string, prompt <-chan string) {
 		}
 		defer conn.Close()
 		conn.SetDeadline(time.Now().Add(askpassTimeout))
-		line, _ := bufio.NewReader(conn).ReadString('\n')
+		br := bufio.NewReader(conn)
+		line, _ := br.ReadString('\n')
 		got <- line
-		if answer {
-			fmt.Fprint(conn, "pw\n")
+		if answer { // the handshake, then the password
+			fmt.Fprint(conn, verifiedLine)
+			if ack, _ := br.ReadString('\n'); ack == ackLine {
+				fmt.Fprint(conn, "pw\n")
+			}
 		}
 	}()
 	return sock, got
@@ -94,6 +100,12 @@ func recv[T any](t *testing.T, ch <-chan T, what string) T {
 // newline (sudo expects one) and exits 0; an unanswered close or an
 // unreachable socket exits 1 and prints nothing.
 func TestAskpassRunClient(t *testing.T) {
+	// In process: harden would make this test binary non-dumpable.
+	hardened := 0
+	old := hardenRelay
+	hardenRelay = func() error { hardened++; return nil }
+	t.Cleanup(func() { hardenRelay = old })
+
 	t.Run("answered", func(t *testing.T) {
 		sock, prompt := fakeUI(t, true)
 		var code int
@@ -103,6 +115,9 @@ func TestAskpassRunClient(t *testing.T) {
 		}
 		if out != "pw\n" {
 			t.Fatalf("stdout = %q, want %q", out, "pw\n")
+		}
+		if hardened != 1 {
+			t.Fatalf("hardened %d times before the password, want once", hardened)
 		}
 		if got := recv(t, prompt, "the prompt"); got != "[sudo] password for u: \n" {
 			t.Fatalf("server saw %q, want the prompt line", got)
@@ -421,6 +436,7 @@ func TestAskpassEndToEnd(t *testing.T) {
 		err    error
 	}
 	done := make(chan answered, 1)
+	relayOwner := make(chan int, 1)
 	go func() {
 		select {
 		case req := <-s.Requests():
@@ -428,6 +444,7 @@ func TestAskpassEndToEnd(t *testing.T) {
 			// test binary, not run by sudo, so it is marked verified by hand
 			// (Verify has tests of its own).
 			req.verified.Store(true)
+			req.beforeSend = func() { relayOwner <- procOwner(req.Peer.Pid) }
 			_, err := req.Answer("pw")
 			done <- answered{req.Prompt, err}
 		case <-time.After(askpassTimeout):
@@ -452,6 +469,21 @@ func TestAskpassEndToEnd(t *testing.T) {
 	if got.prompt != "Password:" || got.err != nil {
 		t.Fatalf("server saw prompt %q, Answer err %v; want %q and nil", got.prompt, got.err, "Password:")
 	}
+	// A non-dumpable process's /proc files are root's: the relay was
+	// non-dumpable before the password reached it.
+	if uid := recv(t, relayOwner, "the relay's /proc owner"); uid != 0 {
+		t.Fatalf("the relay's /proc/<pid>/status was owned by uid %d when the password went: it was still dumpable", uid)
+	}
+}
+
+// procOwner is the uid owning /proc/<pid>/status: root's for a non-dumpable
+// process, its own uid's otherwise; -1 if it can't be read.
+func procOwner(pid int) int {
+	var st syscall.Stat_t
+	if err := syscall.Stat("/proc/"+strconv.Itoa(pid)+"/status", &st); err != nil {
+		return -1
+	}
+	return int(st.Uid)
 }
 
 // unverifiedPipeRequest is a Request from the fake helper (helperPeer) over
@@ -499,8 +531,8 @@ func TestAskpassAnswerRightPassword(t *testing.T) {
 	// reader has to be running before Answer is.
 	got := make(chan string, 1)
 	go func() {
-		b, _ := io.ReadAll(helper) // up to the close after the write
-		got <- string(b)
+		pw, _ := ReadAnswer(helper, nil) // the relay's side, handshake and all
+		got <- pw
 	}()
 	if detail, err := req.Answer("secret"); err != nil || detail != "" {
 		t.Fatalf("Answer = %q, %v; want success", detail, err)
@@ -562,8 +594,8 @@ func TestAskpassAnswerRequiresVerify(t *testing.T) {
 	// write would block instead).
 	got := make(chan string, 1)
 	go func() {
-		b, _ := io.ReadAll(helper) // up to the hang-up after an answer
-		got <- string(b)
+		pw, _ := ReadAnswer(helper, nil) // the relay's side, handshake and all
+		got <- pw
 	}()
 	if _, err := req.Answer("secret"); !errors.Is(err, ErrUnverified) {
 		t.Fatalf("Answer on an unverified request = %v, want ErrUnverified (helper got %q)", err, recv(t, got, "the helper's read"))

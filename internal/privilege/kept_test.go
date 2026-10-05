@@ -2,7 +2,6 @@ package privilege
 
 import (
 	"context"
-	"io"
 	"slices"
 	"testing"
 	"time"
@@ -87,8 +86,8 @@ func TestAnswerBytes(t *testing.T) {
 	req, helper := pipeRequest(t)
 	got := make(chan string, 1)
 	go func() {
-		b, _ := io.ReadAll(helper)
-		got <- string(b)
+		pw, _ := ReadAnswer(helper, nil) // the relay's side, handshake and all
+		got <- pw
 	}()
 	if detail, err := req.AnswerBytes(context.Background(), []byte("secret")); err != nil || detail != "" {
 		t.Fatalf("AnswerBytes = %q, %v", detail, err)
