@@ -269,36 +269,60 @@ comments and `git log`; this is the "read before you touch it" list.
     MADV_DONTDUMP page outside the Go heap, never written anywhere, never
     logged. Answers use a short-lived copy that is cleared at once. The
     `engine.Secret` string the user's answer arrived in is the existing
-    accepted residual ("The GUI password's last copy").
+    accepted residual ("The GUI password's last copy"). archmaid-gui runs
+    non-dumpable (`prctl(PR_SET_DUMPABLE, 0)`, `ui.NoCoreDumps`, set in
+    main after the askpass relay dispatch): a crash writes no core file
+    with a heap copy in it. It also makes the GUI's `/proc/<pid>` root-owned;
+    what reads it still can (polkitd and pkttyagent read `stat`, `status`
+    and `cgroup`, all mode 0444, per polkit 127's polkitunixprocess.c and
+    pkexec.c). The relay mode (`archmaid-gui --askpass`) stays dumpable on
+    purpose: the GUI reads its `exe` to verify it.
   - *Who gets it, without asking:* (1) a sudo askpass request that
     `Request.Verify` passed against the running step's child (our uid, our
     helper, run by sudo, inside that child's tree), whose step is a
-    `NeedsPriv` child, and whose helper is in that child's session (Detach
-    makes every step a session leader); under polkit that is topgrade only.
-    (2) polkit, through pkttyagent registered for archmaid-gui's own
-    process (`gui/internal/polkitagent`), only while a helper step runs,
-    only for an `org.archmaid.helper.*` action, and only for the current
-    user's identity (an identity menu picks the user's entry or refuses).
-    Anything else gets the normal dialog or is refused; never the kept
-    password.
+    `NeedsPriv` child, whose helper is in that child's session (Detach
+    makes every step a session leader), and whose chain from sudo's caller
+    up to the step's child is only `/usr/bin/topgrade` and `/usr/bin/yay`
+    (`Requester.KeptMayAnswer`; pacman runs as root under sudo and never
+    runs it). A sudo under makepkg, a PKGBUILD's `build()` shell or
+    anything else gets the normal askpass dialog naming its caller, as
+    before, and never the kept password. (2) polkit, through pkttyagent
+    registered for archmaid-gui's own process (`gui/internal/polkitagent`),
+    only while a helper step runs, only for an `org.archmaid.helper.*`
+    action, and only for the current user's identity (an identity menu
+    picks the user's entry). Anything else gets the normal dialog or is
+    cancelled; never the kept password.
   - *How long:* until the run ends, however it ends (Finished of any
     outcome, Stop, Close: Stop and Quit, a signal; `KillNow`), and at most
     60 min (`Deps.KeepFor`). Every Driver is one run; nothing carries over.
-  - *Faillock:* every kept answer is su-checked first (su has no
-    pam_faillock on Arch), as typed answers are. A kept password su refuses,
-    a sudo process that asks a second time (it refused what it got), or a
-    polkit failure drops it for the rest of the run (`Fail`), and that
-    request goes to the user. So a known-bad password is never sent twice,
-    and a wrong one costs at most the one attempt it always did.
+  - *Faillock:* every kept answer is su-checked first, as typed answers
+    are, under the run's context (Close stops a su in flight). su on Arch
+    has no pam_faillock, so a wrong kept password costs 0 faillock
+    attempts; each su check leaves a few pam_unix session lines in the
+    journal (`su: pam_unix(su:session): session opened/closed for user
+    …`), a handful per run. A kept password su refuses, a sudo process that
+    asks a second time (it refused what it got), or a polkit failure drops
+    it for the rest of the run (`Fail`), and that request goes to the
+    user. So a known-bad password is never sent twice.
   - *polkit:* `--notify-fd` makes the registration precede pkexec (whose
     subject is archmaid-gui, its caller), and polkitd prefers the
-    process-scoped agent to polkit-gnome. The password is written to the
-    agent's pty only once the listener has turned echo off (it flushes
-    earlier input). Without pkttyagent, or if it can't register, polkit
-    asks through the desktop's agent as before, and the status line says
-    so. pkttyagent runs in a session of its own on our pty (`Setsid`,
-    `Setctty`): it lives in the GUI module, outside TestNoSetsid's scan,
-    and is never a step's child. The TUI keeps none of this.
+    process-scoped agent to polkit-gnome. Right after the registration
+    the agent's pty is made exclusive (TIOCEXCL): nobody can open it any
+    more; before a password is written, `/proc` is checked for any other
+    process still holding it (opened before the lock), and if one does
+    nothing is written (`ErrTTYShared`). The password is written only once
+    the listener has turned echo off (it flushes earlier input). A request
+    that isn't ours to answer (another action, another identity) and a
+    second hidden prompt in one request are cancelled at the listener
+    (an end of file, or an invalid identity choice), and pkttyagent stays
+    up, so a refused foreign request with archmaid-gui as its subject
+    doesn't fail a request of ours that follows. Without pkttyagent, or if
+    it can't register, polkit asks through the desktop's agent as before,
+    and the status line says so. pkttyagent dying mid-authentication drops
+    the kept password (fail-safe). pkttyagent runs in a session of its own
+    on our pty (`Setsid`, `Setctty`): it lives in the GUI module, outside
+    TestNoSetsid's scan, and is never a step's child. The TUI keeps none
+    of this.
 - **Repair scans as the user first, and asks for sudo only to recheck what it
   flagged.** Repair's discovery (`internal/actions`, `discoverRepair`) lists
   the installed packages (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as
