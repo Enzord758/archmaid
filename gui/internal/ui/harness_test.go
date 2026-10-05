@@ -355,6 +355,7 @@ func runChild(scenario, path string) int {
 					// Idle: let the first frames settle, read RSS, then go.
 					glib.TimeoutAdd(1500, func() {
 						rep.IdleMem = readMem()
+						shoot(w, scenario, "start")
 						if scenario == "idle" {
 							w.win.Close()
 							return
@@ -406,12 +407,16 @@ func runChild(scenario, path string) int {
 				if small {
 					delay = 800 // shown, animated in and focused
 				}
+				if os.Getenv(shotsEnv) != "" && delay < 600 {
+					delay = 600 // the dialog animated in, for its shot
+				}
 				glib.TimeoutAdd(delay, func() {
 					d, ok := w.dialogs[id]
 					if !ok {
 						fail("prompt %d has no dialog", id)
 						return
 					}
+					shoot(w, scenario, fmt.Sprintf("prompt-%d", id))
 					if small {
 						rep.Geometry = headingGeometry(w, d)
 					}
@@ -547,6 +552,7 @@ func runChild(scenario, path string) int {
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
+					shoot(w, scenario, fmt.Sprintf("end-%d", len(rep.Outcomes)))
 				})
 				switch scenario {
 				case "close-midrun", "real-close", "real-close-topgrade", "real-sigint", "real-sighup", "real-sigint-twice":

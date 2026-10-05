@@ -5,6 +5,7 @@
 #   gui/scripts/headless.sh                            # go test -v ./internal/ui
 #   gui/scripts/headless.sh go test -v -run Throughput ./internal/ui
 #   ARCHMAID_GUI_PERF=1 gui/scripts/headless.sh        # also enforce the budgets
+#   ARCHMAID_GUI_SHOTS=$(mktemp -d) gui/scripts/headless.sh   # PNGs of every scenario
 #
 # weston and the command are bounded by `timeout` (HEADLESS_TIMEOUT seconds,
 # default 60; the default run is two halves of ~40 s here), so nothing outlives a run
