@@ -15,7 +15,10 @@ package agenttest
 // pkttyagent does; AGENT_MODE=snoop has another process (its pid in
 // snoop.pid) open the terminal by name and hold it before registering, as
 // a same-uid snooper could; AGENT_IDENTS=multi offers root and the user,
-// other authenticates as someone else. Like the real text listener
+// other authenticates as someone else; AGENT_MODE=twoprompts asks a
+// second hidden question after the password. An end of file at a prompt,
+// or an invalid identity choice, cancels the request (result: cancel), as
+// the listener does. Like the real text listener
 // (polkitagenttextlistener.c, initable_init) it opens its terminal once,
 // before it registers (fd 4), and only uses that fd from then on.
 const Shim = `#!/bin/sh
@@ -43,16 +46,43 @@ while :; do
 			printf 'Choose identity to authenticate as (1-2): ' >&4
 			IFS= read -r n <&4
 			printf '%s\n' "$n" > "$d/chosen"
+			case "$n" in 1|2) ;; *)
+				printf 'Invalid response ` + "`" + `%s'"'"'.\n' "$n" >&4
+				printf '\033[1;31m==== AUTHENTICATION CANCELED ====\n\033[0m' >&4
+				echo cancel > "$d/result"
+				continue ;;
+			esac
 			;;
 		other) printf 'Authenticating as: Someone Else (other)\n' >&4 ;;
 		*) printf 'Authenticating as: Me Myself (%s)\n' "$AGENT_USER" >&4 ;;
 		esac
 		printf 'Password: ' >&4
 		stty -echo <&4
-		IFS= read -r pw <&4
+		if ! IFS= read -r pw <&4; then
+			# End of file: the listener cancels the session.
+			stty echo <&4
+			printf '\n' >&4
+			echo cancel > "$d/result"
+			printf '\033[1;31m==== AUTHENTICATION FAILED ====\n\033[0m' >&4
+			continue
+		fi
 		stty echo <&4
 		printf '\n' >&4
 		printf '%s\n' "$pw" >> "$d/agent.got"
+		if [ "${AGENT_MODE:-}" = twoprompts ]; then
+			# PAM asks for more than the password (a second factor, say).
+			printf 'Verification code: ' >&4
+			stty -echo <&4
+			if ! IFS= read -r code <&4; then
+				stty echo <&4
+				printf '\n' >&4
+				echo cancel > "$d/result"
+				printf '\033[1;31m==== AUTHENTICATION FAILED ====\n\033[0m' >&4
+				continue
+			fi
+			stty echo <&4
+			printf '%s\n' "$code" >> "$d/agent.got"
+		fi
 		if [ "$pw" = "$AGENT_WANT" ]; then
 			echo ok > "$d/result"
 			printf '\033[1;31m==== AUTHENTICATION COMPLETE ====\n\033[0m' >&4

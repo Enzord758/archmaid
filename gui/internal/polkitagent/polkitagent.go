@@ -26,9 +26,15 @@
 // A prompt is passed on (Prompts, as a driver.AgentPrompt) only when it
 // authenticates one of archmaid's helper actions (ActionPrefix) as the
 // current user: the menu's choice is the current user's entry, or none.
-// Anything else is refused: pkttyagent is stopped, so polkit's request
-// fails, and nothing is ever written to it. The password, when the Driver
-// answers, is written to the pty only once pkttyagent has turned echo off.
+// Anything else is cancelled, and no password is ever written for it: an
+// end of file at its password prompt, or an invalid choice at its identity
+// menu, on which the listener cancels the request and pkttyagent stays up
+// for the next one (a request of archmaid's own is not failed with it). A
+// second password prompt in one request (PAM wanting more than the
+// password) is cancelled the same way, never left waiting. If a cancel
+// can't be written, pkttyagent is stopped instead. The password, when the
+// Driver answers, is written to the pty only once pkttyagent has turned
+// echo off, and only while no other process holds its terminal.
 package polkitagent
 
 import (
@@ -360,9 +366,15 @@ func (a *Agent) drain(lines <-chan string) {
 		action   string
 		identity bool // the identity is settled: the current user's
 		menu     map[string]int
-		refused  bool // pkttyagent is being stopped: ignore the rest
+		prompted bool // this request's password prompt was passed on
+		// cancelling: this request is not ours to answer (not archmaid's
+		// action, not the current user, or a second prompt): it is
+		// cancelled at its next question, and pkttyagent stays up for the
+		// next request (ours, say).
+		cancelling bool
+		refused    bool // pkttyagent is being stopped: ignore the rest
 	)
-	reset := func() { action, identity, menu = "", false, nil }
+	reset := func() { action, identity, menu, prompted, cancelling = "", false, nil, false, false }
 	refuse := func() {
 		refused = true
 		a.refuse()
@@ -376,12 +388,14 @@ func (a *Agent) drain(lines <-chan string) {
 			reset()
 			action = strings.TrimSuffix(strings.TrimPrefix(l, "==== AUTHENTICATING FOR "), " ====")
 			if !strings.HasPrefix(action, ActionPrefix) || strings.ContainsAny(action, " \t") {
-				refuse() // not archmaid's: nothing is sent, polkit fails it
+				cancelling = true // not archmaid's: cancelled, never answered
 			}
 		case action == "":
 			// before a request: nothing to do
 		case l == "==== AUTHENTICATION COMPLETE ====":
-			a.finish(nil)
+			if !cancelling {
+				a.finish(nil)
+			}
 			reset()
 		case l == "==== AUTHENTICATION FAILED ====", l == "==== AUTHENTICATION CANCELED ====", l == "Cancelled":
 			a.finish(errors.New("polkit: authentication failed"))
@@ -399,21 +413,34 @@ func (a *Agent) drain(lines <-chan string) {
 					n = i
 				}
 			}
-			if n == 0 {
-				refuse() // the current user can't authenticate it
+			if cancelling || n == 0 {
+				// No valid choice: the listener cancels the request
+				// ("Invalid response"), and asks for nothing.
+				cancelling = true
+				if _, err := a.master.WriteString("0\n"); err != nil {
+					refuse()
+				}
 				continue
 			}
 			identity = true
 			_, _ = a.master.WriteString(strconv.Itoa(n) + "\n")
 		case strings.HasPrefix(l, "Authenticating as: "):
-			if !a.isUser(strings.TrimPrefix(l, "Authenticating as: ")) {
-				refuse()
-				continue
+			if !cancelling && !a.isUser(strings.TrimPrefix(l, "Authenticating as: ")) {
+				cancelling = true // someone else's password: never asked for
 			}
-			identity = true
+			identity = !cancelling
+		case partial && (cancelling || prompted):
+			// A password prompt we won't answer (a second one in our
+			// request, too: polkit's PAM asks for more than the
+			// password): an end of file, so the listener cancels the
+			// request instead of waiting until Stop.
+			cancelling = true
+			if err := a.sendEOF(); err != nil {
+				refuse()
+			}
 		case partial && identity:
 			p := &Prompt{a: a, action: action, text: l, done: make(chan struct{})}
-			identity = false // one prompt per request
+			identity, prompted = false, true
 			select {
 			case a.prompts <- p:
 			case <-a.stop:
@@ -423,6 +450,17 @@ func (a *Agent) drain(lines <-chan string) {
 	}
 	// pkttyagent is gone.
 	a.finish(errors.New("polkit agent: pkttyagent exited"))
+}
+
+// sendEOF ends the listener's open prompt unanswered: once it has turned
+// echo off (it flushes earlier input), an end of file (^D), on which it
+// cancels the request.
+func (a *Agent) sendEOF() error {
+	if err := a.waitNoEcho(2 * time.Second); err != nil {
+		return err
+	}
+	_, err := a.master.Write([]byte{4})
+	return err
 }
 
 // isUser reports whether the listener's identity string names the current

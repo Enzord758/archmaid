@@ -154,29 +154,76 @@ func TestAgentChoosesTheUser(t *testing.T) {
 }
 
 // Not archmaid's action, or not the current user: nothing is passed on,
-// nothing is written, and pkttyagent is stopped (polkit fails the
-// request).
+// no password is written, and the request is cancelled (an end of file at
+// its password prompt, an invalid choice at an identity menu) without
+// stopping pkttyagent: archmaid's own request that follows is served.
 func TestAgentRefuses(t *testing.T) {
 	for _, tc := range []struct{ name, action, idents string }{
 		{"foreign action", "org.freedesktop.systemd1.manage-units", ""},
 		{"lookalike action", "org.archmaid.helperx.run", ""},
+		{"foreign action, menu", "org.freedesktop.systemd1.manage-units", "multi"},
 		{"other user", "org.archmaid.helper.full-cleanup", "other"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path, dir := shim(t, "AGENT_IDENTS="+tc.idents)
 			a := start(t, path)
 			request(t, dir, tc.action)
-			select {
-			case p := <-a.Prompts():
-				t.Fatalf("passed on %q", p.Action())
-			case <-a.exited:
-			case <-time.After(5 * time.Second):
-				t.Fatal("pkttyagent wasn't stopped")
+			deadline := time.Now().Add(5 * time.Second)
+			for read(t, dir, "result") != "cancel" && time.Now().Before(deadline) {
+				select {
+				case p := <-a.Prompts():
+					t.Fatalf("passed on %q", p.Action())
+				case <-a.exited:
+					t.Fatal("pkttyagent was stopped: a request of ours would fail with it")
+				case <-time.After(20 * time.Millisecond):
+				}
+			}
+			if r := read(t, dir, "result"); r != "cancel" {
+				t.Fatalf("the request ended %q, want cancelled", r)
 			}
 			if got := read(t, dir, "agent.got"); got != "" {
 				t.Fatalf("pkttyagent was answered %q", got)
 			}
+			if tc.idents == "other" {
+				return // every request authenticates as someone else
+			}
+			_ = os.Remove(filepath.Join(dir, "result"))
+			request(t, dir, "org.archmaid.helper.full-cleanup")
+			p := next(t, a)
+			if err := p.Answer([]byte("hunter2")); err != nil {
+				t.Fatal(err)
+			}
+			if err := waitDone(t, p); err != nil {
+				t.Fatalf("archmaid's request after the refused one: %v", err)
+			}
 		})
+	}
+}
+
+// A second hidden prompt in one request (PAM wants more than the
+// password): cancelled at once with an end of file, never left waiting
+// until Stop; the request fails, and nothing more is written.
+func TestAgentSecondPrompt(t *testing.T) {
+	path, dir := shim(t, "AGENT_MODE=twoprompts")
+	a := start(t, path)
+	request(t, dir, "org.archmaid.helper.full-cleanup")
+	p := next(t, a)
+	if err := p.Answer([]byte("hunter2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitDone(t, p); err == nil {
+		t.Fatal("a request with an unanswered second prompt succeeded")
+	}
+	if r := read(t, dir, "result"); r != "cancel" {
+		t.Fatalf("the request ended %q, want cancelled", r)
+	}
+	if got := read(t, dir, "agent.got"); got != "hunter2" {
+		t.Fatalf("pkttyagent read %q, want the password only", got)
+	}
+	select {
+	case p := <-a.Prompts():
+		t.Fatalf("the second prompt was passed on: %q", p.Prompt())
+	case <-time.After(200 * time.Millisecond):
 	}
 }
 
