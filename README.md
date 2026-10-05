@@ -16,8 +16,8 @@ It comes in three parts that share one engine:
 - **`archmaid-gui`**: a GTK4/libadwaita window (`gui/`) with Overview, Run,
   Logs and Settings pages. Root steps go through **polkit** to a small root
   helper, `/usr/lib/archmaid/archmaid-helper`, which is never setuid
-  ([`cmd/archmaid-helper/`](cmd/archmaid-helper/README.md)). One polkit
-  dialog covers all of Full Cleanup's root steps.
+  ([`cmd/archmaid-helper/`](cmd/archmaid-helper/README.md)). One password
+  prompt covers the run: its polkit request and topgrade's `sudo`.
 - **A DankMaterialShell bar widget** (`packaging/dms/`) showing the pending
   update count, the last run's outcome and unacknowledged AUR findings. It
   only reads archmaid's state files, and it opens the GUI (or the TUI in a
@@ -72,9 +72,11 @@ binary would shadow the package's.
 2. **Try a dry run**: `archmaid --dryrun`, or in the GUI: Settings → Dry
    run. A dry run changes nothing except the `dryrun/` log folder. It still
    asks the AUR (one request) and runs the read-only orphan query.
-3. **For the GUI, a polkit agent must be running** in your session (your
-   desktop's, for example polkit-gnome). Without one, the root steps can't
-   ask, and they end as "Not authorised".
+3. **For the GUI, polkit's `pkttyagent`** (part of the `polkit` package)
+   lets the GUI ask for the root steps in its own dialog. Without it, the
+   GUI falls back to your desktop's polkit agent (for example polkit-gnome)
+   and says so in its status line; with neither, the root steps can't ask
+   and end as "Not authorised".
 4. **Optional: the bar widget.** Run
    `systemctl --user enable --now archmaid-updates-check.timer`, then turn
    on "archmaid" under DMS Settings → Plugins and add it to the bar
@@ -103,15 +105,20 @@ binary would shadow the package's.
   never stored or logged. The TUI drops its sudo ticket on exit (`sudo -n
   -k`, however it ends): your next manual `sudo` in that terminal asks
   again.
-- **GUI.** Full Cleanup's root steps ask polkit once. topgrade's own `sudo`
-  calls ask through the GUI's password dialog, once per `sudo` that asks.
-  The GUI reads the faillock state first: on a locked account it doesn't
-  open the dialog, and when one more failure would lock the account it
-  warns you.
-
-<!-- ONE-PASSWORD: when feat/gui-one-password (decision F) is merged, replace
-the GUI bullet above with the one-password-per-run behaviour, as documented
-in docs/HANDOVER.md. Until then, don't describe it here. -->
+- **GUI.** A run asks for your password once, in the GUI's own dialog,
+  and keeps it in memory for that run only (an mlocked page, never written
+  anywhere, wiped when the run ends however it ends, and after 60 minutes
+  at most). It then answers topgrade's and yay's `sudo` prompts and the
+  one polkit request of Full Cleanup's root steps: archmaid registers
+  polkit's own text agent (`pkttyagent`) for the GUI, so the desktop's
+  polkit dialog doesn't appear for archmaid's own calls. Anything else that
+  asks (a `sudo` from an AUR package's build, say) gets the dialog with its
+  name, never the kept password. Every answer is checked with `su` first,
+  so a wrong password costs no `pam_faillock` attempt. The GUI reads the
+  faillock state first: on a locked account it doesn't ask, and when one
+  more failure would lock the account it warns you. The details and the
+  trust model are in [`docs/HANDOVER.md`](docs/HANDOVER.md) ("The GUI
+  keeps the run's password").
 
 ## Logs and state
 
