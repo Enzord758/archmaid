@@ -86,6 +86,15 @@ func TestClientArgvsPassTheHelpersValidation(t *testing.T) {
 		if s.Verb == "" || s.Run != nil {
 			continue
 		}
+		if s.Verb == steps.VerbFullCleanup {
+			// A part that is no verb of its own (pacman -Sc): it runs only
+			// inside the full-cleanup call, which TestFullCleanupTiesToClient
+			// runs through the helper.
+			if _, err := helperclient.Argv(s); err == nil {
+				t.Errorf("%s: Argv accepted a lone full-cleanup part", s.ID)
+			}
+			continue
+		}
 		argv, err := helperclient.Argv(s)
 		if s.Verb == steps.VerbRemoveOrphans {
 			if err == nil {

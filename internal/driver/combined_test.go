@@ -27,8 +27,10 @@ var fcPlan = steps.OrphanPlan{
 }
 
 // fullCleanupRig is a Driver running the real Full Cleanup action under
-// polkit, with shims for topgrade, yay and hyprpm, and a pkexec shim that
-// appends each call's argv to the returned file and then runs body.
+// polkit, with shims for topgrade, yay, hyprpm and sudo, and a pkexec shim
+// that appends each call's argv to the returned file and then runs body.
+// The yay shim logs its argv to yay.log and, as yay -Sc does without
+// --aur, runs `sudo pacman -Sc`; the sudo shim logs to sudo.log.
 func fullCleanupRig(t *testing.T, body string) (*rig, string) {
 	t.Helper()
 	fc, ok := actions.ByID(actions.IDFullCleanup)
@@ -40,8 +42,10 @@ func fullCleanupRig(t *testing.T, body string) (*rig, string) {
 	for name, script := range map[string]string{
 		"pkexec":   "echo \"$*\" >> '" + calls + "'\n" + body,
 		"topgrade": "echo updated",
-		"yay":      "echo yay cleaned",
-		"hyprpm":   "echo plugins updated",
+		"yay": "echo \"$*\" >> '" + filepath.Join(dir, "yay.log") + "'\n" +
+			"case \" $* \" in *' --aur '*) ;; *) sudo pacman -Sc ;; esac\necho yay cleaned",
+		"sudo":   "echo \"$*\" >> '" + filepath.Join(dir, "sudo.log") + "'\nexit 1",
+		"hyprpm": "echo plugins updated",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+script+"\n"), 0o700); err != nil {
 			t.Fatal(err)
@@ -85,13 +89,13 @@ func pkexecCalls(t *testing.T, file string) []string {
 // grantedStream is the helper's stream for the whole call, every part ok.
 func grantedStream(t *testing.T) string {
 	t.Helper()
-	parts := []string{"remove-orphans", "paccache", "paccache-wipe", "clean-tmp", "vacuum-journal", "check-files"}
+	parts := []string{"remove-orphans", "paccache", "paccache-wipe", "clean-uninstalled", "clean-tmp", "vacuum-journal", "check-files"}
 	ls := []string{`{"v":1,"t":"start","verb":"full-cleanup","version":"0.1.0"}`}
 	for i, p := range parts {
 		ls = append(ls,
-			fmt.Sprintf(`{"v":1,"t":"progress","step":%d,"of":6,"label":"doing %s","part":%q}`, i+1, p, p),
+			fmt.Sprintf(`{"v":1,"t":"progress","step":%d,"of":%d,"label":"doing %s","part":%q}`, i+1, len(parts), p, p),
 			fmt.Sprintf(`{"v":1,"t":"line","stream":"out","text":"out of %s"}`, p),
-			fmt.Sprintf(`{"v":1,"t":"done","step":%d,"of":6,"part":%q,"ok":true,"code":0}`, i+1, p))
+			fmt.Sprintf(`{"v":1,"t":"done","step":%d,"of":%d,"part":%q,"ok":true,"code":0}`, i+1, len(parts), p))
 	}
 	ls = append(ls, `{"v":1,"t":"result","ok":true,"code":0,"child_exit":0,"skipped":[]}`)
 	f := filepath.Join(t.TempDir(), "stream")
@@ -101,14 +105,15 @@ func grantedStream(t *testing.T) string {
 	return "while IFS= read -r l; do printf '%s\\n' \"$l\"; done < '" + f + "'"
 }
 
-var rootRows = []string{steps.IDOrphansRemove, steps.IDPaccache, steps.IDPaccacheWipe, steps.IDTmpfiles,
-	steps.IDJournal, steps.IDIntegrity}
+var rootRows = []string{steps.IDOrphansRemove, steps.IDPaccache, steps.IDPaccacheWipe, steps.IDPkgCacheUninstalled,
+	steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity}
 
 // TestFullCleanupPolkitOneDialog: a whole Full Cleanup under polkit, every
 // confirm answered yes, makes exactly ONE pkexec call (full-cleanup, with
-// the confirmed orphan plan's hash and the wipe), after both confirms;
-// every root row still starts and ends on its own, in plan order; and the
-// user steps run after it.
+// the confirmed orphan plan's hash, the wipe and pacman -Sc), after both
+// confirms; every root row still starts and ends on its own, in plan order;
+// and the user steps run after it, the AUR cache as yay -Sc --aur, which
+// runs no sudo: nothing but topgrade could need the askpass.
 func TestFullCleanupPolkitOneDialog(t *testing.T) {
 	r, calls := fullCleanupRig(t, grantedStream(t))
 	confirms := 0
@@ -126,7 +131,7 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("%d pkexec calls, want exactly one: %q", len(got), got)
 	}
-	want := "/usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " + fcPlan.Hash + " --wipe"
+	want := "/usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " + fcPlan.Hash + " --wipe --uninstalled"
 	if got[0] != want {
 		t.Errorf("pkexec %q\nwant    %q", got[0], want)
 	}
@@ -159,7 +164,8 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 			for _, l := range c.Lines {
 				if strings.HasPrefix(l, "out of ") && !strings.Contains(l, map[string]string{
 					steps.IDOrphansRemove: "remove-orphans", steps.IDPaccache: "paccache", steps.IDPaccacheWipe: "paccache-wipe",
-					steps.IDTmpfiles: "clean-tmp", steps.IDJournal: "vacuum-journal", steps.IDIntegrity: "check-files"}[c.ID]) {
+					steps.IDPkgCacheUninstalled: "clean-uninstalled",
+					steps.IDTmpfiles:            "clean-tmp", steps.IDJournal: "vacuum-journal", steps.IDIntegrity: "check-files"}[c.ID]) {
 					t.Errorf("%s got %q", c.ID, l)
 				}
 			}
@@ -168,6 +174,26 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 	if fin := find[engine.Finished](t, evs); fin.Errs != 0 || fin.Skipped != 0 {
 		t.Errorf("Finished = %+v", fin)
 	}
+	dir := filepath.Dir(calls)
+	if got := readFileLines(t, filepath.Join(dir, "yay.log")); !slices.Equal(got, []string{"-Sc --aur --noconfirm"}) {
+		t.Errorf("yay ran %q, want once, -Sc --aur --noconfirm", got)
+	}
+	if got := readFileLines(t, filepath.Join(dir, "sudo.log")); got != nil {
+		t.Errorf("sudo ran %q: a step besides topgrade needed a password", got)
+	}
+}
+
+// readFileLines is path's lines, nil when it doesn't exist.
+func readFileLines(t *testing.T, path string) []string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
 
 // TestFullCleanupPolkitRefused: the one dialog refused (pkexec 127) marks

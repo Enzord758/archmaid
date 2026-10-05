@@ -164,32 +164,58 @@ func TestEnvValidatePolkit(t *testing.T) {
 	}
 }
 
-// TestYayCacheAskpassUnderPolkit: yay -Sc runs `sudo pacman -Sc` itself.
-// Under polkit (the GUI) it is NeedsPriv without a Verb, as topgrade is:
-// it runs as the user with the askpass, never through the helper. Under
-// sudo (the TUI) it stays as it was, on the primed ticket.
-func TestYayCacheAskpassUnderPolkit(t *testing.T) {
+// TestOnlyTopgradeAsksUnderPolkit: under polkit (the GUI) the only step of
+// Full Cleanup that gets the askpass (NeedsPriv, no Verb, a command) is
+// topgrade: yay -Sc's root half (pacman -Sc) is a part of the helper's one
+// call, and the yay step runs `yay -Sc --aur`, which in yay runs no sudo.
+// Under sudo (the TUI) the AUR cache step is as it was: yay -Sc, its sudo
+// on the primed ticket, and no pacman -Sc step of its own.
+func TestOnlyTopgradeAsksUnderPolkit(t *testing.T) {
 	a, _ := ByID(IDFullCleanup)
 	for _, polkit := range []bool{false, true} {
-		env := testEnv(false)
+		env := testEnv(true)
 		env.Polkit = polkit
+		env.PlanOrphans = func(context.Context) (steps.OrphanPlan, error) { return testPlan, nil }
 		queue := a.Steps(env)
-		i := slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDYayCache })
-		if i < 0 {
-			t.Fatal("Full Cleanup has no AUR cache step")
+		// The orphan removal the probe inserts is a helper step.
+		noPacman(t)
+		for _, s := range queue {
+			if s.ID == steps.IDOrphansProbe && polkit {
+				queue = append(queue, *s.Run(context.Background(), steps.Env{}).InsertNext)
+			}
 		}
-		st := queue[i]
-		if st.NeedsPriv != polkit || st.Verb != "" || st.Run != nil || st.Argv[0] != "yay" {
-			t.Errorf("polkit=%v: AUR cache step NeedsPriv=%v Verb=%q Argv=%q; want NeedsPriv=%v, no Verb, yay",
-				polkit, st.NeedsPriv, st.Verb, st.Argv, polkit)
+		var askpass []string
+		for _, s := range queue {
+			if s.NeedsPriv && s.Verb == "" && s.Run == nil {
+				askpass = append(askpass, s.ID)
+			}
+		}
+		yay := queue[slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDYayCache })]
+		hasSc := slices.ContainsFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDPkgCacheUninstalled })
+		if !polkit {
+			if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--noconfirm"}) || yay.NeedsPriv || hasSc {
+				t.Errorf("sudo: AUR cache step %+v, a pacman -Sc step: %v", yay, hasSc)
+			}
+			continue
+		}
+		if !slices.Equal(askpass, []string{steps.IDTopgrade}) {
+			t.Errorf("polkit: steps with the askpass %q, want only topgrade", askpass)
+		}
+		if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--aur", "--noconfirm"}) || yay.NeedsPriv || yay.Verb != "" {
+			t.Errorf("polkit: AUR cache step %+v, want yay -Sc --aur as the user", yay)
+		}
+		sc := queue[slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDPkgCacheUninstalled })]
+		if sc.Verb != steps.VerbFullCleanup || sc.Combine != steps.VerbFullCleanup || !sc.NeedsPriv || sc.Run != nil ||
+			sc.Confirm != "" || !slices.Equal(sc.Argv, []string{"pacman", "-Sc", "--noconfirm"}) {
+			t.Errorf("polkit: pacman -Sc step %+v", sc)
 		}
 	}
 }
 
 // TestFullCleanupPolkitOneCall: under polkit, Full Cleanup's root steps are
 // consecutive and marked for the one full-cleanup call, right behind the
-// orphan probe (whose removal joins them first), with yay -Sc after them
-// and hyprpm last. Under sudo nothing is combined and the order is the
+// orphan probe (whose removal joins them first), pacman -Sc among them,
+// with yay -Sc --aur after them and hyprpm last. Under sudo nothing is combined and the order is the
 // TUI's.
 func TestFullCleanupPolkitOneCall(t *testing.T) {
 	a, _ := ByID(IDFullCleanup)
@@ -216,7 +242,7 @@ func TestFullCleanupPolkitOneCall(t *testing.T) {
 	env.PlanOrphans = func(context.Context) (steps.OrphanPlan, error) { return testPlan, nil }
 	q := a.Steps(env)
 	want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDOrphansProbe, steps.IDPaccache, steps.IDPaccacheWipe,
-		steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity, steps.IDYayCache, steps.IDHyprpm}
+		steps.IDPkgCacheUninstalled, steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity, steps.IDYayCache, steps.IDHyprpm}
 	if !slices.Equal(idsOf(q), want) {
 		t.Fatalf("polkit order %q, want %q", idsOf(q), want)
 	}
@@ -225,11 +251,13 @@ func TestFullCleanupPolkitOneCall(t *testing.T) {
 		if root != (s.Combine == steps.VerbFullCleanup) {
 			t.Errorf("%s: Combine %q", s.ID, s.Combine)
 		}
-		// The same step as under sudo, but for Combine, and for the AUR
-		// cache step's NeedsPriv (its askpass, TestYayCacheAskpassUnderPolkit).
+		// The same step as under sudo, but for Combine; the split AUR cache
+		// is TestOnlyTopgradeAsksUnderPolkit's.
+		if s.ID == steps.IDYayCache || s.ID == steps.IDPkgCacheUninstalled {
+			continue
+		}
 		was := sudoQ[slices.IndexFunc(sudoQ, func(x steps.Step) bool { return x.ID == s.ID })]
-		privSame := s.NeedsPriv == was.NeedsPriv || s.ID == steps.IDYayCache
-		if s.Title != was.Title || !slices.Equal(s.Argv, was.Argv) || s.Confirm != was.Confirm || !privSame {
+		if s.Title != was.Title || !slices.Equal(s.Argv, was.Argv) || s.Confirm != was.Confirm || s.NeedsPriv != was.NeedsPriv {
 			t.Errorf("%d %s changed: %+v vs %+v", i, s.ID, s, was)
 		}
 	}

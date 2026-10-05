@@ -62,12 +62,11 @@ func fullCleanupSteps(env Env) []steps.Step {
 			ID:    steps.IDYayCache,
 			Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned",
 			Argv: []string{"yay", "-Sc", "--noconfirm"},
-			// yay runs `sudo pacman -Sc` itself. Under the TUI that sudo
-			// rides the primed ticket on its terminal; under polkit (the
-			// GUI) there is no ticket and no terminal, so it gets the
-			// askpass like topgrade: NeedsPriv without a Verb, run as the
-			// user with SUDO_ASKPASS, its prompt answered from the GUI.
-			NeedsPriv: env.Polkit,
+			// yay runs `sudo pacman -Sc` itself, which under the TUI rides
+			// the primed ticket on its terminal. Under polkit (the GUI)
+			// this step is split (polkitFullCleanup): pacman -Sc goes into
+			// the root helper's one call, and yay cleans only its own
+			// cache, without sudo.
 		},
 		// Temp files are aged out by the system's own tmpfiles.d rules (on
 		// Arch: /tmp after 10 days, /var/tmp after 30), not a hand-rolled
@@ -114,7 +113,8 @@ func fullCleanupSteps(env Env) []steps.Step {
 // fullCleanupRoot are Full Cleanup's root steps, in the order the root
 // helper's full-cleanup runs them (after the orphan removal, which the
 // probe inserts in front of them).
-var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPaccacheWipe, steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity}
+var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPaccacheWipe, steps.IDPkgCacheUninstalled, steps.IDTmpfiles,
+	steps.IDJournal, steps.IDIntegrity}
 
 // polkitFullCleanup is Full Cleanup's queue under polkit, where the owner's
 // rule is ONE polkit dialog per run (as the TUI asks one sudo password):
@@ -122,14 +122,34 @@ var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPaccacheWipe, steps.IDT
 // the engine asks their confirms first, then shows one dialog). For that
 // they must be consecutive, so the orphan probe moves up to right after
 // topgrade (the removal it inserts is the call's first part), the root
-// steps follow in the helper's order, and yay -Sc moves behind them — it
-// still runs after the orphan removal, so it still clears the removed
-// packages' cache. The sudo queue (the TUI) is untouched.
+// steps follow in the helper's order, and the AUR cache moves behind them.
+//
+// The GUI's other rule is as few password prompts as possible, and none
+// stored. Without a terminal, sudo's ticket is keyed on its parent process,
+// so yay -Sc's `sudo pacman -Sc` asked through askpass again after
+// topgrade's. It is split instead: pacman -Sc becomes a part of the one
+// call (IDPkgCacheUninstalled, the helper's clean-uninstalled, after the
+// orphan removal so their packages go too), and the yay step runs
+// `yay -Sc --aur --noconfirm`, which cleans only yay's own build cache as
+// the user: in yay (v13.0.1, clean.go and parser.go) --aur sets the AUR
+// mode, in which -Sc runs no pacman and needs no root, so no sudo. That
+// leaves topgrade as the only step with an askpass. The sudo queue (the
+// TUI) is untouched.
 func polkitFullCleanup(queue []steps.Step) []steps.Step {
 	byID := map[string]steps.Step{}
 	for _, s := range queue {
 		byID[s.ID] = s
 	}
+	byID[steps.IDPkgCacheUninstalled] = steps.Step{
+		ID: steps.IDPkgCacheUninstalled, Verb: steps.VerbFullCleanup,
+		Title: "Removing uninstalled packages from cache…", LogLabel: "Uninstalled packages' cache removed",
+		// What the helper runs as root, shown, never started: the step
+		// runs only as a part of the full-cleanup call.
+		Argv: []string{"pacman", "-Sc", "--noconfirm"}, NeedsPriv: true,
+	}
+	yay := byID[steps.IDYayCache]
+	yay.Argv = []string{"yay", "-Sc", "--aur", "--noconfirm"}
+	byID[steps.IDYayCache] = yay
 	out := []steps.Step{byID[steps.IDAURAudit], byID[steps.IDTopgrade], byID[steps.IDOrphansProbe]}
 	for _, id := range fullCleanupRoot {
 		s := byID[id]

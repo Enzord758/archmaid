@@ -29,6 +29,9 @@ func TestFullCleanupTiesToClient(t *testing.T) {
 			parts = append(parts, s)
 		}
 	}
+	if !slices.ContainsFunc(parts, func(s steps.Step) bool { return s.ID == steps.IDPkgCacheUninstalled }) {
+		t.Fatal("the walk built no pacman -Sc part")
+	}
 	call := steps.Step{ID: steps.VerbFullCleanup, Verb: steps.VerbFullCleanup, NeedsPriv: true, Parts: parts}
 	argv, err := helperclient.Argv(call)
 	if err != nil {
