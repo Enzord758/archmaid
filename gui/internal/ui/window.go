@@ -43,6 +43,8 @@ type Window struct {
 	// start, or the fallback table.
 	palette runview.Palette
 
+	// shell is the frame around the pages (shell.go).
+	shell *shell
 	// banner is the stub's StubBanner (nil on the real Driver).
 	banner  *adw.Banner
 	toasts  *adw.ToastOverlay
@@ -116,14 +118,9 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.stopBtn = gtk.NewButtonWithLabel("Stop")
 	w.stopBtn.AddCSSClass("destructive-action")
 	w.stopBtn.SetSensitive(false)
+	w.stopBtn.SetVisible(false) // only while a run goes (setBusy)
 	w.stopBtn.ConnectClicked(w.stop)
 	w.stack = adw.NewViewStack()
-	switcher := adw.NewViewSwitcher()
-	switcher.SetStack(w.stack)
-	switcher.SetPolicy(adw.ViewSwitcherPolicyWide)
-	header := adw.NewHeaderBar()
-	header.SetTitleWidget(switcher)
-	header.PackEnd(w.stopBtn)
 
 	w.steps = gtk.NewListBox()
 	w.steps.AddCSSClass("boxed-list")
@@ -185,32 +182,18 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.status = gtk.NewLabel(w.statusText())
 	w.status.SetXAlign(0)
 	w.status.AddCSSClass("dim-label")
-	w.status.SetMarginStart(12)
 
-	w.stack.AddTitledWithIcon(w.newOverview(), "overview", "Overview", "go-home-symbolic")
-	w.stack.AddTitledWithIcon(paned, "run", "Run", "media-playback-start-symbolic")
-	w.stack.AddTitledWithIcon(w.newLogs(), "logs", "Logs", "document-open-recent-symbolic")
-	w.stack.AddTitledWithIcon(w.newSettings(), "settings", "Settings", "emblem-system-symbolic")
+	pages := map[string]gtk.Widgetter{"overview": w.newOverview(), "run": paned, "logs": w.newLogs(), "settings": w.newSettings()}
+	for _, p := range navPages {
+		w.stack.AddTitledWithIcon(pages[p.name], p.name, p.title, p.icon)
+	}
 	w.stack.SetVisibleChildName("overview")
 	w.stack.NotifyProperty("visible-child-name", func() {
 		if w.stack.VisibleChildName() == "logs" {
 			w.refreshLogs()
 		}
 	})
-
-	view := adw.NewToolbarView()
-	view.AddTopBar(header)
-	if opts.Stub {
-		// Always up: a demo must never pass for the real thing.
-		w.banner = adw.NewBanner(StubBanner)
-		w.banner.SetRevealed(true)
-		view.AddTopBar(w.banner)
-	}
-	view.SetContent(w.stack)
-	view.AddBottomBar(w.status)
-	w.toasts = adw.NewToastOverlay()
-	w.toasts.SetChild(view)
-	w.win.SetContent(w.toasts)
+	w.buildShell()
 	w.win.ConnectCloseRequest(w.closeRequest)
 
 	if w.opts.Notices != nil {
@@ -220,7 +203,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 					return
 				}
 				w.agentNotice = n
-				w.status.SetText(w.statusText())
+				w.setStatus()
 			})
 		})
 	}
@@ -283,9 +266,10 @@ func (w *Window) startAction(id string) {
 	// when the window opened or the last run ended), and the Settings
 	// page's changes apply to it.
 	w.replaceDriver()
-	w.busy, w.current, w.model.Stopped, w.agentNotice = true, id, "", ""
-	w.stopBtn.SetSensitive(true)
+	w.current, w.model.Stopped, w.agentNotice = id, "", ""
+	w.setBusy(true)
 	w.stack.SetVisibleChildName("run")
+	w.updateTitle()
 	w.updateOverview()
 	w.send(engine.Start{Action: id})
 }
@@ -377,6 +361,9 @@ func (w *Window) redraw(c runview.Change) {
 	for _, i := range c.Rows {
 		w.updateRow(i)
 	}
+	if len(c.Rows) > 0 || c.Reset {
+		w.updateRunBadge()
+	}
 	w.output(c.OutRemove, c.OutAppend)
 	for _, id := range c.Closed {
 		if d, ok := w.dialogs[id]; ok {
@@ -391,8 +378,7 @@ func (w *Window) redraw(c runview.Change) {
 		w.toast(t)
 	}
 	if c.Finished {
-		w.busy = false
-		w.stopBtn.SetSensitive(false)
+		w.setBusy(false)
 		w.refreshLastRun()
 		if f := w.model.Finished; f != nil {
 			_, toast := runview.FinishedText(*f)
@@ -400,8 +386,9 @@ func (w *Window) redraw(c runview.Change) {
 		}
 	}
 	if c.Status || c.Finished {
-		w.status.SetText(w.statusText())
+		w.setStatus()
 		w.updateOverview()
+		w.updateRunBadge()
 	}
 	if w.onApply != nil {
 		w.onApply(c)

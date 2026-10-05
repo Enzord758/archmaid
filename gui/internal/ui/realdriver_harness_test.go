@@ -831,7 +831,7 @@ func TestGUIOnePassword(t *testing.T) {
 	})
 }
 
-// TestGUISmallWindow: in a window of 640x370 (half a 1280x800 screen,
+// TestGUISmallWindow: in a window of 630x372 (half a 1280x800 screen,
 // split), Full Cleanup's orphan dialog for 15 orphans and 44 packages
 // keeps its title in view: the lists scroll, the title stays at the top
 // of the dialog, inside the window.
@@ -850,6 +850,29 @@ func TestGUISmallWindow(t *testing.T) {
 	if rep.Outcome != "completed" {
 		t.Errorf("outcome %q", rep.Outcome)
 	}
+	// The shell's narrow form (spec 1.8): the sidebar collapsed into an
+	// overlay, the page title and Stop in view mid-run.
+	t.Logf("shell: %s", rep.Shell)
+	if rep.Shell != "collapsed=true title=in-view stop=in-view" {
+		t.Errorf("at 630x372 the shell is %q, want the sidebar collapsed and the title and Stop in view", rep.Shell)
+	}
+}
+
+// shellGeometry says whether the sidebar is collapsed, and whether the
+// header's title and Stop are shown inside the window.
+func shellGeometry(w *Window) string {
+	inView := func(wd gtk.Widgetter) string {
+		b := gtk.BaseWidget(wd)
+		if !b.IsDrawable() {
+			return "hidden"
+		}
+		r, ok := b.ComputeBounds(w.win)
+		if !ok || r.X() < 0 || r.Y() < 0 || r.X()+r.Width() > float32(w.win.Width()) || r.Y()+r.Height() > float32(w.win.Height()) || r.Width() == 0 {
+			return "out-of-view"
+		}
+		return "in-view"
+	}
+	return fmt.Sprintf("collapsed=%v title=%s stop=%s", w.shell.split.Collapsed(), inView(w.shell.title), inView(w.stopBtn))
 }
 
 // headingGeometry is where d's heading is: its top and height in the

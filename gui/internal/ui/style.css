@@ -42,3 +42,16 @@
 /* The password dialog's caller line: as prominent as the body text, never
    less (font size and colour inherited from the body). */
 .archmaid .am-caller { font-weight: 600; }
+
+/* The shell (P8 row 3): the sidebar's frame and brand, the footers. */
+.archmaid .am-sidebar { padding: 12px 6px; }
+.archmaid .am-brand {
+  font-weight: 800;
+  letter-spacing: 3px;
+  margin: 6px 10px 12px;
+}
+.archmaid .am-footer { margin: 6px 10px; }
+.archmaid .am-badge {
+  font-size: smaller;
+  font-family: "JetBrains Mono", monospace;
+}

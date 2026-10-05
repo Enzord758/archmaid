@@ -132,6 +132,10 @@ type report struct {
 	Statuses  []string
 	// Geometry is real-small's orphan dialog as shown (headingGeometry).
 	Geometry string
+	// Shell is real-small's frame mid-run (shellGeometry).
+	Shell string
+	// Collapsed: the sidebar was collapsed at the first frame.
+	Collapsed bool
 	// Outcomes is every run's outcome, in order (real-runs runs several).
 	Outcomes []string
 	// Withdrawn is the askpass entry typed into, after the engine
@@ -357,7 +361,7 @@ func runChild(scenario, path string) int {
 	opts.hook = func(w *Window) {
 		closeSoon := func() { glib.TimeoutAdd(50, func() { w.win.Close() }) }
 		if scenario == "real-small" {
-			w.win.SetDefaultSize(640, 370) // half a 1280x800 screen, split
+			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
 		}
 		w.win.ConnectRealize(func() {
 			fc := gdk.BaseFrameClock(w.win.FrameClock())
@@ -369,6 +373,7 @@ func runChild(scenario, path string) int {
 					glib.TimeoutAdd(1500, func() {
 						rep.IdleMem = readMem()
 						shoot(w, scenario, "start")
+						rep.Collapsed = w.shell.split.Collapsed()
 						if !w.win.HasCSSClass(scopeClass) {
 							fail("the window lacks the %q class style.css is scoped to", scopeClass)
 						}
@@ -438,6 +443,7 @@ func runChild(scenario, path string) int {
 					}
 					if small {
 						rep.Geometry = headingGeometry(w, d)
+						rep.Shell = shellGeometry(w)
 					}
 					// Answer the way a user would: type, tick, then press.
 					resp := "yes"
@@ -893,6 +899,9 @@ func childCmd(t *testing.T, scenario string, prep func(*exec.Cmd), env ...string
 func TestGUIFullCleanup(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "fullcleanup")
+	if rep.Collapsed {
+		t.Error("the sidebar is collapsed at the default 960x640")
+	}
 	if want := []string{"confirm 1 true", "confirm 2 true", "confirm 3 true"}; !slices.Equal(rep.Sent, want) {
 		t.Errorf("sent %q, want %q", rep.Sent, want)
 	}
