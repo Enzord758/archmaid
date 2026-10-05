@@ -71,6 +71,17 @@ while :; do
 		esac
 		printf 'Password: ' >&4
 		stty -echo <&4
+		if [ -f "$d/cancel-next" ]; then
+			# polkitd cancels the request (pkexec went away, say) before
+			# it is answered.
+			rm -f "$d/cancel-next"
+			sleep 0.2
+			stty echo <&4
+			printf '\nCancelled\n' >&4
+			printf '\033[1;31m==== AUTHENTICATION FAILED ====\n\033[0m' >&4
+			echo cancel > "$d/result"
+			continue
+		fi
 		if ! rd pw; then
 			# End of file: the listener cancels the session.
 			stty echo <&4

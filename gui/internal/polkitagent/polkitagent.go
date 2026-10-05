@@ -75,6 +75,10 @@ type Options struct {
 	Register time.Duration
 }
 
+// errRequestEnded: the prompt's request is over (polkit cancelled it, or a
+// new one began) before it was answered.
+var errRequestEnded = errors.New("polkit agent: the request has ended")
+
 // ErrRefused is a prompt's Err when the agent refused it (not archmaid's
 // action, not the current user) or it was cancelled.
 var ErrRefused = errors.New("polkit agent: request refused")
@@ -92,8 +96,12 @@ type Agent struct {
 
 	tty string // the terminal's path (/dev/pts/N)
 
-	mu  sync.Mutex
-	cur *Prompt // the prompt answered, awaiting polkit's verdict
+	mu sync.Mutex
+	// gen numbers the listener's requests (one per banner); pending is
+	// the current request's prompt, passed on, answered or not, until the
+	// request ends (finish). A prompt answers only its own request.
+	gen     uint64
+	pending *Prompt
 }
 
 // lockTTY makes the agent's terminal exclusive (TIOCEXCL): any new open of
@@ -293,8 +301,8 @@ func (a *Agent) refuse() { go a.Stop() }
 // finish ends the answered prompt with err, if one waits.
 func (a *Agent) finish(err error) {
 	a.mu.Lock()
-	p := a.cur
-	a.cur = nil
+	p := a.pending
+	a.pending = nil
 	a.mu.Unlock()
 	if p != nil {
 		p.end(err)
@@ -398,6 +406,11 @@ func (a *Agent) drain(lines <-chan string) {
 		switch {
 		case refused:
 		case strings.HasPrefix(l, "==== AUTHENTICATING FOR ") && strings.HasSuffix(l, " ===="):
+			// A new request: whatever the last one passed on is over.
+			a.finish(errRequestEnded)
+			a.mu.Lock()
+			a.gen++
+			a.mu.Unlock()
 			reset()
 			action = strings.TrimSuffix(strings.TrimPrefix(l, "==== AUTHENTICATING FOR "), " ====")
 			if !strings.HasPrefix(action, ActionPrefix) || strings.ContainsAny(action, " \t") {
@@ -459,6 +472,9 @@ func (a *Agent) drain(lines <-chan string) {
 			}
 		case partial && identity:
 			p := &Prompt{a: a, action: action, text: l, done: make(chan struct{})}
+			a.mu.Lock()
+			p.gen, a.pending = a.gen, p
+			a.mu.Unlock()
 			identity, prompted = false, true
 			select {
 			case a.prompts <- p:
@@ -491,6 +507,7 @@ func (a *Agent) isUser(who string) bool {
 // Prompt is pkttyagent asking for the password (driver.AgentPrompt).
 type Prompt struct {
 	a            *Agent
+	gen          uint64 // its request's number (Agent.gen)
 	action, text string
 	answered     sync.Once
 	done         chan struct{}
@@ -540,8 +557,17 @@ func (p *Prompt) Answer(pw []byte) error {
 		default:
 		}
 		a.mu.Lock()
-		a.cur = p
+		current := a.pending == p && p.gen == a.gen
 		a.mu.Unlock()
+		select {
+		case <-p.done:
+			current = false
+		default:
+		}
+		if !current {
+			err = errRequestEnded // its request is over: never into another's
+			return
+		}
 		if err = a.waitNoEcho(2 * time.Second); err != nil {
 			a.refuse()
 			return

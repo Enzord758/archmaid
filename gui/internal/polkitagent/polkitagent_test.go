@@ -319,3 +319,35 @@ func TestAgentRefusesASharedTerminal(t *testing.T) {
 		t.Fatalf("pkttyagent was answered %q", got)
 	}
 }
+
+// A prompt answers only its own request: once polkit has cancelled it
+// (or a new request began), the prompt is over (Done, an error) even
+// unanswered, and a late Answer is refused, never written to the terminal
+// where the next request's read would take it.
+func TestAgentPromptBoundToItsRequest(t *testing.T) {
+	path, dir := shim(t)
+	a := start(t, path)
+	if err := os.WriteFile(filepath.Join(dir, "cancel-next"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	request(t, dir, "org.archmaid.helper.full-cleanup")
+	p := next(t, a)
+	if err := waitDone(t, p); err == nil {
+		t.Fatal("a cancelled request's prompt ended without an error")
+	}
+	if err := p.Answer([]byte("stale")); err == nil {
+		t.Fatal("a prompt whose request ended took an answer")
+	}
+	_ = os.Remove(filepath.Join(dir, "result"))
+	request(t, dir, "org.archmaid.helper.full-cleanup")
+	q := next(t, a)
+	if err := q.Answer([]byte("hunter2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitDone(t, q); err != nil {
+		t.Fatalf("the next request: %v", err)
+	}
+	if got := read(t, dir, "agent.got"); got != "hunter2" {
+		t.Fatalf("pkttyagent read %q, want only the next request's answer", got)
+	}
+}
