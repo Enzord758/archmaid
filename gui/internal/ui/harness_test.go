@@ -136,6 +136,8 @@ type report struct {
 	Shell string
 	// Collapsed: the sidebar was collapsed at the first frame.
 	Collapsed bool
+	// Meters is the sidebar's meters when the (last) run finished.
+	Meters []string
 	// Outcomes is every run's outcome, in order (real-runs runs several).
 	Outcomes []string
 	// Withdrawn is the askpass entry typed into, after the engine
@@ -574,6 +576,7 @@ func runChild(scenario, path string) int {
 				rep.Pump = w.pump.Stats()
 				rep.Toasts = w.toasted
 				rep.EndStatus = w.status.Text()
+				rep.Meters = w.shell.meters.text()
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
@@ -901,6 +904,10 @@ func TestGUIFullCleanup(t *testing.T) {
 	rep, _ := child(t, "fullcleanup")
 	if rep.Collapsed {
 		t.Error("the sidebar is collapsed at the default 960x640")
+	}
+	// The stub's status has no byte counts: values, empty bars.
+	if want := []string{"disk 212G 0.00", "ram 41G 0.00", "cache 3.1G 0.00"}; !slices.Equal(rep.Meters, want) {
+		t.Errorf("meters %q, want %q", rep.Meters, want)
 	}
 	if want := []string{"confirm 1 true", "confirm 2 true", "confirm 3 true"}; !slices.Equal(rep.Sent, want) {
 		t.Errorf("sent %q, want %q", rep.Sent, want)

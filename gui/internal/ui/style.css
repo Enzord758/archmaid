@@ -55,3 +55,19 @@
   font-size: smaller;
   font-family: "JetBrains Mono", monospace;
 }
+
+/* The sidebar's meters (P8 row 9): a kicker, then name, value and a 2 px
+   bar each. The bar's fill is the accent, so it follows DMS. */
+.archmaid .am-meters { margin: 6px 10px; }
+.archmaid .am-kicker {
+  font-size: smaller;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: @am_muted;
+}
+.archmaid .am-meter-name { color: @am_muted; }
+.archmaid .am-meter-value { font-family: "JetBrains Mono", monospace; }
+.archmaid levelbar.am-meter-bar trough { min-height: 2px; padding: 0; border-radius: 0; }
+.archmaid levelbar.am-meter-bar trough > block { min-height: 2px; border-radius: 0; }
+.archmaid levelbar.am-meter-bar trough > block.filled { background-color: @accent_bg_color; }
+.archmaid levelbar.am-meter-bar trough > block.empty { background-color: @am_rail; }

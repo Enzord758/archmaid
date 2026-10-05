@@ -387,6 +387,7 @@ func (w *Window) redraw(c runview.Change) {
 	}
 	if c.Status || c.Finished {
 		w.setStatus()
+		w.shell.meters.show(w.model.Stat.Status)
 		w.updateOverview()
 		w.updateRunBadge()
 	}

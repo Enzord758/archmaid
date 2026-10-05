@@ -35,6 +35,7 @@ const narrowWidth = "max-width: 760sp"
 
 // shell is the window's frame around the pages.
 type shell struct {
+	meters    *meters
 	split     *adw.OverlaySplitView
 	nav       *gtk.ListBox
 	navRows   map[string]*gtk.ListBoxRow
@@ -97,6 +98,8 @@ func (w *Window) buildShell() {
 	side.Append(brand)
 	side.Append(sh.nav)
 	side.Append(spacer)
+	sh.meters = newMeters()
+	side.Append(sh.meters.box)
 	side.Append(w.status)
 
 	// The content: header (sidebar toggle, title, Stop), the stub's
@@ -141,11 +144,26 @@ func (w *Window) buildShell() {
 		}
 	})
 
+	// Only one breakpoint applies at a time (the last added that
+	// matches), so narrow-and-short has the setters of both.
+	narrowSetters := func(bp *adw.Breakpoint) {
+		bp.AddSetter(sh.split, "collapsed", true)
+		bp.AddSetter(sh.toggle, "visible", true)
+		bp.AddSetter(sh.statusBar, "visible", true)
+	}
+	shortSetters := func(bp *adw.Breakpoint) {
+		bp.AddSetter(sh.meters.box, "visible", false)
+	}
 	narrow := adw.NewBreakpoint(adw.BreakpointConditionParse(narrowWidth))
-	narrow.AddSetter(sh.split, "collapsed", true)
-	narrow.AddSetter(sh.toggle, "visible", true)
-	narrow.AddSetter(sh.statusBar, "visible", true)
+	narrowSetters(narrow)
+	short := adw.NewBreakpoint(adw.BreakpointConditionParse(shortHeight))
+	shortSetters(short)
+	both := adw.NewBreakpoint(adw.BreakpointConditionParse(narrowWidth + " and " + shortHeight))
+	narrowSetters(both)
+	shortSetters(both)
 	w.win.AddBreakpoint(narrow)
+	w.win.AddBreakpoint(short)
+	w.win.AddBreakpoint(both)
 
 	w.toasts = adw.NewToastOverlay()
 	w.toasts.SetChild(sh.split)

@@ -382,6 +382,18 @@ func TestGUIRealDriver(t *testing.T) {
 		if rep.Banner != "" || rep.Title != "archmaid" || strings.Contains(rep.FirstStatus, "STUB") {
 			t.Errorf("the real Driver's window reads as the stub: banner %q title %q status %q", rep.Banner, rep.Title, rep.FirstStatus)
 		}
+		// The real status (sysstat) has byte counts: the disk and RAM
+		// meters have bars, within [0, 1].
+		for i, prefix := range []string{"disk ", "ram "} {
+			var v string
+			var f float64
+			if i < len(rep.Meters) {
+				_, _ = fmt.Sscanf(rep.Meters[i], prefix+"%s %g", &v, &f)
+			}
+			if f <= 0 || f > 1 {
+				t.Errorf("meters %q: the %sbar is %g, want a share of the total", rep.Meters, prefix, f)
+			}
+		}
 		if !slices.Contains(rep.Rows, steps.IDOrphansRemove+"=ok") || !slices.Equal(rep.DriverOpts, []string{`dry=true downloads=""`, `dry=true downloads=""`}) {
 			t.Errorf("rows %q drivers %q", rep.Rows, rep.DriverOpts)
 		}
@@ -853,8 +865,8 @@ func TestGUISmallWindow(t *testing.T) {
 	// The shell's narrow form (spec 1.8): the sidebar collapsed into an
 	// overlay, the page title and Stop in view mid-run.
 	t.Logf("shell: %s", rep.Shell)
-	if rep.Shell != "collapsed=true title=in-view stop=in-view" {
-		t.Errorf("at 630x372 the shell is %q, want the sidebar collapsed and the title and Stop in view", rep.Shell)
+	if rep.Shell != "collapsed=true title=in-view stop=in-view meters=hidden" {
+		t.Errorf("at 630x372 the shell is %q, want the sidebar collapsed, the title and Stop in view, the meters hidden", rep.Shell)
 	}
 }
 
@@ -872,7 +884,11 @@ func shellGeometry(w *Window) string {
 		}
 		return "in-view"
 	}
-	return fmt.Sprintf("collapsed=%v title=%s stop=%s", w.shell.split.Collapsed(), inView(w.shell.title), inView(w.stopBtn))
+	meters := "shown"
+	if !w.shell.meters.box.Visible() {
+		meters = "hidden"
+	}
+	return fmt.Sprintf("collapsed=%v title=%s stop=%s meters=%s", w.shell.split.Collapsed(), inView(w.shell.title), inView(w.stopBtn), meters)
 }
 
 // headingGeometry is where d's heading is: its top and height in the
