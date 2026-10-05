@@ -192,7 +192,7 @@ var Menu = []Action{
 	{ID: IDUserCache, Icon: "󰃨", Label: "Clear user cache", Steps: userCacheSteps},
 	{ID: IDRepair, Icon: "󰚰", Label: "Repair broken packages", Discover: discoverRepair, Busy: "Scanning for broken packages…"},
 	{ID: IDDownloads, Icon: "󰋊", Label: "Delete old downloads", Discover: discoverDownloads, Busy: "Checking Downloads…"},
-	{ID: IDTopgrade, Icon: "󰏗", Label: "Run topgrade (system update)", Steps: topgradeSteps},
+	{ID: IDTopgrade, Icon: "󰏗", Label: "Run topgrade (system update)", Steps: topgradeSteps, Gate: "Run a system update with topgrade?"},
 	{ID: IDServices, Icon: "󰒔", Label: "Disable unused services", Discover: discoverServices, Busy: "Finding unused services…"},
 	{ID: IDAURAudit, Icon: "󰶚", Label: "Audit AUR packages", Discover: discoverAURAudit, Busy: "Checking foreign packages against the AUR…"},
 	{ID: IDEditConfig, Icon: "󰙪", Label: "Edit topgrade config"},

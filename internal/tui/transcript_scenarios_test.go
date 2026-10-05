@@ -216,7 +216,8 @@ echo python-oldthing`}}, sh["pacman"]...)
 			"sudo":     sudoRules(true),
 			"topgrade": {{Prefix: "-y", Out: topgradeOK}},
 		})
-		return record(t, mk, shimLog, "Run topgrade")
+		return record(t, mk, shimLog, "Run topgrade",
+			Answer{"confirm", "Run a system update with topgrade", "yes"})
 	}},
 	{"topgrade_fail.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
@@ -225,7 +226,31 @@ echo python-oldthing`}}, sh["pacman"]...)
 			"topgrade": {{Prefix: "-y", Exit: 1, Out: "error: failed to commit transaction (conflicting files)\n" +
 				"── Summary ──\nSystem update: FAILED"}},
 		})
-		return record(t, mk, shimLog, "Run topgrade")
+		return record(t, mk, shimLog, "Run topgrade",
+			Answer{"confirm", "Run a system update with topgrade", "yes"})
+	}},
+	{"topgrade_gate_declined.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		// The gate (owner's decision on P8's Q13): "no" runs nothing,
+		// not even the AUR audit, and the run is cancelled.
+		transcriptEnv(t, false)
+		shimLog := installShims(t, Shims{
+			"sudo":     sudoRules(true),
+			"topgrade": {{Prefix: "-y", Out: topgradeOK}},
+		})
+		return record(t, mk, shimLog, "Run topgrade",
+			Answer{"confirm", "Run a system update with topgrade", "no"})
+	}},
+	{"topgrade_uncached_password_ok.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		// With no cached ticket the password prompt is the gate, as for
+		// Full Cleanup: no separate confirm.
+		transcriptEnv(t, false)
+		shimLog := installShims(t, Shims{
+			"sudo":     sudoRules(false),
+			"su":       suRules(),
+			"topgrade": {{Prefix: "-y", Out: topgradeOK}},
+		})
+		return record(t, mk, shimLog, "Run topgrade",
+			Answer{"password", "", "correct"})
 	}},
 
 	// ── Repair broken packages ───────────────────────────────────────────────

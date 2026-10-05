@@ -1,5 +1,6 @@
 action "Run topgrade (system update)"
 exec  sudo -n -v
+ask   "Run a system update with topgrade?" -> yes
 plan  2 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
 plan  2 "Updating system with topgrade…" argv=topgrade -y sudo alwayslog cat=topgrade

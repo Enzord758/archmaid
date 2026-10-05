@@ -1,0 +1,4 @@
+action "Run topgrade (system update)"
+exec  sudo -n -v
+ask   "Run a system update with topgrade?" -> no
+end   outcome=cancelled errs=0 skipped=0

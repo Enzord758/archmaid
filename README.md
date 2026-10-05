@@ -88,7 +88,7 @@ binary would shadow the package's.
 | Clear user cache | Deletes everything under `~/.cache` |
 | Repair broken packages | Finds packages with missing files (`pacman -Qkq`, as you), rechecks them as root and reinstalls the confirmed ones |
 | Delete old downloads | Deletes files and folders not changed in 30 days from your downloads folder, listing them first. Age is by ctime, so a back-dated download isn't mistaken for an old one, and a folder goes only if nothing inside it is new. The folder is `--downloads <dir>` (or the GUI's setting), `$ARCHMAID_DOWNLOADS`, your XDG download dir, `~/Downloads` or `~/Download`, whichever comes first, and never `$HOME` itself (see [`cmd/archmaid/README.md`](cmd/archmaid/README.md#downloads-folder)) |
-| Run topgrade | Audits your AUR packages first, exactly as Full Cleanup does, then runs a system update via topgrade, streaming its output live |
+| Run topgrade | Asks first ("Run a system update with topgrade?"; in the TUI the password prompt stands in for it when sudo needs one), then audits your AUR packages, exactly as Full Cleanup does, and runs a system update via topgrade, streaming its output live |
 | Disable unused services | Lists systemd services that are enabled but not currently running, and lets you multi-select which to disable |
 | Edit topgrade config (TUI) | Opens `~/.config/topgrade.toml` in `$EDITOR`, creating it with sane defaults first if it doesn't exist |
 | Audit AUR packages | A read-only check of your foreign packages against the AUR. It flags adopted or maintainer-changed packages and added co-maintainers (compared with your previous audit), removed co-maintainers, orphaned or out-of-date packages, very recent pushes, and packages no longer on the AUR |

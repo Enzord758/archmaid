@@ -399,7 +399,10 @@ func TestGUIRealDriver(t *testing.T) {
 	t.Run("askpass", func(t *testing.T) {
 		dir, env := installShims(t, shimOpts{topgrade: "sudo"})
 		rep, _ := child(t, "real-askpass", env...)
-		if rep.Outcome != "completed" || len(rep.Sent) != 1 || !strings.HasSuffix(rep.Sent[0], fmt.Sprintf("len %d", len(shimPw))) {
+		// Run topgrade's gate ("Run a system update with topgrade?",
+		// P8's Q13) is answered first, then topgrade's sudo asks.
+		if rep.Outcome != "completed" || len(rep.Sent) != 2 || rep.Sent[0] != "confirm 1 true" ||
+			!strings.HasSuffix(rep.Sent[1], fmt.Sprintf("len %d", len(shimPw))) {
 			t.Errorf("outcome %q sent %q rows %q", rep.Outcome, rep.Sent, rep.Rows)
 		}
 		pid := readLines(t, filepath.Join(dir, "topgrade.pid"))
@@ -414,7 +417,8 @@ func TestGUIRealDriver(t *testing.T) {
 	t.Run("askpass-cancel", func(t *testing.T) {
 		dir, env := installShims(t, shimOpts{topgrade: "sudo"})
 		rep, _ := child(t, "real-askpass-cancel", env...)
-		if len(rep.Sent) != 1 || !strings.HasPrefix(rep.Sent[0], "cancel ") || !slices.Contains(rep.Rows, steps.IDTopgrade+"=failed") {
+		if len(rep.Sent) != 2 || rep.Sent[0] != "confirm 1 true" || !strings.HasPrefix(rep.Sent[1], "cancel ") ||
+			!slices.Contains(rep.Rows, steps.IDTopgrade+"=failed") {
 			t.Errorf("outcome %q sent %q rows %q", rep.Outcome, rep.Sent, rep.Rows)
 		}
 		if got := readLines(t, filepath.Join(dir, "sudo.got")); got != nil {
