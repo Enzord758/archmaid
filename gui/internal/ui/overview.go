@@ -28,19 +28,10 @@ type menuRow struct {
 	cell  *gtk.Button
 	sub   *gtk.Label
 	spin  *adw.Spinner
-	// row is a compatibility handle for View log only (no cell): the
-	// harness's browseLogs still activates it until it calls showLogs.
-	row *adw.ActionRow
 }
 
 // start activates the action as a click on its cell does.
-func (r *menuRow) start() {
-	if r.cell != nil {
-		r.cell.Emit("clicked")
-	} else if r.row != nil {
-		r.row.Emit("activated")
-	}
-}
+func (r *menuRow) start() { r.cell.Emit("clicked") }
 
 func (w *Window) newOverview() gtk.Widgetter {
 	w.menu = map[string]*menuRow{}
@@ -62,14 +53,6 @@ func (w *Window) newOverview() gtk.Widgetter {
 			continue // the hero
 		}
 		w.cells.Append(w.newCell(c))
-	}
-	// View log has no cell; its handle stays for the harness (menuRow.row).
-	for _, e := range overview.Entries() {
-		if e.Kind == overview.KindLogs {
-			r := &menuRow{entry: e, row: adw.NewActionRow(), spin: adw.NewSpinner(), sub: gtk.NewLabel("")}
-			r.row.ConnectActivated(w.showLogs)
-			w.menu[e.ID] = r
-		}
 	}
 	box.Append(w.cells)
 
@@ -332,9 +315,6 @@ func (w *Window) updateOverview() {
 	}
 	w.shownOverview = &st
 	for id, r := range w.menu {
-		if r.cell == nil {
-			continue
-		}
 		running := w.busy && id == w.current
 		r.spin.SetVisible(running)
 		sub := ""
