@@ -356,6 +356,9 @@ func runChild(scenario, path string) int {
 					glib.TimeoutAdd(1500, func() {
 						rep.IdleMem = readMem()
 						shoot(w, scenario, "start")
+						if !w.win.HasCSSClass(scopeClass) {
+							fail("the window lacks the %q class style.css is scoped to", scopeClass)
+						}
 						if scenario == "idle" {
 							w.win.Close()
 							return
@@ -417,6 +420,9 @@ func runChild(scenario, path string) int {
 						return
 					}
 					shoot(w, scenario, fmt.Sprintf("prompt-%d", id))
+					if !d.HasCSSClass(scopeClass) {
+						fail("prompt %d's dialog lacks the %q class", id, scopeClass)
+					}
 					if small {
 						rep.Geometry = headingGeometry(w, d)
 					}
@@ -552,6 +558,12 @@ func runChild(scenario, path string) int {
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
+					// Every row's marker carries its state's class (style.css).
+					for i, r := range w.rows {
+						if i < len(w.model.Rows) && !r.icon.HasCSSClass(stateClass(w.model.Rows[i].State)) {
+							fail("row %d (%s) lacks %s", i, w.model.Rows[i].State, stateClass(w.model.Rows[i].State))
+						}
+					}
 					shoot(w, scenario, fmt.Sprintf("end-%d", len(rep.Outcomes)))
 				})
 				switch scenario {
@@ -610,6 +622,11 @@ func runChild(scenario, path string) int {
 	}
 
 	code := Run([]string{"archmaid-gui-test"}, opts)
+	styleMu.Lock()
+	for _, e := range styleErrors {
+		fail("style.css: %s", e)
+	}
+	styleMu.Unlock()
 	rep.DriverCloses = closes.Load()
 	if wiring != nil {
 		wiring.Close()

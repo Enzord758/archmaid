@@ -68,7 +68,7 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 	if heading == "" {
 		heading = p.Msg
 	}
-	d := adw.NewAlertDialog(heading, body)
+	d := scoped(adw.NewAlertDialog(heading, body))
 	yes, no := w.model.ConfirmLabels(p)
 	d.AddResponse("no", no)
 	d.AddResponse("yes", yes)
@@ -158,7 +158,7 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		body += "\n\n" + KeptNote
 		body = strings.TrimPrefix(body, "\n\n")
 	}
-	d := adw.NewAlertDialog(heading, body)
+	d := scoped(adw.NewAlertDialog(heading, body))
 	d.AddResponse("cancel", "Cancel")
 	d.AddResponse("ok", "Authenticate")
 	d.SetResponseAppearance("ok", adw.ResponseSuggested)
@@ -185,6 +185,7 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		l.SetWrapMode(pango.WrapWordChar)
 		l.SetEllipsize(pango.EllipsizeNone)
 		l.SetXAlign(0)
+		l.AddCSSClass("am-caller") // style.css: as prominent as the body
 		w.pwCaller = l
 		box.Append(l)
 	}
@@ -294,7 +295,7 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *adw.AlertDialog {
 	if title == "" {
 		title = "Choose"
 	}
-	d := adw.NewAlertDialog(title, "")
+	d := scoped(adw.NewAlertDialog(title, ""))
 	d.AddResponse("cancel", "Cancel")
 	d.AddResponse("ok", "Continue")
 	d.SetResponseAppearance("ok", adw.ResponseSuggested)
@@ -386,7 +387,7 @@ func (w *Window) reportDialog(p engine.OutputReport) *adw.AlertDialog {
 			extra = sc
 		}
 	}
-	d := adw.NewAlertDialog(heading, body)
+	d := scoped(adw.NewAlertDialog(heading, body))
 	d.AddResponse("close", "Close")
 	d.SetCloseResponse("close")
 	d.SetDefaultResponse("close")

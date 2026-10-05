@@ -199,6 +199,7 @@ func Run(args []string, opts Options) int {
 			w.win.Present()
 			return
 		}
+		loadStyle()
 		w = newWindow(app, opts)
 		if opts.hook != nil {
 			opts.hook(w)

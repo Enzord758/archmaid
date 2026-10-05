@@ -1,0 +1,44 @@
+/* archmaid-gui's stylesheet (docs/design/p8-workbench-spec.md, 3.1).
+
+   Loaded once, at GTK_STYLE_PROVIDER_PRIORITY_APPLICATION (600): above the
+   theme and settings, below the user's ~/.config/gtk-4.0/gtk.css (800),
+   which is where DankMaterialShell defines libadwaita's named colours. So
+   DMS keeps the last word on every surface.
+
+   Rules for this file:
+   - Every selector starts with .archmaid (the window, and every dialog,
+     carry that class). Our own classes start with am-. No bare element
+     selectors.
+   - Never redefine a libadwaita or DMS colour name (window_bg_color,
+     accent_bg_color, ...): define am_* tokens only, and refer to the named
+     colours, so they follow DMS at runtime.
+   - The design's own colours (Tokyo Night) go on state only: markers,
+     tags, badges, the segment bar.
+   - The password dialog's caller line (.am-caller) is never dimmed,
+     shrunk, ellipsized, hidden or lowered in contrast: its one rule below
+     makes it as prominent as the body. Check every change against this. */
+
+/* State colours (Tokyo Night). */
+@define-color am_ok #9ece6a;
+@define-color am_warn #e0af68;
+@define-color am_danger #f7768e;
+@define-color am_running #7aa2f7;
+
+/* Tokens derived from the named colours, so they follow DMS. */
+@define-color am_muted alpha(@window_fg_color, 0.55);
+@define-color am_rail alpha(@window_fg_color, 0.15);
+
+/* A step's state marker. */
+.archmaid .am-state-ok { color: @am_ok; }
+.archmaid .am-state-failed { color: @am_danger; }
+.archmaid .am-state-aborted { color: @am_danger; }
+.archmaid .am-state-auth-refused { color: @am_warn; }
+.archmaid .am-state-running,
+.archmaid .am-state-waiting { color: @am_running; }
+.archmaid .am-state-pending,
+.archmaid .am-state-skipped,
+.archmaid .am-state-not-run { color: @am_muted; }
+
+/* The password dialog's caller line: as prominent as the body text, never
+   less (font size and colour inherited from the body). */
+.archmaid .am-caller { font-weight: 600; }

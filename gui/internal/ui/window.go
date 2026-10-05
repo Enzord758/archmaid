@@ -103,6 +103,7 @@ type stepRow struct {
 func newWindow(app *adw.Application, opts Options) *Window {
 	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*adw.AlertDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
+	w.win.AddCSSClass(scopeClass) // style.css's scope
 	w.win.SetTitle(w.title())
 	w.win.SetDefaultSize(960, 640)
 
@@ -417,6 +418,8 @@ func (w *Window) updateRow(i int) {
 	r.row.SetTitle(m.Title)
 	r.row.SetSubtitle(m.Subtitle())
 	icon := m.State.Icon()
+	setStateClass(&r.icon.Widget, m)
+	setStateClass(&r.spin.Widget, m)
 	r.spin.SetVisible(icon == "")
 	r.icon.SetVisible(icon != "")
 	if icon != "" {
@@ -535,7 +538,7 @@ func (w *Window) closeRequest() bool {
 		if w.quitDialog != nil {
 			return true
 		}
-		d := adw.NewAlertDialog("Stop the run and quit?", "The running step is stopped; what it already changed stays changed.")
+		d := scoped(adw.NewAlertDialog("Stop the run and quit?", "The running step is stopped; what it already changed stays changed."))
 		d.AddResponse("cancel", "Keep Running")
 		d.AddResponse("quit", "Stop and Quit")
 		d.SetResponseAppearance("quit", adw.ResponseDestructive)
