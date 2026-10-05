@@ -187,8 +187,8 @@ func (d *Driver) agentRequest(m msg) (engine.Input, bool) {
 	d.lastAsk++
 	d.asks[d.lastAsk] = agentAsk{p}
 	return engine.AskpassRequest{
-		Req: d.lastAsk, Prompt: p.Prompt(), Polkit: true,
-		Requester: "polkit, for " + sanitize.Clip(sanitize.OneLine(p.Action()), 80),
+		Req: d.lastAsk, Prompt: p.Prompt(), Polkit: true, Action: p.Action(),
+		Requester: "polkit's agent (pkttyagent)",
 	}, false
 }
 

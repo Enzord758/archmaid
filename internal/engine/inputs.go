@@ -121,6 +121,8 @@ type AskpassRequest struct {
 	Req                        uint64
 	Prompt, Requester, Refused string
 	Polkit                     bool
+	// Action is the polkit action id, for a Polkit request.
+	Action string
 }
 
 // AskpassAnswered answers AnswerAskpass: OK when su accepted the password

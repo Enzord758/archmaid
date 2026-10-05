@@ -802,7 +802,7 @@ func TestGUIOnePassword(t *testing.T) {
 		if rep.Outcome != "completed" || hasRow(rep.Rows, "=auth refused") {
 			t.Errorf("outcome %q rows %q: our request after the foreign one must be served", rep.Outcome, rep.Rows)
 		}
-		if len(rep.PwBodies) != 1 || !strings.Contains(rep.PwBodies[0], "polkit, for org.archmaid.helper.full-cleanup") {
+		if len(rep.PwBodies) != 1 || !strings.Contains(rep.PwBodies[0], PolkitTitle) || !strings.Contains(rep.PwBodies[0], "org.archmaid.helper.full-cleanup") {
 			t.Errorf("password dialogs %q, want one for polkit", rep.PwBodies)
 		}
 		if got := readLines(t, filepath.Join(dir, "agent.got")); !slices.Equal(got, []string{shimPw}) {

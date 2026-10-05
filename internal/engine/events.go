@@ -189,6 +189,12 @@ type NeedsPassword struct {
 	// ("Proceed with full cleanup?"), so a dialog can ask it with the
 	// password; "" when the action has none, and for askpass.
 	Gate string
+	// Polkit marks an askpass prompt from polkit's text agent for a helper
+	// step (AskpassRequest.Polkit), not sudo's; Action is the polkit action
+	// id it authenticates, as the agent read it (an org.archmaid.helper.*
+	// one). A front end picks the dialog from these, never from Requester.
+	Polkit bool
+	Action string
 }
 
 // NeedsSelection opens a multi-select (the services list); answer with

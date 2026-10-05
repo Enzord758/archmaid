@@ -33,6 +33,7 @@ type askpass struct {
 	// aside (pausePolkit) and reopens it once the prompt is over
 	// (resumePolkit), so an AuthWaiting is never open under a prompt.
 	polkit bool
+	action string // the polkit action id (polkit only)
 }
 
 // askpassRequest vets a request and, if it may be ours, asks for the
@@ -67,6 +68,7 @@ func (s *Session) askpassRequest(o *Output, in AskpassRequest) {
 	}
 	r.ask = &askpass{
 		req: in.Req, step: st.step.ID, polkit: in.Polkit,
+		action:    sanitize.Clip(sanitize.OneLine(in.Action), maxPrompt),
 		requester: sanitize.OneLine(in.Requester),
 		prompt:    sanitize.Clip(sanitize.OneLine(in.Prompt), maxPrompt),
 	}
@@ -89,6 +91,7 @@ func (s *Session) askAskpass(o *Output, why string) {
 		ID: r.prompt, Kind: PasswordAskpass, Step: a.step,
 		Requester: a.requester, Prompt: a.prompt,
 		AttemptsLeft: maxAttempts - r.attempts, Error: why,
+		Polkit: a.polkit, Action: a.action,
 	})
 }
 

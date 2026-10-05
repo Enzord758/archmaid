@@ -425,7 +425,12 @@ func runChild(scenario, path string) int {
 					}
 					switch {
 					case p.Password != nil:
-						rep.PwBodies = append(rep.PwBodies, d.Body())
+						// The heading, the caller line, then the body.
+						caller := ""
+						if w.pwCaller != nil {
+							caller = w.pwCaller.Label()
+						}
+						rep.PwBodies = append(rep.PwBodies, d.Heading()+"\n"+caller+"\n"+d.Body())
 						w.pwEntry.SetText(password)
 						if scenario == "engine-stops-askpass" {
 							// Typed, never answered: the engine withdraws it.

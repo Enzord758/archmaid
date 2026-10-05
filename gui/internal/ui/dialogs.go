@@ -7,6 +7,7 @@ import (
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
@@ -146,15 +147,16 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 
 // KeptNote is what a password dialog adds on the real Driver, which keeps
 // the run's first password (driver.Deps.KeepPassword).
-const KeptNote = "archmaid keeps it in memory for this run only, so the run doesn't ask again."
+const KeptNote = "Kept for this run only, for topgrade's and yay's sudo and archmaid's own polkit prompts; any other program that asks shows this dialog with its name."
 
 // passwordDialog asks for the sudo password: up front (with the gate it
 // stands in for as its heading), or for sudo's askpass mid-step (naming
 // who asked). "Cancel" is CancelPrompt.
 func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
-	heading, body := passwordText(p)
+	heading, caller, body := passwordText(p)
 	if w.opts.KeepsPassword {
 		body += "\n\n" + KeptNote
+		body = strings.TrimPrefix(body, "\n\n")
 	}
 	d := adw.NewAlertDialog(heading, body)
 	d.AddResponse("cancel", "Cancel")
@@ -172,7 +174,22 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	list.AddCSSClass("boxed-list")
 	list.SetSelectionMode(gtk.SelectionNone)
 	list.Append(entry)
-	d.SetExtraChild(list)
+	box := gtk.NewBox(gtk.OrientationVertical, 12)
+	w.pwCaller = nil
+	if caller != "" {
+		// Who asks, on a line of its own: plain text (whatever ran sudo
+		// names itself), wrapped, never ellipsized or dimmed.
+		l := gtk.NewLabel(caller)
+		l.SetUseMarkup(false)
+		l.SetWrap(true)
+		l.SetWrapMode(pango.WrapWordChar)
+		l.SetEllipsize(pango.EllipsizeNone)
+		l.SetXAlign(0)
+		w.pwCaller = l
+		box.Append(l)
+	}
+	box.Append(list)
+	d.SetExtraChild(box)
 
 	forget := func() {
 		if w.pwEntry == entry {
@@ -224,19 +241,33 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	return d
 }
 
-// passwordText is the password dialog's heading and body.
-func passwordText(p engine.NeedsPassword) (heading, body string) {
-	switch p.Kind {
-	case engine.PasswordAskpass:
+// PolkitTitle is the title of polkit's password dialog (its agent asks for
+// archmaid's root helper), as the P8 spec has it.
+const PolkitTitle = "Authorise archmaid's Root Steps"
+
+// passwordText is the password dialog's heading, the caller line (who
+// asks; "" up front) and the body. The kind and the title come from the
+// prompt's data (Kind, Polkit), never from the Requester string, which
+// for sudo is the name of whatever ran it.
+func passwordText(p engine.NeedsPassword) (heading, caller, body string) {
+	switch {
+	case p.Kind == engine.PasswordAskpass && p.Polkit:
+		heading = PolkitTitle
+		caller = "Asked by polkit for archmaid's root helper."
+		body = "Action: " + p.Action
+		if p.Prompt != "" {
+			body += "\n" + sanitize.Clip(sanitize.OneLine(p.Prompt), askpassPromptMax)
+		}
+	case p.Kind == engine.PasswordAskpass:
 		heading = "sudo Asks for Your Password"
-		body = "A running step needs root."
+		caller = "A running step needs root."
 		if p.Requester != "" {
-			body = "Asked by " + p.Requester + "."
+			caller = "Asked by " + p.Requester + "."
 		}
 		if p.Prompt != "" {
 			// sudo's prompt comes from whatever asked: one line, at most
 			// 48 runes, as the TUI shows it.
-			body += "\n" + sanitize.Clip(sanitize.OneLine(p.Prompt), askpassPromptMax)
+			body = sanitize.Clip(sanitize.OneLine(p.Prompt), askpassPromptMax)
 		}
 	default:
 		heading = "Password Required"
@@ -253,7 +284,7 @@ func passwordText(p engine.NeedsPassword) (heading, body string) {
 	if p.AttemptsLeft > 0 && p.Error != "" && !strings.Contains(p.Error, "attempt") {
 		body += "\n" + plural.N(p.AttemptsLeft, "attempt", "attempts") + " left."
 	}
-	return heading, body
+	return heading, caller, strings.TrimPrefix(body, "\n\n")
 }
 
 // selectionDialog is a checkbox list; "Continue" sends the checked items

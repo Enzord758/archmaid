@@ -68,6 +68,8 @@ type Window struct {
 	// headless harness to tick and type into.
 	checks  []*gtk.CheckButton
 	pwEntry *adw.PasswordEntryRow
+	// pwCaller is the open password dialog's caller line (the harness reads it).
+	pwCaller *gtk.Label
 	// busy: a Start was sent and its Finished hasn't come. quitting: the
 	// user confirmed closing mid-run. closed: the window is going away;
 	// late flushes are ignored.

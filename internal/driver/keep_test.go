@@ -421,7 +421,7 @@ func TestKeepAnswersPolkitsAgent(t *testing.T) {
 	r.d.Send(engine.Start{Action: "pk"})
 	k := &keepRig{rig: r}
 	p := k.prompt()
-	if p.Kind != engine.PasswordAskpass || p.Requester != "polkit, for org.archmaid.helper.full-cleanup" {
+	if p.Kind != engine.PasswordAskpass || !p.Polkit || p.Action != "org.archmaid.helper.full-cleanup" {
 		t.Fatalf("NeedsPassword = %+v", p)
 	}
 	first := <-prompts

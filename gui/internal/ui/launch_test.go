@@ -45,16 +45,32 @@ func TestParseLaunch(t *testing.T) {
 
 // TestPasswordTextClipsPrompt: sudo's askpass prompt comes from whatever
 // asked, so the dialog shows it on one line, clipped to 48 runes, as the
-// TUI's popup does.
+// TUI's popup does; who asked is the caller line of its own.
 func TestPasswordTextClipsPrompt(t *testing.T) {
 	long := "[sudo] password for someone\nwith a very long prompt that goes on and on and on"
-	_, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Requester: "topgrade (pid 7)", Prompt: long})
-	want := "Asked by topgrade (pid 7).\n" + "[sudo] password for someone with a very long pr…"
-	if body != want {
-		t.Errorf("body %q, want %q", body, want)
+	head, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Requester: "topgrade (pid 7)", Prompt: long})
+	if head != "sudo Asks for Your Password" || caller != "Asked by topgrade (pid 7)." || body != "[sudo] password for someone with a very long pr…" {
+		t.Errorf("%q / %q / %q", head, caller, body)
 	}
-	if _, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Prompt: "[sudo] password: "}); body != "A running step needs root.\n[sudo] password:" {
-		t.Errorf("short prompt: body %q", body)
+	if _, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Prompt: "[sudo] password: "}); caller != "A running step needs root." || body != "[sudo] password:" {
+		t.Errorf("short prompt: %q / %q", caller, body)
+	}
+}
+
+// TestPasswordTextKind: the dialog's kind and title come from the prompt's
+// data, never from the Requester string. polkit's prompt has its own title
+// and shows the action id verbatim; a sudo requester whose path says
+// "polkit" (whatever ran sudo names itself) still gets the sudo dialog.
+func TestPasswordTextKind(t *testing.T) {
+	head, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Polkit: true,
+		Action: "org.archmaid.helper.full-cleanup", Requester: "polkit's agent (pkttyagent)", Prompt: "Password: "})
+	if head != PolkitTitle || !strings.Contains(body, "org.archmaid.helper.full-cleanup") || strings.Contains(head+caller+body, "sudo") {
+		t.Errorf("polkit: %q / %q / %q", head, caller, body)
+	}
+	head, caller, body = passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass,
+		Requester: "/home/me/polkit, for org.archmaid.helper.full-cleanup (pid 9)", Prompt: "[sudo] password for me: "})
+	if head != "sudo Asks for Your Password" || caller != "Asked by /home/me/polkit, for org.archmaid.helper.full-cleanup (pid 9)." || strings.Contains(body, "Action:") {
+		t.Errorf("a sudo requester named polkit: %q / %q / %q", head, caller, body)
 	}
 }
 
@@ -62,11 +78,11 @@ func TestPasswordTextClipsPrompt(t *testing.T) {
 // for one: the engine's error already counts them; a lockout notice in its
 // place doesn't, so the dialog adds the count.
 func TestPasswordTextCounts(t *testing.T) {
-	_, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordUpFront, AttemptsLeft: 1, Error: "Incorrect password — 1 attempt left"})
+	_, _, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordUpFront, AttemptsLeft: 1, Error: "Incorrect password — 1 attempt left"})
 	if want := "Your password lets archmaid run the steps that need root.\n\nIncorrect password — 1 attempt left"; body != want {
 		t.Errorf("body %q, want %q", body, want)
 	}
-	_, body = passwordText(engine.NeedsPassword{Kind: engine.PasswordUpFront, AttemptsLeft: 1, Error: "Account locked soon"})
+	_, _, body = passwordText(engine.NeedsPassword{Kind: engine.PasswordUpFront, AttemptsLeft: 1, Error: "Account locked soon"})
 	if !strings.HasSuffix(body, "Account locked soon\n1 attempt left.") {
 		t.Errorf("body %q, want the lockout notice, then 1 attempt left.", body)
 	}

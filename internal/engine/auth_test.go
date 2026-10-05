@@ -464,12 +464,12 @@ func TestSessionPolkitAgentAsks(t *testing.T) {
 	if o := h.handle(AskpassRequest{Req: 2, Prompt: "[sudo] password: ", Requester: "x (pid 1)"}); !reflect.DeepEqual(o.Effects, []Effect{HangUpAskpass{Req: 2}}) {
 		t.Fatalf("a sudo request during the helper step: %#v", o)
 	}
-	o := h.handle(AskpassRequest{Req: 3, Prompt: "Password: ", Requester: "polkit, for org.archmaid.helper.full-cleanup", Polkit: true})
+	o := h.handle(AskpassRequest{Req: 3, Prompt: "Password: ", Requester: "polkit's agent (pkttyagent)", Polkit: true, Action: "org.archmaid.helper.full-cleanup"})
 	if got := event[AuthResolved](t, o); got != (AuthResolved{}) {
 		t.Errorf("the polkit wait wasn't set aside: %+v", got)
 	}
 	np := event[NeedsPassword](t, o)
-	if np.Kind != PasswordAskpass || np.Step != "h" || np.Requester != "polkit, for org.archmaid.helper.full-cleanup" || np.AttemptsLeft != 3 {
+	if np.Kind != PasswordAskpass || np.Step != "h" || !np.Polkit || np.Action != "org.archmaid.helper.full-cleanup" || np.AttemptsLeft != 3 {
 		t.Fatalf("NeedsPassword = %+v", np)
 	}
 	o = h.password("wrong")

@@ -310,7 +310,16 @@ comments and `git log`; this is the "read before you touch it" list.
     only while a helper step runs, only for an `org.archmaid.helper.*`
     action, and only for the current user's identity (an identity menu
     picks the user's entry). Anything else gets the normal dialog or is
-    cancelled; never the kept password.
+    cancelled; never the kept password. Accepted (Dev 5's live finding,
+    the lead and Dev 3): the allowlist trusts topgrade and yay as
+    configured. Whatever topgrade runs as its own child with sudo
+    (`[commands]`, `pre_commands` and the like in topgrade.toml) gets the
+    kept password; anything run under makepkg or another program gets the
+    dialog naming it. topgrade.toml is the owner's own config, writable
+    only by the same uid. The dialogs say which: sudo's and polkit's are
+    told apart by the prompt's data (`NeedsPassword.Polkit`, `.Action`),
+    never by the Requester string; polkit's is titled "Authorise
+    archmaid's Root Steps" with the action id shown verbatim.
   - *How long:* until the run ends, however it ends (Finished of any
     outcome, Stop, Close: Stop and Quit, a signal; `KillNow`), and at most
     60 min (`Deps.KeepFor`). Every Driver is one run; nothing carries over.
@@ -340,7 +349,9 @@ comments and `git log`; this is the "read before you touch it" list.
     call still waits a new one is registered (at most 3 times, then the
     desktop's agent with the status-line notice), so a refused foreign
     request with archmaid-gui as its subject doesn't fail a request of ours
-    that follows. Without pkttyagent, or if
+    that follows. Accepted residual (Dev 3, LOW): between stopping a spent
+    agent and registering the next, a request goes to the desktop's dialog
+    without the status-line notice; it fails safe. Without pkttyagent, or if
     it can't register, polkit asks through the desktop's agent as before,
     and the status line says so. pkttyagent dying mid-authentication drops
     the kept password (fail-safe). pkttyagent runs in a session of its own
