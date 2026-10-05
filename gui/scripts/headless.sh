@@ -29,7 +29,7 @@ limit="${HEADLESS_TIMEOUT:-60}"
 if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
 	real='^TestGUI(RealDriver|StopAndQuit|SmallWindow|OnePassword)$'
-	stops='^TestGUI(EngineStops|StubOwnInstance)$'
+	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin)$'
 	"$self" go test -count=1 -v -run "$long" ./internal/ui
 	"$self" go test -count=1 -v -run "$real" ./internal/ui
 	"$self" go test -count=1 -v -run "$stops" ./internal/ui
