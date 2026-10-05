@@ -127,6 +127,7 @@ PluginComponent {
                 anchors.verticalCenter: parent.verticalCenter
             }
             StyledText {
+                textFormat: Text.PlainText // state-file strings are data, never markup
                 visible: root.pillText !== ""
                 text: root.pillText
                 font.pixelSize: Theme.fontSizeSmall
@@ -146,6 +147,7 @@ PluginComponent {
                 anchors.horizontalCenter: parent.horizontalCenter
             }
             StyledText {
+                textFormat: Text.PlainText // state-file strings are data, never markup
                 visible: root.pillText !== ""
                 text: root.pillText
                 font.pixelSize: Theme.fontSizeSmall
@@ -174,6 +176,7 @@ PluginComponent {
                 Repeater {
                     model: root.summary.issues
                     StyledText {
+                        textFormat: Text.PlainText // state-file strings are data, never markup
                         required property var modelData
                         width: parent.width
                         text: modelData.text
@@ -184,6 +187,7 @@ PluginComponent {
                 }
 
                 StyledText {
+                    textFormat: Text.PlainText // state-file strings are data, never markup
                     visible: root.lastRun !== null
                     width: parent.width
                     wrapMode: Text.WordWrap
@@ -193,6 +197,7 @@ PluginComponent {
                 }
 
                 StyledText {
+                    textFormat: Text.PlainText // state-file strings are data, never markup
                     visible: root.summary.updates !== null
                     width: parent.width
                     color: Theme.surfaceText
@@ -201,6 +206,7 @@ PluginComponent {
                 }
 
                 StyledText {
+                    textFormat: Text.PlainText // state-file strings are data, never markup
                     visible: root.audit !== null
                     width: parent.width
                     wrapMode: Text.WordWrap
@@ -212,6 +218,7 @@ PluginComponent {
                 Repeater {
                     model: root.audit ? root.audit.high.slice(0, 5) : []
                     StyledText {
+                        textFormat: Text.PlainText // state-file strings are data, never markup
                         required property var modelData
                         width: parent.width
                         wrapMode: Text.WordWrap
@@ -222,6 +229,7 @@ PluginComponent {
                 }
 
                 StyledText {
+                    textFormat: Text.PlainText // state-file strings are data, never markup
                     visible: root.launchError !== ""
                     width: parent.width
                     wrapMode: Text.WordWrap
