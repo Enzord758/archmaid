@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
@@ -16,6 +17,11 @@ func main() {
 	// the running window and exit (the TUI's main does the same).
 	if code, relayed := realdriver.Relay(os.Args[1:]); relayed {
 		os.Exit(code)
+	}
+	// The GUI may hold the run's password: no core dumps (and only after
+	// the relay, which must stay dumpable, see NoCoreDumps).
+	if err := ui.NoCoreDumps(); err != nil {
+		fmt.Fprintln(os.Stderr, "archmaid-gui: can't turn core dumps off:", err)
 	}
 	// Before anything initializes GTK: cairo unless the owner picked a
 	// renderer (docs/TESTING.md → GUI measurements).

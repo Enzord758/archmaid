@@ -760,6 +760,9 @@ func TestGUIOnePassword(t *testing.T) {
 		if g := readLines(t, filepath.Join(dir, "gnome.log")); g != nil {
 			t.Errorf("the desktop's polkit agent asked for %q", g)
 		}
+		if rep.Dumpable != 0 {
+			t.Errorf("the GUI is dumpable (%d): a crash could dump the password", rep.Dumpable)
+		}
 	})
 
 	t.Run("agent-missing", func(t *testing.T) {
