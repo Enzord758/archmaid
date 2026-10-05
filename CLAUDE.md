@@ -69,9 +69,11 @@ restore, no keys, no secrets. Inside that VM, and only there, archmaid may
 run for real: `sudo`, `pkexec`, `pacman`, `topgrade`, the GUI and live
 Full Cleanups, through `~/archmaid-vmtest/vm.sh` (ssh to 127.0.0.1:2223).
 
-- Only the lead drives the VM: there is one, and two agents in it would test
-  each other's state. A dev who needs a live check writes the steps in the
-  report; the lead runs them in the VM.
+- Only the designated VM tester (Dev 5, approved by the owner on
+  2026-10-05) and the lead drive the VM, and never both at once: there is
+  one VM, and two agents in it would test each other's state. Any other dev
+  who needs a live check writes the steps in the report; the VM tester runs
+  them and reports to the lead, who decides.
 - Everything goes through `vm.sh`. A command that would run on the host
   itself still falls under the hard rules above, VM or not.
 - Never copy anything personal into the VM (keys, `~/.ssh`, the age key,
