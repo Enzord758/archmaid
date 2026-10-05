@@ -7,11 +7,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -122,6 +124,14 @@ type sessionTarget struct {
 	fetches  map[string]*auditFetch
 	children map[uint64]*sessionChild
 	release  map[uint64]context.CancelCauseFunc // in-process steps' ctx, by Seq
+
+	// holdExecs > 0 while an Output that launched a child applies its
+	// hooks' Outputs: the child's exec line is its own, taken with its
+	// first output, its exit or an abort, never by those nested applies.
+	holdExecs int
+	// stopped are children an abort stopped (SIGINT, SIGKILL after the
+	// grace); the test waits for them to be reaped, so none outlives it.
+	stopped []*proc.Child
 }
 
 type sessionChild struct {
@@ -164,6 +174,9 @@ func newSessionTarget(t *testing.T, shimLog string) *sessionTarget {
 		}
 		for _, cancel := range tg.release {
 			cancel(nil)
+		}
+		for _, c := range tg.stopped {
+			awaitReaped(t, c)
 		}
 		if !t.Failed() && !t.Skipped() {
 			tg.contract.Done()
@@ -342,7 +355,7 @@ func (tg *sessionTarget) apply(o engine.Output) {
 	}
 	// A child started here logs itself asynchronously; its exec line is
 	// taken with its first output or its exit, never here.
-	if !launched {
+	if !launched && tg.holdExecs == 0 {
 		tg.push(tg.fx.execs()...)
 	}
 
@@ -417,9 +430,35 @@ func (tg *sessionTarget) apply(o engine.Output) {
 	tg.push(tg.fx.snapshot()...)
 	tg.push(started...)
 	tg.push(tail...)
+	// A child launched here may have logged itself by now: under load it
+	// can run before this goroutine gets to the hooks. Its exec line must
+	// not be taken by a hook's Output (the abort that follows would wait
+	// for it in vain).
+	if launched {
+		tg.holdExecs++
+	}
 	for _, h := range hooks {
 		tg.apply(tg.s.Handle(h))
 	}
+	if launched {
+		tg.holdExecs--
+	}
+}
+
+// awaitReaped waits until a stopped child is gone (its SIGKILL comes after
+// the grace, and proc reaps it): a test must not leave it to outlive the
+// package.
+func awaitReaped(t *testing.T, c *proc.Child) {
+	t.Helper()
+	if c == nil {
+		return
+	}
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		if err := syscall.Kill(c.Pid, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+	}
+	t.Errorf("the stopped child %d was never reaped", c.Pid)
 }
 
 // tuiRank is where an event of one Output lands in its transcript (apply's
@@ -566,6 +605,7 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 		if c := tg.children[e.Seq]; c != nil {
 			close(c.quit)
 			c.c.Stop()
+			tg.stopped = append(tg.stopped, c.c)
 			delete(tg.children, e.Seq)
 		}
 		if cancel := tg.release[e.Seq]; cancel != nil {
