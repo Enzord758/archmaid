@@ -296,8 +296,9 @@ comments and `git log`; this is the "read before you touch it" list.
   `paccache -rk0` → orphan probe → (orphan removal, inserted by the probe) →
   `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Under
   polkit (the GUI) it is AUR audit → topgrade → orphan probe → (orphan
-  removal) → paccache → wipe → tmpfiles → journal → integrity → `yay -Sc`
-  → hyprpm, the root steps as one call (next entry). Building the
+  removal) → paccache → wipe → `pacman -Sc` → tmpfiles → journal →
+  integrity → `yay -Sc --aur` → hyprpm, the root steps as one call (next
+  entry). Building the
   queue runs nothing; the only work `activate` starts is the audit prefetch,
   off the UI thread. `BenchmarkActivateFullCleanup` (~5 µs) holds that in the
   opt-in perf guard, with a fixed 1 ms limit.
@@ -305,13 +306,13 @@ comments and `git log`; this is the "read before you touch it" list.
   TUI asks one sudo password per run; the GUI must ask polkit once, not
   once per root step (the first live GUI run showed five dialogs). So
   under polkit Full Cleanup's root steps (orphan removal, paccache, wipe,
-  tmpfiles, journal, integrity) are consecutive and carry
+  `pacman -Sc`, tmpfiles, journal, integrity) are consecutive and carry
   `Step.Combine = full-cleanup` (`actions.polkitFullCleanup`), and the
   engine (`combine.go`) runs such a run as ONE helper call: it asks every
   confirm among them first (the orphan list, bound by its plan hash, and
   the cache wipe), reads faillock once, then one `StartStep` whose Step has
   `Parts`; `helperclient` builds `pkexec archmaid-helper full-cleanup
-  --keep 3 --journal 2weeks [--orphans H] [--wipe]` from the parts and
+  --keep 3 --journal 2weeks [--orphans H] [--wipe] [--uninstalled]` from the parts and
   maps the helper's per-part `progress`/`done` events back to
   `PartStarted`/`PartDone`, so every row still starts and ends on its own.
   A refused dialog marks exactly the steps it covered AuthRefused; the run
@@ -320,14 +321,28 @@ comments and `git log`; this is the "read before you touch it" list.
   strictness carries over), the helper still parses its flags strictly
   and recomputes the orphan plan as root, and the client accepts only the
   helper's part order. Keep: the probe right after topgrade (the removal
-  it inserts must be the call's first part), yay -Sc after the call (it
-  clears the removed orphans' cache), and the part order in three places
+  it inserts must be the call's first part), and the part order in three places
   in step (helper `runFullCleanup`, `helperclient.fullCleanupOrder`,
   `actions.fullCleanupRoot`; `TestFullCleanupTiesToClient` ties them).
   Trade-off: once the dialog is granted, an Abort can't stop the parts
   still to come (the helper runs as root; the per-step design stopped
   before the next step's dialog). The polkit message is fixed text, so the
   in-app confirms are what say whether orphans and the wipe are included.
+- **Under polkit only topgrade asks for a password (besides the dialog).**
+  Without a terminal sudo's ticket is keyed on the parent process, so
+  every tool that runs sudo asks through askpass again; no password is
+  stored. yay -Sc did (its `sudo pacman -Sc`), so under polkit it is split:
+  `pacman -Sc` is the helper's `clean-uninstalled` part
+  (`steps.IDPkgCacheUninstalled`, Verb `full-cleanup`, no verb or polkit
+  action of its own; after the orphan removal, so their packages go too),
+  and the AUR cache step runs `yay -Sc --aur --noconfirm`. In yay (v13.0.1:
+  `clean.go` `syncClean`, `parser.go` `NeedRoot`) `--aur` is the AUR mode,
+  in which `-Sc` runs no pacman and needs no root (no sudo loop either): it
+  cleans only yay's build dir, as the user. topgrade stays on askpass:
+  its sudo calls come from yay and pacman inside it.
+  `TestOnlyTopgradeAsksUnderPolkit`, the Driver's
+  `TestFullCleanupPolkitOneDialog` (no sudo) and the GUI harness's tty
+  case (one askpass dialog) hold it.
 - **Orphans are found after the update, by an in-process step.** The probe
   (`findOrphans`, `internal/actions`) runs `pacman -Qdtq` once topgrade is
   done — an upgrade orphans packages of its own, and the list `-Rns --noconfirm` acts on must be

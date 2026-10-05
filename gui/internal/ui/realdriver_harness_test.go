@@ -181,8 +181,8 @@ func pkexecWaiting() bool {
 // shimOpts: refuse are the helper verbs pkexec refuses (exit 127, as for a
 // dismissed dialog); topgrade is what the topgrade shim does after its
 // first line: "" exits 0, "sudo" runs sudo, "hang" sleeps, "slow" exits 0
-// a second later; yay "sudo" has the yay shim run `sudo pacman -Sc`, as yay
-// -Sc does; pkexecWait has pkexec write its pid and then wait without a
+// a second later; yay "sudo" has the yay shim run `sudo pacman -Sc` as yay
+// -Sc does, unless it is given --aur (yay's AUR mode runs no pacman); pkexecWait has pkexec write its pid and then wait without a
 // start line, as pkexec does while its polkit dialog is up, until it is
 // killed.
 type shimOpts struct {
@@ -210,6 +210,7 @@ if [ "$verb" = full-cleanup ]; then
 	case " $* " in *" --orphans "*) parts=remove-orphans;; esac
 	parts="$parts paccache"
 	case " $* " in *" --wipe "*) parts="$parts paccache-wipe";; esac
+	case " $* " in *" --uninstalled "*) parts="$parts clean-uninstalled";; esac
 	parts="$parts clean-tmp vacuum-journal check-files"
 	of=$(echo $parts | wc -w) n=0
 	for p in $parts; do
@@ -256,9 +257,9 @@ fi
 	case "slow":
 		topgrade += "sleep 1\n"
 	}
-	yay := "#!/bin/sh\necho $$ > " + q(dir+"/yay.pid") + "\n"
+	yay := "#!/bin/sh\necho $$ > " + q(dir+"/yay.pid") + "\nprintf '%s\\n' \"$*\" >> " + q(dir+"/yay.log") + "\n"
 	if o.yay == "sudo" {
-		yay += "sudo pacman -Sc || exit 1\n"
+		yay += "case \" $* \" in *' --aur '*) ;; *) sudo pacman -Sc || exit 1 ;; esac\n"
 	}
 	yay += "echo 'yay shim: cache cleaned'\n"
 	for name, body := range map[string]string{"pkexec": pkexec, "sudo": sudo, "su": su, "topgrade": topgrade, "yay": yay} {
@@ -346,7 +347,7 @@ func TestGUIRealDriver(t *testing.T) {
 		want := map[string]string{
 			steps.IDAURAudit: "ok", steps.IDTopgrade: "ok", steps.IDOrphansProbe: "ok",
 			steps.IDOrphansRemove: "auth refused", steps.IDPaccache: "auth refused", steps.IDPaccacheWipe: "auth refused",
-			steps.IDTmpfiles: "auth refused", steps.IDJournal: "auth refused", steps.IDIntegrity: "auth refused",
+			steps.IDPkgCacheUninstalled: "auth refused", steps.IDTmpfiles: "auth refused", steps.IDJournal: "auth refused", steps.IDIntegrity: "auth refused",
 			steps.IDYayCache: "ok",
 		}
 		for id, st := range want {
@@ -491,24 +492,33 @@ func TestGUIRealDriver(t *testing.T) {
 
 	t.Run("tty", func(t *testing.T) {
 		// The GUI started from a shell: its process has a controlling
-		// terminal. topgrade's sudo and yay -Sc's must still ask through
-		// the GUI's askpass dialog, never on that terminal (the sudo shim
-		// fails if it has one).
+		// terminal. topgrade's sudo must still ask through the GUI's
+		// askpass dialog, never on that terminal (the sudo shim fails if it
+		// has one). And it is the only password asked for besides the one
+		// polkit dialog: yay -Sc's sudo pacman -Sc is the helper's
+		// clean-uninstalled part, and yay runs -Sc --aur, without sudo.
 		dir, env := installShims(t, shimOpts{topgrade: "sudo", yay: "sudo"})
 		rep, _ := childCmd(t, "real-tty", withTerminal(t), env...)
 		if tty := readLines(t, filepath.Join(dir, "sudo.tty")); tty != nil {
 			t.Errorf("sudo ran with a controlling terminal %d times: it would have prompted there", len(tty))
 		}
-		if rep.Outcome != "completed" || !slices.Contains(rep.Rows, steps.IDTopgrade+"=ok") || !slices.Contains(rep.Rows, steps.IDYayCache+"=ok") {
+		if rep.Outcome != "completed" || !slices.Contains(rep.Rows, steps.IDTopgrade+"=ok") ||
+			!slices.Contains(rep.Rows, steps.IDYayCache+"=ok") || !slices.Contains(rep.Rows, steps.IDPkgCacheUninstalled+"=ok") {
 			t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
 		}
-		tg, yay := readLines(t, filepath.Join(dir, "topgrade.pid")), readLines(t, filepath.Join(dir, "yay.pid"))
-		if len(rep.PwBodies) != 2 || len(tg) != 1 || len(yay) != 1 ||
-			!strings.Contains(rep.PwBodies[0], "(pid "+tg[0]+")") || !strings.Contains(rep.PwBodies[1], "(pid "+yay[0]+")") {
-			t.Errorf("askpass dialogs %q; want one for the topgrade shim (pid %q), then one for the yay shim (pid %q)", rep.PwBodies, tg, yay)
+		tg := readLines(t, filepath.Join(dir, "topgrade.pid"))
+		if len(rep.PwBodies) != 1 || len(tg) != 1 || !strings.Contains(rep.PwBodies[0], "(pid "+tg[0]+")") {
+			t.Errorf("askpass dialogs %q; want exactly one, for the topgrade shim (pid %q)", rep.PwBodies, tg)
 		}
-		if got := readLines(t, filepath.Join(dir, "sudo.got")); !slices.Equal(got, []string{shimPw, shimPw}) {
-			t.Errorf("sudo got %q, want the password twice", got)
+		if got := readLines(t, filepath.Join(dir, "sudo.got")); !slices.Equal(got, []string{shimPw}) {
+			t.Errorf("sudo got %q, want the password once (topgrade's)", got)
+		}
+		if got := readLines(t, filepath.Join(dir, "yay.log")); !slices.Equal(got, []string{"-Sc --aur --noconfirm"}) {
+			t.Errorf("yay ran %q, want once with -Sc --aur --noconfirm", got)
+		}
+		calls := readLines(t, filepath.Join(dir, "pkexec.log"))
+		if len(calls) != 1 || !strings.Contains(calls[0], " full-cleanup ") || !strings.Contains(calls[0], " --uninstalled") {
+			t.Errorf("pkexec ran %q, want one full-cleanup call with --uninstalled", calls)
 		}
 	})
 
