@@ -52,8 +52,10 @@ Only committed state is built, so commit first. Build in a scratch copy, so
 Set `W` to the checkout whose commit you want to build, and check that it is
 the branch you mean. It must contain `packaging/arch/`; an old checkout on
 `main` from before the refactor doesn't, and its HEAD would build the old
-code. For the first live run this is `~/archmaid-live`
-(`docs/first-live-run.md`, step S0):
+code. Before `refactor/p0` is merged that is the live-run worktree
+`~/archmaid-live` (`docs/first-live-run.md`, step S0). After the merge it is
+`~/archmaid` itself, on `main` brought up to date first (`git -C ~/archmaid
+pull --ff-only`); then set `W=~/archmaid` below:
 
 ```sh
 W=~/archmaid-live && git -C "$W" log -1 --format='%h %s' && \

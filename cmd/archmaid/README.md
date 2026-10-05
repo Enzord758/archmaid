@@ -105,8 +105,8 @@ straight over via `lipgloss`).
   cache/temp/log wipes, service disabling, downloads/repair cleanup) log their
   outcome even on success, and a `SKIP` entry when declined, so
   what a destructive step actually did stays auditable without digging through
-  `pacman`'s own log. Only the newest 5 run directories are kept — older ones
-  are pruned at startup. "View log" picks a category before opening the pager.
+  `pacman`'s own log. Only the newest 5 run directories are kept — the oldest
+  goes when a real run writes its first entry, never at startup. "View log" picks a category before opening the pager.
   Dry runs log everything to a single reused `~/.local/state/archmaid/dryrun/`
   slot instead.
 
@@ -177,5 +177,6 @@ Logs live in `~/.local/state/archmaid/` — a user-writable dir, so there's no
 install-time or root setup. One timestamped directory per run, holding
 `topgrade.log` / `orphans.log` / `cleanup.log` (failures only, plus any
 destructive step's outcome even on success) and `audit.log` (every AUR audit), and a single reused `dryrun/`
-directory for `--dryrun` runs. Only the newest 5 run directories are kept;
-older ones are pruned on startup.
+directory for `--dryrun` runs. Only the newest 5 run directories are kept
+(the current one included); the oldest goes when a real run writes its first
+entry, never at startup.

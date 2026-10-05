@@ -59,9 +59,9 @@ charmbracelet, except `internal/tui`, and any that imports gotk4):
 | `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace}`, its combined output streamed as `Msg`s on one ordered channel, the dry-run echo, `ErrWaitDelay` → success on a clean exit), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
 | `internal/steps` | what a unit of work is: `Step` (stable `ID`, the root helper's `Verb` where one exists, `Argv` or an in-process `Run(ctx, Env) Result`, `Confirm`/`Optional`/`OnAccept`, `Items`/`Cascade` (what a confirm lists, as data), `NeedsPriv`, `AlwaysLog`, log `Category`, `Prefetch`), `Result` (`Output`, `Err`, `ConfirmNext`, `Commit`, `InsertNext`; `Check` forbids gating and inserting at once), `ErrResultTaken` (the cause a front end releases an in-process step's ctx with once its result is taken; any other cancel is an abort), `Status` (`Pending` … `AuthRefused` — privilege not granted, one status whatever the reason, since pkexec exits 127 for every refusal — and `Aborted`) |
 | `internal/actions` | the menu as data: `Menu []Action` (`ID`, `Label`, `Icon`, `Gate`, `Busy`, `Steps func(Env) []steps.Step` or `Discover func(ctx, Env) Discovery`), `ByID`; the queues (Full Cleanup, Run topgrade, Clear user cache), the orphan probe, Repair's user scan and root recheck, the services discovery and `DisableUnits`, the downloads discovery. `Discovery` is a typed union: `Notice`, `Pending`, `NeedsSelection{Items, Steps}`, `Report{Text, Accept}` (`Accept func() error` accepts the flagged findings, nil when there is nothing to accept), `NeedsRoot{Items, Busy, AuthFailed, Rescan}`. `Env` carries the run's flags and what still lives in the TUI, as func values: the AUR audit (`AuditStep`, `AuditReport`) and the downloads delete step (`Downloads`, `DeleteDownloads`). Those four are required (a nil one panics mid-action); `Env.Validate` names any left out, and the TUI's `main` calls it on `actionEnv()` at startup. `DryRun`, `LookPath` and `RepairWorkers` may stay zero |
-| `internal/engine` | the run logic as a state machine with no IO, shared by the TUI and the GUI. **API frozen at E0: changes after this are additive only** (new types, fields, constants; nothing renamed, removed or given a new meaning). The package doc is the contract: event ordering within a step, prompt IDs (stale ones ignored), that only `OutputChunk` may be coalesced or dropped (by a Driver, never the engine) and that no Event carries a password. `Session` (`New(Options{DryRun, Now, Env, Auth})`, checked by `Options.Validate`; `Start`, `Confirm`, `SubmitPassword`, `CancelPrompt`, `Select`, `Abort`, `Handle(Input)`, each returning `Output{Events, Effects}`) runs, as of E1–E5, an action's discovery (a notice, a queue, a pick list or a report) and the whole queue core: the sudo probe and the proceed-gate, step confirms, steps' output and results, the logging policy, steps a result inserts (`InsertNext`) or gates (`ConfirmNext`, failing closed on a refused result), hyprpm kept last, the last-run record; auth (`auth.go`: the up-front password with three attempts and the give-up that refuses the queue's `NeedsPriv` steps, the faillock read before the prompt and before each polkit helper step — a locked account refuses the helper step without a dialog —, Repair's `NeedsRoot` probe/password/rescan, `WaitPolkit` until `PrivilegeGranted` or a `NotGranted` exit); askpass (`askpass.go`: only for the running sudo step, peer-checked by the Driver, on the run's attempt count). E5: `Abort` (`abort.go`: from a running step — `Stop`, then `Aborted` —, a prompt — `PromptClosed` — or a wait; pending steps get no event and count in `Finished.NotRun`; last-run.json as the TUI's abortRunning), the pick list (`select.go`: `NeedsSelection`/`Select`, matched by what was shown; nothing picked ends cancelled), reports (`report.go`: `OutputReport{Audit}`, accepted through `RunHook` then `ReportAccepted`), Repair's polkit recheck decided from the helper's check event (`repaircheck.go`, the `HelperCheck` input), and the gate's plan preview and each confirm's `YesLabel`. Nothing panics (`queue.go` holds the run, `session.go` the API). The TUI doesn't use it yet (E7); `Driver` (`Events`, `Send(Command) bool` — never blocks — `Close`) is what the GUI talks to. Events mirror `internal/testtranscript`'s vocabulary so a `sessionTarget` maps them 1:1; privilege is one outcome (`steps.AuthRefused`), with `AuthWaiting`/`AuthResolved`/`FaillockState` for the polkit flow; passwords travel only as `Secret` (prints `<redacted>`) in Commands and Effects |
+| `internal/engine` | the run logic as a state machine with no IO, shared by the TUI and the GUI. **API frozen at E0: changes after this are additive only** (new types, fields, constants; nothing renamed, removed or given a new meaning). The package doc is the contract: event ordering within a step, prompt IDs (stale ones ignored), that only `OutputChunk` may be coalesced or dropped (by a Driver, never the engine) and that no Event carries a password. `Session` (`New(Options{DryRun, Now, Env, Auth})`, checked by `Options.Validate`; `Start`, `Confirm`, `SubmitPassword`, `CancelPrompt`, `Select`, `Abort`, `Handle(Input)`, each returning `Output{Events, Effects}`) runs, as of E1–E5, an action's discovery (a notice, a queue, a pick list or a report) and the whole queue core: the sudo probe and the proceed-gate, step confirms, steps' output and results, the logging policy, steps a result inserts (`InsertNext`) or gates (`ConfirmNext`, failing closed on a refused result), hyprpm kept last, the last-run record; auth (`auth.go`: the up-front password with three attempts and the give-up that refuses the queue's `NeedsPriv` steps, the faillock read before the prompt and before each polkit helper step — a locked account refuses the helper step without a dialog —, Repair's `NeedsRoot` probe/password/rescan, `WaitPolkit` until `PrivilegeGranted` or a `NotGranted` exit); askpass (`askpass.go`: only for the running sudo step, peer-checked by the Driver, on the run's attempt count). E5: `Abort` (`abort.go`: from a running step — `Stop`, then `Aborted` —, a prompt — `PromptClosed` — or a wait; pending steps get no event and count in `Finished.NotRun`; last-run.json as the TUI's abortRunning), the pick list (`select.go`: `NeedsSelection`/`Select`, matched by what was shown; nothing picked ends cancelled), reports (`report.go`: `OutputReport{Audit}`, accepted through `RunHook` then `ReportAccepted`), Repair's polkit recheck decided from the helper's check event (`repaircheck.go`, the `HelperCheck` input), and the gate's plan preview and each confirm's `YesLabel`. Nothing panics (`queue.go` holds the run, `session.go` the API). Both front ends run on it through a `Driver` (`Events`, `Send(Command) bool` — never blocks — `Close`): the TUI since E7b and the GUI, each on `internal/driver`. Events mirror `internal/testtranscript`'s vocabulary so a `sessionTarget` maps them 1:1; privilege is one outcome (`steps.AuthRefused`), with `AuthWaiting`/`AuthResolved`/`FaillockState` for the polkit flow; passwords travel only as `Secret` (prints `<redacted>`) in Commands and Effects |
 | `internal/engine/enginetest` | test helpers shared by the engine's tests, the stub's and the transcript harness: `CheckContract(t, events)` holds an event sequence to the package doc's ordering rules |
-| `internal/engine/stub` | a `Driver` that replays a scripted event sequence (`Script` of `Cue{After, Event}`) on a `Clock` (the wall clock, or `FakeClock`, which jumps instead of sleeping): prompts wait for their answer, stale IDs and early commands are ignored, `Abort` withdraws the prompt and ends the run like the engine would. `FullCleanup(start)` is a ready-made run shaped like the orphan-cascade transcript. The GUI builds against it until the real Driver (E6) |
+| `internal/engine/stub` | a `Driver` that replays a scripted event sequence (`Script` of `Cue{After, Event}`) on a `Clock` (the wall clock, or `FakeClock`, which jumps instead of sleeping): prompts wait for their answer, stale IDs and early commands are ignored, `Abort` withdraws the prompt and ends the run like the engine would. `FullCleanup(start)` is a ready-made run shaped like the orphan-cascade transcript. Only the GUI's `--stub` demo runs on it; real runs use `internal/driver` (E6) |
 
 ### `gui/` (its own Go module: the GTK4/libadwaita GUI, on the real Driver's polkit path; `--stub` for demos)
 
@@ -244,8 +244,8 @@ comments and `git log`; this is the "read before you touch it" list.
   the installed packages (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as
   the user, in up to `Env.RepairWorkers` (min(cores, 16)) parallel chunks,
   exec'd directly. Nothing flagged is the "No broken packages" notice with no
-  probe and no prompt. Otherwise it returns `NeedsRoot`, which the TUI holds
-  as `model.needsRoot` and authenticates like any
+  probe and no prompt. Otherwise it returns `NeedsRoot`, which the engine
+  (`internal/engine/auth.go`) authenticates like any
   sudo queue (one probe; the password prompt when uncached; esc drops the
   held recheck; three wrong passwords end in a notice), and rechecked with one
   `sudo -n pacman -Qkq -- <candidates>`; only what root confirms is offered for
@@ -401,7 +401,7 @@ comments and `git log`; this is the "read before you touch it" list.
   state-dir root (the AUR snapshot, `last-run.json`) are ignored by the rotation. Only a
   log write (`Store.Append`) creates a run directory (viewing logs must not, or it evicts a real run), and
   logs are private: directories 0700, files 0600.
-- **State files** (under `~/.local/state/archmaid/`, for the planned DMS widget, see
+- **State files** (under `~/.local/state/archmaid/`, read by the DMS widget, see
   `docs/dms-widget.md`). `last-run.json` is the engine's `WriteLastRun` (the
   record built in `internal/engine/queue.go`, written by the Driver)
   exactly once per action, at its end: summary (`ok`/`failed` by `errs`; `incomplete` when
@@ -411,7 +411,7 @@ comments and `git log`; this is the "read before you touch it" list.
   prompt (`cancelled`). The
   action is the menu `id` (the three static actions have ids `fullcleanup`, `usercache`,
   `topgrade` for this). A dry run writes `dryrun/last-run.json` instead and never touches
-  the real one. `audit-state.json` is planned, not written yet.
+  the real one. `audit-state.json`: see its own entry below.
 - **Untrusted text goes through `sanitize.String`.** Command output (topgrade, yay, AUR
   build scripts) can carry escapes that retitle the terminal, write the
   clipboard (OSC 52) or redraw what the user reads. Streamed output keeps only
@@ -453,9 +453,10 @@ comments and `git log`; this is the "read before you touch it" list.
   `archmaid-updates-check` user timer, `packaging/systemd/`). **The JSON field names of
   `logstore.RunRecord` and `audit.State` are now a contract with `state.js`**:
   `packaging/dms/dms_test.go` generates its fixtures from the real writers, so renaming a
-  field fails that test; add new fields freely, bump `v` for removals. The widget already
-  understands `outcome: "incomplete"` + `steps_refused`; the Go writer test only simulates
-  them until `RunRecord` carries them (then use the real writer in `withRefused`).
+  field fails that test; add new fields freely, bump `v` for removals. The widget
+  understands `outcome: "incomplete"` + `steps_refused`, and `RunRecord` carries both now
+  (96911ea), but `withRefused` in `packaging/dms/dms_test.go` still sets them on the JSON by
+  hand: switch it to the real writer.
 - **`audit-state.json` (state-dir root, beside the snapshot) lists the
   unacknowledged high findings** for the DMS widget
   (`audit.State{V, Checked, Packages, High[{Pkg, Reason}], SnapshotPresent,
@@ -676,7 +677,12 @@ to:
   VM runs: one polkit dialog per Full Cleanup, topgrade's askpass). The
   root helper and policy come only from the package (`packaging/arch`);
   `install.sh` installs the TUI alone, which needs neither. The owner's
-  step-by-step first live run: `docs/first-live-run.md`.
+  step-by-step first live run: `docs/first-live-run.md` (its C4 predates
+  the one-dialog call). One password per run (`feat/gui-one-password`)
+  isn't merged yet.
+- **The `archmaid-gui-git` package has not been installed on the owner's
+  machine yet** (only `archmaid-git` is); install it together with the
+  `archmaid-git` of the same build (`packaging/arch/README.md`).
 - **Two launchers named "archmaid"** once `archmaid-gui-git` is installed
   (the TUI's `archmaid.desktop`, kept as is, and the GUI's); rename the
   TUI's entry (e.g. "archmaid (terminal)") when the GUI becomes the default

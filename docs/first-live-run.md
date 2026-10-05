@@ -1,5 +1,17 @@
 # First live run of the new archmaid
 
+> **Status (2026-10-05).** Written for `refactor/p0` as of 2026-10-04,
+> before it was merged. Two parts are out of date for any later commit:
+> **C4** describes one polkit dialog per root step, but since 0f83f65 the
+> GUI's Full Cleanup runs all its root steps as **one** `full-cleanup`
+> call with one dialog (asked after topgrade, the orphan list and the
+> cache wipe; a cancel marks every root row "Not authorised", and
+> `steps_refused` counts them all), and since a96182a the AUR-cache step
+> is `yay -Sc --aur` (no sudo) with `pacman -Sc` inside the helper call.
+> And after the merge, **S0/S1** build from `~/archmaid` on `main`, not
+> from an `~/archmaid-live` worktree. Refresh C4 before the next GUI live
+> run (`feat/gui-one-password` changes its password dialogs again).
+
 For the owner to run by hand on the Arch/Hyprland machine. No agent runs any
 of this (CLAUDE.md rule 2). It is the first real run of:
 
