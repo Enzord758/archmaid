@@ -274,7 +274,24 @@ comments and `git log`; this is the "read before you touch it" list.
     `/proc/<pid>/root` root's, xdg-desktop-portal can then no longer
     identify the GUI ("Portal operation not allowed: Unable to open
     /proc/<pid>/root"), and GTK loses its settings and header-bar layout
-    (Dev 5's live test 7). The relay mode (`archmaid-gui --askpass`, and the TUI's)
+    (Dev 5's live test 7). Instead it sets RLIMIT_CORE to 1 byte, soft
+    and hard (`ui.NoCoreFiles`, in main after the relay dispatch): with
+    systemd-coredump's pipe core_pattern a limit of 0 would still stream
+    the whole core to systemd-coredump, which only then drops it (systemd
+    v262 coredump-submit.c: under a page, "Resource limits disable core
+    dumping"), while 1 makes the kernel abort the dump before any helper
+    runs (fs/coredump.c, coredump_pipe: "RLIMIT_CORE is set to 1, aborting
+    core") and is below the minimum for a core file too. Go's own crashes
+    write no core anyway unless GOTRACEBACK=crash; this covers that and a
+    C-level abort in GTK. Children inherit the limit (a topgrade crashing
+    under the GUI leaves no core). *Residual risk:* transient heap copies
+    (the `engine.Secret` string, GTK's entry buffer, a kept answer's
+    short-lived copy, su's stdin buffer) live in a dumpable process, so a
+    same-uid process allowed to ptrace it could read them while they
+    exist; `kernel.yama.ptrace_scope` decides that (2 on the owner's
+    machine: admin-only attach). MADV_DONTDUMP covers the kept page only:
+    the copies are in the Go and C heaps, which can't be marked page by
+    page. The relay mode (`archmaid-gui --askpass`, and the TUI's)
     must be dumpable while the UI verifies it (it reads its `exe`), so
     `Request.Answer` runs a handshake: it says "verified", the relay makes
     itself non-dumpable (`hardenRelay`) and acknowledges, and only then is
