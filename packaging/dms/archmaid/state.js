@@ -133,7 +133,7 @@ function summarize(lastRun, audit, updates, now) {
     if (lastRun) {
         switch (lastRun.outcome) {
         case "failed":
-            errors.push({ kind: "failed", text: "Last run failed" + (lastRun.stepsFailed > 0 ? " (" + lastRun.stepsFailed + " steps)" : "") });
+            errors.push({ kind: "failed", text: "Last run failed" + (lastRun.stepsFailed > 0 ? " (" + plural(lastRun.stepsFailed, "step", "steps") + ")" : "") });
             break;
         case "incomplete":
             warns.push({ kind: "incomplete", text: "Last run incomplete: root steps refused" + (lastRun.stepsRefused > 0 ? " (" + lastRun.stepsRefused + ")" : "") });
@@ -147,7 +147,7 @@ function summarize(lastRun, audit, updates, now) {
         }
         var age = _ageDays(lastRun.finished, now);
         if (age > STALE_DAYS)
-            warns.push({ kind: "stale", text: "No cleanup for " + Math.floor(age) + " days" });
+            warns.push({ kind: "stale", text: "No cleanup for " + plural(Math.floor(age), "day", "days") });
     }
 
     var count = null;
@@ -163,6 +163,11 @@ function summarize(lastRun, audit, updates, now) {
     };
 }
 
+// plural(n, one, many): "1 step", "2 steps" (the GUI's plural.N).
+function plural(n, one, many) {
+    return n + " " + (n === 1 || n === -1 ? one : many);
+}
+
 // ago(then, now): "just now", "5 min ago", "3 h ago", "12 days ago".
 function ago(then, now) {
     var s = Math.max(0, now - then) / 1000;
@@ -172,7 +177,7 @@ function ago(then, now) {
         return Math.round(s / 60) + " min ago";
     if (s < 129600)
         return Math.round(s / 3600) + " h ago";
-    return Math.floor(s / 86400) + " days ago";
+    return plural(Math.floor(s / 86400), "day", "days") + " ago";
 }
 
 // launchPlan decides what "Run Full Cleanup" starts. Pure: the caller says

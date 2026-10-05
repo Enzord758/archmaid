@@ -8,6 +8,7 @@ import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -233,8 +234,10 @@ func passwordText(p engine.NeedsPassword) (heading, body string) {
 	if p.Error != "" {
 		body += "\n\n" + p.Error
 	}
-	if p.AttemptsLeft > 0 && p.Error != "" {
-		body += fmt.Sprintf("\n%d attempt(s) left.", p.AttemptsLeft)
+	// The engine's "Incorrect password — 2 attempts left" says it already;
+	// a lockout notice in its place doesn't.
+	if p.AttemptsLeft > 0 && p.Error != "" && !strings.Contains(p.Error, "attempt") {
+		body += "\n" + plural.N(p.AttemptsLeft, "attempt", "attempts") + " left."
 	}
 	return heading, body
 }
@@ -304,7 +307,7 @@ func (w *Window) reportDialog(p engine.OutputReport) *adw.AlertDialog {
 				high++
 			}
 		}
-		body = fmt.Sprintf("%d foreign package(s) checked: %d flagged, %d high.", a.Total, len(a.Findings), high)
+		body = fmt.Sprintf("%s checked: %d flagged, %d high.", plural.N(a.Total, "foreign package", "foreign packages"), len(a.Findings), high)
 		if a.CanAccept {
 			body += "\nAccept records the high findings as checked, so they aren't flagged again."
 		}

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -314,7 +315,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.OutputChunk:
 			if ev.Dropped > 0 {
 				m.Dropped += ev.Dropped
-				m.push(fmt.Sprintf("… %d lines not shown (they are in the log)", ev.Dropped))
+				m.push("… " + plural.N(ev.Dropped, "line", "lines") + " not shown (they are in the log)")
 			}
 			m.Lines += len(ev.Lines) + ev.Dropped
 			for _, l := range ev.Lines {

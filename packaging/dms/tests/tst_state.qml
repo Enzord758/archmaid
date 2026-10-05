@@ -67,6 +67,8 @@ TestCase {
         const f = sum(F.fx.lastFailed, F.fx.auditClean, null, t0);
         compare(f.level, "error");
         compare(kinds(f), "failed");
+        compare(f.issues[0].text, "Last run failed (2 steps)");
+        compare(sum(F.fx.lastFailed1, null, null, t0).issues[0].text, "Last run failed (1 step)");
         const h = sum(F.fx.lastOK, F.fx.auditHigh, null, t0);
         compare(h.level, "error");
         compare(h.issues[0].text, "2 AUR warnings");
@@ -105,6 +107,7 @@ TestCase {
         compare(State.ago(t0, t0 + 10 * 60000), "10 min ago");
         compare(State.ago(t0, t0 + 3 * 3600000), "3 h ago");
         compare(State.ago(t0, t0 + 12 * day), "12 days ago");
+        compare(State.ago(t0, t0 + 36 * 3600000), "1 day ago");
         compare(State.ago(t0, t0 - 1000), "just now");
     }
 

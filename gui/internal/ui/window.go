@@ -12,6 +12,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
+	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -475,7 +476,7 @@ func (w *Window) statusText() string {
 		parts = append(parts, "DRY RUN")
 	}
 	if m.Lines > 0 {
-		parts = append(parts, fmt.Sprintf("%d lines", m.Lines))
+		parts = append(parts, plural.N(m.Lines, "line", "lines"))
 	}
 	if m.Dropped > 0 {
 		parts = append(parts, fmt.Sprintf("%d not shown (in the log)", m.Dropped))

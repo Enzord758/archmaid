@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -54,6 +55,20 @@ func TestPasswordTextClipsPrompt(t *testing.T) {
 	}
 	if _, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Prompt: "[sudo] password: "}); body != "A running step needs root.\n[sudo] password:" {
 		t.Errorf("short prompt: body %q", body)
+	}
+}
+
+// TestPasswordTextCounts: the attempts left are said once, in the singular
+// for one: the engine's error already counts them; a lockout notice in its
+// place doesn't, so the dialog adds the count.
+func TestPasswordTextCounts(t *testing.T) {
+	_, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordUpFront, AttemptsLeft: 1, Error: "Incorrect password — 1 attempt left"})
+	if want := "Your password lets archmaid run the steps that need root.\n\nIncorrect password — 1 attempt left"; body != want {
+		t.Errorf("body %q, want %q", body, want)
+	}
+	_, body = passwordText(engine.NeedsPassword{Kind: engine.PasswordUpFront, AttemptsLeft: 1, Error: "Account locked soon"})
+	if !strings.HasSuffix(body, "Account locked soon\n1 attempt left.") {
+		t.Errorf("body %q, want the lockout notice, then 1 attempt left.", body)
 	}
 }
 

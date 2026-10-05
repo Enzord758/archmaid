@@ -11,6 +11,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/sysstat"
@@ -140,7 +141,7 @@ func Summarize(r logstore.RunRecord, now time.Time) LastRun {
 	case logstore.OutcomeFailed:
 		s := "Last run failed"
 		if r.StepsFailed > 0 {
-			s += fmt.Sprintf(" (%d steps)", r.StepsFailed)
+			s += " (" + plural.N(r.StepsFailed, "step", "steps") + ")"
 		}
 		errs = append(errs, s)
 	case logstore.OutcomeIncomplete:
@@ -155,7 +156,7 @@ func Summarize(r logstore.RunRecord, now time.Time) LastRun {
 		warns = append(warns, "Last run cancelled, nothing ran")
 	}
 	if age := ageDays(r.Finished, now); age > StaleDays {
-		warns = append(warns, fmt.Sprintf("No cleanup for %d days", int(math.Floor(age))))
+		warns = append(warns, "No cleanup for "+plural.N(int(math.Floor(age)), "day", "days"))
 	}
 	switch {
 	case len(errs) > 0:
@@ -183,5 +184,5 @@ func Ago(then, now time.Time) string {
 	case s < 129600:
 		return fmt.Sprintf("%d h ago", int(math.Round(s/3600)))
 	}
-	return fmt.Sprintf("%d days ago", int(math.Floor(s/86400)))
+	return plural.N(int(math.Floor(s/86400)), "day", "days") + " ago"
 }

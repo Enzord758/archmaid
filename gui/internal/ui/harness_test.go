@@ -862,7 +862,7 @@ func TestGUILogsAndLastRun(t *testing.T) {
 	before := stateTree(t, dir)
 	run := old.Format("20060102-1504")
 	rep, _ := child(t, "logs", "ARCHMAID_GUI_STATE="+dir, "ARCHMAID_GUI_LOG="+run+"/topgrade")
-	if want := []string{"Full Cleanup (Recommended) · 20 days ago", "Last run failed (1 steps)", "No cleanup for 20 days"}; !slices.Equal(rep.LastRun, want) {
+	if want := []string{"Full Cleanup (Recommended) · 20 days ago", "Last run failed (1 step)", "No cleanup for 20 days"}; !slices.Equal(rep.LastRun, want) {
 		t.Errorf("last run %q, want %q", rep.LastRun, want)
 	}
 	if want := []string{run + "/topgrade", "dryrun/cleanup"}; rep.Page != "logs" || !slices.Equal(rep.LogRows, want) {

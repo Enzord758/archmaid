@@ -166,6 +166,7 @@ func TestStateJS(t *testing.T) {
 		"t0":               t0.Format(time.RFC3339),
 		"lastOK":           okRaw,
 		"lastFailed":       lastRun(t, logstore.OutcomeFailed, 2),
+		"lastFailed1":      lastRun(t, logstore.OutcomeFailed, 1),
 		"lastAborted":      lastRun(t, logstore.OutcomeAborted, 0),
 		"lastCancelled":    lastRun(t, logstore.OutcomeCancelled, 0),
 		"lastIncomplete":   withRefused(t, okRaw, 2),

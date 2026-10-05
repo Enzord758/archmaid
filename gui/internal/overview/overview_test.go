@@ -53,7 +53,7 @@ func TestAgo(t *testing.T) {
 	}{
 		{-time.Minute, "just now"}, {89 * time.Second, "just now"}, {5 * time.Minute, "5 min ago"},
 		{89 * time.Minute, "89 min ago"}, {3 * time.Hour, "3 h ago"}, {35 * time.Hour, "35 h ago"},
-		{36 * time.Hour, "1 days ago"}, {12*24*time.Hour + time.Hour, "12 days ago"},
+		{36 * time.Hour, "1 day ago"}, {47 * time.Hour, "1 day ago"}, {48 * time.Hour, "2 days ago"}, {12*24*time.Hour + time.Hour, "12 days ago"},
 	} {
 		if got := Ago(now.Add(-tc.d), now); got != tc.want {
 			t.Errorf("%v: %q, want %q", tc.d, got, tc.want)
@@ -68,6 +68,7 @@ func TestSummarize(t *testing.T) {
 	rec := func(outcome string, age time.Duration) logstore.RunRecord {
 		return logstore.RunRecord{V: 1, Action: actions.IDFullCleanup, Outcome: outcome, Finished: now.Add(-age), StepsFailed: 2, StepsRefused: 1}
 	}
+	one := func(r logstore.RunRecord) logstore.RunRecord { r.StepsFailed = 1; return r }
 	for _, tc := range []struct {
 		r      logstore.RunRecord
 		level  Level
@@ -78,6 +79,7 @@ func TestSummarize(t *testing.T) {
 		{rec(logstore.OutcomeOK, 15*day), LevelWarn, []string{"No cleanup for 15 days"}},
 		{rec(logstore.OutcomeFailed, day), LevelError, []string{"Last run failed (2 steps)"}},
 		{rec(logstore.OutcomeFailed, 20*day), LevelError, []string{"Last run failed (2 steps)", "No cleanup for 20 days"}},
+		{one(rec(logstore.OutcomeFailed, day)), LevelError, []string{"Last run failed (1 step)"}},
 		{rec(logstore.OutcomeIncomplete, day), LevelWarn, []string{"Last run incomplete: root steps refused (1)"}},
 		{rec(logstore.OutcomeAborted, day), LevelWarn, []string{"Last run aborted"}},
 		{rec(logstore.OutcomeCancelled, day), LevelWarn, []string{"Last run cancelled, nothing ran"}},
