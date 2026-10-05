@@ -1,7 +1,9 @@
 package privilege
 
 import (
+	"context"
 	"io"
+	"slices"
 	"testing"
 	"time"
 )
@@ -88,7 +90,7 @@ func TestAnswerBytes(t *testing.T) {
 		b, _ := io.ReadAll(helper)
 		got <- string(b)
 	}()
-	if detail, err := req.AnswerBytes([]byte("secret")); err != nil || detail != "" {
+	if detail, err := req.AnswerBytes(context.Background(), []byte("secret")); err != nil || detail != "" {
 		t.Fatalf("AnswerBytes = %q, %v", detail, err)
 	}
 	if pw := recv(t, got, "the password"); pw != "secret\n" {
@@ -98,13 +100,37 @@ func TestAnswerBytes(t *testing.T) {
 
 	shimAuth(t, 1, 0, "")
 	req, helper = pipeRequest(t)
-	if _, err := req.AnswerBytes([]byte("wrong")); err == nil {
+	if _, err := req.AnswerBytes(context.Background(), []byte("wrong")); err == nil {
 		t.Fatal("AnswerBytes passed a password su refused")
 	}
 	requireNothingWritten(t, helper)
 
 	req, _ = unverifiedPipeRequest(t)
-	if _, err := req.AnswerBytes([]byte("secret")); err != ErrUnverified {
+	if _, err := req.AnswerBytes(context.Background(), []byte("secret")); err != ErrUnverified {
 		t.Fatalf("unverified: %v", err)
+	}
+}
+
+// The chain Verify reports runs from sudo's caller up to the step, and the
+// kept password may answer only when it is all topgrade and yay.
+func TestRequesterChain(t *testing.T) {
+	req, _ := unverifiedPipeRequest(t)
+	from, err := verifyAgainst(t, req, fakeTree())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"/usr/bin/yay", "/usr/bin/topgrade"}; !slices.Equal(from.Chain, want) || !from.KeptMayAnswer() {
+		t.Fatalf("chain %q (may answer: %v), want %q", from.Chain, from.KeptMayAnswer(), want)
+	}
+	for _, chain := range [][]string{
+		nil,
+		{"/usr/bin/bash", "/usr/bin/yay", "/usr/bin/topgrade"},
+		{"/usr/bin/yay", "", "/usr/bin/topgrade"},
+		{"/usr/bin/makepkg"},
+		{"/home/me/topgrade"},
+	} {
+		if (Requester{Chain: chain}).KeptMayAnswer() {
+			t.Errorf("chain %q may have the kept password", chain)
+		}
 	}
 }

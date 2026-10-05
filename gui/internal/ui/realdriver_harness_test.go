@@ -80,7 +80,9 @@ func closeFakeSystem() {
 // what reads the system, and a view of /proc in which the sudo shim (a
 // shell script named sudo) is /usr/bin/sudo, so Request.Verify walks the
 // real process tree (askpass client → sudo shim → topgrade shim, the
-// running step) and passes it.
+// running step) and passes it; the topgrade and yay shims are
+// /usr/bin/topgrade and /usr/bin/yay, the binaries the kept password may
+// answer a sudo for (privilege.Requester.KeptMayAnswer).
 func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 	shims := os.Getenv(envShims)
 	if shims == "" {
@@ -88,8 +90,15 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 	}
 	privtest.FakeSystem(&fakeTB, os.Getuid, "", func(pid int) (proc.Info, error) {
 		in, err := proc.Read(pid)
-		if err == nil && in.Comm == "sudo" {
-			in.Exe = "/usr/bin/sudo"
+		if err == nil {
+			switch in.Comm {
+			case "sudo":
+				in.Exe = "/usr/bin/sudo"
+			case "topgrade":
+				in.Exe = "/usr/bin/topgrade"
+			case "yay":
+				in.Exe = "/usr/bin/yay"
+			}
 		}
 		return in, err
 	})

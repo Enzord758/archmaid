@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -28,12 +29,24 @@ const (
 	helperPid3 = 990012
 	sudoPid2   = 990021
 	foreignPid = 990031
+	// The chains through yay: helperYay under sudoYay under yayPid under
+	// the step; helperDeep under sudoDeep under a PKGBUILD's bash under
+	// makepkg (a bash script) under yayPid.
+	helperYay  = 990041
+	sudoYay    = 990042
+	yayPid     = 990043
+	helperDeep = 990051
+	sudoDeep   = 990052
+	bashPid    = 990053
+	makepkgPid = 990054
 )
 
-// keepRig is a run of one long NeedsPriv step (a real child) under a Driver
-// that keeps the run's password, with the fake process table around it:
-// helperPid under sudoPid and helperPid2 under sudoPid2 in the child's
-// session, helperPid3 under sudoPid again, foreignPid outside the session.
+// keepRig is a run of one long NeedsPriv step (a real child, which the
+// fake process table calls /usr/bin/topgrade) under a Driver that keeps
+// the run's password, with the fake process table around it: helperPid
+// under sudoPid and helperPid2 under sudoPid2 in the child's session, both
+// sudos run by the step itself; helperPid3 under sudoPid again; foreignPid
+// outside the session; and the yay chains (helperYay, helperDeep).
 type keepRig struct {
 	*rig
 	reqs  chan *privilege.Request
@@ -67,6 +80,20 @@ func newKeepRig(t *testing.T, deps Deps) *keepRig {
 		switch p {
 		case helperPid, helperPid3:
 			return proc.Info{PPid: sudoPid, Start: s + 20, Exe: "/fake/archmaid", Session: pid}, nil
+		case helperYay:
+			return proc.Info{PPid: sudoYay, Start: s + 20, Exe: "/fake/archmaid", Session: pid}, nil
+		case helperDeep:
+			return proc.Info{PPid: sudoDeep, Start: s + 20, Exe: "/fake/archmaid", Session: pid}, nil
+		case sudoYay:
+			return proc.Info{PPid: yayPid, Start: s + 12, Exe: "/usr/bin/sudo"}, nil
+		case sudoDeep:
+			return proc.Info{PPid: bashPid, Start: s + 13, Exe: "/usr/bin/sudo"}, nil
+		case bashPid:
+			return proc.Info{PPid: makepkgPid, Start: s + 3, Exe: "/usr/bin/bash", Session: pid}, nil
+		case makepkgPid:
+			return proc.Info{PPid: yayPid, Start: s + 2, Exe: "/usr/bin/bash", Comm: "makepkg", Session: pid}, nil
+		case yayPid:
+			return proc.Info{PPid: pid, Start: s + 1, Exe: "/usr/bin/yay", Session: pid}, nil
 		case helperPid2:
 			return proc.Info{PPid: sudoPid2, Start: s + 20, Exe: "/fake/archmaid", Session: pid}, nil
 		case foreignPid:
@@ -76,7 +103,7 @@ func newKeepRig(t *testing.T, deps Deps) *keepRig {
 		case sudoPid2:
 			return proc.Info{PPid: pid, Start: s + 11, Exe: "/usr/bin/sudo"}, nil
 		case pid:
-			return proc.Info{PPid: 1, Start: s, Exe: "/usr/bin/sh", Session: pid}, nil
+			return proc.Info{PPid: 1, Start: s, Exe: "/usr/bin/topgrade", Session: pid}, nil
 		}
 		return proc.Info{}, errors.New("no such process")
 	})
@@ -176,6 +203,37 @@ func TestKeepAnswersTheRunsSudo(t *testing.T) {
 	k.d.Send(engine.CancelPrompt{Prompt: p.ID})
 	if line := got(t, again); line != "" {
 		t.Fatalf("a sudo asking again got %q", line)
+	}
+}
+
+// Only topgrade and the yay it runs may stand between the step and a sudo
+// the kept password answers: step (topgrade) → yay → sudo is answered
+// without asking; step → yay → makepkg → a PKGBUILD's bash → sudo gets the
+// user's dialog naming that bash, never the kept password, and keeps it
+// for topgrade's own sudo.
+func TestKeepOnlyTopgradeAndYay(t *testing.T) {
+	k := newKeepRig(t, Deps{})
+	k.capture()
+	viaYay := k.ask(helperYay)
+	if line := got(t, viaYay); line != "good\n" {
+		t.Fatalf("topgrade → yay → sudo got %q, want the kept password", line)
+	}
+	k.noPrompt("topgrade → yay → sudo")
+	deep := k.ask(helperDeep)
+	p := k.prompt()
+	if p.Requester != "/usr/bin/bash (pid "+strconv.Itoa(bashPid)+")" {
+		t.Errorf("the dialog names %q, want the PKGBUILD's bash", p.Requester)
+	}
+	k.d.Send(engine.CancelPrompt{Prompt: p.ID})
+	if line := got(t, deep); line != "" {
+		t.Fatalf("a sudo under makepkg got %q", line)
+	}
+	if !k.d.keep.Has() {
+		t.Fatal("a refused-to-answer chain dropped the kept password")
+	}
+	own := k.ask(helperPid2) // topgrade's own sudo
+	if line := got(t, own); line != "good\n" {
+		t.Fatalf("topgrade's own sudo got %q", line)
 	}
 }
 

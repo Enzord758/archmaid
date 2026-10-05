@@ -176,16 +176,17 @@ func CheckPasswordBytes(ctx context.Context, pw []byte) (detail string, err erro
 }
 
 // AnswerBytes is Answer for a password held as bytes (a KeptPassword's):
-// the same checks (Verify passed, no line break, su accepts it), then pw
-// and a newline are written to sudo's helper. The caller still owns pw.
-func (r *Request) AnswerBytes(pw []byte) (detail string, err error) {
+// the same checks (Verify passed, no line break, su accepts it, under ctx:
+// the run's, so Close stops a su in flight), then pw and a newline are
+// written to sudo's helper. The caller still owns pw.
+func (r *Request) AnswerBytes(ctx context.Context, pw []byte) (detail string, err error) {
 	if !r.verified.Load() {
 		return "", ErrUnverified
 	}
 	if bytes.ContainsAny(pw, "\r\n") {
 		return "", ErrLineBreak
 	}
-	if detail, err := CheckPasswordBytes(context.Background(), pw); err != nil {
+	if detail, err := CheckPasswordBytes(ctx, pw); err != nil {
 		return detail, err
 	}
 	line := make([]byte, len(pw)+1)

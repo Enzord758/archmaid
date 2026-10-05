@@ -365,12 +365,37 @@ func setSystem(s system) (restore func()) {
 // Requester is who a verified request came from: the process that ran sudo.
 // Sudo names that sudo (its pid and start time, so a second request from
 // the same sudo process can be told apart from another sudo's), and Session
-// is the askpass helper's session id.
+// is the askpass helper's session id. Chain is the real binary of every
+// process from sudo's caller up to the step's child, in that order ("" for
+// one that couldn't be read).
 type Requester struct {
 	CallerExe string // its real binary; "" if unreadable
 	CallerPid int
 	Sudo      Peer
 	Session   int
+	Chain     []string
+}
+
+// keptCallers are the programs the GUI's kept password (KeptPassword) may
+// answer a sudo for: topgrade, the step, and the yay it runs. pacman never
+// runs sudo (it runs as root under it), and nothing else belongs between
+// the step and its sudo: a makepkg, or a shell from a PKGBUILD's build(),
+// gets the user's dialog naming it, never the kept password.
+var keptCallers = map[string]bool{"/usr/bin/topgrade": true, "/usr/bin/yay": true}
+
+// KeptMayAnswer reports whether the kept password may answer this request:
+// every process from sudo's caller up to the step's child is one of the
+// keptCallers (docs/HANDOVER.md, "The GUI keeps the run's password").
+func (r Requester) KeptMayAnswer() bool {
+	if len(r.Chain) == 0 {
+		return false
+	}
+	for _, exe := range r.Chain {
+		if !keptCallers[exe] {
+			return false
+		}
+	}
+	return true
 }
 
 // verifyPeer decides whether a request from peer may have the password
@@ -425,9 +450,13 @@ func verifyPeer(peer Peer, stepPid int, stepStart uint64, o system) (Requester, 
 	}
 
 	pid, p, child := helper.PPid, sudo, helper
+	var chain []string
 	for depth := 0; ; depth++ {
 		if p.Start > child.Start {
 			return Requester{}, fmt.Errorf("pid %d was reused", pid)
+		}
+		if pid != helper.PPid { // sudo's caller and up
+			chain = append(chain, p.Exe)
 		}
 		if pid == stepPid {
 			if p.Start != stepStart {
@@ -444,7 +473,7 @@ func verifyPeer(peer Peer, stepPid int, stepStart uint64, o system) (Requester, 
 		}
 	}
 
-	from := Requester{CallerPid: sudo.PPid, Sudo: Peer{Pid: helper.PPid, UID: sudo.EUID, Start: sudo.Start}, Session: helper.Session}
+	from := Requester{CallerPid: sudo.PPid, Sudo: Peer{Pid: helper.PPid, UID: sudo.EUID, Start: sudo.Start}, Session: helper.Session, Chain: chain}
 	if caller, err := readProc(sudo.PPid); err == nil {
 		from.CallerExe = caller.Exe
 	}

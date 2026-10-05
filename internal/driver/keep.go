@@ -9,10 +9,12 @@ package driver
 //   - sudo's askpass, only for a request privilege.Request.Verify passed
 //     against the running step's child (our uid, our helper, run by sudo,
 //     inside that child's process tree), whose step is a NeedsPriv child,
-//     and whose helper is in that child's session (Detach makes every step
-//     a session leader). A sudo process that asks a second time after a
-//     kept answer was refused it: the kept password is dropped for good
-//     and the request goes to the Session (the user) instead;
+//     whose helper is in that child's session (Detach makes every step a
+//     session leader), and whose sudo was started by topgrade or yay with
+//     nothing else between it and the step (Requester.KeptMayAnswer: a
+//     makepkg or a PKGBUILD's shell gets the user's dialog). A sudo process
+//     that asks a second time was refused what it got: the kept password
+//     is dropped for good and the request goes to the Session (the user);
 //   - polkit's text agent, only while a helper step runs (the agent itself
 //     only passes on prompts for archmaid's helper actions, for the current
 //     user).
@@ -127,6 +129,11 @@ func (d *Driver) askpassRequest(m msg) (engine.Input, bool) {
 	if !d.keep.Has() || !d.childPriv[d.lastChild] {
 		return in, false
 	}
+	if !from.KeptMayAnswer() {
+		// Something else stands between the step and this sudo (makepkg,
+		// a PKGBUILD's shell): the user's dialog, naming the caller.
+		return in, false
+	}
 	c := d.children[d.lastChild]
 	if d.cfg.Detach && from.Session != c.Pid {
 		return in, false // not in the step's own session
@@ -135,7 +142,7 @@ func (d *Driver) askpassRequest(m msg) (engine.Input, bool) {
 	d.work(func() engine.Input {
 		pw, err := d.keep.Copy()
 		if err == nil {
-			_, err = r.AnswerBytes(pw)
+			_, err = r.AnswerBytes(d.root, pw)
 			clear(pw)
 		}
 		if err != nil {
