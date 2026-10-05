@@ -196,6 +196,7 @@ var absoluteAllowed = map[string]string{
 	"internal/privilege/askpass.go:/usr/bin/sudo":   "sudoPath: compared against the askpass peer's parent, never run",
 	"internal/proc/sudo_test.go:/usr/bin/sudo":      "CheckSudo's table: classified, never run",
 	"internal/driver/askpass_test.go:/usr/bin/sudo": "a fake /proc entry's Exe for Request.Verify, never run",
+	"internal/driver/keep_test.go:/usr/bin/sudo":    "a fake /proc entry's Exe for Request.Verify, never run",
 	// The GUI module's harness: the sudo shim's Exe in its fake /proc view.
 	"gui/internal/ui/realdriver_harness_test.go:/usr/bin/sudo": "the sudo shim's Exe in a fake /proc view for Request.Verify, never run",
 }

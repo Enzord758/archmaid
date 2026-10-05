@@ -50,7 +50,6 @@ import (
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
-	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/Enzord758/archmaid/internal/sysstat"
 )
@@ -84,6 +83,18 @@ type Deps struct {
 	// running step's child before the Session sees it, and never closes
 	// the Server: its owner does, after Close.
 	Askpass <-chan *privilege.Request
+
+	// KeepPassword is the GUI's one password per run (keep.go): the first
+	// password the user gives the run is kept (privilege.KeptPassword)
+	// and answers the run's later askpass and Agent prompts itself. It is
+	// wiped when the run ends, however it ends, and at KeepFor (zero: 60
+	// min). The TUI leaves it off.
+	KeepPassword bool
+	KeepFor      time.Duration
+	// Agent delivers polkit's text agent's prompts during helper steps
+	// (the GUI's; see AgentPrompt); nil means none. Each is answered from
+	// the kept password, or by the user through the Session.
+	Agent <-chan AgentPrompt
 
 	// Prefetch starts the named prefetch (steps.Prefetch*) and returns it,
 	// or nil for a name it doesn't know. Nil means no prefetching: a step
@@ -177,16 +188,34 @@ type Driver struct {
 	lastChild uint64                             // the newest child still running
 	cancels   map[uint64]context.CancelCauseFunc // in-process steps, discoveries, helper steps
 	prefetch  map[string]Prefetch                // running prefetches
-	asks      map[uint64]*privilege.Request      // open askpass requests
+	asks      map[uint64]asker                   // open askpass and agent requests
 	lastAsk   uint64
-	keepAlive chan struct{} // closed to stop the refresh; nil when off
+	childPriv map[uint64]bool         // running children whose step is NeedsPriv
+	helpers   map[uint64]bool         // running helper steps (polkit)
+	keep      *privilege.KeptPassword // Deps.KeepPassword; nil otherwise
+	askedBy   map[sudoKey]bool        // sudo processes that asked this run
+	keepAlive chan struct{}           // closed to stop the refresh; nil when off
 }
 
 // msg is what reaches the loop besides Commands: an Input, or an askpass
 // request still to verify.
 type msg struct {
-	in  engine.Input
-	ask *privilege.Request
+	in    engine.Input
+	ask   *privilege.Request
+	agent AgentPrompt
+	// noKeep: the kept password was tried for this request and failed:
+	// it goes to the Session.
+	noKeep bool
+}
+
+// hangUp ends what m carries unanswered, for a Driver that has stopped.
+func (m msg) hangUp() {
+	if m.ask != nil {
+		m.ask.Cancel()
+	}
+	if m.agent != nil {
+		m.agent.Cancel()
+	}
 }
 
 var _ engine.Driver = (*Driver)(nil)
@@ -222,23 +251,33 @@ func New(s *engine.Session, cfg Deps) *Driver {
 	}
 	root, cancel := context.WithCancel(context.Background())
 	d := &Driver{
-		cfg:      cfg,
-		s:        s,
-		events:   make(chan engine.Event),
-		out:      newOutbox(cfg.FlushEvery, cfg.MaxLines),
-		inputs:   make(chan msg, 64),
-		cmdReady: make(chan struct{}, 1),
-		quit:     make(chan struct{}),
-		stop:     make(chan struct{}),
-		done:     make(chan struct{}),
-		aborted:  make(chan struct{}),
-		root:     root,
-		cancel:   cancel,
-		pubDone:  make(chan struct{}),
-		children: map[uint64]*proc.Child{},
-		cancels:  map[uint64]context.CancelCauseFunc{},
-		prefetch: map[string]Prefetch{},
-		asks:     map[uint64]*privilege.Request{},
+		cfg:       cfg,
+		s:         s,
+		events:    make(chan engine.Event),
+		out:       newOutbox(cfg.FlushEvery, cfg.MaxLines),
+		inputs:    make(chan msg, 64),
+		cmdReady:  make(chan struct{}, 1),
+		quit:      make(chan struct{}),
+		stop:      make(chan struct{}),
+		done:      make(chan struct{}),
+		aborted:   make(chan struct{}),
+		root:      root,
+		cancel:    cancel,
+		pubDone:   make(chan struct{}),
+		children:  map[uint64]*proc.Child{},
+		cancels:   map[uint64]context.CancelCauseFunc{},
+		prefetch:  map[string]Prefetch{},
+		asks:      map[uint64]asker{},
+		childPriv: map[uint64]bool{},
+		helpers:   map[uint64]bool{},
+		askedBy:   map[sudoKey]bool{},
+	}
+	if cfg.KeepPassword {
+		keepFor := cfg.KeepFor
+		if keepFor <= 0 {
+			keepFor = defaultKeepFor
+		}
+		d.keep = privilege.NewKeptPassword(keepFor)
 	}
 	go func() {
 		defer close(d.pubDone)
@@ -247,6 +286,9 @@ func New(s *engine.Session, cfg Deps) *Driver {
 	d.goRun(d.ticker)
 	if cfg.Askpass != nil {
 		d.goRun(d.readAskpass)
+	}
+	if cfg.Agent != nil {
+		d.goRun(d.readAgent)
 	}
 	go d.loop()
 	return d
@@ -298,6 +340,7 @@ func (d *Driver) Aborted() <-chan struct{} { return d.aborted }
 // second signal, after Aborted): nothing a run started may outlive it.
 // Safe from any goroutine; without Detach it does nothing.
 func (d *Driver) KillNow() {
+	d.keep.Wipe() // the GUI exits now: nothing of the run's password stays
 	d.detachedMu.Lock()
 	kids := slices.Clone(d.detached)
 	d.detachedMu.Unlock()
@@ -332,9 +375,7 @@ func (d *Driver) post(m msg) {
 	select {
 	case d.inputs <- m:
 	case <-d.stop:
-		if m.ask != nil {
-			m.ask.Cancel()
-		}
+		m.hangUp()
 	}
 }
 
@@ -480,12 +521,21 @@ func (d *Driver) command(c engine.Command) bool {
 // it; false when the Session panicked.
 func (d *Driver) handle(m msg) bool {
 	in := m.in
-	if m.ask != nil {
-		in = d.verify(m.ask)
+	var done bool
+	switch {
+	case m.ask != nil:
+		in, done = d.askpassRequest(m)
+	case m.agent != nil:
+		in, done = d.agentRequest(m)
+	}
+	if done {
+		return true // answered or hung up by the Driver: nothing for the Session
 	}
 	switch in := in.(type) {
 	case engine.StepExited:
 		delete(d.children, in.Seq) // reaped
+		delete(d.childPriv, in.Seq)
+		delete(d.helpers, in.Seq)
 		d.release(in.Seq, steps.ErrResultTaken)
 	case engine.Discovered:
 		d.release(in.Seq, steps.ErrResultTaken)
@@ -517,39 +567,35 @@ func (d *Driver) release(seq uint64, cause error) {
 
 // verify names an askpass request for the Session: its peer checked
 // against the running step's child (privilege.Request.Verify), Refused
-// saying why when it fails.
-func (d *Driver) verify(r *privilege.Request) engine.Input {
+// saying why when it fails (ok false). from is who asked, when verified.
+func (d *Driver) verify(r *privilege.Request) (in engine.Input, from privilege.Requester, ok bool) {
 	d.lastAsk++
-	d.asks[d.lastAsk] = r
-	in := engine.AskpassRequest{Req: d.lastAsk, Prompt: r.Prompt}
+	d.asks[d.lastAsk] = sudoAsk{r}
+	req := engine.AskpassRequest{Req: d.lastAsk, Prompt: r.Prompt}
 	c := d.children[d.lastChild]
 	if c == nil {
-		in.Refused = "no step's child is running"
-		return in
+		req.Refused = "no step's child is running"
+		return req, from, false
 	}
 	from, err := r.Verify(c.Pid, c.Start)
 	if err != nil {
-		in.Refused = err.Error()
-		return in
+		req.Refused = err.Error()
+		return req, from, false
 	}
-	in.Requester = requester(from)
-	return in
+	req.Requester = requesterOf(from)
+	return req, from, true
 }
 
-// requester names a verified caller as the TUI's askpass popup does: its
-// binary (the tail of the path, at most 40 runes), then its pid.
-func requester(from privilege.Requester) string {
-	exe := from.CallerExe
-	if exe == "" {
-		exe = "an unknown program"
-	}
-	return fmt.Sprintf("%s (pid %d)", sanitize.ClipTail(sanitize.OneLine(exe), 40), from.CallerPid)
-}
-
-// apply starts o's Effects in order, then publishes its Events.
+// apply starts o's Effects in order, then publishes its Events. A Finished
+// ends the run, and with it the kept password (keep.go).
 func (d *Driver) apply(o engine.Output) {
 	for _, e := range o.Effects {
 		d.effect(e)
+	}
+	for _, ev := range o.Events {
+		if _, ok := ev.(engine.Finished); ok {
+			d.keep.Wipe()
+		}
 	}
 	d.out.push(o.Events)
 }
@@ -579,10 +625,11 @@ func (d *Driver) teardown(asked bool) {
 	for name := range d.prefetch {
 		d.cancelPrefetch(name)
 	}
-	for id, r := range d.asks {
-		r.Cancel()
+	for id, a := range d.asks {
+		a.cancel()
 		delete(d.asks, id)
 	}
+	d.keep.Wipe() // the run is over
 	d.setKeepAlive(false)
 	d.wg.Wait()
 	// A detached child's group outlives the child until its Stop has
@@ -595,9 +642,7 @@ func (d *Driver) teardown(asked bool) {
 	for {
 		select {
 		case m := <-d.inputs:
-			if m.ask != nil {
-				m.ask.Cancel()
-			}
+			m.hangUp()
 			continue
 		default:
 		}

@@ -24,6 +24,7 @@ type Helper func(ctx context.Context, seq uint64, st steps.Step, emit func(engin
 func (d *Driver) startHelper(e engine.StartStep) {
 	ctx, cancel := context.WithCancelCause(d.root)
 	d.cancels[e.Seq] = cancel
+	d.helpers[e.Seq] = true // until its StepExited: polkit's agent may ask
 	d.work(func() engine.Input {
 		// Its Err is in the StepExited it emitted; the rest is for logs.
 		d.cfg.Helper(ctx, e.Seq, e.Step, func(in engine.Input) { d.post(msg{in: in}) })

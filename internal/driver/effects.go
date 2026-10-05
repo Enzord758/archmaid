@@ -64,18 +64,21 @@ func (d *Driver) effect(e engine.Effect) {
 	case engine.CancelPrefetch:
 		d.cancelPrefetch(e.Name)
 	case engine.AnswerAskpass:
-		r := d.asks[e.Req]
-		if r == nil {
+		a := d.asks[e.Req]
+		if a == nil {
 			return // hung up already; the Session asks only for an open one
 		}
 		pw := string(e.Password)
 		d.work(func() engine.Input {
-			detail, err := r.Answer(pw)
+			detail, err := a.answer(d.root, pw)
+			if err == nil {
+				d.keepAnswer(a, pw)
+			}
 			return engine.AskpassAnswered{Req: e.Req, OK: err == nil, Detail: detail}
 		})
 	case engine.HangUpAskpass:
-		if r := d.asks[e.Req]; r != nil {
-			r.Cancel()
+		if a := d.asks[e.Req]; a != nil {
+			a.cancel()
 			delete(d.asks, e.Req)
 		}
 	}
@@ -149,6 +152,7 @@ func (d *Driver) startStep(e engine.StartStep) {
 	c := proc.New(opts).Start(d.cfg.Priv.Command(st.Argv, st.NeedsPriv), ch, nil)
 	if c != nil {
 		d.children[e.Seq] = c
+		d.childPriv[e.Seq] = st.NeedsPriv
 		d.lastChild = e.Seq
 		if d.cfg.Detach {
 			d.detachedMu.Lock()
