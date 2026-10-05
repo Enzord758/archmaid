@@ -80,7 +80,7 @@ restyled: the rail with tags from `PlanStep.Confirm` (`asks`) and
 `PlanStep.NeedsPriv` (`root`). The notes are computed from the plan: the
 root count, each `Confirm` step by number, and the AUR gate. The exact
 strings, before and after one-password, are in 1.11. The mockup's "up
-front" is wrong under polkit. "Dry run instead" is open question Q3.
+front" is wrong under polkit. "Dry run instead" is dropped (decision Q3).
 
 Every other confirm (orphans with Direct/Cascade lists, the cache wipe,
 Repair's reinstall, the AUR gate before topgrade, downloads, services
@@ -535,7 +535,32 @@ Dev B starts with 4–8 while Dev 4 does 1–3, so the UI commits find their
 data ready. Commits 11 and 13 are the risky ones (the pump and the password
 path): give each its own review.
 
-## 7. Open questions for the owner
+What the decisions (section 7) add to the plan:
+
+- **Q12, a clean page per run:** row 6 makes a new queue start with empty
+  output and adds `runview.Model.Clear`. Dev 4's row 11 calls
+  `w.redraw(w.model.Clear())` in `startAction`, so an action that ends in a
+  notice doesn't show the last run's output either. It has a harness check:
+  the second run's page holds none of the first run's lines.
+- **Q13, a gate for Run topgrade:** `actions.Action.Gate` on Run topgrade,
+  plus the TUI's `topgrade_*` transcript goldens, as a separate commit by
+  **Dev 3** (`internal/actions`, `internal/tui/testdata`). No P8 row touches
+  those files.
+- **Q9, the meters:** row 4 goes ahead.
+- **Q3:** no "Dry run instead" button; "Dry run first" stays on the hero
+  (row 10).
+- **Q7:** "Open in editor" also works in a dry run (row 15).
+- **Q8:** the output keeps DMS's dank16 palette, and the timeline's state
+  colours are Tokyo Night (3.1).
+- **Q4, Q5, Q6, Q10, Q11:** as recommended (system font with an optional
+  Barlow; Adwaita symbolic icons; prefix badges only; corner marks on the
+  hero, primary buttons and dialogs; 960×640).
+
+## 7. Decisions (owner, 2026-10-05)
+
+The owner accepted every recommendation below as written; each question
+stands as the record of what was decided and why. With that the plan in
+section 6 is final.
 
 1. **The password: inline card or dialog?** The mockup asks inline. *Recommend
    the dialog, styled as the card.* An inline entry can be scrolled away or
