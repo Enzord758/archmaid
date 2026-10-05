@@ -74,10 +74,9 @@ Becomes: the same `AdwAlertDialog` and the same responses (yes =
 `Confirm{Yes:true}`, no or close = `Confirm{Yes:false}`). The extra child is
 restyled: the rail with tags from `PlanStep.Confirm` (`asks`) and
 `PlanStep.NeedsPriv` (`root`). The notes are computed from the plan: the
-root count, and each `Confirm` step by number. The password sentence must
-say what decision F does: "One password for this run, asked the first time a
-step needs it." The mockup's "up front" is wrong under polkit. "Dry run
-instead" is open question Q3.
+root count, each `Confirm` step by number, and the AUR gate. The exact
+strings, before and after one-password, are in 1.11. The mockup's "up
+front" is wrong under polkit. "Dry run instead" is open question Q3.
 
 Every other confirm (orphans with Direct/Cascade lists, the cache wipe,
 Repair's reinstall, the AUR gate before topgrade, downloads, services
@@ -101,8 +100,44 @@ only".
 Becomes: a restyle of the dialog, which stays a dialog (Q1). The card's
 content maps 1:1: `NeedsPassword.Requester`, `Prompt` (sanitized, clipped),
 `Error`, `AttemptsLeft`, `Kind` (up front or askpass), and one-password's
-"kept for this run" line. The synthetic "Waiting for sudo · asked by …" line
-in the step block is display-only (`runview`, never logged).
+`KeptNote`. The synthetic "Waiting for sudo · asked by …" line in the step
+block is display-only (`runview`, never logged).
+
+**Why a dialog, and what an inline card would have to rebuild.** The
+password path is the most-reviewed code in the GUI, and its guarantees are
+tied to `AdwAlertDialog`'s mechanics:
+
+- **Act on `response`, never on `closed`** (bc5646b). A clicked button closes
+  the dialog first and emits `response` after it. Wiping the entry at
+  `closed` once sent an empty password for every click on Authenticate. The
+  entry is now wiped at `closed` only from an idle, after `respond` has read
+  it. Enter in the entry runs `respond("ok")` and then `ForceClose`.
+- **The entry is read as C bytes** (`secret.go`), wiped, and the bytes zeroed
+  after the `Secret` is built.
+- **Every answer goes through `Window.answer`**, which sends only when
+  `Model.Answer` claims the prompt ID. An engine withdrawal (`PromptClosed`,
+  the engine stopping) is `ForceClose` with no response: the entry is wiped
+  and nothing is sent.
+- **The harness clicks the real buttons** (`findButton`), which is how both
+  ordering bugs were caught.
+
+An inline card in the timeline has no response signal. It would need its
+own Authenticate/Cancel/Enter handling, its own wipe on withdrawal, its own
+"stale ID" check, and a wipe when the row is recycled or scrolled away (a
+`ListView` header is rebuilt on scroll, and a rebuilt header loses the
+typed text). It would also need a way to reach a user who is on another
+page when the prompt comes. That is a second implementation of the
+password path, to be reviewed again, for a look the dialog can carry.
+
+**With one-password** the dialog still appears exactly once per run in the
+normal case (the first prompt, from topgrade's sudo or from polkit's agent),
+with `KeptNote` ("archmaid keeps it in memory for this run only, so the run
+doesn't ask again."). Later prompts are answered from the kept password and
+show nothing. A kept password that su or polkit refuses is dropped, and the
+next prompt asks the user again through the same dialog. Under one-password,
+polkit's agent prompt arrives as `NeedsPassword{Kind: PasswordAskpass,
+Requester: "polkit, for org.archmaid.helper.full-cleanup"}`, so the heading
+can no longer say "sudo" (1.11).
 
 ### 1.5 Run (running, failed, dry run)
 
@@ -191,11 +226,40 @@ Breakpoints (`AdwBreakpoint` on the window):
 | Right-hand confirm sheet with a scrim | no anchored side sheet that is also a modal dialog; `AdwOverlaySplitView`'s overlay isn't modal (no focus trap, no response semantics) | `AdwAlertDialog` (centred; a bottom sheet in narrow windows automatically) (Q2) |
 | Inline sudo card in the timeline | a password entry inside a recycled `ListView` row or header loses its text and its focus on scroll; a prompt arriving while another page is shown would go unseen | the dialog, restyled as the card (Q1) |
 | Output as rich rows (package tables with columns, progress bars) | output is an untrusted, sanitized byte stream, and curl's progress is `\r`-redrawn text; parsing it into tables is guesswork that breaks on the next yay/topgrade version | SGR colours as today, plus optional prefix badges (Q6) |
-| A 50k-line output split into per-step expandable blocks | an `AdwExpanderRow` per step with labels inside would not virtualize | ONE `GtkListView` over a `GtkFlattenListModel` of per-step `GtkStringList`s (a section model): `SetHeaderFactory` draws each step's timeline header (gotk4 v0.4.1 binds both). Collapsing a step swaps its child model for an empty one. The flood budgets stay as they are |
+| A 50k-line output split into per-step expandable blocks | an `AdwExpanderRow` per step with labels inside would not virtualize | ONE `GtkListView` over a `GtkFlattenListModel` of per-step `GtkStringList`s (a section model); `SetHeaderFactory` draws each step's timeline header (gotk4 v0.4.1 binds both). A section is never empty: a pending or collapsed step's child model holds one summary item, because an empty section draws no header. The throughput design and its guards are in 3.2 |
 | Barlow / Barlow Condensed | not installed here (only JetBrains Mono is) | CSS `font-family: "Barlow Condensed", "Adwaita Sans", sans-serif`; Q4 |
 | Lucide icons | not in the icon theme | Adwaita symbolic icons in v1 (Q5) |
 | Square corners everywhere | libadwaita rounds buttons, dialogs and boxed lists | app CSS `border-radius: 0` on our classes (not global overrides of libadwaita internals beyond `dialog.floating sheet` and `.boxed-list`) |
 | Striped dry-run header | none | `repeating-linear-gradient` in GTK CSS on the header's class |
+
+### 1.11 User-facing strings: mockup → what ships
+
+The mockup's copy describes the old TUI flow. Every string below is
+replaced. Counts and step numbers are computed from the plan
+(`QueueStarted`/`NeedsConfirm.Plan`, after `StepInserted`), never fixed. The
+**F** column is the text once `feat/gui-one-password` is merged; a dash
+means the same as today.
+
+| Where | Mockup | Today (4d3b11d+, polkit, one combined call) | F (one-password) |
+|---|---|---|---|
+| Hero kicker | "Recommended · 7 of 9 steps as root" | "Recommended · {N} steps · root steps in one authorisation" | — |
+| Hero description | "…then trims the package cache, removes orphans, clears old temp files, vacuums the journal and checks package integrity." | "Audits your AUR packages, updates the system with topgrade, then removes orphans (you confirm the list), trims the package cache, clears old temp files, vacuums the journal, checks package integrity and cleans the AUR build cache." | — |
+| Confirm kicker | "9 steps, in this order" | "{N} steps, in this order" | — |
+| Confirm note (password) | "Seven steps run as root. One password prompt, up front." | "{M} steps run as root, together, after one polkit authorisation that comes after topgrade. If topgrade's sudo needs your password, archmaid asks for it in its own dialog." | "{M} steps run as root, together. You type your password once, the first time a step needs it; archmaid keeps it for this run only." |
+| Confirm note (asks) | "Step 05 asks again before it wipes the whole package cache." | "Step {n} asks before it deletes the entire package cache." For an inserted orphan removal: "Orphans are listed for you to confirm before anything is removed." | — |
+| Confirm note (AUR gate) | — | "If an AUR package changed maintainer or gained a co-maintainer, you're asked before the update." | — |
+| Password heading (askpass) | "sudo needs your password" | "sudo Asks for Your Password" (keep) | "archmaid Needs Your Password" (it may be sudo's or polkit's prompt) |
+| Password body | "Asked by /usr/bin/yay (pid 44045) · [sudo] password for enzord" | "Asked by {Requester}." + sudo's prompt, sanitized, ≤ 48 runes | the same, plus `KeptNote`; for polkit "Asked by polkit, for org.archmaid.helper.full-cleanup." |
+| Password error | "Wrong password · 2 attempts left. After 3, the root steps are skipped." | the engine's `Error` verbatim ("Incorrect password — 2 attempts left", or a lockout notice) and nothing invented after it. The mockup's "after 3, the root steps are skipped" is not what an askpass refusal does (it fails the asking step) | — |
+| Up-front password heading | — | the gate text (`NeedsPassword.Gate`) or "Password Required" | — |
+| Waiting row | — (not drawn) | "Waiting for authorisation…" / "… · one more failure locks your account" (`Row.Subtitle`) | — |
+| Refused row | — | "Not authorised" / "Not authorised · account locked until HH:MM" | — |
+| Dry-run tag | "DRY RUN · NOTHING CHANGES" | "DRY RUN · NOTHING ON THE SYSTEM CHANGES" (a dry run still asks the AUR and writes `dryrun/` logs) | — |
+| Settings dry-run help | "…Logs everything to dryrun/ and skips sudo." | "…Logs everything to dryrun/ and asks for no password or authorisation." | — |
+| Action: Delete old downloads | "Files in ~/Download older than 30 days" | "Files and folders not changed in 30 days, from your downloads folder" | — |
+| Action: Run topgrade | "System update, output streamed live" | "Audits your AUR packages, then updates the system with topgrade" | — |
+| Run kicker, finished | "Finished with 1 failure" | `runview.FinishedText` ("Finished: failed (1 step)", "Finished: incomplete (n steps not authorised)", …) | — |
+| Failed-step buttons | "Run topgrade again" / "Open topgrade.log" / "Copy error" | "Run topgrade" / "Open topgrade.log" / "Copy error" (A6: it starts the action, not the step) | — |
 
 ## 2. The minor additions (new functions, data and controls)
 
@@ -206,7 +270,7 @@ Breakpoints (`AdwBreakpoint` on the window):
 | A3 | **Dry run first**: one Start as a dry run, without changing the saved setting | hero card | **GUI-only**: `startAction` takes a one-off `DryRun` that goes into that Driver's `engine.Options` (`settings.Apply` + override). The Settings switch is untouched |
 | A4 | **Open in Logs** (last run → its run folder), **Open folder** (Logs page and Settings) | Overview, Logs, Settings | **GUI-only**: the run folder from the record's `Started` minute (the folder's stamp) with a fallback to the newest real run; folders open with `gtk.FileLauncher`. Optional, small backend: a `run_dir` field in `RunRecord` (additive, the widget contract allows it) |
 | A5 | Output grouped per step, with a one-line summary per finished step | Run | **GUI-only** (`runview`): the model tags each line with its step (`OutputChunk.Index` already says which); the 10k-line cap stays per run and drops from the oldest step first. The summary is the failed step's `Err`, else its last non-empty line, else its `LogLabel` |
-| A6 | Failed-step actions: **Run <action> again** (offered when the failed step is topgrade: it starts Run topgrade), **Open <category>.log**, **Copy error** | Run | **GUI-only**: `startAction`, the Logs page at the run and `PlanStep.Category`, `gdk.Clipboard` with the step's `Err` and its last lines (already sanitized). Not while busy |
+| A6 | Failed-step actions: **Run <action> again** (offered when the failed step is topgrade: it starts Run topgrade), **Open <category>.log**, **Copy error** | Run | **Pure frontend, no engine command.** "Run topgrade" is `startAction(actions.IDTopgrade)`: a fresh Driver and an ordinary `engine.Start`, with its AUR audit, gate and password exactly as a click on the action. Only when the failed step maps to a menu action of its own (topgrade → Run topgrade); otherwise the button reads "Run {action} again" and starts the same action. Retrying one step inside a finished run doesn't exist in the engine, and P8 doesn't add it. "Copy error" puts the step's `Err` and its last 20 output lines (already sanitized text from the model) on `gdk.Display.Clipboard()`. "Open {category}.log" shows the Logs page at the run and `PlanStep.Category`. All three show only after `Finished` (not while busy) |
 | A7 | The log viewer: entry headers parsed (`[ts] KIND: label`) into a result line, topgrade's "―― HH:MM:SS - name ――" separators into collapsible sections, and a search bar that filters lines | Logs | **GUI-only** (`logview`, read only as today) |
 | A8 | **Choose…** for the downloads folder | Settings | **GUI-only**: `gtk.FileDialog.SelectFolder`; the result is checked by `settings.CheckDownloads` like a typed path |
 | A9 | **Edit topgrade config**: Settings → Topgrade → Open in editor | Settings | **small backend**: move `ensureTopgradeConfig`, `configPath` and `defaultTopgradeConfig` out of `internal/tui/tasks.go` into `internal/frontend` (the TUI keeps its behaviour, `coverage_test`'s `editConfig` checks stay). GUI: create with defaults if missing, then `gtk.FileLauncher` on the file (the desktop's default app for it; `SetAlwaysAsk` when none is set), with **Show in folder** (`OpenContainingFolder`) as the fallback. No privilege, no `$EDITOR` (it needs a terminal). An embedded editor (`GtkSourceView`) would need a new cgo binding and GTK dependency, for one file: not worth it (Q7) |
@@ -229,18 +293,123 @@ files.
 | Logs | `AdwNavigationSplitView` (sidebar: runs `GtkListBox`; content: `AdwToolbarView` with `AdwToggleGroup` for the categories, a `GtkSearchBar`, Open folder; the body is one `GtkListView` with sections, as on the Run page) |
 | Settings | `GtkFlowBox` (max 2 per line) of `GtkBox.card.blueprint` cells, holding the existing `AdwSwitchRow`/`AdwEntryRow` in a `boxed-list` (keeps their accessibility and the harness's handles) |
 
-**CSS**: one `gui/internal/ui/style.css`, embedded with `go:embed` and
-loaded by a `gtk.CssProvider` at `APPLICATION` priority in `Main`. Tokyo
-Night as `@define-color` tokens (bg `#1a1b26`, surface `#1f2335`, sidebar
-`#16161e`, text `#c0caf5`, muted `#737aa2`, accent `#7aa2f7`, divider
-`#3b4261`, success `#9ece6a`, warn `#e0af68`, danger `#f7768e`). The
-libadwaita named colours (`window_bg_color`, `accent_bg_color`, …) are
-redefined from them, and `AdwStyleManager` is forced dark. Fonts: headings
-`"Barlow Condensed"` with fallbacks, body the system font, mono `"JetBrains
-Mono", monospace`. Class names are prefixed `am-` so nothing collides with
-libadwaita's. GTK CSS limits to respect: no `::before`/`::after`, no CSS
-grid, no `color-mix()` (precompute the tints as tokens), no `position`.
-Transitions are fine but nothing may animate per output line.
+### 3.1 CSS: layered over the user's DMS theme
+
+DMS themes every GTK4 app through the user stylesheet:
+`~/.config/gtk-4.0/gtk.css` is `@import url("dank-colors.css")`, a
+Matugen-generated file of `@define-color` overrides for libadwaita's named
+colours (`window_bg_color`, `view_bg_color`, `headerbar_bg_color`,
+`sidebar_bg_color`, `card_bg_color`, `dialog_bg_color`, `popover_bg_color`,
+`accent_bg_color`/`accent_fg_color`, `error_*`, `destructive_*`, and the
+backdrop ones). GTK loads it at `GTK_STYLE_PROVIDER_PRIORITY_USER` (800).
+For any property, or any named colour, that a higher-priority provider sets,
+that provider wins whatever the selector's specificity. archmaid's CSS must
+sit under that, not on top of it:
+
+- **One provider, `GTK_STYLE_PROVIDER_PRIORITY_APPLICATION` (600)**:
+  `gui/internal/ui/style.css`, embedded with `go:embed`, added once with
+  `gtk.StyleContextAddProviderForDisplay` in `Main`. It is above the theme
+  (200) and settings (400) and below the user (800), so the user's DMS file
+  still has the last word. Never `USER` or higher, and never a second
+  provider per widget.
+- **Scoped to archmaid.** The window root gets the CSS class `archmaid`
+  (`win.AddCSSClass`), and every selector in `style.css` starts with
+  `.archmaid` (for example `.archmaid .am-step-header`). Our own classes are
+  prefixed `am-`. No bare element selectors (`button`, `window`,
+  `headerbar`). Every `AdwAlertDialog` gets the `archmaid` class too: a
+  dialog that doesn't fit the window is shown as its own floating window,
+  outside the main window's tree.
+- **Never redefine libadwaita's or DMS's colour names.** Our
+  `@define-color` (or `--am-*` custom properties: GTK 4.16+ supports `var()`
+  and `color-mix()`; this machine has 4.22) only defines `am_*` tokens. The
+  first draft's "redefine the named colours and force dark" would fight
+  DMS, and DMS's USER-priority definitions would win anyway. Drop it, and
+  leave `AdwStyleManager` on the system colour scheme.
+- **Surfaces follow DMS.** Window, sidebar, header, cards, dialogs and the
+  accent are left to libadwaita's named colours, so DMS colours them. Our
+  tokens refer to those names (`@define-color am_rail alpha(@window_fg_color, 0.15);`,
+  `am_accent` = `@accent_bg_color`, tints with `color-mix()` from them).
+- **The design's own colours are confined to state.** The Tokyo Night
+  hues, green done, yellow warning, red failed and blue running (`#9ece6a`,
+  `#e0af68`, `#f7768e`, `#7aa2f7`), go only on the timeline markers, the
+  segment bar, the badges and the tags, where libadwaita has no named colour
+  DMS sets (DMS sets `error_*` and the accent; success and warning are
+  libadwaita's own). Whether the surfaces should be Tokyo Night instead of
+  DMS's palette is the owner's call: it is the same decision as Q8 for the
+  output. Switching is one token block in `style.css`, not a code change.
+- **Structure is ours.** Square corners, hairlines, the corner marks, type
+  sizes, the condensed heading font and spacing. DMS's file sets no
+  structural properties, so nothing conflicts.
+
+**When DMS's colours change at runtime** (a new wallpaper rewrites
+`dank-colors.css`), GTK owns reloading the user stylesheet. archmaid adds no
+file monitor of its own and must not cache a resolved colour. Every colour
+in `style.css` is a symbolic reference, resolved when the style is
+computed, so whatever restyles other libadwaita windows restyles archmaid's.
+Two things are not CSS and don't follow:
+
+- **The output's ANSI palette.** `runview.LoadPalette` reads DMS's
+  `dms-colors.json` once, when the window starts. Re-read it at every
+  `startAction`: a small, GUI-only change (an addition to A5's commit). A
+  run in progress keeps the colours it started with.
+- **Pango attributes already bound to visible output rows.** They are
+  rebuilt as rows rebind; there is no need to force a refresh.
+
+Dev 5 checks this in the VM: change the DMS scheme with the GUI open, and
+the surfaces and accent must follow while the state colours stay.
+
+Fonts: headings `"Barlow Condensed", "Adwaita Sans", sans-serif`, body the
+system font, mono `"JetBrains Mono", monospace` (Q4). GTK CSS limits that
+remain: no `::before`/`::after` content, no CSS grid, no `position`.
+Transitions are fine, but nothing may animate per output line.
+
+### 3.2 Per-step output under the 50k-line budget
+
+The design keeps every throughput property the current pane has:
+
+- **Structure.** One `GtkListView` over `GtkNoSelection` ←
+  `GtkFlattenListModel` ← a `GListStore` with one `GtkStringList` per step.
+  `GtkFlattenListModel` is a `GtkSectionModel` (each child model is a
+  section) and `SetHeaderFactory` draws the step headers. Only the visible
+  rows and headers exist as widgets, as today.
+- **The model stays the authority.** `runview.Model` keeps the 10k-line
+  `OutputCap` across the whole run, not per step. `Apply` returns the diff
+  per step (`OutRemove` from the oldest step with lines, `OutAppend` to the
+  running step), so a flush is still one `Splice` on the running step's list
+  (plus one on the oldest step's when the cap trims). The flattened
+  model's `items-changed` is that splice offset into the whole list: no
+  rebuild, no per-line signal. Pump, `FlushLines` = 512, `MaxPending` and
+  `Dropped` are unchanged.
+- **Never-empty sections.** A pending or collapsed step's child list holds
+  one summary item. Collapsing or expanding a step is one splice of that
+  step's list, never a rebuild of the others.
+- **Follow-the-bottom** stays one `ScrollTo` per frame from a tick callback.
+- **Colour** stays raw text in the list, with Pango attributes built at bind
+  for the ~30 visible rows.
+
+The guards that prove it (they run on the dev machine, not in CI: CI runs
+the GUI suite without the budgets):
+
+- `ARCHMAID_GUI_PERF=1 gui/scripts/headless.sh`, which is
+  `TestGUIThroughput` over `flood`, `flood-paced`, `flood-default` and
+  `flood-colour`, with its budgets: ≥ 5k lines/s unpaced with nothing
+  dropped, main-thread work per flush p95 ≤ 4 ms, nothing dropped at 10k
+  lines/s paced, RSS after 50k lines < 200 MB. Plus `TestGUIFirstFrameAndIdleRAM`
+  (< 400 ms, < 120 MB).
+- **New with commit 11:** a `flood-steps` scenario, 50k lines over the
+  10-step plan with steps finishing mid-flood (several sections, the cap
+  trimming across a section boundary, collapsed steps), under the same
+  budgets.
+- In plain Go, `BenchmarkApplyFlush` and `BenchmarkApplyFlushColour`
+  (`gui/internal/runview`, ~80 µs for a 512-line colour flush today), plus a
+  new `BenchmarkApplyFlushSections`. Each is compared before and after commit
+  6 with `go test -bench` and benchstat by hand, because
+  `scripts/bench-compare.sh` covers the root module only.
+
+A fallback, if `flood-steps` misses the budget, keeps the visual: one flat
+`GtkStringList` (today's pane) with the step headers as ordinary rows
+interleaved by the model. Collapse then hides a step's lines by splicing
+them out and back. It costs a little more model code and no extra widgets.
 
 ## 4. What stays exactly as it is
 
@@ -293,7 +462,7 @@ when the root module changes).
 | # | Dev | Commit | Depends on | Tests |
 |---|---|---|---|---|
 | 1 | 4 | `gui: screenshots from the headless harness` (`ARCHMAID_GUI_SHOTS=<dir>` writes a PNG per scenario through `gtk.WidgetPaintable`; off by default) | — | the harness; the baseline shots of today's GUI for Dev 5 |
-| 2 | 4 | `gui: Tokyo Night stylesheet and the am- classes` (embedded CSS, forced dark, no layout change) | — | every existing scenario; shots |
+| 2 | 4 | `gui: app stylesheet layered over DMS, the archmaid scope and am- classes` (3.1: APPLICATION priority, `.archmaid` on the window and dialogs, state colours only; no layout change) | — | every existing scenario; shots; a scratch `XDG_CONFIG_HOME/gtk-4.0/gtk.css` with distinctive named colours must win over ours on surfaces (headless) |
 | 3 | 4 | `gui: sidebar shell with breakpoints` (OverlaySplitView, nav list, footer, Stop visible only while busy, narrow bottom status bar) | 2 | all scenarios; `TestGUISmallWindow` extended to 630×372 (sidebar collapsed, title, Stop and dialog title in view) |
 | 4 | B | `sysstat: byte totals for the meters` (A1) | — | fixtures; `BenchmarkSystemStatus` allocs unchanged; bench-compare |
 | 5 | B | `overview: plan preview, descriptions, root tags` (A2; drop View log) | — | plain Go, under polkit and sudo Env; nothing executed (testenv traps) |
@@ -319,6 +488,8 @@ path): give each its own review.
 1. **The password: inline card or dialog?** The mockup asks inline. *Recommend
    the dialog, styled as the card.* An inline entry can be scrolled away or
    missed on another page, and the dialog path is the reviewed, wiped one.
+   1.4 has the full reasoning: response-only handling (bc5646b), the wipe
+   on withdrawal, and one-password's kept-password note.
 2. **The confirm: side sheet or dialog?** *Recommend the dialog* (centred; a
    bottom sheet when narrow). A side sheet would need a hand-made modal.
 3. **"Dry run instead" on the confirm?** Declining the gate is recorded as a
