@@ -147,9 +147,10 @@ comments and `git log`; this is the "read before you touch it" list.
   `SUDO_ASKPASS`); Stop/Close then signal the child's whole process group
   and Close waits until it is gone. Its `Setsid` lives only in
   `internal/proc/detach.go`, which the guard exempts; `TestTUIDoesNotDetach`
-  keeps the TUI off it. Under polkit the AUR-cache step (`yay -Sc`, which
-  runs `sudo pacman -Sc`) is `NeedsPriv` without a Verb, like topgrade, so
-  it gets the askpass. Since the children are detached, a terminal's
+  keeps the TUI off it. Under polkit topgrade is the only step that gets
+  the askpass: the AUR-cache step runs `yay -Sc --aur` without sudo, and
+  its `pacman -Sc` is a part of the helper's full-cleanup (see "Under
+  polkit only topgrade asks"). Since the children are detached, a terminal's
   ctrl+c or hangup reaches only archmaid-gui, which treats SIGINT, SIGTERM
   and SIGHUP as Stop and Quit (`gui/internal/ui/signals.go`): the run is
   aborted and recorded, the groups stopped, and it exits with 128+signal. A
@@ -671,24 +672,15 @@ to:
   the safe assumption. The owner's step-by-step check, with a throwaway
   action and a results table: `docs/polkit-keep-session-check.md`.
 
-- **GUI on the real Driver: not yet run live.** The polkit path, the askpass
-  relay and the progress rows (`Row.Waiting` "Waiting for authorisation…",
-  the faillock warning and lock time, "Not authorised") are tested only
-  against shims (`TESTING.md` → GUI, `real-*`). Still open: the root
-  helper isn't installed by `install.sh` for the GUI yet (`packaging/`).
-  The owner's step-by-step first live run (TUI, helper and policy, GUI,
-  with a results table and rollback): `docs/first-live-run.md`.
-- **`proc.Child.Stop`'s SIGKILL timer outlives `Driver.Close`.**
-  `escalateKill` sleeps the whole `KillGrace` (5 s by default) even when the
-  child is already reaped, so a goroutine survives Close by up to that long
-  (harmless: `Kill` on a reaped process is a no-op). The GUI's `real-close`
-  scenario runs with a 100 ms grace so goleak's retries outwait it.
-- **`archmaid-gui-git` is not live-tested yet.** It now runs on the real
-  Driver (polkit + askpass), but only against shims; install it only for
-  the owner's first live run (`packaging/arch/README.md`). Two launchers
-  are both named "archmaid" once it is installed (the TUI's
-  `archmaid.desktop`, kept as is, and the GUI's); rename the TUI's entry
-  (e.g. "archmaid (terminal)") when the GUI becomes the default front end.
+- **The GUI on the real Driver has been run live** (the owner's run and the
+  VM runs: one polkit dialog per Full Cleanup, topgrade's askpass). The
+  root helper and policy come only from the package (`packaging/arch`);
+  `install.sh` installs the TUI alone, which needs neither. The owner's
+  step-by-step first live run: `docs/first-live-run.md`.
+- **Two launchers named "archmaid"** once `archmaid-gui-git` is installed
+  (the TUI's `archmaid.desktop`, kept as is, and the GUI's); rename the
+  TUI's entry (e.g. "archmaid (terminal)") when the GUI becomes the default
+  front end.
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The
