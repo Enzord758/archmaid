@@ -82,16 +82,49 @@ func TestReadSpawnsNothing(t *testing.T) {
 	}
 }
 
+// TestReadBytes: the meters' byte counts match the fixtures, and the disk's
+// agree with statfs (free never above the size).
+func TestReadBytes(t *testing.T) {
+	p, cache := fixtureRoots(t, "MemTotal:       32557020 kB\nMemFree:        10627556 kB\nMemAvailable:   21546776 kB\n")
+	if err := os.WriteFile(filepath.Join(cache, "a.pkg"), make([]byte, 1<<20), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := Read(p)
+	if s.RAMAvailBytes != 21546776*1024 || s.RAMBytes != 32557020*1024 {
+		t.Errorf("RAM %d of %d", s.RAMAvailBytes, s.RAMBytes)
+	}
+	if s.DiskBytes == 0 || s.FreeBytes > s.DiskBytes {
+		t.Errorf("disk %d free of %d", s.FreeBytes, s.DiskBytes)
+	}
+	// du counts blocks: the 1 MiB file and the directory itself.
+	if s.CacheBytes < 1<<20 || s.CacheBytes > 1<<20+64<<10 {
+		t.Errorf("cache %d bytes, want about 1 MiB", s.CacheBytes)
+	}
+	if s.Cache != humanCeil(s.CacheBytes) || s.RAM != humanRound(s.RAMAvailBytes) || s.Free != humanCeil(s.FreeBytes) {
+		t.Errorf("text and bytes disagree: %+v", s)
+	}
+
+	// No MemTotal line: the total is unknown, the available still read.
+	p2, _ := fixtureRoots(t, "MemAvailable:   1024 kB\n")
+	if s := Read(p2); s.RAMAvailBytes != 1<<20 || s.RAMBytes != 0 || s.RAM != "1.0Mi" {
+		t.Errorf("without MemTotal: %+v", s)
+	}
+}
+
 // TestReadFallbacks: unreadable sources show N/A, never an empty field.
 func TestReadFallbacks(t *testing.T) {
 	p, _ := fixtureRoots(t, "garbage\n")
 	p.Cache = filepath.Join(t.TempDir(), "missing")
 	p.Disk = filepath.Join(t.TempDir(), "missing")
 	want := " Free: N/A   RAM avail: N/A   Cache: N/A"
-	if got := Read(p).Line(); got != want {
+	s := Read(p)
+	if got := s.Line(); got != want {
 		t.Fatalf("status %q, want %q", got, want)
 	}
-	if got := memAvail(filepath.Join(t.TempDir(), "missing")); got != "N/A" {
+	if s.FreeBytes|s.DiskBytes|s.RAMAvailBytes|s.RAMBytes|s.CacheBytes != 0 {
+		t.Fatalf("unreadable sources gave byte counts: %+v", s)
+	}
+	if got, _, _ := memAvail(filepath.Join(t.TempDir(), "missing")); got != "N/A" {
 		t.Fatalf("memAvail of a missing file = %q", got)
 	}
 }

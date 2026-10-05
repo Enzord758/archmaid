@@ -28,8 +28,17 @@ func DefaultPaths() Paths {
 
 // Status holds the formatted fields of the status line. Unreadable sources are
 // "N/A".
+//
+// The byte counts behind them are for a front end that draws them as
+// meters (the GUI's sidebar): disk free of the disk's size, RAM available
+// of the total, the cache's size. A count is 0 when its source can't be
+// read; Free/RAM/Cache say "N/A" then.
 type Status struct {
 	Free, RAM, Cache string
+
+	FreeBytes, DiskBytes    uint64
+	RAMAvailBytes, RAMBytes uint64
+	CacheBytes              uint64
 }
 
 // Read gathers the status. It reads the kernel directly (statfs,
@@ -37,7 +46,11 @@ type Status struct {
 // refreshes every few seconds and the shell pipelines cost nine processes a
 // tick. The numbers and format match what those tools printed.
 func Read(p Paths) Status {
-	return Status{Free: diskFree(p.Disk), RAM: memAvail(p.Meminfo), Cache: cacheSize(p.Cache)}
+	var s Status
+	s.Free, s.FreeBytes, s.DiskBytes = diskFree(p.Disk)
+	s.RAM, s.RAMAvailBytes, s.RAMBytes = memAvail(p.Meminfo)
+	s.Cache, s.CacheBytes = cacheSize(p.Cache)
+	return s
 }
 
 // Line renders the header line.
@@ -45,39 +58,64 @@ func (s Status) Line() string {
 	return fmt.Sprintf(" Free: %s   RAM avail: %s   Cache: %s", s.Free, s.RAM, s.Cache)
 }
 
-// diskFree is `df -h`'s Avail column for path, or "N/A" when unreadable.
-func diskFree(path string) string {
+// diskFree is `df -h`'s Avail column for path, or "N/A" when unreadable,
+// with the bytes available and the filesystem's size (df's Size).
+func diskFree(path string) (string, uint64, uint64) {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
-		return "N/A"
+		return "N/A", 0, 0
 	}
-	return humanCeil(st.Bavail * uint64(st.Frsize))
+	free := st.Bavail * uint64(st.Frsize)
+	return humanCeil(free), free, st.Blocks * uint64(st.Frsize)
 }
 
 // memAvail is the kernel's MemAvailable (`free -h`'s "available" column, memory
-// usable without swapping), or "N/A" when unreadable.
-func memAvail(path string) string {
+// usable without swapping), or "N/A" when unreadable, with the bytes
+// available and MemTotal (0 when that line is missing).
+func memAvail(path string) (string, uint64, uint64) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "N/A"
+		return "N/A", 0, 0
 	}
+	var avail, total uint64
+	found := false
 	for _, line := range strings.Split(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(line, "MemTotal:"); ok {
+			total = meminfoKB(rest)
+			continue
+		}
 		rest, ok := strings.CutPrefix(line, "MemAvailable:")
 		if !ok {
 			continue
 		}
 		if f := strings.Fields(rest); len(f) > 0 {
 			if kb, err := strconv.ParseUint(f[0], 10, 64); err == nil {
-				return humanRound(kb * 1024)
+				avail, found = kb*1024, true
+				break // MemTotal comes first in /proc/meminfo
 			}
 		}
 	}
-	return "N/A"
+	if !found {
+		return "N/A", 0, total
+	}
+	return humanRound(avail), avail, total
+}
+
+// meminfoKB is a /proc/meminfo value ("  32557020 kB") in bytes, 0 when it
+// doesn't parse. No strings.Fields: the status line's reads keep their
+// allocation count (bench-compare fails any rise).
+func meminfoKB(rest string) uint64 {
+	num, _, _ := strings.Cut(strings.TrimSpace(rest), " ")
+	if kb, err := strconv.ParseUint(num, 10, 64); err == nil {
+		return kb * 1024
+	}
+	return 0
 }
 
 // cacheSize is `du -sh` of dir: disk usage in blocks, directories included,
 // unreadable subdirectories skipped. "N/A" when dir itself can't be read.
-func cacheSize(dir string) string {
+// The bytes are the same usage.
+func cacheSize(dir string) (string, uint64) {
 	var total uint64
 	missing := false
 	_ = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
@@ -95,9 +133,9 @@ func cacheSize(dir string) string {
 		return nil
 	})
 	if missing {
-		return "N/A"
+		return "N/A", 0
 	}
-	return humanCeil(total)
+	return humanCeil(total), total
 }
 
 var sizeUnits = []string{"", "K", "M", "G", "T", "P"}
