@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -79,7 +80,38 @@ func actionEnv() actions.Env {
 
 // execProcess is a seam over tea.ExecProcess so tests can capture the editor
 // command without actually handing over the terminal to a real editor.
-var execProcess = tea.ExecProcess
+var execProcess = func(c *exec.Cmd, fn tea.ExecCallback) tea.Cmd { return tea.Exec(handedTerminal{c}, fn) }
+
+// handedTerminal is tea.ExecProcess's command for a program the TUI hands
+// its terminal to (the editor): the terminal Run holds exclusive is let go
+// while it runs, since an editor may open /dev/tty itself (tcell's do).
+type handedTerminal struct{ *exec.Cmd }
+
+func (c handedTerminal) Run() error {
+	resume := termGuard.Load().Pause()
+	defer resume()
+	return c.Cmd.Run()
+}
+
+// SetStdin, SetStdout and SetStderr give the program the terminal, unless
+// the command already names its own (as tea.ExecProcess does).
+func (c handedTerminal) SetStdin(r io.Reader) {
+	if c.Stdin == nil {
+		c.Stdin = r
+	}
+}
+
+func (c handedTerminal) SetStdout(w io.Writer) {
+	if c.Stdout == nil {
+		c.Stdout = w
+	}
+}
+
+func (c handedTerminal) SetStderr(w io.Writer) {
+	if c.Stderr == nil {
+		c.Stderr = w
+	}
+}
 
 // editConfig opens ~/.config/topgrade.toml in $EDITOR (creating it with sane
 // defaults first), handing over the terminal via tea.ExecProcess. In a dry run

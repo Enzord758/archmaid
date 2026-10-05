@@ -44,6 +44,7 @@ charmbracelet (`check.sh` layering, which also bars every package under
 | Package | Owns |
 |---|---|
 | `internal/frontend` | the glue every front end hands the engine, once for the TUI and the GUI (P5): `AuditConfig(store, AuditOptions{RPCURL, Deadline, DryRun, Foreign})` (zero fields are the real thing; `ForeignPackages` is `pacman -Qqm`), `MenuAudit(ctx, cfg, now, render)` (`Env.AuditReport`'s Notice or Report; a cancelled audit is "stopped" and writes no snapshot), `AuditStep(cfg)` (the topgrade gate and snapshot commit, with its `Prefetch`), `StartAuditFetch`/`AuditFetch` (a `driver.Prefetch`) and `Prefetcher(cfg func)` (`driver.Deps.Prefetch`), `DownloadsOptions(flag, dry)`, `Deletions` (`Step(plan, store, opts)`: the delete step's Run with its abort record; `Wait`), `StepAborted(ctx)` (any cancel but `steps.ErrResultTaken`), and `Glue{AuditConfig, Render, Downloads, Store, Deletions}.Env(base)` filling in the four `actions.Env` funcs. Neither charmbracelet nor gotk4, named in `check.sh` |
+| `internal/ttyguard` | `Hold(f)` → `*Guard` (`Release`, `Pause`): the TUI's terminal in exclusive mode (`TIOCEXCL`) so no step child can open it (see the landmine); `IsTerminal`, `Exclusive` |
 | `internal/sanitize` | `String(s, Mode)` with `KeepSGR`/`Plain`: the one filter for untrusted text (command output, logs); and the one-line text helpers `OneLine`, `Clip`, `ClipTail`, `Field`, `QuoteName` |
 | `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories`; `WriteLastRun`/`ReadLastRun` for `last-run.json` (`RunRecord`, see state files below) |
 | `internal/audit` | the AUR audit itself: `Run(ctx, Config, now) (Result, error)` with `Config{RPCURL, SnapshotPath, StatePath, Deadline, DryRun, Foreign, Log}`; `Result` (`Total`, `Findings`, `Baseline`; `Text()` plain report, `GateReason()`, `Commit(holdHigh, accepting)`, `LogSummary()`, `Note()`, `High()`/`Clean()`); `Prefetch(Config) *Fetch` with `Wait(ctx)`/`Cancel()`/`Done()`; the RPC (chunked POST, 8 MiB cap, unrequested names dropped), classification, the snapshot (`Entry`, `LoadSnapshot`, `WriteSnapshot`: atomic 0600 + flock, old-format compatible), `State`/`WriteState`/`ReadState` (audit-state.json), `ErrNoForeign`, `ErrSnapshotLocked`, `ShortErr`. No UI, no globals: everything comes in through `Config` |
@@ -176,6 +177,29 @@ comments and `git log`; this is the "read before you touch it" list.
   struct that outlives the call (`privilege.Request` holds no password).
   `sudo -n -v` is only the cache probe and the 60 s keep-alive
   (`Sudo.Probe`, `Sudo.Refresh`).
+- **No step child may open the TUI's terminal (`internal/ttyguard`).** A
+  child's stdin is `/dev/null`, but it can still open `/dev/tty` itself:
+  topgrade's `git pull` over HTTPS without credentials did (live VM run),
+  and so do ssh (passphrase, host key) and pinentry-tty. It then read the
+  same keys as Bubble Tea, they alternated between the two, and ctrl+c/y
+  could become git's username. `tui.Run` therefore holds its stdin terminal
+  in exclusive mode (`TIOCEXCL`) while it runs: the kernel refuses every
+  new open of the terminal by a process without `CAP_SYS_ADMIN` (EBUSY), so
+  such a child fails at once, as it would in the GUI with no terminal.
+  Already-open fds (Bubble Tea's, the shell's) are untouched, and no
+  process moves: same session, same process group, same controlling
+  terminal, so sudo's ticket and `TestNoSetsid` are unaffected. Rejected:
+  a background process group for steps (`Setpgid`) — a background read
+  sends SIGTTIN to the reader's *whole group* (topgrade included), sudo
+  with `use_pty` reads the user's tty itself, and a terminal hangup no
+  longer reaches the steps; and environment tricks (`GIT_TERMINAL_PROMPT=0`,
+  ssh `BatchMode`) — they cover one program each. Not covered: root
+  (setuid sudo/su, and a command sudo runs without `use_pty`), which may
+  still open the terminal. The editor (`editConfig`) is handed the terminal
+  on purpose, so `handedTerminal` pauses the hold while it runs. Release
+  happens when `Run` returns; a SIGKILLed TUI leaves the flag on until that
+  terminal is closed (new opens of it fail). `TestStepCannotReadTheTerminal`
+  runs the real TUI in a pty with a step that tries to read `/dev/tty`.
 - **`SUDO_ASKPASS` goes only to steps that use sudo.** It is never set in
   archmaid's own environment: `privilege.Sudo.Command`/`Env` give it to `NeedsPriv` steps (sudo
   steps and topgrade) and strips it from every other child, including a value

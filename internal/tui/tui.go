@@ -8,13 +8,17 @@
 package tui
 
 import (
+	"fmt"
 	"io"
+	"os"
+	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/privilege"
+	"github.com/Enzord758/archmaid/internal/ttyguard"
 )
 
 // Configure applies the command line: --dryrun and --downloads' folder
@@ -44,14 +48,35 @@ func NewDriver(s *engine.Session, askpass <-chan *privilege.Request) engine.Driv
 
 // Run runs the TUI on drv, on the alt screen, until the user quits. It
 // doesn't close drv: main does, then calls Finish.
+//
+// While it runs, the terminal it reads keys from (stdin) is held exclusive
+// (internal/ttyguard): a step's child that opens /dev/tty — git or ssh
+// asking for credentials — is refused instead of reading the same keys as
+// the TUI. Bubble Tea reads stdin, which is already open; with a stdin that
+// isn't a terminal Bubble Tea opens /dev/tty itself, and nothing is held.
 func Run(drv engine.Driver) error {
+	g, err := ttyguard.Hold(os.Stdin)
+	if err != nil {
+		driverReports.add(fmt.Errorf("tui: can't keep step commands off the terminal: %w", err))
+	}
+	termGuard.Store(g)
+	defer func() {
+		termGuard.Store(nil)
+		if err := g.Release(); err != nil {
+			driverReports.add(fmt.Errorf("tui: can't release the terminal: %w", err))
+		}
+	}()
 	m := initialModel()
 	m.eng = newEngineState(drv)
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	go forwardEvents(drv.Events(), p.Send)
-	_, err := p.Run()
+	_, err = p.Run()
 	return err
 }
+
+// termGuard is the terminal Run holds, for editConfig to pause around the
+// editor; nil outside Run.
+var termGuard atomic.Pointer[ttyguard.Guard]
 
 // Finish runs once the program has ended and the Driver is closed: it
 // writes what the Driver reported to w (the alt screen owned the terminal
