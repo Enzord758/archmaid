@@ -2,15 +2,16 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit that made the change; the range is `5585358..refactor/p0` (249 commits, tip f46230a).
+the commit that made the change; the range is `5585358..refactor/p0` (308 commits, tip d0bd9f9).
 
 ## [Unreleased]
 
 ### Read this first
 
-- **The TUI is new underneath.** It now runs on the engine and the real Driver, and the old queue logic is deleted. It should behave the same (all 31 transcript goldens, the view goldens and the 9 e2e checks are identical), but it has not been run live yet: do a first live run by hand with `docs/first-live-run.md` before you rely on it (4a2fb23, 1fe2148, 7652f35).
+- **The TUI is new underneath.** It now runs on the engine and the real Driver, and the old queue logic is deleted. It should behave the same (all 31 transcript goldens, the view goldens and the 9 e2e checks are identical), and it has been run live (`docs/first-live-run.md`) (4a2fb23, 1fe2148, 7652f35).
+- **Remove an old `~/.local/bin/archmaid` before you use the package:** run `~/archmaid/install.sh --uninstall && hash -r` (README → First run). The old binary comes first on `PATH`, prunes run folders at every start and rewrites the new AUR snapshot in the old format.
 - If the engine stops unexpectedly (an internal panic), the TUI now shows "archmaid's engine stopped unexpectedly: ..." and any key quits; the full reports go to stderr. Ctrl-C always gets you out, also from a password check that never answers (5de7e0c, 73b22cd).
-- **The GUI (`archmaid-gui`) exists but is not live-tested. Don't install `archmaid-gui-git` yet.** `archmaid-git` (the TUI, helper, policy and widget) is a complete install on its own (afc0991, 4a1ca95).
+- **The GUI (`archmaid-gui`, package `archmaid-gui-git`) has been run live** (your run and the VM runs). One password per GUI run (`feat/gui-one-password`) is not in this range. `archmaid-git` (the TUI, helper, policy and widget) is a complete install on its own (afc0991, 4a1ca95).
 - `archmaid --help` now prints help and exits 0, and unknown options now exit 2 instead of being ignored (13eb21a).
 - History rotation now keeps 5 runs including the current one, instead of 5 old ones plus the current one (420733b, 13eb21a).
 
@@ -178,6 +179,41 @@ the commit that made the change; the range is `5585358..refactor/p0` (249 commit
 - P3 engine work: menu and queues are data in `internal/actions` and `internal/steps`; the transcript driver sits behind a `Target` interface; the AUR audit lives in `internal/audit`; sudo and askpass in `internal/privilege` (3ef4d38, 167f044, 2ffbeab, 7908ae7, 9332d02).
 - CI uses Node 24 versions of its actions (vhs-action stays on node20 upstream) (521bfe6); the perf target's comment is corrected (8560d63); stale helper README notes are refreshed (74f72fa).
 
+### GUI (since f46230a)
+
+- **One polkit dialog per Full Cleanup** (decision E). The first live GUI run showed five dialogs. Now, under polkit, Full Cleanup's root steps (orphan removal, paccache, the optional wipe, tmpfiles, journal, integrity) run as one `archmaid-helper full-cleanup` call with one dialog. It is asked after topgrade, the orphan list and the cache-wipe confirm. Each step still shows its own row. If you refuse the dialog, all those rows read "Not authorised" and the run goes on (10666d8, f981d59, 4cd82e5, f7a8307, 0f83f65, 9dfd68a).
+- **Under polkit, only topgrade asks for a password besides the dialog.** `pacman -Sc` (cached packages no longer installed) is now a part of the helper call (`--uninstalled`). The AUR-cache step is `yay -Sc --aur`, which cleans yay's build folder as you, without sudo (499d168, 746361f, a96182a, 6e6f70e; replaces 34cbce7).
+- Steps no longer share the terminal the GUI was started from, so sudo can never prompt on that shell. Stop and Close end each step's whole process group (655fdb0, 60110ea, 3465a0d).
+- Ctrl-C in the starting terminal, SIGTERM and closing that terminal all act as Stop and Quit: the run is aborted and recorded. A second signal kills everything the run started and exits at once (23f1f7b, 0f685e9, f43b87d, 76eec79).
+- Closing the window while polkit's dialog is up stops and quits without asking, because the question would open under that dialog (e4010dc).
+- Every start of an action gets its own run folder, and the AUR lookup runs while the Proceed dialog is up (e29a5fd).
+- If the engine stops unexpectedly, the window leaves the running state and says so, and the next run starts on a fresh engine (97a4c09).
+- The stub runs only with `--stub`, under a "Demo" banner, with "(stub)" in the title and its own app id (865124d).
+- Fixed: clicking Authenticate could send an empty password, and "Stop and Quit" could leave the window open. The dialogs now act on the button you pressed, not on the dialog closing (bc5646b).
+- Fixed: an answer retried because the engine was busy could reach the next run's prompt (ddf2098).
+- Fixed: a dialog's list could scroll its title out of view in a short window (6df69df).
+- A password dialog that the engine withdraws is wiped. sudo's prompt is cut to 48 characters, as in the TUI (3be3eed).
+- A downloads folder read from `gui.json` is checked like a typed one (0de93ac).
+- The end of a run reads the same way `last-run.json` judges it, and counts read "1 step", not "1 steps" (5a881d6, 4f22bed).
+
+### TUI (since f46230a)
+
+- **No step can read the TUI's terminal any more.** topgrade's `git pull` over HTTPS (also ssh and pinentry-tty) opened the terminal itself and read the same keys as the TUI. The TUI looked frozen, Ctrl-C couldn't abort, and `y` became git's username. The TUI now keeps its terminal to itself while it runs, so such a step fails at once instead (9d8ed41, 2783217).
+
+### Internal and tests (since f46230a)
+
+- `internal/frontend` holds the code both front ends share. The layering check now also keeps gotk4 out of `internal/` (2bebf67, ccaa96d, ea61927).
+- `testenv` traps every system-changing tool (topgrade, yay, pacman, systemctl…), not only the privileged ones, and kills any process a test leaves running and fails that package (36318d0).
+- GUI harness: a stand-in helper file, every Driver closed, the display suite split into four parts, checks for one polkit dialog and one askpass prompt, and every row line a run's events produce (5023db9, a6b22f9, e00141d, 08ecf61, bab48c6, fb436ff, 9dfd68a, 6e6f70e).
+- Test fixes: the transcripts wait up to 30 s for a step to reach its shim; the pty test runs without `CI` and `NO_COLOR`; a fake AUR in a cancelled-fetch test can no longer hang Close (e71424d, 4d3b11d, 7f623af).
+
+### Docs (since f46230a)
+
+- `docs/first-live-run.md`: your guide to the first live run (5ae223d, 56fce2c, 0acb411).
+- `docs/merge-to-main.md` (readiness review and checklist) and `docs/security-review-merge.md` (91f3f46, 99272a5).
+- `docs/design/p8-workbench-spec.md`: the spec for the GUI redesign (d0bd9f9).
+- The packaging README's scratch-build recipe, HANDOVER's open items brought up to date, and CLAUDE.md rules for tests and the test VM (17e4d42, e0f71d1, 0c4c15d, 95c2918, b45da6e, 5407fd4).
+
 ### Notes for the maintainer
 
 - The live polkit/faillock test (`packaging/polkit/LIVE-TEST-AGENT.md`) has been run once, against a scratch user (see `docs/polkit-live-test.md`); still re-check that `auth_admin_keep` is scoped per process inside a real login session (tty3).
@@ -186,7 +222,7 @@ the commit that made the change; the range is `5585358..refactor/p0` (249 commit
 - The first audit after upgrading rewrites `aur-maintainers.json` in the new format.
 - Still to check by you: `auth_admin_keep` scope in a real login session (above), the bench CI job (it has not run on GitHub yet) and the widget in the live bar (it has only been loaded in a scratch quickshell).
 - Enable the widget after installing the package: `systemctl --user enable --now archmaid-updates-check.timer`, then enable "archmaid" in DMS Settings, Plugins and add it in Dank Bar (`docs/dms-widget.md`).
-- First live run of the new TUI: follow `docs/first-live-run.md` before relying on it. The GUI has not been live-tested either; leave `archmaid-gui-git` uninstalled until it has.
+- The first live runs are done, of both the TUI and the GUI (`docs/first-live-run.md`; its C4 step predates the one-dialog call). Before merging, follow `docs/merge-to-main.md`.
 - The GUI's frame p95 on a quiet machine has not been re-measured, and the perf-guard baselines need re-measuring after E7b (`make perf`, `make bench`), because the benchmarks changed shape.
 - The `auth_admin_keep` check in a real session now has a guide: `docs/polkit-keep-session-check.md`.
-- CI was green on afc0991 and 4a1ca95 (all 4 jobs); to confirm on the final tip.
+- CI failed on 2783217 and 6e6f70e: `TestStepCannotReadTheTerminal` under `CI=true`, fixed by 4d3b11d. Confirm that all 4 jobs are green on the final tip.
