@@ -124,18 +124,73 @@ type report struct {
 	// Controls is the window's state right after the engine stopped
 	// (engine-stops): busy, Stop, the menu row, open dialogs, status.
 	Controls string
-	// Subtitles is every "title: subtitle" a checklist row showed, once.
+	// Subtitles is every "title: subtitle" the run's events gave a
+	// checklist row, once, in order (real- scenarios; see rowLines).
 	Subtitles []string
 	Leaked    string // goleak's verdict after Run returned, "" if clean
 	Errors    []string
 }
 
-// countingDriver counts Close calls and records the prompt answers sent.
+// countingDriver counts Close calls and records the prompt answers sent;
+// with lines set, it also records the row lines (rowLines).
 type countingDriver struct {
 	engine.Driver
 	closes *atomic.Int32
 	mu     *sync.Mutex
 	sent   *[]string
+	lines  *rowLines
+}
+
+// rowLines tees a Driver's events to record every row line they give,
+// each event folded on its own into a model of its own (the window's
+// code: runview.Model and Row.Subtitle). The window's pump folds whatever
+// queued between two flushes in one batch, so a line that comes and goes
+// within a batch is never drawn although the run gave it: the polkit wait
+// with the faillock warning, which the shim's pkexec refuses at once, on a
+// loaded runner (CI) left no trace in what the rows showed.
+type rowLines struct {
+	once sync.Once
+	out  <-chan engine.Event
+	mu   *sync.Mutex
+	got  *[]string
+}
+
+// Events is the Driver's, through the tee.
+func (d countingDriver) Events() <-chan engine.Event {
+	if d.lines == nil {
+		return d.Driver.Events()
+	}
+	l := d.lines
+	l.once.Do(func() {
+		in := d.Driver.Events()
+		out := make(chan engine.Event, cap(in))
+		l.out = out
+		go func() {
+			defer close(out)
+			m := runview.NewModel()
+			for ev := range in {
+				if _, ok := ev.(engine.OutputChunk); !ok { // no row line in it
+					c := m.Apply([]engine.Event{ev})
+					rows := append(c.Inserted, c.Rows...)
+					if c.Reset {
+						rows = rows[:0]
+						for i := range m.Rows {
+							rows = append(rows, i)
+						}
+					}
+					l.mu.Lock()
+					for _, i := range rows {
+						if s := m.Rows[i].Title + ": " + m.Rows[i].Subtitle(); !slices.Contains(*l.got, s) {
+							*l.got = append(*l.got, s)
+						}
+					}
+					l.mu.Unlock()
+				}
+				out <- ev
+			}
+		}()
+	})
+	return l.out
 }
 
 func (d countingDriver) Close() { d.closes.Add(1); d.Driver.Close() }
@@ -263,7 +318,11 @@ func runChild(scenario, path string) int {
 				d = newDyingDriver(d, &died, scenario == "engine-stops-askpass", kill)
 			}
 		}
-		return countingDriver{Driver: d, closes: &closes, mu: &sentMu, sent: &rep.Sent}
+		cd := countingDriver{Driver: d, closes: &closes, mu: &sentMu, sent: &rep.Sent}
+		if wiring != nil {
+			cd.lines = &rowLines{mu: &sentMu, got: &rep.Subtitles}
+		}
+		return cd
 	}
 
 	var started time.Time
@@ -387,13 +446,6 @@ func runChild(scenario, path string) int {
 						fail("the password entry wasn't wiped and forgotten after the answer")
 					}
 				})
-			}
-			for _, i := range c.Rows {
-				// Every row line shown, once: the polkit wait and the
-				// faillock warning come and go between batches.
-				if r := w.rows[i].row; !slices.Contains(rep.Subtitles, r.Title()+": "+r.Subtitle()) {
-					rep.Subtitles = append(rep.Subtitles, r.Title()+": "+r.Subtitle())
-				}
 			}
 			if !stopped && len(w.model.Rows) > 1 && w.model.Rows[1].State == runview.RowRunning && childStarted(scenario) {
 				switch scenario {
@@ -549,7 +601,9 @@ func runChild(scenario, path string) int {
 	if code != want {
 		fail("exit status %d, want %d", code, want)
 	}
+	sentMu.Lock()
 	b, _ := json.Marshal(rep)
+	sentMu.Unlock()
 	if err := os.WriteFile(path, b, 0o600); err != nil {
 		return 3
 	}
