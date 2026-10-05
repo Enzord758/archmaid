@@ -124,6 +124,13 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 	l := gtk.NewLabel(strings.Join(items, "\n"))
 	l.SetXAlign(0)
 	l.SetSelectable(true)
+	// Selectable, but never focused when the dialog opens: the dialog
+	// focuses its first focusable widget, and focusing this label scrolled
+	// the dialog's content down to it, so in a short window the title went
+	// out of view (the lists scroll; the dialog's top must stay). The text
+	// can still be selected and copied with the mouse, and the default
+	// response keeps the focus.
+	l.SetFocusable(false)
 	l.AddCSSClass("monospace")
 	if destructive {
 		l.AddCSSClass("error")

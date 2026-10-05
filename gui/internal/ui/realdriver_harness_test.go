@@ -28,6 +28,9 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/actions"
@@ -92,6 +95,18 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 	// stand-in instead (pkexec still names helperclient.HelperPath).
 	helpertest.UseHelperFile(&fakeTB, filepath.Join(shims, helperStandIn))
 	direct, cascade := []string{"oldlib"}, []string{"oldlib 1.0-1"}
+	if os.Getenv("ARCHMAID_GUI_CHILD") == "real-small" {
+		// As the live VM had it: 15 orphans, 44 packages with what cascades.
+		direct, cascade = nil, nil
+		for i := range 44 {
+			if i < 15 {
+				direct = append(direct, fmt.Sprintf("orphan%02d", i))
+				cascade = append(cascade, fmt.Sprintf("orphan%02d 1.0-1", i))
+			} else {
+				cascade = append(cascade, fmt.Sprintf("dep%02d 2.0-1", i))
+			}
+		}
+	}
 	lock := engine.FaillockRead{Deny: 3}
 	switch os.Getenv(envFaillock) {
 	case "last":
@@ -656,6 +671,60 @@ func TestGUIStopAndQuit(t *testing.T) {
 			t.Errorf("last-run.json: %+v, %v; want the finished topgrade's own record", r, err)
 		}
 	})
+}
+
+// TestGUISmallWindow: in a window of 640x370 (half a 1280x800 screen,
+// split), Full Cleanup's orphan dialog for 15 orphans and 44 packages
+// keeps its title in view: the lists scroll, the title stays at the top
+// of the dialog, inside the window.
+func TestGUISmallWindow(t *testing.T) {
+	needDisplay(t)
+	_, env := installShims(t, shimOpts{})
+	rep, _ := child(t, "real-small", env...)
+	t.Logf("orphan dialog: %s", rep.Geometry)
+	var y, h, scrolled, winH float64
+	if _, err := fmt.Sscanf(rep.Geometry, "heading y=%g h=%g scrolled=%g window=%g", &y, &h, &scrolled, &winH); err != nil {
+		t.Fatalf("geometry %q: %v", rep.Geometry, err)
+	}
+	if scrolled != 0 || y < 0 || y+h > winH {
+		t.Errorf("the orphan dialog's title is out of view (%s): the dialog's content must scroll under it", rep.Geometry)
+	}
+	if rep.Outcome != "completed" {
+		t.Errorf("outcome %q", rep.Outcome)
+	}
+}
+
+// headingGeometry is where d's heading is: its top and height in the
+// window, how far the dialog's message area is scrolled down, and the
+// window's height.
+func headingGeometry(w *Window, d *adw.AlertDialog) string {
+	var heading *gtk.Label
+	var walk func(gtk.Widgetter)
+	walk = func(p gtk.Widgetter) {
+		for c := gtk.BaseWidget(p).FirstChild(); c != nil && heading == nil; c = gtk.BaseWidget(c).NextSibling() {
+			if l, ok := c.(*gtk.Label); ok && l.Label() == d.Heading() && l.Mapped() {
+				heading = l
+				return
+			}
+			walk(c)
+		}
+	}
+	walk(d)
+	if heading == nil {
+		return "no heading"
+	}
+	b, ok := heading.ComputeBounds(w.win)
+	if !ok {
+		return "heading not placed"
+	}
+	scrolled := -1.0
+	for p := heading.Parent(); p != nil; p = gtk.BaseWidget(p).Parent() {
+		if sw, ok := p.(*gtk.ScrolledWindow); ok {
+			scrolled = sw.VAdjustment().Value()
+			break
+		}
+	}
+	return fmt.Sprintf("heading y=%g h=%d scrolled=%g window=%d", b.Y(), heading.Height(), scrolled, w.win.Height())
 }
 
 // ended: pid is gone, or a zombie (its parent, the test binary as

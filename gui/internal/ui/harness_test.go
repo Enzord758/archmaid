@@ -113,6 +113,8 @@ type report struct {
 	Title, Banner, FirstStatus string
 	// EndStatus is the status line once the run finished.
 	EndStatus string
+	// Geometry is real-small's orphan dialog as shown (headingGeometry).
+	Geometry string
 	// Outcomes is every run's outcome, in order (real-runs runs several).
 	Outcomes []string
 	// Withdrawn is the askpass entry typed into, after the engine
@@ -213,7 +215,7 @@ func runChild(scenario, path string) int {
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
 	case "engine-stops-askpass": // ... with sudo's askpass dialog open, typed in
 		action = stub.IDFullCleanupAskpass
-	case "real-dry", "real-refused", "real-locked", "real-close", "real-tty": // realdriver_harness_test.go
+	case "real-dry", "real-refused", "real-locked", "real-close", "real-tty", "real-small": // realdriver_harness_test.go
 	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
 		action = actions.IDTopgrade
 	case "real-askpass": // topgrade's sudo asks through the relay
@@ -269,6 +271,9 @@ func runChild(scenario, path string) int {
 	measuring := false
 	opts.hook = func(w *Window) {
 		closeSoon := func() { glib.TimeoutAdd(50, func() { w.win.Close() }) }
+		if scenario == "real-small" {
+			w.win.SetDefaultSize(640, 370) // half a 1280x800 screen, split
+		}
 		w.win.ConnectRealize(func() {
 			fc := gdk.BaseFrameClock(w.win.FrameClock())
 			fc.ConnectBeforePaint(func() { painting = time.Now() })
@@ -324,11 +329,19 @@ func runChild(scenario, path string) int {
 				id := c.Opened.ID
 				rep.Prompts = append(rep.Prompts, id)
 				p := *c.Opened
-				glib.TimeoutAdd(30, func() {
+				delay := uint(30)
+				small := scenario == "real-small" && p.Confirm != nil && len(p.Confirm.Direct) > 0
+				if small {
+					delay = 800 // shown, animated in and focused
+				}
+				glib.TimeoutAdd(delay, func() {
 					d, ok := w.dialogs[id]
 					if !ok {
 						fail("prompt %d has no dialog", id)
 						return
+					}
+					if small {
+						rep.Geometry = headingGeometry(w, d)
 					}
 					// Answer the way a user would: type, tick, then press.
 					resp := "yes"
