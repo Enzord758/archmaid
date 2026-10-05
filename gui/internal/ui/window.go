@@ -371,7 +371,8 @@ func (w *Window) redraw(c runview.Change) {
 		w.stopBtn.SetSensitive(false)
 		w.refreshLastRun()
 		if f := w.model.Finished; f != nil {
-			w.toast("Run " + f.Outcome.String())
+			_, toast := runview.FinishedText(*f)
+			w.toast(toast)
 		}
 	}
 	if c.Status || c.Finished {
@@ -457,7 +458,8 @@ func (w *Window) statusText() string {
 	case m.Stopped != "":
 		parts = append(parts, m.Stopped)
 	case m.Finished != nil:
-		parts = append(parts, "Finished: "+m.Finished.Outcome.String())
+		status, _ := runview.FinishedText(*m.Finished)
+		parts = append(parts, status)
 		if n := m.Finished.NotRun; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d not run", n))
 		}

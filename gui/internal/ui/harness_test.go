@@ -111,6 +111,8 @@ type report struct {
 	// The window's title, the stub's banner if revealed, and the status
 	// line, at the first frame.
 	Title, Banner, FirstStatus string
+	// EndStatus is the status line once the run finished.
+	EndStatus string
 	// Outcomes is every run's outcome, in order (real-runs runs several).
 	Outcomes []string
 	// Withdrawn is the askpass entry typed into, after the engine
@@ -450,6 +452,7 @@ func runChild(scenario, path string) int {
 				}
 				rep.Pump = w.pump.Stats()
 				rep.Toasts = w.toasted
+				rep.EndStatus = w.status.Text()
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)

@@ -404,6 +404,11 @@ func TestGUIRealDriver(t *testing.T) {
 		if got := readLines(t, filepath.Join(dir, "sudo.got")); got != nil {
 			t.Errorf("sudo got %q after a cancel", got)
 		}
+		// topgrade failed: the run reads as failed, as last-run.json says,
+		// not as the queue's "completed".
+		if !strings.HasPrefix(rep.EndStatus, "Finished: failed (1 step)") || !slices.Contains(rep.Toasts, "Run finished with 1 failed step") {
+			t.Errorf("status %q toasts %q; want the failed run said so", rep.EndStatus, rep.Toasts)
+		}
 	})
 
 	t.Run("runs", func(t *testing.T) {
