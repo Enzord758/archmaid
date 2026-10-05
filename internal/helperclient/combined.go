@@ -16,11 +16,16 @@ import (
 // event (cmd/archmaid-helper README), which Run maps back to the parts as
 // engine.PartStarted and engine.PartDone, so every step keeps its row.
 
+// PartCleanUninstalled is the helper's full-cleanup part that is no verb of
+// its own: pacman -Sc, the root half of yay -Sc. Its step
+// (steps.IDPkgCacheUninstalled) carries Verb full-cleanup.
+const PartCleanUninstalled = "clean-uninstalled"
+
 // fullCleanupOrder is the order the helper runs full-cleanup's parts in,
-// each named by its verb; required are those it always runs.
+// each named by its verb (partName); required are those it always runs.
 var (
 	fullCleanupOrder = []string{steps.VerbRemoveOrphans, steps.VerbPaccache, steps.VerbPaccacheWipe,
-		steps.VerbCleanTmp, steps.VerbVacuumJournal, steps.VerbCheckFiles}
+		PartCleanUninstalled, steps.VerbCleanTmp, steps.VerbVacuumJournal, steps.VerbCheckFiles}
 	fullCleanupRequired = map[string]bool{steps.VerbPaccache: true, steps.VerbCleanTmp: true,
 		steps.VerbVacuumJournal: true, steps.VerbCheckFiles: true}
 )
@@ -29,10 +34,19 @@ var (
 // runs.
 var ErrBadParts = errors.New("helperclient: bad parts for full-cleanup")
 
+// partName is the full-cleanup part st stands for: its Verb, or for the
+// one step whose part is no verb (Verb full-cleanup), that part's name.
+func partName(st steps.Step) string {
+	if st.Verb == steps.VerbFullCleanup && st.ID == steps.IDPkgCacheUninstalled {
+		return PartCleanUninstalled
+	}
+	return st.Verb
+}
+
 // fullCleanupArgs builds full-cleanup's flags from st.Parts, which must be
 // the helper's parts in its order: the four it always runs, plus the
-// orphan removal (first, its Plan checked as for remove-orphans) and the
-// cache wipe where present. Each part is validated as its own verb would
+// orphan removal (first, its Plan checked as for remove-orphans), the
+// cache wipe and the uninstalled packages' cache where present. Each part is validated as its own verb would
 // be, and must itself be a plain step of the combined verb.
 func fullCleanupArgs(st steps.Step) ([]string, error) {
 	if len(st.Items) != 0 || st.Plan != nil {
@@ -41,7 +55,7 @@ func fullCleanupArgs(st steps.Step) ([]string, error) {
 	args := []string{"--keep", PaccacheKeep, "--journal", JournalSpan}
 	i := 0
 	for _, verb := range fullCleanupOrder {
-		if i == len(st.Parts) || st.Parts[i].Verb != verb {
+		if i == len(st.Parts) || partName(st.Parts[i]) != verb {
 			if fullCleanupRequired[verb] {
 				return nil, fmt.Errorf("%w: no %s part where the helper runs one", ErrBadParts, verb)
 			}
@@ -51,6 +65,13 @@ func fullCleanupArgs(st steps.Step) ([]string, error) {
 		i++
 		if p.Combine != steps.VerbFullCleanup || len(p.Parts) != 0 || p.Run != nil {
 			return nil, fmt.Errorf("%w: part %q is not a plain full-cleanup step", ErrBadParts, p.ID)
+		}
+		if verb == PartCleanUninstalled {
+			if len(p.Items) != 0 || p.Plan != nil {
+				return nil, fmt.Errorf("%w: %s takes nothing", ErrBadParts, verb)
+			}
+			args = append(args, "--uninstalled")
+			continue
 		}
 		pa, err := verbArgs(p)
 		if err != nil {
@@ -123,7 +144,7 @@ func (d *decoder) partProgress(line []byte) []string {
 		return nil
 	}
 	c := d.comb
-	if e.Of != len(c.parts) || e.Step < 1 || e.Step > len(c.parts) || c.parts[e.Step-1].Verb != e.Part {
+	if e.Of != len(c.parts) || e.Step < 1 || e.Step > len(c.parts) || partName(c.parts[e.Step-1]) != e.Part {
 		d.fail("progress for part %d/%d %q, want one of %d parts in order", e.Step, e.Of, sanitize.Field(e.Part, 40), len(c.parts))
 		return nil
 	}
@@ -164,7 +185,7 @@ func (d *decoder) partDone(line []byte) {
 	case e.OK == nil || e.Code == nil || *e.OK != (*e.Code == 0):
 		d.fail(`a done event without a consistent "ok" and "code"`)
 		return
-	case e.Of != len(c.parts) || e.Step-1 != c.cur || c.curDone || c.parts[c.cur].Verb != e.Part:
+	case e.Of != len(c.parts) || e.Step-1 != c.cur || c.curDone || partName(c.parts[c.cur]) != e.Part:
 		d.fail("done for part %d/%d %q, which isn't running", e.Step, e.Of, sanitize.Field(e.Part, 40))
 		return
 	}

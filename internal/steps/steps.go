@@ -193,15 +193,19 @@ const (
 	IDOrphansProbe  = "orphans-probe"
 	IDOrphansRemove = "orphans-remove"
 	IDYayCache      = "yay-cache"
-	IDTmpfiles      = "tmpfiles"
-	IDJournal       = "journal"
-	IDIntegrity     = "integrity"
-	IDHyprpm        = "hyprpm"
-	IDRepair        = "repair"
-	IDRepairCheck   = "repair-check"
-	IDDisableUnits  = "disable-units"
-	IDDownloads     = "downloads"
-	IDUserCache     = "user-cache"
+	// IDPkgCacheUninstalled is, under polkit only, the root half of yay -Sc
+	// (pacman -Sc), run as a part of the root helper's full-cleanup; its
+	// Verb is VerbFullCleanup, as it has no verb of its own.
+	IDPkgCacheUninstalled = "pkg-cache-uninstalled"
+	IDTmpfiles            = "tmpfiles"
+	IDJournal             = "journal"
+	IDIntegrity           = "integrity"
+	IDHyprpm              = "hyprpm"
+	IDRepair              = "repair"
+	IDRepairCheck         = "repair-check"
+	IDDisableUnits        = "disable-units"
+	IDDownloads           = "downloads"
+	IDUserCache           = "user-cache"
 )
 
 // The root helper's verbs (cmd/archmaid-helper), for the steps it can run.
