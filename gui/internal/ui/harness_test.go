@@ -111,8 +111,6 @@ type report struct {
 	// The window's title, the stub's banner if revealed, and the status
 	// line, at the first frame.
 	Title, Banner, FirstStatus string
-	// Dumpable is prctl PR_GET_DUMPABLE in a real-Driver child.
-	Dumpable int
 	// EndStatus is the status line once the run finished; Statuses every
 	// status line shown, once.
 	EndStatus string
@@ -294,12 +292,6 @@ func runChild(scenario, path string) int {
 	}
 	var wiring *realdriver.Wiring
 	if strings.HasPrefix(scenario, "real-") {
-		// As archmaid-gui's main: no core dumps. Everything the real
-		// Driver does (askpass, the polkit agent) must work so.
-		if err := NoCoreDumps(); err != nil {
-			fail("NoCoreDumps: %v", err)
-		}
-		rep.Dumpable = dumpable()
 		wiring = startRealWiring(fail)
 		opts.Engine = wiring.Options()
 		opts.KeepsPassword, opts.Notices = true, wiring.SetNotice // as mainReal

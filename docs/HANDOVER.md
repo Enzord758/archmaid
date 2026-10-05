@@ -269,13 +269,12 @@ comments and `git log`; this is the "read before you touch it" list.
     MADV_DONTDUMP page outside the Go heap, never written anywhere, never
     logged. Answers use a short-lived copy that is cleared at once. The
     `engine.Secret` string the user's answer arrived in is the existing
-    accepted residual ("The GUI password's last copy"). archmaid-gui runs
-    non-dumpable (`prctl(PR_SET_DUMPABLE, 0)`, `ui.NoCoreDumps`, set in
-    main after the askpass relay dispatch): a crash writes no core file
-    with a heap copy in it. It also makes the GUI's `/proc/<pid>` root-owned;
-    what reads it still can (polkitd and pkttyagent read `stat`, `status`
-    and `cgroup`, all mode 0444, per polkit 127's polkitunixprocess.c and
-    pkexec.c). The relay mode (`archmaid-gui --askpass`, and the TUI's)
+    accepted residual ("The GUI password's last copy"). archmaid-gui
+    itself stays dumpable: `prctl(PR_SET_DUMPABLE, 0)` makes
+    `/proc/<pid>/root` root's, xdg-desktop-portal can then no longer
+    identify the GUI ("Portal operation not allowed: Unable to open
+    /proc/<pid>/root"), and GTK loses its settings and header-bar layout
+    (Dev 5's live test 7). The relay mode (`archmaid-gui --askpass`, and the TUI's)
     must be dumpable while the UI verifies it (it reads its `exe`), so
     `Request.Answer` runs a handshake: it says "verified", the relay makes
     itself non-dumpable (`hardenRelay`) and acknowledges, and only then is
