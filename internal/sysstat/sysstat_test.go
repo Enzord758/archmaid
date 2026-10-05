@@ -1,6 +1,7 @@
 package sysstat
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -95,9 +96,22 @@ func TestReadFallbacks(t *testing.T) {
 	}
 }
 
-func BenchmarkSystemStatus(b *testing.B) {
+// BenchmarkSystemStatusCache100: Read with the real disk and meminfo and a
+// fixture cache of 100 packages. The cache walk stats every file (~1.3 µs
+// and 6 allocs each), so the real /var/cache/pacman/pkg would measure the
+// machine's cache, not the code (28 µs just after a clean, 170 µs with
+// 104 packages). internal/tui's perf guard benchmarks the same fixture.
+func BenchmarkSystemStatusCache100(b *testing.B) {
 	p := DefaultPaths()
-	for i := 0; i < b.N; i++ {
+	p.Cache = b.TempDir()
+	for i := range 100 {
+		name := filepath.Join(p.Cache, fmt.Sprintf("pkg%03d-1.0-1-x86_64.pkg.tar.zst", i))
+		if err := os.WriteFile(name, nil, 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ResetTimer()
+	for b.Loop() {
 		Read(p).Line()
 	}
 }

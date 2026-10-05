@@ -27,6 +27,11 @@ var raceEnabled bool
 // again (the eager orphan query cost 130–200 ms), not a few microseconds.
 // ViewRunning (one Running-screen frame, a full output tail) has a fixed
 // 600 µs limit too: the frame is redrawn on every batch and spinner tick.
+// SystemStatusCache100 reads a fixture cache of 100 packages, not the
+// machine's: the walk's cost is linear in the cached files, so the real
+// cache made its old baseline (28.2 µs, a just-cleaned cache) fail at 104
+// packages with no code change. Its baseline was measured 2026-10-05 with
+// a VM running on other cores: single-threaded and stable to ±1 % there.
 // Re-measure and update the baselines when the code or the machine
 // legitimately changes.
 func TestPerfGuard(t *testing.T) {
@@ -45,7 +50,7 @@ func TestPerfGuard(t *testing.T) {
 	}{
 		{"StreamView5k", 5400 * time.Microsecond, BenchmarkStreamView5k, 0},                             // limit 16.2 ms
 		{"StreamView20k", 20600 * time.Microsecond, BenchmarkStreamView20k, 0},                          // limit 61.8 ms
-		{"SystemStatus", 28200 * time.Nanosecond, BenchmarkSystemStatus, 0},                             // limit 84.6 µs
+		{"SystemStatusCache100", 147300 * time.Nanosecond, BenchmarkSystemStatusCache100, 0},            // limit 441.9 µs; 637 allocs
 		{"ActivateFullCleanup", 4900 * time.Nanosecond, BenchmarkActivateFullCleanup, time.Millisecond}, // limit 1 ms (fixed)
 		{"ViewRunning", 154 * time.Microsecond, BenchmarkViewRunning, 600 * time.Microsecond},           // limit 600 µs (fixed); median of 6: 154 µs, 633 allocs
 	} {

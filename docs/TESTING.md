@@ -53,7 +53,7 @@ ARCHMAID_PERF_GUARD=1 scripts/check.sh   # the gate, then the perf guard
 With `ARCHMAID_PERF_GUARD=1` set, the gate ends with one more step:
 `TestPerfGuard` (`perfguard_test.go`), run without `-race` or coverage (it
 skips itself under either, and without the variable). It runs
-`BenchmarkStreamView5k`, `BenchmarkStreamView20k`, `BenchmarkSystemStatus` and
+`BenchmarkStreamView5k`, `BenchmarkStreamView20k`, `BenchmarkSystemStatusCache100` and
 `BenchmarkActivateFullCleanup` and `BenchmarkViewRunning` through `testing.Benchmark` and fails if one is
 over 3× its baseline, or over its fixed limit where it has one (best of up to
 three runs, so a single noisy run doesn't fail it). `StreamView20k` is
@@ -65,7 +65,7 @@ threads, go1.27.1), which is why the guard isn't in the default gate:
 |---|---|---|
 | `StreamView5k` | 5.4 ms | 16.2 ms |
 | `StreamView20k` | 20.6 ms | 61.8 ms |
-| `SystemStatus` | 28.2 µs | 84.6 µs |
+| `SystemStatusCache100` | 147.3 µs (637 allocs) | 441.9 µs (a fixture cache of 100 packages: the walk costs ~1.3 µs per cached file, so the real `/var/cache/pacman/pkg` measured the machine's cache, 28 µs just cleaned to 170 µs at 104 packages) |
 | `ActivateFullCleanup` | 4.9 µs | 1 ms (fixed: it guards against pacman on the UI thread, 130–200 ms) |
 | `ViewRunning` | 154 µs (633 allocs) | 600 µs (fixed: one Running-screen frame mid-queue with a full 2000-line output tail) |
 
@@ -85,7 +85,7 @@ hits both, and compares them with benchstat (pinned in the script). It fails
 when:
 
 - a benchmark's sec/op is significantly slower (benchstat p < 0.05) by more than 25 %;
-- `SystemStatus` allocs/op rose at all (significant; it is deterministic, 68);
+- `SystemStatusCache100` allocs/op rose at all (significant; it is deterministic, 637 with its fixture cache);
 - HEAD's best `ActivateFullCleanup` sample is over 1 ms or `ViewRunning` over
   600 µs (backstop caps, the guard's fixed limits, for slow drift that no single
   base-to-head comparison shows).
@@ -761,7 +761,7 @@ the names.
 | `ticks_test.go` | Ticks never multiply: the status refreshes after a finished queue (`Finished`) and after the editor are one-offs, not another 4 s loop. (The sudo keep-alive is the Driver's.) |
 | `repair_test.go` | Repair's discovery against a `pacman`/`sudo` shim pair that flags different packages as the user and as root: the user scan (`pacman -Qq`, then `pacman -Qkq -- <chunk>` per worker) flags the same packages in the same order for 1, 2, 4, 16 or 100 workers, checks each installed package once and never runs sudo; the root recheck is one `sudo -n pacman -Qkq -- <candidates>` and only what root confirms is offered for reinstalling; without a ticket it is a couldn't-scan notice, never "nothing broken". The flow around it (probe, prompt, give-up notice) is `internal/engine`'s and the `repair_*` transcripts'. |
 | `hyprpm_test.go` | `hyprpm` is disabled inside topgrade and runs as the last step, only when installed (it drops the sudo ticket on exit). |
-| `coverage_test.go` | Thin spots: `editConfig` (creates defaults, never clobbers, via the `execProcess` seam); password masking in the rendered frame; every checklist glyph; the status line's tea glue only (the line carries its three labels, a `statusMsg` updates the header and schedules the next tick); all summary outcomes. `status_test.go` is just the `BenchmarkSystemStatus` wrapper for the perf guard. |
+| `coverage_test.go` | Thin spots: `editConfig` (creates defaults, never clobbers, via the `execProcess` seam); password masking in the rendered frame; every checklist glyph; the status line's tea glue only (the line carries its three labels, a `statusMsg` updates the header and schedules the next tick); all summary outcomes. `status_test.go` is just `BenchmarkSystemStatusCache100` for the perf guard (the status line on a 100-package fixture cache). |
 | `internal/sysstat/sysstat_test.go` | The status line itself, against fixtures: the df/du-style and free-style size formatters, the rendered `Line`, `Read` spawning no child process (empty `PATH`), and `N/A` for every unreadable source. |
 | `audit_test.go` | The AUR audit through the TUI, fully offline (the audit itself is `internal/audit`'s): an AUR maintainer with terminal escapes reaches neither the step output, the confirm, the report nor `audit.log` intact, while the raw value goes into the snapshot; a corrupt snapshot gates the step and offers `a` on the menu report, and is replaced (kept aside) only by the accepted commit; an end-to-end first-audit-then-takeover menu run, logged; a dry run never advances the snapshot; the notices (no foreign packages, an unreachable AUR, short enough for a popup); the menu audit saves all but the high findings and `a` on the report accepts those (q drops the accept, so they stay flagged), added co-maintainers included; an added co-maintainer gates the step by name until the commit records it; an old-format snapshot is a co-maintainer baseline for the step and the menu; the screen/notice flow. |
 | `internal/audit/audit_test.go` | The audit itself, offline (an `httptest` AUR, `Config.Foreign` instead of pacman): severity classification (adoption/maintainer change/added co-maintainer = high; removed co-maintainer, orphaned, recent push, out of date, 0 votes, not-on-AUR = glance); `GateReason` naming maintainer changes and co-maintainers (sanitized, popup-sized) and gating a corrupt snapshot; local `-debug` companions skipped, high first; chunked POST lookups and RPC error handling, an 8 MiB response cap, results for names that weren't requested dropped; `sanitize.Field` at `FieldMax`; `Run` never saves, a first audit is a baseline and a takeover after a commit is high, in `Text` and `LogSummary`; `Commit` with `holdHigh` keeps the high findings' old entries, accepting saves them and logs `ACCEPT`, a dry run has no commit, a failed save is logged `WARN`; no foreign packages is `ErrNoForeign`, a failing lister or a missing setting fails the audit without an RPC; `ShortErr`. |
