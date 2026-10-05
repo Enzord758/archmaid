@@ -50,13 +50,11 @@ func TestDetach(t *testing.T) {
 		const grace = 300 * time.Millisecond
 		ch := make(chan Msg, 4)
 		c := New(Options{Detach: true, KillGrace: grace, WaitDelay: 50 * time.Millisecond}).Start(
-			bash(`(trap '' INT; exec sleep 30) >/dev/null & echo "holder $!"; sleep 30`), ch, nil)
+			bash(armedLeftover), ch, nil)
 		if c == nil {
 			t.Fatal("did not start")
 		}
-		msg := <-ch
-		killHolder(t, msg.Line)
-		holder, _ := strconv.Atoi(strings.TrimPrefix(msg.Line, "holder "))
+		holder := awaitArmed(t, ch)
 		c.Stop()
 		if _, err := drain(t, ch); err == nil {
 			t.Fatal("the shell exited cleanly after Stop")
@@ -82,13 +80,11 @@ func TestDetach(t *testing.T) {
 		// A grace of a minute: only KillGroup can end the leftover in time.
 		ch := make(chan Msg, 4)
 		c := New(Options{Detach: true, KillGrace: time.Minute, WaitDelay: 50 * time.Millisecond}).Start(
-			bash(`(trap '' INT; exec sleep 30) >/dev/null & echo "holder $!"; sleep 30`), ch, nil)
+			bash(armedLeftover), ch, nil)
 		if c == nil {
 			t.Fatal("did not start")
 		}
-		msg := <-ch
-		killHolder(t, msg.Line)
-		holder, _ := strconv.Atoi(strings.TrimPrefix(msg.Line, "holder "))
+		holder := awaitArmed(t, ch)
 		c.Stop() // SIGINT: the shell goes, the leftover stays
 		if _, err := drain(t, ch); err == nil {
 			t.Fatal("the shell exited cleanly after Stop")
@@ -143,6 +139,38 @@ func TestDetach(t *testing.T) {
 		}
 		c.Stop() // no group left: a no-op, its id never signalled
 	})
+}
+
+// armedLeftover is a shell that leaves a sleep behind which ignores SIGINT,
+// then waits on one that doesn't. The leftover says "armed" (on fd 3, the
+// pipe) once its trap is set, so a test can signal only after that: a
+// SIGINT that came before the trap would kill it. The shell says
+// "holder <pid>" for the leftover.
+const armedLeftover = `(trap '' INT; echo armed >&3; exec sleep 30 3>&-) 3>&1 >/dev/null & echo "holder $!"; sleep 30`
+
+// awaitArmed reads armedLeftover's two lines, in either order, within 5 s,
+// and returns the leftover's pid (killed at cleanup).
+func awaitArmed(t *testing.T, ch <-chan Msg) int {
+	t.Helper()
+	holder, armed := 0, false
+	deadline := time.After(5 * time.Second)
+	for holder == 0 || !armed {
+		select {
+		case msg := <-ch:
+			switch {
+			case msg.Done:
+				t.Fatalf("the shell ended before its leftover was armed: %v", msg.Err)
+			case msg.Line == "armed":
+				armed = true
+			case strings.HasPrefix(msg.Line, "holder "):
+				killHolder(t, msg.Line)
+				holder, _ = strconv.Atoi(strings.TrimPrefix(msg.Line, "holder "))
+			}
+		case <-deadline:
+			t.Fatalf("the leftover never said it was armed (holder %d, armed %v)", holder, armed)
+		}
+	}
+	return holder
 }
 
 // alive: pid exists and isn't a zombie.
