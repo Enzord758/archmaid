@@ -220,6 +220,25 @@ case " ` + strings.Join(o.refuse, " ") + ` " in *" $verb "*) exit 127;; esac
 # if one runs; otherwise the desktop's agent (polkit-gnome) would have,
 # which gnome.log records.
 agent=$(cat ` + q(dir+"/agent.pid") + ` 2>/dev/null)
+if [ -n "${PKEXEC_FOREIGN:-}" ] && [ -n "$agent" ]; then
+	# Something else asks polkit first with archmaid-gui as its subject
+	# (not archmaid's action): the agent cancels it. Then polkitd asks
+	# whichever agent is registered for our request: a new one, if the old
+	# one was spent.
+	rm -f ` + q(dir+"/result") + `
+	printf 'org.freedesktop.systemd1.manage-units' > ` + q(dir+"/request.tmp") + `
+	mv ` + q(dir+"/request.tmp") + ` ` + q(dir+"/request") + `
+	i=0
+	while [ ! -f ` + q(dir+"/result") + ` ] && [ $i -lt 250 ]; do sleep 0.02; i=$((i+1)); done
+	printf '%s\n' "$(cat ` + q(dir+"/result") + ` 2>/dev/null)" >> ` + q(dir+"/foreign.log") + `
+	sleep 0.3
+	i=0
+	while [ $i -lt 250 ]; do
+		agent=$(cat ` + q(dir+"/agent.pid") + ` 2>/dev/null)
+		kill -0 "$agent" 2>/dev/null && break
+		sleep 0.02; i=$((i+1))
+	done
+fi
 if [ -n "$agent" ] && kill -0 "$agent" 2>/dev/null; then
 	rm -f ` + q(dir+"/result") + `
 	printf 'org.archmaid.helper.%s' "$verb" > ` + q(dir+"/request.tmp") + `
@@ -762,6 +781,31 @@ func TestGUIOnePassword(t *testing.T) {
 		}
 		if rep.Dumpable != 0 {
 			t.Errorf("the GUI is dumpable (%d): a crash could dump the password", rep.Dumpable)
+		}
+	})
+
+	t.Run("foreign-first", func(t *testing.T) {
+		// Before our pkexec's request, something else asks polkit with
+		// archmaid-gui as its subject. The agent cancels it with an end of
+		// file, which spends the listener (its stdio EOF is sticky); a new
+		// agent is registered while the helper call waits, and it gets our
+		// request: the user is asked once, polkit-gnome never.
+		dir, env := installShims(t, shimOpts{})
+		rep, _ := child(t, "real-foreign-first", append(env, "PKEXEC_FOREIGN=1")...)
+		if got := readLines(t, filepath.Join(dir, "foreign.log")); !slices.Equal(got, []string{"cancel"}) {
+			t.Errorf("the foreign request ended %q, want cancelled", got)
+		}
+		if rep.Outcome != "completed" || hasRow(rep.Rows, "=auth refused") {
+			t.Errorf("outcome %q rows %q: our request after the foreign one must be served", rep.Outcome, rep.Rows)
+		}
+		if len(rep.PwBodies) != 1 || !strings.Contains(rep.PwBodies[0], "polkit, for org.archmaid.helper.full-cleanup") {
+			t.Errorf("password dialogs %q, want one for polkit", rep.PwBodies)
+		}
+		if got := readLines(t, filepath.Join(dir, "agent.got")); !slices.Equal(got, []string{shimPw}) {
+			t.Errorf("the agents got %q", got)
+		}
+		if g := readLines(t, filepath.Join(dir, "gnome.log")); g != nil {
+			t.Errorf("the desktop's polkit agent asked for %q", g)
 		}
 	})
 

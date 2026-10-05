@@ -22,22 +22,35 @@ import (
 // the status line says so (SetNotice), and the step's output.
 func (w *Wiring) helper(agents chan<- driver.AgentPrompt) driver.Helper {
 	return func(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)) helperclient.Outcome {
-		a, err := w.startAgent()
-		if err != nil {
+		fallback := func(err error) {
 			why := "polkit's own dialog asks: " + err.Error()
 			w.notice(why)
 			emit(engine.StepOutput{Seq: seq, Lines: []string{"archmaid: " + why}})
+		}
+		a, err := w.startAgent()
+		if err != nil {
+			fallback(err)
 			return helperclient.Run(ctx, seq, st, emit)
 		}
 		w.notice("")
-		defer a.Stop()
 		stop := make(chan struct{})
 		forwarded := make(chan struct{})
 		go func() {
 			defer close(forwarded)
+			defer func() {
+				if a != nil {
+					a.Stop()
+				}
+			}()
+			restarts := 0
 			for {
+				var prompts <-chan driver.AgentPrompt
+				var exited <-chan struct{}
+				if a != nil {
+					prompts, exited = a.Prompts(), a.Exited()
+				}
 				select {
-				case p := <-a.Prompts():
+				case p := <-prompts:
 					select {
 					case agents <- p:
 					case <-ctx.Done():
@@ -46,6 +59,20 @@ func (w *Wiring) helper(agents chan<- driver.AgentPrompt) driver.Helper {
 					case <-stop:
 						p.Cancel()
 						return
+					}
+				case <-exited:
+					// It ended while the call still waits (an end of file
+					// spent it, or it died): register a new one, so a
+					// request of ours still to come has it.
+					a.Stop()
+					a = nil
+					if restarts++; restarts > maxAgentRestarts {
+						fallback(errors.New("pkttyagent keeps ending"))
+						continue
+					}
+					if a, err = w.startAgent(); err != nil {
+						a = nil
+						fallback(err)
 					}
 				case <-stop:
 					return
@@ -58,6 +85,9 @@ func (w *Wiring) helper(agents chan<- driver.AgentPrompt) driver.Helper {
 		return out
 	}
 }
+
+// maxAgentRestarts bounds how often one helper call registers a new agent.
+const maxAgentRestarts = 3
 
 // startAgent registers pkttyagent for this process (Config.TTYAgent).
 func (w *Wiring) startAgent() (*polkitagent.Agent, error) {

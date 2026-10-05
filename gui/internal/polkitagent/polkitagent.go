@@ -27,12 +27,14 @@
 // authenticates one of archmaid's helper actions (ActionPrefix) as the
 // current user: the menu's choice is the current user's entry, or none.
 // Anything else is cancelled, and no password is ever written for it: an
-// end of file at its password prompt, or an invalid choice at its identity
-// menu, on which the listener cancels the request and pkttyagent stays up
-// for the next one (a request of archmaid's own is not failed with it). A
-// second password prompt in one request (PAM wanting more than the
-// password) is cancelled the same way, never left waiting. If a cancel
-// can't be written, pkttyagent is stopped instead. The password, when the
+// invalid choice at its identity menu, on which the listener cancels the
+// request and stays up for the next one, or an end of file at its password
+// prompt. The listener reads with stdio, whose end-of-file flag is sticky,
+// so after one every later read fails: that pkttyagent is stopped once the
+// request has ended (Exited), and the caller registers a new one for a
+// request of archmaid's own still to come. A second password prompt in one
+// request (PAM wanting more than the password) is cancelled the same way,
+// never left waiting. If a cancel can't be written, pkttyagent is stopped. The password, when the
 // Driver answers, is written to the pty only once pkttyagent has turned
 // echo off, and only while no other process holds its terminal.
 package polkitagent
@@ -259,6 +261,11 @@ func discard(lines <-chan string) {
 	}
 }
 
+// Exited is closed once pkttyagent has exited: stopped (Stop, or after an
+// end of file spent it), or on its own. While a helper call still waits,
+// the caller registers a new agent.
+func (a *Agent) Exited() <-chan struct{} { return a.exited }
+
 // Prompts delivers the prompts the agent passes on.
 func (a *Agent) Prompts() <-chan driver.AgentPrompt { return a.prompts }
 
@@ -372,7 +379,13 @@ func (a *Agent) drain(lines <-chan string) {
 		// cancelled at its next question, and pkttyagent stays up for the
 		// next request (ours, say).
 		cancelling bool
-		refused    bool // pkttyagent is being stopped: ignore the rest
+		// spent: an end of file was sent. The listener reads with stdio,
+		// whose end-of-file flag is sticky (never cleared): every later
+		// read fails at once, so this pkttyagent can't serve another
+		// request. It is stopped once this one has ended (Exited); the
+		// caller starts a new one.
+		spent   bool
+		refused bool // pkttyagent is being stopped: ignore the rest
 	)
 	reset := func() { action, identity, menu, prompted, cancelling = "", false, nil, false, false }
 	refuse := func() {
@@ -397,9 +410,15 @@ func (a *Agent) drain(lines <-chan string) {
 				a.finish(nil)
 			}
 			reset()
+			if spent {
+				refuse()
+			}
 		case l == "==== AUTHENTICATION FAILED ====", l == "==== AUTHENTICATION CANCELED ====", l == "Cancelled":
 			a.finish(errors.New("polkit: authentication failed"))
 			reset()
+			if spent {
+				refuse()
+			}
 		case l == "Multiple identities can be used for authentication:":
 			menu = map[string]int{}
 		case menu != nil && !identity && menuLine.MatchString(l):
@@ -434,7 +453,7 @@ func (a *Agent) drain(lines <-chan string) {
 			// request, too: polkit's PAM asks for more than the
 			// password): an end of file, so the listener cancels the
 			// request instead of waiting until Stop.
-			cancelling = true
+			cancelling, spent = true, true
 			if err := a.sendEOF(); err != nil {
 				refuse()
 			}

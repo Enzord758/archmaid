@@ -275,7 +275,7 @@ func runChild(scenario, path string) int {
 	case "engine-stops-askpass": // ... with sudo's askpass dialog open, typed in
 		action = stub.IDFullCleanupAskpass
 	case "real-dry", "real-refused", "real-locked", "real-close", "real-tty", "real-small", // realdriver_harness_test.go
-		"real-one-password", "real-agent-missing":
+		"real-one-password", "real-agent-missing", "real-foreign-first":
 	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
 		action = actions.IDTopgrade
 	case "real-askpass": // topgrade's sudo asks through the relay

@@ -18,7 +18,8 @@ package agenttest
 // other authenticates as someone else; AGENT_MODE=twoprompts asks a
 // second hidden question after the password. An end of file at a prompt,
 // or an invalid identity choice, cancels the request (result: cancel), as
-// the listener does. Like the real text listener
+// the listener does; and, as there, an end of file is sticky: every read
+// after it fails at once (rd). Like the real text listener
 // (polkitagenttextlistener.c, initable_init) it opens its terminal once,
 // before it registers (fd 4), and only uses that fd from then on.
 const Shim = `#!/bin/sh
@@ -35,6 +36,14 @@ if [ "${AGENT_MODE:-}" = snoop ]; then
 fi
 exec 3>&-
 echo $$ > "$d/agent.pid"
+# rd reads a line from the terminal as the listener's getc does on its one
+# stdio stream: an end of file is sticky (glibc's EOF flag, never cleared),
+# so every read after one fails too.
+eof=
+rd() {
+	[ -z "$eof" ] || return 1
+	IFS= read -r "$1" <&4 || { eof=1; return 1; }
+}
 while :; do
 	if [ -f "$d/request" ]; then
 		action=$(cat "$d/request"); rm -f "$d/request"
@@ -44,7 +53,11 @@ while :; do
 		multi)
 			printf 'Multiple identities can be used for authentication:\n 1.  root\n 2.  Me Myself (%s)\n' "$AGENT_USER" >&4
 			printf 'Choose identity to authenticate as (1-2): ' >&4
-			IFS= read -r n <&4
+			if ! rd n; then
+				printf '\033[1;31m==== AUTHENTICATION CANCELED ====\n\033[0m' >&4
+				echo cancel > "$d/result"
+				continue
+			fi
 			printf '%s\n' "$n" > "$d/chosen"
 			case "$n" in 1|2) ;; *)
 				printf 'Invalid response ` + "`" + `%s'"'"'.\n' "$n" >&4
@@ -58,7 +71,7 @@ while :; do
 		esac
 		printf 'Password: ' >&4
 		stty -echo <&4
-		if ! IFS= read -r pw <&4; then
+		if ! rd pw; then
 			# End of file: the listener cancels the session.
 			stty echo <&4
 			printf '\n' >&4
@@ -73,7 +86,7 @@ while :; do
 			# PAM asks for more than the password (a second factor, say).
 			printf 'Verification code: ' >&4
 			stty -echo <&4
-			if ! IFS= read -r code <&4; then
+			if ! rd code; then
 				stty echo <&4
 				printf '\n' >&4
 				echo cancel > "$d/result"

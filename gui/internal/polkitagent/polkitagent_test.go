@@ -153,16 +153,22 @@ func TestAgentChoosesTheUser(t *testing.T) {
 	}
 }
 
-// Not archmaid's action, or not the current user: nothing is passed on,
-// no password is written, and the request is cancelled (an end of file at
-// its password prompt, an invalid choice at an identity menu) without
-// stopping pkttyagent: archmaid's own request that follows is served.
+// Not archmaid's action, or not the current user: nothing is passed on and
+// no password is written; the request is cancelled. An invalid choice at
+// an identity menu leaves pkttyagent able to read, so it stays up and
+// serves archmaid's own next request. An end of file at a password prompt
+// is sticky in the listener's stdio (the shim is too): that pkttyagent is
+// spent, so it is stopped once the request has ended (Exited), never left
+// to fail the next request at once.
 func TestAgentRefuses(t *testing.T) {
-	for _, tc := range []struct{ name, action, idents string }{
-		{"foreign action", "org.freedesktop.systemd1.manage-units", ""},
-		{"lookalike action", "org.archmaid.helperx.run", ""},
-		{"foreign action, menu", "org.freedesktop.systemd1.manage-units", "multi"},
-		{"other user", "org.archmaid.helper.full-cleanup", "other"},
+	for _, tc := range []struct {
+		name, action, idents string
+		spent                bool
+	}{
+		{"foreign action", "org.freedesktop.systemd1.manage-units", "", true},
+		{"lookalike action", "org.archmaid.helperx.run", "", true},
+		{"foreign action, menu", "org.freedesktop.systemd1.manage-units", "multi", false},
+		{"other user", "org.archmaid.helper.full-cleanup", "other", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path, dir := shim(t, "AGENT_IDENTS="+tc.idents)
@@ -173,8 +179,6 @@ func TestAgentRefuses(t *testing.T) {
 				select {
 				case p := <-a.Prompts():
 					t.Fatalf("passed on %q", p.Action())
-				case <-a.exited:
-					t.Fatal("pkttyagent was stopped: a request of ours would fail with it")
 				case <-time.After(20 * time.Millisecond):
 				}
 			}
@@ -184,8 +188,13 @@ func TestAgentRefuses(t *testing.T) {
 			if got := read(t, dir, "agent.got"); got != "" {
 				t.Fatalf("pkttyagent was answered %q", got)
 			}
-			if tc.idents == "other" {
-				return // every request authenticates as someone else
+			if tc.spent {
+				select {
+				case <-a.Exited():
+				case <-time.After(5 * time.Second):
+					t.Fatal("a pkttyagent spent by an end of file was left up")
+				}
+				return
 			}
 			_ = os.Remove(filepath.Join(dir, "result"))
 			request(t, dir, "org.archmaid.helper.full-cleanup")

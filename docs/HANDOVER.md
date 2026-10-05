@@ -314,9 +314,14 @@ comments and `git log`; this is the "read before you touch it" list.
     the listener has turned echo off (it flushes earlier input). A request
     that isn't ours to answer (another action, another identity) and a
     second hidden prompt in one request are cancelled at the listener
-    (an end of file, or an invalid identity choice), and pkttyagent stays
-    up, so a refused foreign request with archmaid-gui as its subject
-    doesn't fail a request of ours that follows. Without pkttyagent, or if
+    (an end of file, or an invalid identity choice). An invalid choice
+    leaves pkttyagent up. An end of file spends it: the listener reads with
+    stdio, whose EOF flag is sticky, so every later read would fail. That
+    pkttyagent is stopped once the request has ended, and while the helper
+    call still waits a new one is registered (at most 3 times, then the
+    desktop's agent with the status-line notice), so a refused foreign
+    request with archmaid-gui as its subject doesn't fail a request of ours
+    that follows. Without pkttyagent, or if
     it can't register, polkit asks through the desktop's agent as before,
     and the status line says so. pkttyagent dying mid-authentication drops
     the kept password (fail-safe). pkttyagent runs in a session of its own
