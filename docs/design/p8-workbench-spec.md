@@ -19,7 +19,11 @@ pages (Overview, Run, Logs, Settings), the actions, the dialogs and every
 engine interaction stay. Section 2 lists the few real additions on their own.
 **No engine API change is needed.** Everything the design shows already
 arrives in an Event or can be read without the engine. One small additive
-change outside the engine is proposed: totals in `sysstat.Status`.
+change outside the engine is proposed: totals in `sysstat.Status`. The one
+engine change in this document comes from one-password, not from the
+design: `NeedsPassword.Polkit` and `NeedsPassword.Action`, both additive
+(1.4). They are needed so the dialog's kind is never parsed out of the
+Requester text.
 
 ## 0. Ground rules for whoever builds it
 
@@ -134,10 +138,49 @@ normal case (the first prompt, from topgrade's sudo or from polkit's agent),
 with `KeptNote` ("archmaid keeps it in memory for this run only, so the run
 doesn't ask again."). Later prompts are answered from the kept password and
 show nothing. A kept password that su or polkit refuses is dropped, and the
-next prompt asks the user again through the same dialog. Under one-password,
-polkit's agent prompt arrives as `NeedsPassword{Kind: PasswordAskpass,
-Requester: "polkit, for org.archmaid.helper.full-cleanup"}`, so the heading
-can no longer say "sudo" (1.11).
+next prompt asks the user again through the same dialog. The dialog says
+what the kept password is for (1.11): any other program that asks gets this
+dialog, with its own name in it.
+
+**The dialog's kind comes from data, never from the Requester text.** Under
+one-password, polkit's agent prompt arrives as `AskpassRequest{Polkit:
+true}`. Today's `NeedsPassword` doesn't carry that flag, and the agent's
+`Requester` reads "polkit, for org.archmaid.helper.full-cleanup". A GUI
+that picked "polkit" by matching that string could be fooled by a sudo
+caller whose binary path contains it. The required change is additive (E0
+allows it): `NeedsPassword` gains `Polkit bool` and `Action string` (the
+polkit action id, from the agent, which already checks it is an
+`org.archmaid.helper.*` action), and the Session copies them from the
+`AskpassRequest`. The dialog then picks its title, body and caller line
+from `Polkit`:
+
+- **sudo:** the caller line is the verified caller (the binary and pid).
+- **polkit:** its own title, and the action id shown verbatim.
+
+Dev 4 is fixing today's title in the GUI, and P8 builds on that.
+
+**The caller line is a hard rule.** "Asked by {Requester}" (the binary and
+pid, or "polkit, for {Action}") is the user's only check that the prompt is
+genuine. The HANDOVER askpass landmine explains that a build script running
+sudo itself shows up as `/usr/bin/bash`, not topgrade or yay. So:
+
+- The caller line is its own `GtkLabel` in the dialog body (the extra
+  child), with `use-markup` off. It is never interpolated into the heading
+  or into markup.
+- It wraps (`wrap = true`, `wrap-mode = word-char`) and never ellipsizes
+  (`ellipsize = none`), at every window size down to 630×372 and in the
+  floating-dialog form. A long path takes more lines; it is never cut.
+- It is never dimmed, never smaller than the body text and never
+  low-contrast: no `dim-label`, no `caption`, no opacity. Our CSS gives it
+  only a rule that makes it as prominent as the body (3.1).
+- The harness checks it: at 630×372 the caller label is visible in full
+  (not ellipsized, no `dim-label`) for a requester path of 120 characters.
+
+**Accepted residual.** Anything that can write `~/.config/gtk-4.0/` (the
+user's own stylesheet, which GTK loads above ours) can restyle or hide the
+caller line. That takes code already running as the user, which can attack
+the session in easier ways. It is no worse than the rest of the desktop,
+and it is accepted.
 
 ### 1.5 Run (running, failed, dry run)
 
@@ -248,8 +291,9 @@ means the same as today.
 | Confirm note (password) | "Seven steps run as root. One password prompt, up front." | "{M} steps run as root, together, after one polkit authorisation that comes after topgrade. If topgrade's sudo needs your password, archmaid asks for it in its own dialog." | "{M} steps run as root, together. You type your password once, the first time a step needs it; archmaid keeps it for this run only." |
 | Confirm note (asks) | "Step 05 asks again before it wipes the whole package cache." | "Step {n} asks before it deletes the entire package cache." For an inserted orphan removal: "Orphans are listed for you to confirm before anything is removed." | — |
 | Confirm note (AUR gate) | — | "If an AUR package changed maintainer or gained a co-maintainer, you're asked before the update." | — |
-| Password heading (askpass) | "sudo needs your password" | "sudo Asks for Your Password" (keep) | "archmaid Needs Your Password" (it may be sudo's or polkit's prompt) |
-| Password body | "Asked by /usr/bin/yay (pid 44045) · [sudo] password for enzord" | "Asked by {Requester}." + sudo's prompt, sanitized, ≤ 48 runes | the same, plus `KeptNote`; for polkit "Asked by polkit, for org.archmaid.helper.full-cleanup." |
+| Password heading (askpass) | "sudo needs your password" | "sudo Asks for Your Password" (keep) | by `NeedsPassword.Polkit` (data, 1.4), never by the Requester text: sudo → "sudo Asks for Your Password"; polkit → "Authorise archmaid's Root Steps" |
+| Caller line (own label, 1.4 rule) | "Asked by /usr/bin/yay (pid 44045) · [sudo] password for enzord" | "Asked by {Requester}." on its own line, then sudo's prompt, sanitized, ≤ 48 runes | sudo: the same; polkit: "Asked by polkit for {Action}" with the action id verbatim (e.g. `org.archmaid.helper.full-cleanup`) |
+| Kept-password note | — | — | "archmaid keeps this password in memory for this run only. It answers topgrade's and yay's sudo and archmaid's own polkit prompts. Any other program that asks shows this dialog with its name." (replaces today's `KeptNote` on the follow-ups branch) |
 | Password error | "Wrong password · 2 attempts left. After 3, the root steps are skipped." | the engine's `Error` verbatim ("Incorrect password — 2 attempts left", or a lockout notice) and nothing invented after it. The mockup's "after 3, the root steps are skipped" is not what an askpass refusal does (it fails the asking step) | — |
 | Up-front password heading | — | the gate text (`NeedsPassword.Gate`) or "Password Required" | — |
 | Waiting row | — (not drawn) | "Waiting for authorisation…" / "… · one more failure locks your account" (`Row.Subtitle`) | — |
@@ -270,7 +314,7 @@ means the same as today.
 | A3 | **Dry run first**: one Start as a dry run, without changing the saved setting | hero card | **GUI-only**: `startAction` takes a one-off `DryRun` that goes into that Driver's `engine.Options` (`settings.Apply` + override). The Settings switch is untouched |
 | A4 | **Open in Logs** (last run → its run folder), **Open folder** (Logs page and Settings) | Overview, Logs, Settings | **GUI-only**: the run folder from the record's `Started` minute (the folder's stamp) with a fallback to the newest real run; folders open with `gtk.FileLauncher`. Optional, small backend: a `run_dir` field in `RunRecord` (additive, the widget contract allows it) |
 | A5 | Output grouped per step, with a one-line summary per finished step | Run | **GUI-only** (`runview`): the model tags each line with its step (`OutputChunk.Index` already says which); the 10k-line cap stays per run and drops from the oldest step first. The summary is the failed step's `Err`, else its last non-empty line, else its `LogLabel` |
-| A6 | Failed-step actions: **Run <action> again** (offered when the failed step is topgrade: it starts Run topgrade), **Open <category>.log**, **Copy error** | Run | **Pure frontend, no engine command.** "Run topgrade" is `startAction(actions.IDTopgrade)`: a fresh Driver and an ordinary `engine.Start`, with its AUR audit, gate and password exactly as a click on the action. Only when the failed step maps to a menu action of its own (topgrade → Run topgrade); otherwise the button reads "Run {action} again" and starts the same action. Retrying one step inside a finished run doesn't exist in the engine, and P8 doesn't add it. "Copy error" puts the step's `Err` and its last 20 output lines (already sanitized text from the model) on `gdk.Display.Clipboard()`. "Open {category}.log" shows the Logs page at the run and `PlanStep.Category`. All three show only after `Finished` (not while busy) |
+| A6 | Failed-step actions: **Run <action> again** (offered when the failed step is topgrade: it starts Run topgrade), **Open <category>.log**, **Copy error** | Run | **Pure frontend, no engine command.** "Run topgrade" is `startAction(actions.IDTopgrade)`: a fresh Driver and an ordinary `engine.Start`, with its AUR audit, gate and password exactly as a click on the action. Only when the failed step maps to a menu action of its own (topgrade → Run topgrade); otherwise the button reads "Run {action} again" and starts the same action. Retrying one step inside a finished run doesn't exist in the engine, and P8 doesn't add it. "Copy error" puts the step's `Err` and its last 20 output lines (already sanitized text from the model) on `gdk.Display.Clipboard()`, after removing URL credentials: every `scheme://user:pass@` and `scheme://user@` becomes `scheme://***@` (a `runview` function with tests: https, git+ssh, several per line, no false hits on `user@host` without a scheme). DMS's clipboard history keeps whatever is copied, and a failing `git pull` prints its remote URL. "Open {category}.log" shows the Logs page at the run and `PlanStep.Category`. All three show only after `Finished` (not while busy) |
 | A7 | The log viewer: entry headers parsed (`[ts] KIND: label`) into a result line, topgrade's "―― HH:MM:SS - name ――" separators into collapsible sections, and a search bar that filters lines | Logs | **GUI-only** (`logview`, read only as today) |
 | A8 | **Choose…** for the downloads folder | Settings | **GUI-only**: `gtk.FileDialog.SelectFolder`; the result is checked by `settings.CheckDownloads` like a typed path |
 | A9 | **Edit topgrade config**: Settings → Topgrade → Open in editor | Settings | **small backend**: move `ensureTopgradeConfig`, `configPath` and `defaultTopgradeConfig` out of `internal/tui/tasks.go` into `internal/frontend` (the TUI keeps its behaviour, `coverage_test`'s `editConfig` checks stay). GUI: create with defaults if missing, then `gtk.FileLauncher` on the file (the desktop's default app for it; `SetAlwaysAsk` when none is set), with **Show in folder** (`OpenContainingFolder`) as the fallback. No privilege, no `$EDITOR` (it needs a terminal). An embedded editor (`GtkSourceView`) would need a new cgo binding and GTK dependency, for one file: not worth it (Q7) |
@@ -337,6 +381,14 @@ sit under that, not on top of it:
   libadwaita's own). Whether the surfaces should be Tokyo Night instead of
   DMS's palette is the owner's call: it is the same decision as Q8 for the
   output. Switching is one token block in `style.css`, not a code change.
+- **The password dialog's caller line is exempt from styling** (1.4). No
+  `.archmaid` rule may dim, shrink, ellipsize, hide or lower the contrast
+  of the label with class `am-caller`. Its one rule makes it as prominent as
+  the body text (`font-size` and `color` inherited from the body, weight
+  600). A review checks every change to `style.css` against this.
+  Accepted residual: the user's own `gtk.css` loads above ours and could
+  restyle it. Whatever can write `~/.config/gtk-4.0` already runs as the
+  user, so this is no worse than the rest of the desktop.
 - **Structure is ours.** Square corners, hairlines, the corner marks, type
   sizes, the condensed heading font and spacing. DMS's file sets no
   structural properties, so nothing conflicts.
@@ -415,7 +467,7 @@ them out and back. It costs a little more model code and no extra widgets.
 
 | Behaviour | Where the design touches it | Rule |
 |---|---|---|
-| **One password per run** (decision F: the run's first password is kept, su-checked, used for later sudo and polkit prompts, wiped at Finished/Close/KillNow) | 1.3 note text, 1.4 card | Visual only. The dialog still reads the entry as C bytes (`secret.go`), wipes it, sends `SubmitPassword`, and `Cancel` sends `CancelPrompt`. The "kept for this run" line stays. The confirm's sentence must describe F, not "up front" |
+| **One password per run** (decision F: the run's first password is kept, su-checked, used for later sudo and polkit prompts, wiped at Finished/Close/KillNow) | 1.3 note text, 1.4 card | Visual only. The dialog still reads the entry as C bytes (`secret.go`), wipes it, sends `SubmitPassword`, and `Cancel` sends `CancelPrompt`. The "kept for this run" line stays, saying what the password answers (1.11). The kind (sudo or polkit) comes from data, never from parsing the Requester, and the caller line follows 1.4's hard rule. The confirm's sentence must describe F, not "up front" |
 | **The polkit flow** (one `full-cleanup` dialog, faillock read first, `Waiting for authorisation…`, `Not authorised`, the lock time, the last-attempt warning, pkttyagent with its fallback note) | 1.5 states | All drawn from `Row.Waiting`, `Row.Faillock`, `RowAuthRefused`, as today. The polkit dialog itself isn't ours to style |
 | **Stop** | header button | Visible only while busy, sends `Abort` exactly as now. During a polkit wait it is the same Stop |
 | **Close / Stop and Quit** | ✕ | `closeRequest` unchanged: mid-run asks "Stop the run and quit?" (Keep Running default; act on `response`, never `closed`); while polkit's dialog waits, ✕ is Stop and Quit at once; the window hides and the Driver closes off the main thread |
@@ -472,8 +524,8 @@ when the root module changes).
 | 9 | 4 | `gui: meters in the sidebar` | 3, 4 | shots; the `idle` scenario's RAM and first frame within budget |
 | 10 | 4 | `gui: Overview as the modular grid; Dry run first` (A3) | 3, 5 | `fullcleanup` from the hero; a new `dry-first` scenario (dry run on the next Driver only, `gui.json` unchanged) |
 | 11 | 4 | `gui: Run timeline on a sectioned list view` | 3, 6 | every run scenario; `flood*` budgets with `ARCHMAID_GUI_PERF=1`; follow-the-bottom incl. a scrollbar drag |
-| 12 | 4 | `gui: failed-step actions` (A6) | 11 | a failing topgrade shim: Run again starts topgrade, Copy error fills the clipboard, the Open log page shows the run |
-| 13 | 4 | `gui: restyled dialogs, the gate's plan rail` | 2, 5 | `fullcleanup`, `uncached`, `wrong-password`, `askpass`, `real-*`, `TestGUIOnePassword`, `TestGUISmallWindow` (dialog title in view) |
+| 12 | 4 | `gui: failed-step actions` (A6) | 11 | a failing topgrade shim: Run again starts topgrade, Copy error fills the clipboard with `://user:pass@` redacted (the redaction unit-tested in `runview`), the Open log page shows the run |
+| 13 | 4 | `gui: restyled dialogs, the gate's plan rail` | 2, 5 | `fullcleanup`, `uncached`, `wrong-password`, `askpass`, `real-*`, `TestGUIOnePassword`, `TestGUISmallWindow` (dialog title in view; the caller label shown whole at 630×372 for a 120-character requester: wrapped, not ellipsized, no `dim-label`); a sudo requester whose path contains "polkit" still gets the sudo dialog (the kind comes from `NeedsPassword.Polkit`) |
 | 14 | 4 | `gui: Logs page with categories, sections and search; Open folder` (A4, A7) | 3, 7 | `logs` scenario (the state dir unchanged after); a launcher seam so tests never open a real app |
 | 15 | 4 | `gui: Settings cards; Choose…; Open in editor` (A8, A9) | 3, 8 | `settings` scenario; the folder chooser and launcher behind seams (no portal in headless) |
 | 16 | C | `dms: popout in Workbench's sections` | — | `TestStateJS` locally; scratch quickshell load |
