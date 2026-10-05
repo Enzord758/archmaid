@@ -5,7 +5,10 @@
 // (Listen, RunClient, Request.Verify). It knows nothing about the UI.
 //
 // Passwords pass straight through: they are never logged, never stored, and
-// never kept in a struct that outlives the call that was handed them.
+// never kept in a struct that outlives the call that was handed them. The
+// one exception is the GUI's KeptPassword (kept.go): one mlocked page,
+// for one run, wiped when it ends (docs/HANDOVER.md, "The GUI keeps the
+// run's password").
 //
 // Read docs/HANDOVER.md ("Auth is two-stage", "Nothing may prompt on the raw
 // tty", "SUDO_ASKPASS goes only to steps that use sudo", "An askpass request

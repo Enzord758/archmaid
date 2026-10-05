@@ -363,9 +363,14 @@ func setSystem(s system) (restore func()) {
 }
 
 // Requester is who a verified request came from: the process that ran sudo.
+// Sudo names that sudo (its pid and start time, so a second request from
+// the same sudo process can be told apart from another sudo's), and Session
+// is the askpass helper's session id.
 type Requester struct {
 	CallerExe string // its real binary; "" if unreadable
 	CallerPid int
+	Sudo      Peer
+	Session   int
 }
 
 // verifyPeer decides whether a request from peer may have the password
@@ -439,7 +444,7 @@ func verifyPeer(peer Peer, stepPid int, stepStart uint64, o system) (Requester, 
 		}
 	}
 
-	from := Requester{CallerPid: sudo.PPid}
+	from := Requester{CallerPid: sudo.PPid, Sudo: Peer{Pid: helper.PPid, UID: sudo.EUID, Start: sudo.Start}, Session: helper.Session}
 	if caller, err := readProc(sudo.PPid); err == nil {
 		from.CallerExe = caller.Exe
 	}
