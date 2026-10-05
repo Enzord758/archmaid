@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -125,24 +124,17 @@ func editConfig() tea.Cmd {
 			return editorDoneMsg{}
 		}
 	}
-	ensureTopgradeConfig(path)
+	frontend.EnsureTopgradeConfig(path) // best effort: the editor shows what's there
 	return execProcess(exec.Command(editorName(), path), func(err error) tea.Msg {
 		return editorDoneMsg{err}
 	})
 }
 
-// ensureTopgradeConfig creates the config with defaults if it doesn't exist,
-// leaving an existing file untouched.
-func ensureTopgradeConfig(path string) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		os.MkdirAll(filepath.Dir(path), 0o755)
-		os.WriteFile(path, []byte(defaultTopgradeConfig), 0o644)
-	}
-}
-
+// configPath is the topgrade config (frontend.TopgradeConfigPath); "" when
+// the home directory is unknown, which creates nothing.
 func configPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "topgrade.toml")
+	path, _ := frontend.TopgradeConfigPath()
+	return path
 }
 
 func editorName() string {
@@ -154,18 +146,3 @@ func editorName() string {
 	}
 	return "nano"
 }
-
-const defaultTopgradeConfig = `# topgrade configuration
-# Documentation: https://github.com/topgrade-rs/topgrade/wiki/Configuration
-
-[misc]
-assume_yes = true
-cleanup = true
-
-[linux]
-aur_command = "yay"
-
-# Disable steps you don't want by setting them to false:
-# [skip_steps]
-# flatpak = false
-`
