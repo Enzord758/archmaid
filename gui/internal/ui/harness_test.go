@@ -112,6 +112,9 @@ type report struct {
 	// The Logs page's list while searching for ARCHMAID_GUI_LOGSEARCH,
 	// and with its first section folded (logs_harness_test.go).
 	LogSearch, LogFolded []string
+	// The Settings page's topgrade card error after Open in editor ("" if
+	// none; settings_harness_test.go).
+	ConfigError string
 
 	// The window's title, the stub's banner if revealed, and the status
 	// line, at the first frame.
@@ -688,14 +691,24 @@ func browseLogs(w *Window, rep *report, fail func(string, ...any)) {
 	rep.LogSearch = searchLog(w, os.Getenv("ARCHMAID_GUI_LOGSEARCH"))
 	rep.LogFolded = foldFirstSection(w)
 	w.logs.folder.Emit("clicked")
-	glib.TimeoutAdd(50, func() { w.win.Close() })
+	delay := uint(50)
+	if os.Getenv(shotsEnv) != "" {
+		delay = 600 // laid out and drawn, for its shot
+	}
+	glib.TimeoutAdd(delay, func() {
+		shoot(w, "logs", "page")
+		w.win.Close()
+	})
 }
 
 // countLabels walks the output list's widgets: the labels showing text,
 // and how many of them carry attributes (colour).
 // changeSettings works the Settings page the way a user does: the home
-// folder typed and applied (refused), then ARCHMAID_GUI_DL (kept), then dry
-// run switched on. The run that follows must get a fresh Driver.
+// folder typed and applied (refused), then ARCHMAID_GUI_DL (kept), then
+// Choose… (the harness's Launcher answers ARCHMAID_GUI_CHOOSE; when that is
+// unset it answers nothing and the folder stays), Open in editor and the
+// log card's Open folder, then dry run switched on. The run that follows
+// must get a fresh Driver.
 func changeSettings(w *Window, rep *report) {
 	w.stack.SetVisibleChildName("settings")
 	p := w.set
@@ -710,6 +723,15 @@ func changeSettings(w *Window, rep *report) {
 		p.downloads.Emit("apply")
 		rep.DlErrors = append(rep.DlErrors, shown())
 	}
+	p.choose.Emit("clicked")
+	if os.Getenv("ARCHMAID_GUI_CHOOSE") != "" {
+		rep.DlErrors = append(rep.DlErrors, shown())
+	}
+	p.editor.Emit("clicked")
+	if p.configError.Visible() {
+		rep.ConfigError = p.configError.Text()
+	}
+	p.logFolder.Emit("clicked")
 	p.dryRun.SetActive(true)
 	if p.problem.Visible() {
 		rep.Problem = p.problem.Text()

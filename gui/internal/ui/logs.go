@@ -158,6 +158,8 @@ func (w *Window) newLogs() gtk.Widgetter {
 	factory := gtk.NewSignalListItemFactory()
 	factory.ConnectSetup(func(obj *coreglib.Object) {
 		box := gtk.NewBox(gtk.OrientationHorizontal, 12)
+		box.SetMarginStart(12)
+		box.SetMarginEnd(12)
 		text := gtk.NewLabel("")
 		text.SetXAlign(0)
 		text.SetHExpand(true)
