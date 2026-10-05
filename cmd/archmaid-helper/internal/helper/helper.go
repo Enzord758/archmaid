@@ -243,6 +243,11 @@ func checkPackagesArgv(names []string) []string {
 func paccacheArgv(k string) []string { return []string{Paccache, "-r", "-k", k} }
 func journalArgv(d string) []string  { return []string{Journalctl, "--vacuum-time=" + d} }
 func cleanTmpArgv() []string         { return []string{SystemdTmpfile, "--clean"} }
+
+// cleanUninstalledArgv is pacman -Sc: the cache of packages no longer
+// installed (pacman.conf's CleanMethod decides), and unused sync databases;
+// --noconfirm answers its two questions with their default, yes.
+func cleanUninstalledArgv() []string { return []string{Pacman, "-Sc", "--noconfirm"} }
 func removeArgv(targets []string) []string {
 	return append([]string{Pacman, "-Rns", "--noconfirm", "--"}, targets...)
 }

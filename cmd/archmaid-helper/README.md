@@ -129,17 +129,18 @@ disabled together (a failed service and its inactive socket named in `Also=`)
 is allowed.
 
 **full-cleanup** takes
-`full-cleanup --keep N [--wipe] [--orphans sha256:…] --journal D`. Flags take
+`full-cleanup --keep N [--wipe] [--uninstalled] [--orphans sha256:…] --journal D`. Flags take
 their value as the next argument, never `--flag=value`. Each flag may appear
 once; unknown flags and positionals exit 2. The steps ("parts") always run in
-this order, each named by the verb it stands for:
+this order, each named by the verb it stands for (`clean-uninstalled` has a name of its own):
 
 1. `remove-orphans`: remove-orphans `H` (only with `--orphans`; a stale plan is skipped and reported, not run). First, right after the lock check, while the confirmed plan is freshest
 2. `paccache`: `paccache -r -k N`
 3. `paccache-wipe`: `paccache -r -k 0` (only with `--wipe`)
-4. `clean-tmp`: `systemd-tmpfiles --clean`
-5. `vacuum-journal`: `journalctl --vacuum-time=D`
-6. `check-files`: `pacman -Qk`
+4. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog
+5. `clean-tmp`: `systemd-tmpfiles --clean`
+6. `vacuum-journal`: `journalctl --vacuum-time=D`
+7. `check-files`: `pacman -Qk`
 
 The parts are independent, so a failing part doesn't stop the rest. Each
 part's `progress` events carry `part`, and the part ends with a `done` event

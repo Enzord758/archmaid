@@ -14,7 +14,10 @@ func TestFullCleanupArgs(t *testing.T) {
 		ok   bool
 	}{
 		{"minimal", "--keep 3 --journal 2weeks", true},
-		{"all", "--keep 1 --wipe --orphans " + h + " --journal 1month", true},
+		{"all", "--keep 1 --wipe --uninstalled --orphans " + h + " --journal 1month", true},
+		{"uninstalled", "--uninstalled --keep 3 --journal 2weeks", true},
+		{"duplicate uninstalled", "--keep 3 --uninstalled --uninstalled --journal 2weeks", false},
+		{"uninstalled with a value", "--keep 3 --uninstalled=yes --journal 2weeks", false},
 		{"any order", "--journal 1week --orphans " + h + " --keep 9", true},
 		{"missing keep", "--journal 2weeks", false},
 		{"missing journal", "--keep 3", false},
@@ -49,13 +52,14 @@ func TestFullCleanupSequence(t *testing.T) {
 	f := orphanFake("a\n", "a 1-1\ndep 1-1\n")
 	o, out := rootOpts(t, f)
 	h := PlanHash([]string{"a"}, []string{"a 1-1", "dep 1-1"})
-	if code := Run([]string{"full-cleanup", "--keep", "2", "--wipe", "--orphans", h, "--journal", "1month"}, o); code != ExitOK {
+	if code := Run([]string{"full-cleanup", "--keep", "2", "--wipe", "--uninstalled", "--orphans", h, "--journal", "1month"}, o); code != ExitOK {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	want := []string{
 		"/usr/bin/pacman -Rns --noconfirm -- a",
 		"/usr/bin/paccache -r -k 2",
 		"/usr/bin/paccache -r -k 0",
+		"/usr/bin/pacman -Sc --noconfirm",
 		"/usr/bin/systemd-tmpfiles --clean",
 		"/usr/bin/journalctl --vacuum-time=1month",
 		"/usr/bin/pacman -Qk",
@@ -63,7 +67,7 @@ func TestFullCleanupSequence(t *testing.T) {
 	if got := join(f.streams); !slices.Equal(got, want) {
 		t.Errorf("sequence\n got %q\nwant %q", got, want)
 	}
-	parts := []string{PartRemoveOrphans, PartPaccache, PartPaccacheWipe, PartCleanTmp, PartVacuumJournal, PartCheckFiles}
+	parts := []string{PartRemoveOrphans, PartPaccache, PartPaccacheWipe, PartCleanUninstalled, PartCleanTmp, PartVacuumJournal, PartCheckFiles}
 	evs := events(t, out)
 	prog, done := ofType(evs, EventProgress), ofType(evs, EventDone)
 	if len(prog) != len(want) || len(done) != len(want) {
