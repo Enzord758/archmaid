@@ -108,6 +108,11 @@ type report struct {
 	LogShown string   // the log opened, and its lines
 	LogLines []string
 	Notice   string
+
+	// The Logs page's list while searching for ARCHMAID_GUI_LOGSEARCH,
+	// and with its first section folded (logs_harness_test.go).
+	LogSearch, LogFolded []string
+
 	// The window's title, the stub's banner if revealed, and the status
 	// line, at the first frame.
 	Title, Banner, FirstStatus string
@@ -660,25 +665,29 @@ func runChild(scenario, path string) int {
 	return 0
 }
 
-// browseLogs opens the Logs page from the Overview's View log row, opens
-// the log ARCHMAID_GUI_LOG names ("run/category"), records what it shows,
-// then closes the window.
+// browseLogs opens the Logs page (as the Logs tab does; the Overview's
+// View log row goes in P8), opens the log ARCHMAID_GUI_LOG names
+// ("run/category"), records what it shows, searches it for
+// ARCHMAID_GUI_LOGSEARCH, folds its first section, presses Open folder,
+// then closes the window. The Logs page's own helpers are in
+// logs_harness_test.go.
 func browseLogs(w *Window, rep *report, fail func(string, ...any)) {
-	w.menu[actions.IDViewLog].row.Emit("activated")
+	w.showLogs()
 	if rep.Page = w.stack.VisibleChildName(); rep.Page != "logs" {
-		fail("View log left the %q page up", rep.Page)
+		fail("the Logs page isn't up: %q", rep.Page)
 	}
-	for k := range w.logs.rows {
+	for k := range w.logs.open {
 		rep.LogRows = append(rep.LogRows, k)
 	}
 	slices.Sort(rep.LogRows)
-	if r, ok := w.logs.rows[os.Getenv("ARCHMAID_GUI_LOG")]; ok {
-		r.Emit("activated")
+	if open, ok := w.logs.open[os.Getenv("ARCHMAID_GUI_LOG")]; ok {
+		open()
 	}
 	rep.LogShown = w.logs.shown
-	for i := range w.logs.textLen {
-		rep.LogLines = append(rep.LogLines, w.logs.text.String(i))
-	}
+	rep.LogLines = logLines(w)
+	rep.LogSearch = searchLog(w, os.Getenv("ARCHMAID_GUI_LOGSEARCH"))
+	rep.LogFolded = foldFirstSection(w)
+	w.logs.folder.Emit("clicked")
 	glib.TimeoutAdd(50, func() { w.win.Close() })
 }
 
@@ -993,7 +1002,7 @@ func TestGUILogsAndLastRun(t *testing.T) {
 	if want := []string{run + "/topgrade", "dryrun/cleanup"}; rep.Page != "logs" || !slices.Equal(rep.LogRows, want) {
 		t.Errorf("page %q log rows %q, want logs and %q", rep.Page, rep.LogRows, want)
 	}
-	if rep.LogShown != run+"/topgrade" || len(rep.LogLines) != 4 || rep.LogLines[2] != "==> done" {
+	if rep.LogShown != run+"/topgrade" || !slices.Equal(rep.LogLines, []string{"Topgrade completed", "==> done"}) {
 		t.Errorf("shown %q lines %q", rep.LogShown, rep.LogLines)
 	}
 	if after := stateTree(t, dir); !slices.Equal(before, after) {
