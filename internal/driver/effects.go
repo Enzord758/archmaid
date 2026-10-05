@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/helperclient"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -145,6 +146,15 @@ func (d *Driver) startStep(e engine.StartStep) {
 	}
 	if d.cfg.Polkit && !e.Env.DryRun && st.Verb != "" {
 		d.startHelper(e)
+		return
+	}
+	if d.cfg.Polkit && e.Env.DryRun && st.Verb != "" {
+		// A dry run previews the polkit route (the pkexec line, a combined
+		// call's parts) and starts nothing: no pkexec, no agent, no dialog.
+		d.work(func() engine.Input {
+			helperclient.DryRun(e.Seq, st, func(in engine.Input) { d.post(msg{in: in}) })
+			return nil
+		})
 		return
 	}
 	ch := make(chan proc.Msg, proc.BatchMax)

@@ -448,6 +448,13 @@ comments and `git log`; this is the "read before you touch it" list.
   still to come (the helper runs as root; the per-step design stopped
   before the next step's dialog). The polkit message is fixed text, so the
   in-app confirms are what say whether orphans and the wipe are included.
+  A GUI dry run takes the same route without asking: the engine combines
+  under polkit in a dry run too (no faillock read, no polkit wait), and the
+  Driver hands a dry-run helper step to `helperclient.DryRun`, which prints
+  the exact `pkexec … archmaid-helper …` line `Argv` builds (a combined
+  call's once, then one line per part on its own row) and starts nothing.
+  Before this, a GUI dry run printed the TUI's `sudo …` commands
+  (`TestFullCleanupPolkitDryRun`).
 - **Under polkit only topgrade asks for a password (besides the dialog).**
   Without a terminal sudo's ticket is keyed on the parent process, so
   every tool that runs sudo asks through askpass again; no password is

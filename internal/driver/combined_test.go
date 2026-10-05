@@ -33,6 +33,12 @@ var fcPlan = steps.OrphanPlan{
 // --aur, runs `sudo pacman -Sc`; the sudo shim logs to sudo.log.
 func fullCleanupRig(t *testing.T, body string) (*rig, string) {
 	t.Helper()
+	return fullCleanupRigDry(t, body, false)
+}
+
+// fullCleanupRigDry is fullCleanupRig, as a dry run when dry.
+func fullCleanupRigDry(t *testing.T, body string, dry bool) (*rig, string) {
+	t.Helper()
 	fc, ok := actions.ByID(actions.IDFullCleanup)
 	if !ok {
 		t.Fatal("no Full Cleanup action")
@@ -61,6 +67,7 @@ func fullCleanupRig(t *testing.T, body string) (*rig, string) {
 	noop := func(context.Context, steps.Env) steps.Result { return steps.Result{} }
 	env := actions.Env{
 		Polkit:   true,
+		DryRun:   dry,
 		LookPath: func(f string) (string, error) { return "/usr/bin/" + f, nil },
 		AuditStep: func() steps.Step {
 			return steps.Step{ID: steps.IDAURAudit, Title: "Audit…", LogLabel: "Audit", Run: noop}
@@ -73,7 +80,7 @@ func fullCleanupRig(t *testing.T, body string) (*rig, string) {
 		PlanOrphans: func(context.Context) (steps.OrphanPlan, error) { return fcPlan, nil },
 	}
 	// Deps.Helper unset: the real helperclient.Run.
-	return newRig(t, engine.Options{Auth: engine.AuthPolkit, Env: env}, Deps{Polkit: true}, fc), calls
+	return newRig(t, engine.Options{Auth: engine.AuthPolkit, DryRun: dry, Env: env}, Deps{Polkit: true}, fc), calls
 }
 
 // pkexecCalls is each pkexec call's argv.
@@ -233,4 +240,67 @@ func all[T engine.Event](evs []engine.Event) []T {
 		}
 	}
 	return out
+}
+
+// TestFullCleanupPolkitDryRun: a GUI dry run of Full Cleanup previews the
+// route the real run takes: the polkit queue, one "would run: pkexec
+// /usr/lib/archmaid/archmaid-helper full-cleanup …" line with every part
+// listed on its own row, and yay -Sc --aur without sudo. It runs nothing:
+// no pkexec (the shim would log it), no polkit wait, and no line names
+// sudo, which the GUI's real run never uses for those steps.
+func TestFullCleanupPolkitDryRun(t *testing.T) {
+	r, calls := fullCleanupRigDry(t, "exit 1", true)
+	evs := r.run(actions.IDFullCleanup, yes)
+	if _, err := os.Stat(calls); err == nil {
+		t.Fatalf("a dry run ran pkexec: %q", pkexecCalls(t, calls))
+	}
+	if n := len(all[engine.AuthWaiting](evs)); n != 0 {
+		t.Errorf("%d polkit waits in a dry run", n)
+	}
+	byRow := map[string][]string{}
+	for _, ev := range evs {
+		if c, ok := ev.(engine.OutputChunk); ok {
+			byRow[c.ID] = append(byRow[c.ID], c.Lines...)
+		}
+	}
+	call := "[dry-run] would run: pkexec /usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " +
+		fcPlan.Hash + " --wipe --uninstalled"
+	if got := byRow[steps.IDOrphansRemove]; len(got) == 0 || got[0] != call {
+		t.Errorf("the orphan row's output %q, want the call first:\n%s", got, call)
+	}
+	parts := map[string]string{
+		steps.IDOrphansRemove: "remove-orphans", steps.IDPaccache: "paccache", steps.IDPaccacheWipe: "paccache-wipe",
+		steps.IDPkgCacheUninstalled: "clean-uninstalled", steps.IDTmpfiles: "clean-tmp", steps.IDJournal: "vacuum-journal",
+		steps.IDIntegrity: "check-files",
+	}
+	for id, part := range parts {
+		want := "[dry-run] part " + part + " of the one root-helper call"
+		if !slices.Contains(byRow[id], want) {
+			t.Errorf("%s's output %q, want %q", id, byRow[id], want)
+		}
+	}
+	if got := byRow[steps.IDYayCache]; !slices.Equal(got, []string{"[dry-run] would run: yay -Sc --aur --noconfirm"}) {
+		t.Errorf("the AUR cache row: %q", got)
+	}
+	for id, lines := range byRow {
+		for _, l := range lines {
+			if strings.Contains(l, "sudo ") {
+				t.Errorf("%s previews a sudo route the GUI never takes: %q", id, l)
+			}
+		}
+	}
+	var started []string
+	for _, ev := range evs {
+		if s, ok := ev.(engine.StepStarted); ok {
+			started = append(started, s.ID)
+		}
+	}
+	wantRows := append(append([]string{steps.IDAURAudit, steps.IDTopgrade, steps.IDOrphansProbe}, rootRows...),
+		steps.IDYayCache, steps.IDHyprpm)
+	if !slices.Equal(started, wantRows) {
+		t.Errorf("rows %q\nwant %q (the polkit queue)", started, wantRows)
+	}
+	if fin := find[engine.Finished](t, evs); fin.Outcome != engine.OutcomeCompleted || fin.Errs != 0 {
+		t.Errorf("Finished = %+v", fin)
+	}
 }

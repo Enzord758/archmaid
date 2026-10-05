@@ -66,8 +66,13 @@ func (s *Session) combineAt(o *Output) bool {
 }
 
 // combinable reports whether st can be a part of a combined call of verb.
+//
+// A dry run under polkit combines too, so it previews the route the real
+// run takes (one call, its parts in order); it reads no faillock and opens
+// no polkit wait, and the Driver only reports what it would run.
 func (s *Session) combinable(st steps.Step, verb string) bool {
-	return st.Combine == verb && s.polkitStep(st) && st.OnAccept == nil && len(st.Parts) == 0
+	helper := s.opts.Auth == AuthPolkit && st.Verb != "" && st.Run == nil
+	return st.Combine == verb && helper && st.OnAccept == nil && len(st.Parts) == 0
 }
 
 // combineNext asks the next confirm of the combined steps, from the
@@ -87,6 +92,10 @@ func (s *Session) combineNext(o *Output) {
 	}
 	if parts := s.parts(); len(parts) > 0 {
 		r.cur = parts[0]
+		if s.opts.DryRun {
+			s.combineStart(o) // nothing asks: no faillock, no dialog
+			return
+		}
 		s.readFaillock(o, faillockCombined)
 		return
 	}
@@ -131,6 +140,9 @@ func (s *Session) combineStart(o *Output) {
 	r.stepSeq = c.seq
 	s.startPart(o, idx[0])
 	o.effect(StartStep{Seq: c.seq, Step: call, Env: steps.Env{DryRun: s.opts.DryRun}})
+	if s.opts.DryRun {
+		return // the Driver only reports the call: polkit is never asked
+	}
 	o.event(AuthWaiting{Kind: WaitPolkit, Step: r.plan[idx[0]].step.ID})
 	r.polkitWait = true
 }

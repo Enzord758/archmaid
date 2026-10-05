@@ -231,7 +231,6 @@ func TestCombineNeedsTwo(t *testing.T) {
 	}{
 		"lone":     {Options{Auth: AuthPolkit}, []steps.Step{part("p"), child("b", "true")}},
 		"onaccept": {Options{Auth: AuthPolkit}, []steps.Step{hook, part("t")}},
-		"dry run":  {Options{Auth: AuthPolkit, DryRun: true}, []steps.Step{part("p"), part("t")}},
 		"sudo":     {Options{Auth: AuthSudo, DryRun: true}, []steps.Step{part("p"), part("t")}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -245,4 +244,46 @@ func TestCombineNeedsTwo(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCombinedDryRun: a dry run under polkit takes the real run's route,
+// one combined call with its parts in order and each step's own row, but
+// asks nothing: every confirm first as ever, then no faillock read and no
+// polkit wait, the StartStep marked as a dry run for the Driver to report.
+func TestCombinedDryRun(t *testing.T) {
+	h := newHarness(t, Options{Auth: AuthPolkit, DryRun: true}, queue("q", combinedQueue()...))
+	h.start("q")
+	h.ok() // "before"
+	h.confirm(true)
+	o := h.confirm(true)
+	if _, ok := find[ReadFaillock](o.Effects); ok {
+		t.Fatal("a dry run read the faillock count")
+	}
+	if _, ok := find[AuthWaiting](o.Events); ok {
+		t.Fatal("a dry run waited for polkit")
+	}
+	st := effect[StartStep](t, o)
+	var got []string
+	for _, p := range st.Step.Parts {
+		got = append(got, p.ID)
+	}
+	if st.Step.Verb != "all" || !st.Env.DryRun || !slices.Equal(got, []string{"o", "p", "w", "t", "j"}) {
+		t.Fatalf("StartStep = verb %q, dry %v, parts %q", st.Step.Verb, st.Env.DryRun, got)
+	}
+	seq := st.Seq
+	h.handle(PartDone{Seq: seq, Step: "o"})
+	for _, id := range []string{"p", "w", "t"} {
+		h.handle(PartStarted{Seq: seq, Step: id})
+		h.handle(PartDone{Seq: seq, Step: id})
+	}
+	h.handle(PartStarted{Seq: seq, Step: "j"})
+	o = h.handle(StepExited{Seq: seq})
+	if s := effect[StartStep](t, o); s.Step.ID != "after" {
+		t.Errorf("next started %q", s.Step.ID)
+	}
+	h.ok()
+	if fin := event[Finished](t, h.out); fin.Errs != 0 || fin.Refused != 0 {
+		t.Errorf("Finished = %+v", fin)
+	}
+	enginetest.CheckContract(t, h.evs)
 }
