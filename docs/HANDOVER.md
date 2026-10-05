@@ -250,7 +250,11 @@ comments and `git log`; this is the "read before you touch it" list.
   response has read it (wiping at `closed` sent an empty password for a
   click on Authenticate). The harness clicks the buttons
   (`findButton`); `Emit("response")` then `ForceClose` is the reverse
-  order and hid both bugs.
+  order and hid both bugs. While a helper step's pkexec waits for polkit's
+  dialog (`WaitPolkit`), the X doesn't ask at all: the agent's window
+  covers ours, so the question would open under it, and nothing of that
+  step runs as root yet; it is Stop and Quit at once (pkexec killed, the
+  run recorded aborted).
 - **The GUI password's last copy (accepted risk).** `engine.Secret` is a Go
   string (E0 is frozen), so the password typed into the GUI ends in one
   immutable string that can't be zeroed and stays in the heap until the GC

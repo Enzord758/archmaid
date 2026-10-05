@@ -616,11 +616,13 @@ func TestGUISignalTwice(t *testing.T) {
 }
 
 // Stop and Quit, clicked as a user clicks it (libadwaita closes the dialog
-// before it emits the response):
+// before it emits the response), and the X that needs none:
 //
-//   - close-polkit: while Full Cleanup's helper step waits for the polkit
-//     dialog (pkexec started, no start line yet): the GUI exits, the run
-//     is recorded aborted, and the waiting pkexec is killed;
+//   - close-polkit: the X while Full Cleanup's helper step waits for the
+//     polkit dialog (pkexec started, no start line yet). Polkit's agent
+//     covers our window, so the question would open under it: the X is
+//     Stop and Quit at once. The GUI exits, the run is recorded aborted,
+//     and the waiting pkexec is killed;
 //   - close-finished: the question was asked mid-topgrade, and topgrade
 //     ended before it was answered: the GUI still quits, and the run's own
 //     record stays.

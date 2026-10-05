@@ -435,16 +435,21 @@ func runChild(scenario, path string) int {
 					glib.TimeoutAdd(30, func() { stopAndQuit(w, fail) })
 				}
 			}
-			// real-close-polkit: Stop and Quit while the helper step's
-			// pkexec waits for the polkit dialog.
+			// real-close-polkit: the window's X while the helper step's
+			// pkexec waits for the polkit dialog. Polkit's agent covers
+			// our window then, so there is no question: it quits at once.
 			if !stopped && scenario == "real-close-polkit" && w.model.Auth != nil && w.model.Auth.Kind == engine.WaitPolkit && pkexecWaiting() {
 				stopped = true
 				w.win.Close()
-				if w.quitDialog == nil || w.closed {
-					fail("closing during the polkit wait didn't ask first")
+				if w.quitDialog != nil {
+					fail("closing during the polkit wait asked, under polkit's dialog")
+					glib.TimeoutAdd(30, func() { stopAndQuit(w, fail) })
 					return
 				}
-				glib.TimeoutAdd(30, func() { stopAndQuit(w, fail) })
+				if !w.closed {
+					fail("closing during the polkit wait left the window open")
+					w.quitOnSignal()
+				}
 			}
 			if c.Finished {
 				measuring = false

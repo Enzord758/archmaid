@@ -489,12 +489,26 @@ func (w *Window) statusText() string {
 	return strings.Join(parts, " · ")
 }
 
-// closeRequest: closing mid-run asks first; then the window hides while
-// the Driver closes off the main thread (a real Driver may take its kill
-// grace to stop a child), and is destroyed once it has.
+// polkitWaiting: a helper step's pkexec waits for polkit's dialog.
+func (w *Window) polkitWaiting() bool {
+	return w.model.Auth != nil && w.model.Auth.Kind == engine.WaitPolkit
+}
+
+// closeRequest: closing mid-run asks first (but not while polkit's dialog
+// is up, see polkitWaiting); then the window hides while the Driver closes
+// off the main thread (a real Driver may take its kill grace to stop a
+// child), and is destroyed once it has.
 func (w *Window) closeRequest() bool {
 	if w.closed {
 		return true
+	}
+	if w.busy && !w.quitting && w.polkitWaiting() {
+		// pkexec waits for polkit's dialog, which covers our window: a
+		// question would open under it. Nothing of this step runs as
+		// root yet, so the X is Stop and Quit at once: the run is
+		// aborted and recorded, and the waiting pkexec is killed (its
+		// dialog goes with it).
+		w.quitting = true
 	}
 	if w.busy && !w.quitting {
 		if w.quitDialog != nil {
