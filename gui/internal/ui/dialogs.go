@@ -384,9 +384,11 @@ func passwordText(p engine.NeedsPassword) (heading, caller, body string) {
 			caller = "Asked by " + p.Requester + "."
 		}
 		if p.Prompt != "" {
-			// sudo's prompt comes from whatever asked: one line, at most
-			// 48 runes, as the TUI shows it.
-			body = sanitize.Clip(sanitize.OneLine(p.Prompt), askpassPromptMax)
+			// sudo's prompt comes from whatever asked (sudo -p sets it):
+			// one line, at most 48 runes, as the TUI shows it, and quoted
+			// as sudo's, so it can't pass for our caller line above it
+			// (sudo -A -p "Asked by /usr/bin/topgrade.").
+			body = `sudo says: "` + sanitize.Clip(sanitize.OneLine(p.Prompt), askpassPromptMax) + `"`
 		}
 	default:
 		heading = "Password Required"

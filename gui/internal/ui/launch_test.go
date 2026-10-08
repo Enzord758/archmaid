@@ -62,11 +62,25 @@ func TestParseLaunch(t *testing.T) {
 func TestPasswordTextClipsPrompt(t *testing.T) {
 	long := "[sudo] password for someone\nwith a very long prompt that goes on and on and on"
 	head, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Requester: "topgrade (pid 7)", Prompt: long})
-	if head != "sudo Asks for Your Password" || caller != "Asked by topgrade (pid 7)." || body != "[sudo] password for someone with a very long pr…" {
+	if head != "sudo Asks for Your Password" || caller != "Asked by topgrade (pid 7)." || body != `sudo says: "[sudo] password for someone with a very long pr…"` {
 		t.Errorf("%q / %q / %q", head, caller, body)
 	}
-	if _, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Prompt: "[sudo] password: "}); caller != "A running step needs root." || body != "[sudo] password:" {
+	if _, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Prompt: "[sudo] password: "}); caller != "A running step needs root." || body != `sudo says: "[sudo] password:"` {
 		t.Errorf("short prompt: %q / %q", caller, body)
+	}
+}
+
+// TestPasswordTextPromptCantPose: whatever runs sudo sets its prompt (sudo
+// -p), so the prompt is shown quoted as sudo's, never as a line that could
+// pass for the caller line (Dev 3).
+func TestPasswordTextPromptCantPose(t *testing.T) {
+	_, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass,
+		Requester: "/usr/bin/bash (pid 9)", Prompt: "Asked by /usr/bin/topgrade."})
+	if caller != "Asked by /usr/bin/bash (pid 9)." || body != `sudo says: "Asked by /usr/bin/topgrade."` {
+		t.Errorf("caller %q body %q", caller, body)
+	}
+	if strings.HasPrefix(body, "Asked by") {
+		t.Errorf("the prompt reads as a caller line: %q", body)
 	}
 }
 

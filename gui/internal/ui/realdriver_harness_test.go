@@ -485,7 +485,7 @@ func TestGUIRealDriver(t *testing.T) {
 			t.Errorf("outcome %q sent %q rows %q", rep.Outcome, rep.Sent, rep.Rows)
 		}
 		pid := readLines(t, filepath.Join(dir, "topgrade.pid"))
-		if len(rep.PwBodies) != 1 || len(pid) != 1 || !strings.Contains(rep.PwBodies[0], "(pid "+pid[0]+")") || !strings.Contains(rep.PwBodies[0], "[sudo] password for shim:") {
+		if len(rep.PwBodies) != 1 || len(pid) != 1 || !strings.Contains(rep.PwBodies[0], "(pid "+pid[0]+")") || !strings.Contains(rep.PwBodies[0], `sudo says: "[sudo] password for shim:"`) {
 			t.Errorf("askpass dialog said %q; want the topgrade shim (pid %q) and sudo's prompt", rep.PwBodies, pid)
 		}
 		if got := readLines(t, filepath.Join(dir, "sudo.got")); !slices.Equal(got, []string{shimPw}) {
