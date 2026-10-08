@@ -68,10 +68,18 @@ func TestGUILogsPage(t *testing.T) {
 	if err := st.Append(logstore.Audit, "OK", "AUR audit", "3 foreign packages checked\n"); err != nil {
 		t.Fatal(err)
 	}
+	if err := st.WriteLastRun(logstore.RunRecord{Action: "topgrade", Outcome: logstore.OutcomeOK, Started: at, Finished: at}); err != nil {
+		t.Fatal(err)
+	}
 	before := stateTree(t, dir)
 	run := at.Format("20060102-1504")
 	rep, _ := child(t, "logs", "ARCHMAID_GUI_STATE="+dir, "ARCHMAID_GUI_LOG="+run+"/topgrade", "ARCHMAID_GUI_LOGSEARCH=COOLDOWN")
 
+	// The Overview's last run cell names the run's logs, and Open in Logs
+	// shows that run on the Logs page.
+	if rep.LastFiles != "topgrade.log · audit.log" || rep.LastOpened != "logs "+run+"/topgrade" {
+		t.Errorf("last run files %q opened %q", rep.LastFiles, rep.LastOpened)
+	}
 	if want := []string{run + "/audit", run + "/topgrade"}; rep.Page != "logs" || !slices.Equal(rep.LogRows, want) {
 		t.Errorf("page %q rows %q, want logs and %q", rep.Page, rep.LogRows, want)
 	}

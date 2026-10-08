@@ -8,6 +8,7 @@ import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/Enzord758/archmaid/gui/internal/logview"
 	"github.com/Enzord758/archmaid/gui/internal/overview"
 	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/internal/actions"
@@ -38,16 +39,23 @@ func (w *Window) newOverview() gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 18)
 	box.AddCSSClass("am-overview")
 	box.Append(w.newHero())
+	// The last run spans the width under the hero, outside the grid: in it,
+	// a seventh cell left an empty slot at the end of the last line, drawn
+	// in the grid's hairline grey (Dev 5's VM round r8). The grid holds the
+	// six actions, and at most three to a line divides them evenly.
+	last := gtk.NewBox(gtk.OrientationVertical, 0)
+	last.AddCSSClass("am-grid")
+	last.Append(w.newLastRun())
+	box.Append(last)
 
 	w.cells = gtk.NewFlowBox()
 	w.cells.SetSelectionMode(gtk.SelectionNone)
 	w.cells.SetHomogeneous(true)
 	w.cells.SetMinChildrenPerLine(1)
-	w.cells.SetMaxChildrenPerLine(4)
+	w.cells.SetMaxChildrenPerLine(3)
 	w.cells.SetColumnSpacing(1)
 	w.cells.SetRowSpacing(1)
 	w.cells.AddCSSClass("am-grid")
-	w.cells.Append(w.newLastRun())
 	for _, c := range overview.Cards() {
 		if c.ID == actions.IDFullCleanup {
 			continue // the hero
@@ -221,7 +229,8 @@ func (w *Window) newCell(c overview.Card) gtk.Widgetter {
 }
 
 // newLastRun is the last run's cell (spec 1.2): kicker, action, outcome
-// tag, when, and its issues.
+// tag, when, its issues, its run's log files and Open in Logs. The files
+// label and the button follow w.lastIssues in the cell (lastRunExtras).
 func (w *Window) newLastRun() gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 6)
 	box.AddCSSClass("am-cell")
@@ -246,10 +255,63 @@ func (w *Window) newLastRun() gtk.Widgetter {
 	w.lastIssues.AddCSSClass("am-cell-desc")
 	w.lastTitle.SetMaxWidthChars(24)
 	w.lastIssues.SetMaxWidthChars(30)
+	files := gtk.NewLabel("")
+	files.SetXAlign(0)
+	files.SetWrap(true)
+	files.AddCSSClass("am-cell-desc")
+	files.AddCSSClass("monospace")
+	files.SetVisible(false)
+	open := gtk.NewButtonWithLabel("Open in Logs")
+	open.SetHAlign(gtk.AlignStart)
+	open.AddCSSClass("flat")
+	open.SetVisible(false)
+	open.ConnectClicked(w.openLastRunLogs)
 	box.Append(kicker)
 	box.Append(head)
 	box.Append(w.lastIssues)
+	box.Append(files)
+	box.Append(open)
 	return box
+}
+
+// lastRunExtras are the last run cell's log files label and Open in Logs
+// button: the two widgets after w.lastIssues (newLastRun), found there so
+// the Window needs no fields for them.
+func (w *Window) lastRunExtras() (*gtk.Label, *gtk.Button) {
+	files, _ := gtk.BaseWidget(w.lastIssues).NextSibling().(*gtk.Label)
+	var open *gtk.Button
+	if files != nil {
+		open, _ = gtk.BaseWidget(files).NextSibling().(*gtk.Button)
+	}
+	return files, open
+}
+
+// lastRunFolder is the last run's run directory (row 12's runFolder, by
+// the record's start), if the record and the folder are there.
+func (w *Window) lastRunFolder() (logview.Run, bool) {
+	r := w.lastRun.Record
+	if r == nil {
+		return logview.Run{}, false
+	}
+	runs, err := logview.Runs(w.opts.StateDir)
+	if err != nil {
+		return logview.Run{}, false
+	}
+	return runFolder(runs, r.Started, r.DryRun)
+}
+
+// openLastRunLogs is Open in Logs: the Logs page at the last run's folder.
+func (w *Window) openLastRunLogs() {
+	run, ok := w.lastRunFolder()
+	w.refreshLogs()
+	if ok {
+		for _, r := range w.logs.runList {
+			if r.Name == run.Name {
+				w.showRun(r, "")
+			}
+		}
+	}
+	w.stack.SetVisibleChildName("logs")
 }
 
 // lastTone is how the last run's outcome is drawn: its icon, tag text and
@@ -295,6 +357,19 @@ func (w *Window) refreshLastRun() {
 	w.lastTag.AddCSSClass(class)
 	w.lastTag.SetText(text)
 	w.lastTag.SetVisible(text != "")
+
+	files, open := w.lastRunExtras()
+	if files == nil || open == nil {
+		return
+	}
+	run, ok := w.lastRunFolder()
+	var names []string
+	for _, c := range run.Categories {
+		names = append(names, string(c)+".log")
+	}
+	files.SetText(strings.Join(names, " · "))
+	files.SetVisible(ok && len(names) > 0)
+	open.SetVisible(ok)
 }
 
 // overviewState is what the Overview's widgets show, so a flush that

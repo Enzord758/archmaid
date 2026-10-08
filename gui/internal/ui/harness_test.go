@@ -134,6 +134,9 @@ type report struct {
 	// The Logs page's list while searching for ARCHMAID_GUI_LOGSEARCH,
 	// and with its first section folded (logs_harness_test.go).
 	LogSearch, LogFolded []string
+	// The Overview's last run cell: its log files line, and the page and
+	// log its Open in Logs showed ("page run/category").
+	LastFiles, LastOpened string
 	// The Settings page's topgrade card error after Open in editor ("" if
 	// none; settings_harness_test.go).
 	ConfigError string
@@ -839,6 +842,11 @@ func clickFailed(w *Window, rep *report, fail func(string, ...any)) {
 // then closes the window. The Logs page's own helpers are in
 // logs_harness_test.go.
 func browseLogs(w *Window, rep *report, fail func(string, ...any)) {
+	if files, open := w.lastRunExtras(); files != nil && open != nil && open.Visible() {
+		rep.LastFiles = files.Text()
+		open.Emit("clicked")
+		rep.LastOpened = w.stack.VisibleChildName() + " " + w.logs.shown
+	}
 	w.showLogs()
 	if rep.Page = w.stack.VisibleChildName(); rep.Page != "logs" {
 		fail("the Logs page isn't up: %q", rep.Page)
