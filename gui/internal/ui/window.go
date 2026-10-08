@@ -7,9 +7,7 @@ import (
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
-	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
-	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
 	"github.com/Enzord758/archmaid/gui/internal/plural"
@@ -51,11 +49,13 @@ type Window struct {
 	stack   *adw.ViewStack
 	stopBtn *gtk.Button
 	status  *gtk.Label
-	steps   *gtk.ListBox
-	rows    []stepRow
-	out     *gtk.StringList
+	// tl is the Run page's timeline (timeline.go); outLen counts the
+	// output lines its sections hold (not the summary items).
+	tl      *timeline
 	outLen  uint
 	outView *gtk.ListView
+	// dragStop: a drag on the output's scrollbar stops following.
+	dragStop *gtk.GestureDrag
 	// follow: keep the newest line in view. Scrolling up stops it;
 	// reaching the bottom again restarts it.
 	follow bool
@@ -103,12 +103,6 @@ type Window struct {
 	toasted []string
 }
 
-type stepRow struct {
-	row  *adw.ActionRow
-	icon *gtk.Image
-	spin *adw.Spinner
-}
-
 func newWindow(app *adw.Application, opts Options) *Window {
 	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*adw.AlertDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
@@ -127,68 +121,11 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.stopBtn.ConnectClicked(w.stop)
 	w.stack = adw.NewViewStack()
 
-	w.steps = gtk.NewListBox()
-	w.steps.AddCSSClass("boxed-list")
-	w.steps.SetSelectionMode(gtk.SelectionNone)
-	stepsScroll := gtk.NewScrolledWindow()
-	stepsScroll.SetChild(w.steps)
-	stepsScroll.SetSizeRequest(320, -1)
-
-	w.out = gtk.NewStringList(nil)
-	factory := gtk.NewSignalListItemFactory()
-	factory.ConnectSetup(func(obj *coreglib.Object) {
-		label := gtk.NewLabel("")
-		label.SetXAlign(0)
-		obj.Cast().(*gtk.ListItem).SetChild(label)
-	})
-	factory.ConnectBind(func(obj *coreglib.Object) {
-		item := obj.Cast().(*gtk.ListItem)
-		label := item.Child().(*gtk.Label)
-		text := item.Item().Cast().(*gtk.StringObject).String()
-		label.SetText(text)
-		// The list mirrors the model's view line for line (apply keeps
-		// them in step), so the colour spans are found by position; the
-		// text check guards that.
-		var attrs *pango.AttrList
-		if l, ok := w.model.ViewLine(int(item.Position())); ok && l.Text == text && len(l.Spans) > 0 {
-			attrs = pango.AttrListFromString(l.Attrs(&w.palette))
-		}
-		label.SetAttributes(attrs)
-	})
-	w.outView = gtk.NewListView(gtk.NewNoSelection(w.out), &factory.ListItemFactory)
-	w.outView.AddCSSClass("monospace")
-	outScroll := gtk.NewScrolledWindow()
-	outScroll.SetChild(w.outView)
-	outScroll.SetVExpand(true)
-	outScroll.SetHExpand(true)
-	w.follow = true
-	wheel := gtk.NewEventControllerScroll(gtk.EventControllerScrollVertical)
-	wheel.ConnectScroll(func(_, dy float64) bool {
-		if dy < 0 {
-			w.follow = false
-		}
-		return false
-	})
-	outScroll.AddController(wheel)
-	outScroll.ConnectEdgeReached(func(pos gtk.PositionType) {
-		if pos == gtk.PosBottom {
-			w.follow = true
-		}
-	})
-	// TODO(P6b-4): dragging the scrollbar or the keyboard should stop
-	// following too.
-
-	paned := gtk.NewPaned(gtk.OrientationHorizontal)
-	paned.SetStartChild(stepsScroll)
-	paned.SetEndChild(outScroll)
-	paned.SetPosition(340)
-	paned.SetShrinkStartChild(false)
-
 	w.status = gtk.NewLabel(w.statusText())
 	w.status.SetXAlign(0)
 	w.status.AddCSSClass("dim-label")
 
-	pages := map[string]gtk.Widgetter{"overview": w.newOverview(), "run": paned, "logs": w.newLogs(), "settings": w.newSettings()}
+	pages := map[string]gtk.Widgetter{"overview": w.newOverview(), "run": w.newRunPage(), "logs": w.newLogs(), "settings": w.newSettings()}
 	for _, p := range navPages {
 		w.stack.AddTitledWithIcon(pages[p.name], p.name, p.title, p.icon)
 	}
@@ -284,6 +221,9 @@ func (w *Window) start(id string, dry bool) {
 	// when the window opened or the last run ended), and the Settings
 	// page's changes apply to it.
 	w.replaceDriver(dry)
+	// A new run starts with an empty Run page (Q12), also one that ends in
+	// a notice before any queue: the last run's output is in Logs.
+	w.redraw(w.model.Clear())
 	w.current, w.model.Stopped, w.agentNotice = id, "", ""
 	w.setBusy(true)
 	w.stack.SetVisibleChildName("run")
@@ -362,27 +302,16 @@ func (w *Window) apply(evs []engine.Event) {
 // redraw redraws exactly what c says changed.
 func (w *Window) redraw(c runview.Change) {
 	if c.Reset {
-		w.steps.RemoveAll()
-		w.rows = w.rows[:0]
-		for i := range w.model.Rows {
-			w.rows = append(w.rows, w.newRow())
-			w.steps.Append(w.rows[i].row)
-			w.updateRow(i)
-		}
+		w.rebuild()
 	}
 	for _, i := range c.Inserted {
-		r := w.newRow()
-		w.rows = append(w.rows[:i], append([]stepRow{r}, w.rows[i:]...)...)
-		w.steps.Insert(r.row, i)
-		w.updateRow(i)
+		w.insert(i)
 	}
-	for _, i := range c.Rows {
-		w.updateRow(i)
-	}
-	if len(c.Rows) > 0 || c.Reset {
+	if c.Reset || len(c.Inserted) > 0 || len(c.Rows) > 0 {
+		w.updateSteps()
 		w.updateRunBadge()
 	}
-	w.output(c.OutRemove, c.OutAppend)
+	w.output(c)
 	for _, id := range c.Closed {
 		if d, ok := w.dialogs[id]; ok {
 			delete(w.dialogs, id)
@@ -403,6 +332,9 @@ func (w *Window) redraw(c runview.Change) {
 			w.toast(toast)
 		}
 	}
+	if c.Reset || len(c.Rows) > 0 || c.Status || c.Finished {
+		w.updateRunHeader()
+	}
 	if c.Status || c.Finished {
 		w.setStatus()
 		w.shell.meters.show(w.model.Stat.Status)
@@ -411,64 +343,6 @@ func (w *Window) redraw(c runview.Change) {
 	}
 	if w.onApply != nil {
 		w.onApply(c)
-	}
-}
-
-func (w *Window) newRow() stepRow {
-	r := stepRow{row: adw.NewActionRow(), icon: gtk.NewImage(), spin: adw.NewSpinner()}
-	r.row.SetUseMarkup(false)
-	r.row.AddPrefix(r.icon)
-	r.row.AddPrefix(r.spin)
-	return r
-}
-
-func (w *Window) updateRow(i int) {
-	if i < 0 || i >= len(w.rows) || i >= len(w.model.Rows) {
-		return
-	}
-	m, r := w.model.Rows[i], w.rows[i]
-	r.row.SetTitle(m.Title)
-	r.row.SetSubtitle(m.Subtitle())
-	icon := m.State.Icon()
-	setStateClass(&r.icon.Widget, m)
-	setStateClass(&r.spin.Widget, m)
-	r.spin.SetVisible(icon == "")
-	r.icon.SetVisible(icon != "")
-	if icon != "" {
-		r.icon.SetFromIconName(icon)
-	}
-}
-
-// output applies the model's output diff to the list and keeps the newest
-// line in view while following.
-//
-// The scroll is once per frame, not once per flush: ListView.ScrollTo
-// measures the rows it brings into view right away (for the colour flood,
-// multi-run Pango layouts: ~2.8 ms of a ~3.4 ms flush), and a flood flushes
-// about three times a frame. A tick callback scrolls to whatever is newest
-// just before the frame's layout, so the rows are measured once, for the
-// frame that draws them.
-func (w *Window) output(remove int, add []string) {
-	if remove == 0 && len(add) == 0 {
-		return
-	}
-	if remove > 0 {
-		w.out.Splice(0, uint(remove), nil)
-		w.outLen -= uint(remove)
-	}
-	if len(add) > 0 {
-		w.out.Splice(w.outLen, 0, add)
-		w.outLen += uint(len(add))
-	}
-	if w.follow && w.outLen > 0 && !w.scrollQueued {
-		w.scrollQueued = true
-		w.outView.AddTickCallback(func(gtk.Widgetter, gdk.FrameClocker) bool {
-			w.scrollQueued = false
-			if w.follow && w.outLen > 0 && !w.closed {
-				w.outView.ScrollTo(w.outLen-1, gtk.ListScrollNone, nil)
-			}
-			return false // once
-		})
 	}
 }
 

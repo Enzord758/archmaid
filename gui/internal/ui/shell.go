@@ -1,13 +1,10 @@
 package ui
 
 import (
-	"fmt"
-
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
-	"github.com/Enzord758/archmaid/gui/internal/runview"
 )
 
 // The Workbench shell (P8 row 3; spec 1.1, 1.8, 3): a sidebar with the
@@ -231,24 +228,7 @@ func (w *Window) updateRunBadge() {
 		return
 	}
 	b := w.shell.runBadge
-	text := runBadge(w.busy, w.model)
+	text := w.model.Header().Badge
 	b.SetText(text)
 	b.SetVisible(text != "")
-}
-
-// runBadge is the text of the Run entry's badge.
-func runBadge(busy bool, m *runview.Model) string {
-	switch {
-	case busy && len(m.Rows) > 0:
-		n := 0
-		for i, r := range m.Rows {
-			if r.State != runview.RowPending {
-				n = i + 1
-			}
-		}
-		return fmt.Sprintf("%02d/%02d", max(n, 1), len(m.Rows))
-	case !busy && m.Finished != nil:
-		return "done"
-	}
-	return ""
 }

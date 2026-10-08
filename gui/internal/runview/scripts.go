@@ -77,3 +77,44 @@ func FloodLine(i, n int) string {
 	}
 	return fmt.Sprintf("line %d: (%d/%d) checking keys in keyring", i, i, n)
 }
+
+// FloodSteps is a stub script for the timeline's throughput proof: a plan
+// of k steps that print n lines between them (n/k each, perChunk lines per
+// OutputChunk, unpaced), each finishing before the next starts, so the
+// timeline folds steps mid-flood and the OutputCap trims across step
+// boundaries. Every tenth line carries an SGR colour, as in Flood; the last
+// line is FloodLine(n, n).
+func FloodSteps(start time.Time, n, k, perChunk int) stub.Script {
+	if perChunk <= 0 {
+		perChunk = 1
+	}
+	var plan []engine.PlanStep
+	for i := range k {
+		plan = append(plan, engine.PlanStep{ID: fmt.Sprintf("flood-%02d", i+1), Title: fmt.Sprintf("Printing part %d of %d…", i+1, k),
+			LogLabel: fmt.Sprintf("Part %d printed", i+1), Argv: []string{"flood"}, Category: logstore.Cleanup})
+	}
+	s := stub.Script{
+		{Event: engine.PhaseChanged{Phase: engine.PhaseRunning}},
+		{Event: engine.QueueStarted{Action: "flood", Steps: plan, Started: start}},
+	}
+	per := n / k
+	for i, p := range plan {
+		s = append(s, stub.Cue{Event: engine.StepStarted{ID: p.ID, Index: i, At: start}})
+		from, to := i*per, (i+1)*per
+		if i == k-1 {
+			to = n
+		}
+		for c := from; c < to; c += perChunk {
+			lines := make([]string, 0, perChunk)
+			for j := c; j < min(c+perChunk, to); j++ {
+				lines = append(lines, floodRaw(j, n))
+			}
+			s = append(s, stub.Cue{Event: engine.OutputChunk{ID: p.ID, Index: i, Lines: lines}})
+		}
+		s = append(s, stub.Cue{Event: engine.StepDone{ID: p.ID, Index: i, Status: steps.OK}})
+	}
+	return append(s,
+		stub.Cue{Event: engine.Finished{Action: "flood", Outcome: engine.OutcomeCompleted}},
+		stub.Cue{Event: engine.PhaseChanged{Phase: engine.PhaseIdle}},
+	)
+}

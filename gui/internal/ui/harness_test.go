@@ -105,6 +105,19 @@ type report struct {
 	MenuSub  string   // the started row's subtitle right after the click
 	Page     string   // the page up after starting an action
 	LastRun  []string // the Overview's last run: title, then issues
+	// Follow is fullcleanup's follow-the-bottom flag: at the end, after a
+	// scrollbar drag, after reaching the bottom.
+	Follow string
+	// Folded counts the steps with output folded to their summary.
+	Folded int
+	// Summaries and Headers are the timeline's shown summary lines and
+	// step titles at the end (the folded steps, the headers drawn).
+	Summaries, Headers []string
+	// FirstViewLines is clear-rerun's output lines after its first run;
+	// ClearedItems the timeline's items and the model's output lines after
+	// the second (a notice).
+	FirstViewLines uint
+	ClearedItems   uint
 	// LastTag and LastTone are the last run's outcome tag and its tone
 	// class (am-tag-ok, -warn, -danger, -neutral).
 	LastTag, LastTone string
@@ -275,6 +288,8 @@ func runChild(scenario, path string) int {
 		script, action = runview.Flood(time.Now(), 50000, 100, 10*time.Millisecond), "flood"
 	case "flood-default": // unpaced, default pump (drops what the view can't keep)
 		script, action = runview.Flood(time.Now(), 50000, 1, 0), "flood"
+	case "flood-steps": // 50k lines over 10 steps finishing mid-flood: folds, the cap across sections
+		script, action, opts.Pump = runview.FloodSteps(time.Now(), 50000, 10, 1), "flood", runview.PumpOptions{MaxPending: -1}
 	case "flood-colour": // as flood, every line in colour (seven spans)
 		script, action, opts.Pump = runview.FloodColour(time.Now(), 50000, 1, 0), "flood", runview.PumpOptions{MaxPending: -1}
 	case "services": // the services pick, two ticked
@@ -297,6 +312,7 @@ func runChild(scenario, path string) int {
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
 	case "dry-first": // Full Cleanup from the hero's Dry run first
+	case "clear-rerun": // Full Cleanup, then Repair (a notice): Q12's clean page
 	case "confirm-flag": // --confirm fullcleanup: the window opens into the gate; "no"
 		answerNo = true
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
@@ -612,10 +628,39 @@ func runChild(scenario, path string) int {
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
-					// Every row's marker carries its state's class (style.css).
-					for i, r := range w.rows {
-						if i < len(w.model.Rows) && !r.icon.HasCSSClass(stateClass(w.model.Rows[i].State)) {
-							fail("row %d (%s) lacks %s", i, w.model.Rows[i].State, stateClass(w.model.Rows[i].State))
+					rep.Summaries = labelsWith(&w.outView.Widget, "am-summary")
+					if scenario == "fullcleanup" {
+						// Follow-the-bottom: a drag on the scrollbar stops
+						// it, reaching the bottom again restarts it.
+						before := w.follow
+						w.dragStop.Emit("drag-begin", 0.0, 0.0)
+						dragged := w.follow
+						w.tl.scroll.Emit("edge-reached", gtk.PosBottom)
+						rep.Follow = fmt.Sprintf("%v %v %v", before, dragged, w.follow)
+					}
+					// The sections mirror the model: each holds its step's
+					// lines when open, its summary item when folded.
+					for _, sec := range w.tl.sections {
+						n := len(w.model.StepText(sec.step))
+						want := 1
+						if sec.lines {
+							want = n
+						}
+						if sec.n != n || sec.items != want || int(sec.list.NItems()) != want {
+							fail("section %q: n %d items %d list %d; the model holds %d (open %v)", sec.step, sec.n, sec.items, sec.list.NItems(), n, sec.lines)
+						}
+						if !sec.lines && sec.n > 0 {
+							rep.Folded++
+						}
+					}
+					rep.Headers = labelsWith(&w.outView.Widget, "am-step-title")
+					// Every drawn step header's marker carries its state's
+					// class (style.css).
+					for _, s := range w.tl.sections {
+						if h := s.header; h != nil {
+							if r, i := w.rowOf(s.step); i >= 0 && !h.icon.HasCSSClass(stateClass(r.State)) {
+								fail("step %s (%s) lacks %s", s.step, r.State, stateClass(r.State))
+							}
 						}
 					}
 					shoot(w, scenario, fmt.Sprintf("end-%d", len(rep.Outcomes)))
@@ -625,6 +670,17 @@ func runChild(scenario, path string) int {
 					fail("the run finished before the window closed")
 				}
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
+				if scenario == "clear-rerun" {
+					if len(rep.Outcomes) == 1 {
+						// Then an action that ends in a notice, before any
+						// queue: its Run page must not show the first
+						// run's output (Q12).
+						rep.FirstViewLines = rep.ViewLines
+						glib.TimeoutAdd(50, func() { w.menu[actions.IDRepair].start() })
+						return
+					}
+					rep.ClearedItems = w.tl.total() + uint(len(w.model.Output()))
+				}
 				if scenario == "real-runs" && len(rep.Outcomes) <= realRuns {
 					// The next run, from its Overview row again; the last
 					// one with dry run switched on in Settings.
@@ -822,10 +878,24 @@ func findButton(root *gtk.Widget, label string) *gtk.Button {
 	return nil
 }
 
+// labelsWith is the text of the mapped labels under root with class.
+func labelsWith(root *gtk.Widget, class string) []string {
+	var out []string
+	for c := root.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+		w := gtk.BaseWidget(c)
+		if l, ok := c.(*gtk.Label); ok && w.Mapped() && l.HasCSSClass(class) && l.Text() != "" {
+			out = append(out, l.Text())
+		}
+		out = append(out, labelsWith(w, class)...)
+	}
+	return out
+}
+
 func countLabels(root *gtk.Widget) (labels, coloured int) {
 	for c := root.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
 		w := gtk.BaseWidget(c)
-		if l, ok := c.(*gtk.Label); ok && w.Mapped() && l.Text() != "" {
+		// Output lines only: not the step headers or summaries.
+		if l, ok := c.(*gtk.Label); ok && w.Mapped() && l.Text() != "" && l.HasCSSClass("am-line") {
 			labels++
 			if l.Attributes() != nil {
 				coloured++
@@ -941,6 +1011,15 @@ func TestGUIFullCleanup(t *testing.T) {
 	if rep.Collapsed {
 		t.Error("the sidebar is collapsed at the default 960x640")
 	}
+	// The timeline: step headers drawn; a step that finished before the
+	// last folds to its summary line (its last output line); the last one
+	// stays open, so the run's end shows.
+	if len(rep.Headers) == 0 || len(rep.Summaries) == 0 || rep.ViewLines == 0 {
+		t.Errorf("timeline: headers %q summaries %q, %d lines open", rep.Headers, rep.Summaries, rep.ViewLines)
+	}
+	if rep.Follow != "true false true" {
+		t.Errorf("follow at the end, after a scrollbar drag, at the bottom: %q", rep.Follow)
+	}
 	// The stub's status has no byte counts: values, empty bars.
 	if want := []string{"disk 212G 0.00", "ram 41G 0.00", "cache 3.1G 0.00"}; !slices.Equal(rep.Meters, want) {
 		t.Errorf("meters %q, want %q", rep.Meters, want)
@@ -1033,6 +1112,21 @@ func TestGUIOverviewStarts(t *testing.T) {
 	}
 	if len(rep.LastRun) != 1 || rep.LastRun[0] != "No run recorded yet" {
 		t.Errorf("last run %q with an empty state dir", rep.LastRun)
+	}
+}
+
+// TestGUIClearRerun: Q12. A new action starts with an empty Run page: a
+// Full Cleanup's output is gone once Repair (which ends in a notice, before
+// any queue) starts, and the timeline holds nothing.
+func TestGUIClearRerun(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "clear-rerun")
+	if len(rep.Outcomes) != 2 || rep.Outcomes[1] != "notice" {
+		t.Fatalf("outcomes %q", rep.Outcomes)
+	}
+	if rep.FirstViewLines == 0 || rep.ViewLines != 0 || rep.ClearedItems != 0 {
+		t.Errorf("first run %d lines; after the notice %d lines, %d items and model lines: want the page empty",
+			rep.FirstViewLines, rep.ViewLines, rep.ClearedItems)
 	}
 }
 
@@ -1258,7 +1352,7 @@ func TestGUIFirstFrameAndIdleRAM(t *testing.T) {
 // lines/s, main-thread work per batch p95 ≤ 4 ms, RSS after < 200 MB.
 func TestGUIThroughput(t *testing.T) {
 	needDisplay(t)
-	for _, sc := range []string{"flood", "flood-paced", "flood-default", "flood-colour"} {
+	for _, sc := range []string{"flood", "flood-paced", "flood-default", "flood-colour", "flood-steps"} {
 		rep, _ := child(t, sc)
 		s := rep.Pump
 		span := s.LastLine.Sub(s.FirstLine)
@@ -1280,7 +1374,17 @@ func TestGUIThroughput(t *testing.T) {
 				t.Errorf("%s: %d of %d visible output rows coloured, want all", sc, rep.Coloured, rep.Labels)
 			}
 		}
-		if rep.Outcome != "completed" || rep.Lines != 50000 || rep.ViewLines != runview.OutputCap || rep.LastLine != last {
+		inView := uint(runview.OutputCap)
+		if sc == "flood-steps" {
+			// Only the last part stays open. The cap (10k lines) keeps
+			// the last two parts' lines: the ninth is folded to its
+			// summary, the eight before it hold no lines any more.
+			inView = 5000
+			if rep.Folded != 1 {
+				t.Errorf("%s: %d steps folded with lines, want 1 (the ninth part)", sc, rep.Folded)
+			}
+		}
+		if rep.Outcome != "completed" || rep.Lines != 50000 || rep.ViewLines != inView || rep.LastLine != last {
 			t.Errorf("%s: outcome %q, %d lines, %d in view ending %q", sc, rep.Outcome, rep.Lines, rep.ViewLines, rep.LastLine)
 		}
 		if sc != "flood-default" && rep.Dropped != 0 {

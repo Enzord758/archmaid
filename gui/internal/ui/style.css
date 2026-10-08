@@ -117,3 +117,30 @@
   background-repeat: no-repeat;
 }
 .archmaid .am-hero.am-blueprint { background-color: @card_bg_color; }
+
+/* The Run page (P8 row 11): the run header, the segment bar, the
+   timeline's step headers, summaries and lines. */
+.archmaid .am-run-header { padding: 14px 18px 10px; border-bottom: 1px solid @am_rail; }
+.archmaid .am-run-meta, .archmaid .am-run-counts { color: @am_muted; }
+.archmaid .am-run-elapsed { font-family: "JetBrains Mono", monospace; font-size: 28px; font-weight: 700; }
+.archmaid .am-segments { min-height: 4px; }
+.archmaid .am-segment { min-height: 4px; background-color: @am_rail; }
+.archmaid .am-segment.am-state-ok { background-color: @am_ok; }
+.archmaid .am-segment.am-state-failed,
+.archmaid .am-segment.am-state-aborted { background-color: @am_danger; }
+.archmaid .am-segment.am-state-auth-refused { background-color: @am_warn; }
+.archmaid .am-segment.am-state-running,
+.archmaid .am-segment.am-state-waiting { background-color: @am_running; }
+.archmaid .am-timeline > header { padding: 0; }
+.archmaid .am-step-header {
+  padding: 8px 14px;
+  border-top: 1px solid @am_rail;
+  font-family: initial;
+}
+.archmaid .am-step-header.am-step-failed { border-left: 3px solid @am_danger; }
+.archmaid .am-step-header.am-step-running { border-left: 3px solid @am_running; }
+.archmaid .am-timeline > row { padding: 0; min-height: 0; }
+.archmaid .am-step-title { font-weight: 700; }
+.archmaid .am-step-sub { color: @am_muted; }
+.archmaid .am-summary { color: @am_muted; padding: 2px 14px 6px 48px; }
+.archmaid .am-line { padding: 0 14px 0 48px; }

@@ -88,8 +88,24 @@ func TestStepGroups(t *testing.T) {
 			c = m.Apply(evs)
 			g.apply(t, c.Steps)
 			flat = append(flat[c.OutRemove:], c.OutAppend...)
-			if want := m.want(); !reflect.DeepEqual(g, want) {
+			want := m.want()
+			if !reflect.DeepEqual(g, want) {
 				t.Fatalf("round %d after step %s: grouped view drifted from the model", round, ids[i])
+			}
+			// StepText and StepLine read the same groups back (the
+			// timeline's expand and colour lookups).
+			for id, lines := range want {
+				if got := m.StepText(id); !slices.Equal(got, lines) {
+					t.Fatalf("round %d: StepText(%q) has %d lines, want %d", round, id, len(got), len(lines))
+				}
+				for _, k := range []int{0, len(lines) / 2, len(lines) - 1} {
+					if l, ok := m.StepLine(id, k); !ok || l.Text != lines[k] {
+						t.Fatalf("round %d: StepLine(%q, %d) = %q, %v; want %q", round, id, k, l.Text, ok, lines[k])
+					}
+				}
+				if _, ok := m.StepLine(id, len(lines)); ok {
+					t.Fatalf("round %d: StepLine past the end of %q", round, id)
+				}
 			}
 			if !slices.Equal(flat, m.Output()) {
 				t.Fatalf("round %d after step %s: the flat view drifted", round, ids[i])
