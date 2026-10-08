@@ -40,7 +40,7 @@ one record). A pending count older than 3 days is shown as unknown. Files are re
 every 60 s for the pill (the writers replace files by rename) and on every popout open,
 so the popout always shows the files as they are.
 
-**Run Full Cleanup** starts `archmaid-gui` if it is on PATH; otherwise `$TERMINAL -e
+**Run Full Cleanup** starts `archmaid-gui --confirm fullcleanup` (the GUI opens on Full Cleanup's confirm dialog, nothing runs before Proceed) if it is on PATH; otherwise `$TERMINAL -e
 archmaid` (`$TERMINAL` may carry arguments, split on spaces, never a shell); if
 `$TERMINAL` is empty, `xdg-terminal-exec archmaid`; if that is missing too, the popout
 says "Set $TERMINAL ..." and nothing starts. Note that DMS only sees `$TERMINAL` if it is
@@ -143,8 +143,9 @@ Found: dms-shell 1.6.2-1, quickshell 0.3.1-1.1. Installed plugins in
 - Pending updates: repo count (and AUR count only if cached).
 - AUR audit: snapshot present/age, N unacknowledged high findings (names, max 5).
 - Helper: installed or not (hint text only).
-- Button **Run Full Cleanup**: launches the GTK app if `archmaid-gui` is on PATH,
-  else `$TERMINAL -e archmaid` (setting: command override). It only *starts a UI*;
+- Button **Run Full Cleanup**: launches `archmaid-gui --confirm fullcleanup` (the
+  GTK app opened on Full Cleanup's confirm) if `archmaid-gui` is on PATH, else
+  `$TERMINAL -e archmaid` (setting: command override). It only *starts a UI*;
   all authentication happens there.
 - Button Refresh.
 

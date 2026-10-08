@@ -292,7 +292,7 @@ function ago(then, now) {
 // Returns {argv:[...]} or {error:"..."}. argv is never run through a shell.
 function launchPlan(hasGui, terminal, hasXdgTerm) {
     if (hasGui)
-        return { argv: ["archmaid-gui"] };
+        return { argv: ["archmaid-gui", "--confirm", "fullcleanup"] };
     var words = (typeof terminal === "string" ? terminal : "").trim().split(/\s+/).filter(function (w) {
         return w.length > 0;
     });

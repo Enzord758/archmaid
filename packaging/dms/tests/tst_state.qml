@@ -207,7 +207,7 @@ TestCase {
     }
 
     function test_launchPlan() {
-        compare(State.launchPlan(true, "kitty", true).argv, ["archmaid-gui"]);
+        compare(State.launchPlan(true, "kitty", true).argv, ["archmaid-gui", "--confirm", "fullcleanup"]);
         compare(State.launchPlan(false, "kitty", true).argv, ["kitty", "-e", "archmaid"]);
         compare(State.launchPlan(false, "  foot  --server ", false).argv, ["foot", "--server", "-e", "archmaid"]);
         compare(State.launchPlan(false, "", true).argv, ["xdg-terminal-exec", "archmaid"]);
