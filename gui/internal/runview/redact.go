@@ -43,13 +43,23 @@ func Redact(s string) string {
 	return passPair.ReplaceAllString(s, "${1}***")
 }
 
-// errorLines is how many of a failed step's last output lines Copy error
-// takes.
-const errorLines = 20
+// tailLines is how many of a failed step's last output lines Copy error
+// takes; causeLines how many of its error-looking lines (causeLine) it
+// takes before them, the first ones, so the real cause isn't lost behind
+// a long tail (git's "could not read Username", pnpm's error).
+const (
+	tailLines  = 20
+	causeLines = 15
+)
+
+// causeLine is an output line that reads like an error; ERR_ is pnpm's
+// (ERR_PNPM_FETCH_404).
+var causeLine = regexp.MustCompile(`(?i)error|failed|fatal|could not|\berr_`)
 
 // CopyError is what the failed step's Copy error puts on the clipboard:
-// its title, its error and its last 20 output lines, with URL userinfo
-// and other credentials redacted (Redact).
+// its title and error, then the first causeLines error-looking lines of
+// its output that aren't in its last tailLines lines, a "…" where lines
+// were left out, then those last lines; all of it redacted (Redact).
 func (m *Model) CopyError(step string) string {
 	var b strings.Builder
 	for _, r := range m.Rows {
@@ -61,8 +71,23 @@ func (m *Model) CopyError(step string) string {
 		}
 	}
 	lines := m.StepText(step)
-	lines = lines[max(0, len(lines)-errorLines):]
-	for _, l := range lines {
+	tail := max(0, len(lines)-tailLines)
+	last := -1 // the index of the last line written
+	n := 0
+	for i := 0; i < tail && n < causeLines; i++ {
+		if !causeLine.MatchString(lines[i]) {
+			continue
+		}
+		if i != last+1 {
+			b.WriteString("…\n")
+		}
+		b.WriteString(lines[i] + "\n")
+		last, n = i, n+1
+	}
+	if tail > last+1 {
+		b.WriteString("…\n")
+	}
+	for _, l := range lines[tail:] {
 		b.WriteString(l + "\n")
 	}
 	return Redact(b.String())

@@ -1,6 +1,8 @@
 package runview
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -74,8 +76,53 @@ func TestCopyError(t *testing.T) {
 		strings.Contains(got, "t0k") || !strings.Contains(got, "?token=***") {
 		t.Errorf("not redacted: %q", got)
 	}
-	if !strings.HasPrefix(got, "Step s\nError: exit status 1\n") || strings.Contains(got, "line a\n") || strings.Contains(got, "line b\n") ||
-		strings.Count(got, "\n") != 22 {
+	if !strings.HasPrefix(got, "Step s\nError: exit status 1\n…\n") || strings.Contains(got, "line a\n") || strings.Contains(got, "line b\n") ||
+		strings.Count(got, "\n") != 23 {
 		t.Errorf("CopyError = %q", got)
+	}
+}
+
+// TestCopyErrorCause: the step's error-looking lines from before the tail
+// come first (the first causeLines, in order, a "…" for each gap), then
+// its last tailLines; a cause inside the tail isn't repeated, and all of
+// it is redacted.
+func TestCopyErrorCause(t *testing.T) {
+	m := NewModel()
+	var lines []string
+	add := func(l ...string) { lines = append(lines, l...) }
+	add("Pulling https://bob:hunter2@git.example/dots.git",
+		"fatal: could not read Username for 'https://github.com': No such device or address",
+		"ERR_PNPM_FETCH_404  GET https://registry.npmjs.org/x: Not Found - 404",
+		"Error: Command failed with exit code 1")
+	for i := range 40 {
+		add(fmt.Sprintf("noise %d", i))
+		if i == 5 {
+			for k := range 20 { // more causes than causeLines
+				add(fmt.Sprintf("warning: step %d FAILED", k))
+			}
+		}
+	}
+	add("ERROR in the tail")
+	m.Apply([]engine.Event{plan("s"), engine.StepStarted{ID: "s"}, engine.OutputChunk{ID: "s", Lines: lines},
+		engine.StepDone{ID: "s", Status: steps.Failed, Err: "exit status 1"}})
+	got := strings.Split(strings.TrimSuffix(m.CopyError("s"), "\n"), "\n")
+
+	want := []string{"Step s", "Error: exit status 1", "…",
+		"fatal: could not read Username for 'https://github.com': No such device or address",
+		"ERR_PNPM_FETCH_404  GET https://registry.npmjs.org/x: Not Found - 404",
+		"Error: Command failed with exit code 1", "…"}
+	for k := range 12 { // 3 causes above + 12 = causeLines
+		want = append(want, fmt.Sprintf("warning: step %d FAILED", k))
+	}
+	want = append(want, "…")
+	for i := 21; i < 40; i++ {
+		want = append(want, fmt.Sprintf("noise %d", i))
+	}
+	want = append(want, "ERROR in the tail")
+	if !slices.Equal(got, want) {
+		t.Errorf("CopyError\n%q\nwant\n%q", got, want)
+	}
+	if s := m.CopyError("s"); strings.Contains(s, "hunter2") {
+		t.Errorf("a password left in %q", s)
 	}
 }
