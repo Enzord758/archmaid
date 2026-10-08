@@ -29,7 +29,7 @@ func TestGUISettingsCards(t *testing.T) {
 		t.Errorf("drivers %q, want the run's with %s", rep.DriverOpts, want)
 	}
 	conf := filepath.Join(home, ".config", "topgrade.toml")
-	want := []string{"choose " + typed, "file " + conf, "folder " + state}
+	want := []string{"choose " + typed, "file " + conf, "file " + conf, "folder " + state}
 	if !slices.Equal(rep.Launched, want) {
 		t.Errorf("launched\n%q\nwant\n%q", rep.Launched, want)
 	}

@@ -772,6 +772,10 @@ func changeSettings(w *Window, rep *report) {
 	if p.configError.Visible() {
 		rep.ConfigError = p.configError.Text()
 	}
+	// A second click right away, as after the editor closed (Dev 5's
+	// first-click bug): every click must ask the Launcher again, whatever
+	// the first launch is still doing.
+	p.editor.Emit("clicked")
 	p.logFolder.Emit("clicked")
 	p.dryRun.SetActive(true)
 	if p.problem.Visible() {
