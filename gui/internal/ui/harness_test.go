@@ -154,6 +154,8 @@ type report struct {
 	Statuses  []string
 	// Geometry is real-small's orphan dialog as shown (headingGeometry).
 	Geometry string
+	// Nav is narrow-nav's record of the sidebar overlay (shell_harness_test.go).
+	Nav []string
 	// Shell is real-small's frame mid-run (shellGeometry).
 	Shell string
 	// Collapsed: the sidebar was collapsed at the first frame.
@@ -316,6 +318,7 @@ func runChild(scenario, path string) int {
 	case "settings-bad": // gui.json holds the home folder: refused on load
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
+	case "narrow-nav": // 630x372: the sidebar overlay (shell_harness_test.go)
 	case "dry-first": // Full Cleanup from the hero's Dry run first
 	case "clear-rerun": // Full Cleanup, then Repair (a notice): Q12's clean page
 	case "confirm-flag": // --confirm fullcleanup: the window opens into the gate; "no"
@@ -395,7 +398,7 @@ func runChild(scenario, path string) int {
 	measuring := false
 	opts.hook = func(w *Window) {
 		closeSoon := func() { glib.TimeoutAdd(50, func() { w.win.Close() }) }
-		if scenario == "real-small" {
+		if scenario == "real-small" || scenario == "narrow-nav" {
 			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
 		}
 		w.win.ConnectRealize(func() {
@@ -435,6 +438,10 @@ func runChild(scenario, path string) int {
 						}
 						if scenario == "logs" {
 							browseLogs(w, rep, fail)
+							return
+						}
+						if scenario == "narrow-nav" {
+							narrowNav(w, rep)
 							return
 						}
 						if scenario == "settings-bad" && w.set.dlError.Visible() {

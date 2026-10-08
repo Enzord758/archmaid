@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
@@ -34,6 +35,7 @@ const narrowWidth = "max-width: 760sp"
 type shell struct {
 	meters    *meters
 	split     *adw.OverlaySplitView
+	side      *gtk.Box // the sidebar (a click outside it closes the overlay)
 	nav       *gtk.ListBox
 	navRows   map[string]*gtk.ListBoxRow
 	runBadge  *gtk.Label
@@ -55,7 +57,11 @@ func (w *Window) buildShell() {
 	brand.AddCSSClass("am-brand")
 	sh.nav = gtk.NewListBox()
 	sh.nav.AddCSSClass("navigation-sidebar")
-	sh.nav.SetSelectionMode(gtk.SelectionBrowse)
+	// Single, not Browse: a browse list selects whatever row gets the
+	// focus, so the overlay coming back (a breakpoint, the toggle) could
+	// switch the page by itself (Dev 5 saw Run come up after a resize).
+	// A page changes only when a row is activated: clicked or Enter.
+	sh.nav.SetSelectionMode(gtk.SelectionSingle)
 	for _, p := range navPages {
 		box := gtk.NewBox(gtk.OrientationHorizontal, 12)
 		box.Append(gtk.NewImageFromIconName(p.icon))
@@ -76,15 +82,9 @@ func (w *Window) buildShell() {
 		sh.navRows[p.name] = row
 		sh.nav.Append(row)
 	}
-	sh.nav.ConnectRowSelected(func(row *gtk.ListBoxRow) {
-		if row == nil || sh.syncing {
-			return
-		}
-		w.stack.SetVisibleChildName(row.Name())
-		if sh.split.Collapsed() {
-			sh.split.SetShowSidebar(false)
-		}
-	})
+	// Activated, not selected: picking the page already shown must still
+	// close the overlay (row-selected doesn't fire for it).
+	sh.nav.ConnectRowActivated(func(row *gtk.ListBoxRow) { w.pickPage(row.Name()) })
 	w.status.SetVExpand(false)
 	w.status.SetWrap(true)
 	w.status.AddCSSClass("am-footer")
@@ -92,6 +92,7 @@ func (w *Window) buildShell() {
 	spacer.SetVExpand(true)
 	side := gtk.NewBox(gtk.OrientationVertical, 6)
 	side.AddCSSClass("am-sidebar")
+	sh.side = side
 	side.Append(brand)
 	side.Append(sh.nav)
 	side.Append(spacer)
@@ -140,6 +141,20 @@ func (w *Window) buildShell() {
 			sh.toggle.SetActive(sh.split.ShowSidebar())
 		}
 	})
+	// The open overlay closes on Escape and on a click outside it, in the
+	// capture phase, so the click doesn't also reach the dimmed page.
+	keys := gtk.NewEventControllerKey()
+	keys.SetPropagationPhase(gtk.PhaseCapture)
+	keys.ConnectKeyPressed(func(keyval, _ uint, _ gdk.ModifierType) bool { return w.navKey(keyval) })
+	sh.split.AddController(keys)
+	press := gtk.NewGestureClick()
+	press.SetPropagationPhase(gtk.PhaseCapture)
+	press.ConnectPressed(func(_ int, x, y float64) {
+		if w.navPress(x, y) {
+			press.SetState(gtk.EventSequenceClaimed)
+		}
+	})
+	sh.split.AddController(press)
 
 	// Only one breakpoint applies at a time (the last added that
 	// matches), so narrow-and-short has the setters of both.
@@ -171,6 +186,43 @@ func (w *Window) buildShell() {
 
 	w.stack.NotifyProperty("visible-child-name", w.pageShown)
 	w.pageShown()
+}
+
+// overlayOpen: the split view is collapsed and its sidebar shown over the
+// page.
+func (sh *shell) overlayOpen() bool { return sh.split.Collapsed() && sh.split.ShowSidebar() }
+
+// pickPage is a page chosen in the sidebar: it shows it and, in the narrow
+// form, closes the overlay.
+func (w *Window) pickPage(name string) {
+	w.stack.SetVisibleChildName(name)
+	if w.shell.split.Collapsed() {
+		w.shell.split.SetShowSidebar(false)
+	}
+}
+
+// navKey closes the open overlay on Escape; true when it did.
+func (w *Window) navKey(keyval uint) bool {
+	if keyval != gdk.KEY_Escape || !w.shell.overlayOpen() {
+		return false
+	}
+	w.shell.split.SetShowSidebar(false)
+	return true
+}
+
+// navPress closes the open overlay on a press outside the sidebar (x, y
+// in the split view's coordinates); true when it did.
+func (w *Window) navPress(x, y float64) bool {
+	sh := w.shell
+	if !sh.overlayOpen() {
+		return false
+	}
+	if r, ok := sh.side.ComputeBounds(sh.split); ok && x >= float64(r.X()) && x < float64(r.X()+r.Width()) &&
+		y >= float64(r.Y()) && y < float64(r.Y()+r.Height()) {
+		return false // inside the sidebar: its own rows handle it
+	}
+	sh.split.SetShowSidebar(false)
+	return true
 }
 
 // pageShown follows the stack's page: the sidebar's selection and the
