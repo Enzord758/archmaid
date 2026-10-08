@@ -506,7 +506,7 @@ func TestGUIRealDriver(t *testing.T) {
 		if len(rep.Outcomes) != 2 || !slices.Contains(rep.Rows, steps.IDTopgrade+"=failed") {
 			t.Fatalf("outcomes %q rows %q: want topgrade failed, twice", rep.Outcomes, rep.Rows)
 		}
-		if want := []string{"Run topgrade", "Open topgrade.log", "Copy error"}; !slices.Equal(rep.FailedActs, want) {
+		if want := []string{"Run topgrade again [primary]", "Open topgrade.log", "Copy error"}; !slices.Equal(rep.FailedActs, want) {
 			t.Errorf("failed step's actions %q, want %q", rep.FailedActs, want)
 		}
 		if rep.FailedBusy != nil {

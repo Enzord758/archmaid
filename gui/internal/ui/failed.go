@@ -33,6 +33,7 @@ func (w *Window) newFailedActions(h *stepHeader) *failedActions {
 	a.box.SetVisible(false)
 	a.again = gtk.NewButton()
 	a.again.AddCSSClass("am-step-action")
+	a.again.AddCSSClass("suggested-action") // the primary one; the others stay secondary
 	a.log = gtk.NewButton()
 	a.log.AddCSSClass("am-step-action")
 	a.copy = gtk.NewButtonWithLabel("Copy error")
@@ -92,11 +93,11 @@ func (w *Window) drawFailed(h *stepHeader, r runview.Row) {
 }
 
 // againAction is the action Run again starts, and its button's label: a
-// failed topgrade step starts Run topgrade; any other step starts the run's
-// own action again.
+// failed topgrade step starts Run topgrade ("Run topgrade again"); any
+// other step starts the run's own action again ("Run Full Cleanup again").
 func (w *Window) againAction(r runview.Row) (string, string) {
 	if r.ID == steps.IDTopgrade {
-		return actions.IDTopgrade, "Run topgrade"
+		return actions.IDTopgrade, "Run topgrade again"
 	}
 	name, _, _ := strings.Cut(overview.Label(w.current), " (")
 	return w.current, "Run " + name + " again"

@@ -807,7 +807,16 @@ func clickFailed(w *Window, rep *report, fail func(string, ...any)) {
 		if !h.acts.box.Visible() {
 			return []string{"hidden"}
 		}
-		return []string{h.acts.again.Label(), h.acts.log.Label(), h.acts.copy.Label()}
+		// " [primary]" marks the suggested (primary) button.
+		var out []string
+		for _, b := range []*gtk.Button{h.acts.again, h.acts.log, h.acts.copy} {
+			l := b.Label()
+			if b.HasCSSClass("suggested-action") {
+				l += " [primary]"
+			}
+			out = append(out, l)
+		}
+		return out
 	}
 	rep.FailedActs = acts()
 	for _, s := range w.tl.sections {
