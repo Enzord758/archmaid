@@ -76,11 +76,14 @@ type timeline struct {
 	headers  map[uintptr]*stepHeader // by the GtkListHeader they belong to
 
 	// The run header.
-	kicker, meta, elapsed, counts *gtk.Label
-	segments                      *gtk.Box
-	segs                          []*gtk.Box
-	ticking                       bool
-	foldQueued                    bool // foldNow is queued
+	kicker, meta, elapsed *gtk.Label
+	// counts holds the done, failed and skipped tags (P8, Dev 5's r8).
+	counts                *gtk.Box
+	done, failed, skipped *gtk.Label
+	segments              *gtk.Box
+	segs                  []*gtk.Box
+	ticking               bool
+	foldQueued            bool // foldNow is queued
 }
 
 // newRunPage builds the Run page: the run header over the timeline.
@@ -199,9 +202,12 @@ func (w *Window) newRunHeader() gtk.Widgetter {
 	tl.meta = gtk.NewLabel("")
 	tl.meta.SetXAlign(0)
 	tl.meta.AddCSSClass("am-run-meta")
-	tl.counts = gtk.NewLabel("")
-	tl.counts.SetXAlign(0)
+	tl.counts = gtk.NewBox(gtk.OrientationHorizontal, 6)
 	tl.counts.AddCSSClass("am-run-counts")
+	tl.done, tl.failed, tl.skipped = tag("", "am-tag-ok"), tag("", "am-tag-danger"), tag("", "am-tag-neutral")
+	for _, t := range []*gtk.Label{tl.done, tl.failed, tl.skipped} {
+		tl.counts.Append(t)
+	}
 	left := gtk.NewBox(gtk.OrientationVertical, 2)
 	left.SetHExpand(true)
 	left.Append(tl.kicker)
@@ -625,12 +631,12 @@ func (w *Window) updateRunHeader() {
 	}
 	tl.meta.SetText(meta)
 	tl.meta.SetVisible(meta != "")
-	counts := ""
-	if h.Of > 0 {
-		counts = fmt.Sprintf("%d done · %d failed · %d skipped", h.Done, h.Failed, h.Skipped+h.Refused+h.NotRun)
-	}
-	tl.counts.SetText(counts)
-	tl.counts.SetVisible(counts != "")
+	// The counts as tags in the state colours: done, failed, skipped (the
+	// refused and not-run steps count as skipped).
+	tl.done.SetText(fmt.Sprintf("%d done", h.Done))
+	tl.failed.SetText(fmt.Sprintf("%d failed", h.Failed))
+	tl.skipped.SetText(fmt.Sprintf("%d skipped", h.Skipped+h.Refused+h.NotRun))
+	tl.counts.SetVisible(h.Of > 0)
 	// The segment bar: one segment per step, in its state's colour.
 	for len(tl.segs) < len(m.Rows) {
 		s := gtk.NewBox(gtk.OrientationHorizontal, 0)
