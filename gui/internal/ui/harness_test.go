@@ -139,6 +139,9 @@ type report struct {
 	// The Overview's last run cell: its log files line, and the page and
 	// log its Open in Logs showed ("page run/category").
 	LastFiles, LastOpened string
+	// LastCell is the last run cell's files line and whether Open in Logs
+	// shows, as the window opens.
+	LastCell string
 	// The Settings page's topgrade card error after Open in editor ("" if
 	// none; settings_harness_test.go).
 	ConfigError string
@@ -461,6 +464,9 @@ func runChild(scenario, path string) int {
 							}
 						}
 						rep.LastRun = append([]string{w.lastRun.Title}, w.lastRun.Issues...)
+						if files, open := w.lastRunExtras(); files != nil && open != nil {
+							rep.LastCell = fmt.Sprintf("files=%q open=%v", map[bool]string{true: files.Text()}[files.Visible()], open.Visible())
+						}
 						rep.Title, rep.FirstStatus = w.win.Title(), w.status.Text()
 						if w.banner != nil && w.banner.Revealed() {
 							rep.Banner = w.banner.Title()
@@ -1420,22 +1426,31 @@ func TestGUIConfirmFlag(t *testing.T) {
 
 // TestGUILastRunTones: the last run's tag and tone: a failed run is FAILED
 // in the danger tone; a cancelled one is CANCELLED and neutral (grey), as
-// the DMS widget draws it, not a warning.
+// the DMS widget draws it, not a warning. A cancelled run ran nothing: its
+// cell lists no log files (not an earlier run's) and has no Open in Logs.
 func TestGUILastRunTones(t *testing.T) {
 	needDisplay(t)
-	for _, tc := range []struct{ outcome, tag, tone string }{
-		{logstore.OutcomeFailed, "FAILED", "am-tag-danger"},
-		{logstore.OutcomeCancelled, "CANCELLED", "am-tag-neutral"},
-		{logstore.OutcomeOK, "OK", "am-tag-ok"},
+	for _, tc := range []struct{ outcome, tag, tone, cell string }{
+		{logstore.OutcomeFailed, "FAILED", "am-tag-danger", `files="topgrade.log" open=true`},
+		{logstore.OutcomeCancelled, "CANCELLED", "am-tag-neutral", fmt.Sprintf("files=%q open=false", nothingRan)},
+		{logstore.OutcomeOK, "OK", "am-tag-ok", `files="topgrade.log" open=true`},
 	} {
 		dir := t.TempDir()
 		now := time.Now()
+		// An earlier run's folder, with its log.
+		earlier := func() time.Time { return now.Add(-time.Hour) }
+		if err := logstore.New(logstore.Options{Dir: dir, Now: earlier}).Append(logstore.Topgrade, "OK", "Topgrade completed", "done\n"); err != nil {
+			t.Fatal(err)
+		}
 		if err := logstore.New(logstore.Options{Dir: dir}).WriteLastRun(logstore.RunRecord{Action: actions.IDFullCleanup, Outcome: tc.outcome, Started: now, Finished: now}); err != nil {
 			t.Fatal(err)
 		}
 		rep, _ := child(t, "repair", "ARCHMAID_GUI_STATE="+dir)
 		if rep.LastTag != tc.tag || rep.LastTone != tc.tone {
 			t.Errorf("%s: tag %q tone %q, want %q %q", tc.outcome, rep.LastTag, rep.LastTone, tc.tag, tc.tone)
+		}
+		if rep.LastCell != tc.cell {
+			t.Errorf("%s: last run cell %s, want %s", tc.outcome, rep.LastCell, tc.cell)
 		}
 	}
 }

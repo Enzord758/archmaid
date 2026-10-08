@@ -290,7 +290,7 @@ func (w *Window) lastRunExtras() (*gtk.Label, *gtk.Button) {
 // the record's start), if the record and the folder are there.
 func (w *Window) lastRunFolder() (logview.Run, bool) {
 	r := w.lastRun.Record
-	if r == nil {
+	if r == nil || lastCancelled(w.lastRun) {
 		return logview.Run{}, false
 	}
 	runs, err := logview.Runs(w.opts.StateDir)
@@ -298,6 +298,16 @@ func (w *Window) lastRunFolder() (logview.Run, bool) {
 		return logview.Run{}, false
 	}
 	return runFolder(runs, r.Started, r.DryRun)
+}
+
+// nothingRan is the last run cell's line, in place of the log files, for
+// a cancelled run.
+const nothingRan = "Nothing ran, so there are no logs"
+
+// lastCancelled: the last run was cancelled before any step ran (a
+// declined gate, a cancelled password): it wrote no run folder.
+func lastCancelled(lr overview.LastRun) bool {
+	return lr.Record != nil && lr.Record.Outcome == logstore.OutcomeCancelled
 }
 
 // openLastRunLogs is Open in Logs: the Logs page at the last run's folder.
@@ -360,6 +370,14 @@ func (w *Window) refreshLastRun() {
 
 	files, open := w.lastRunExtras()
 	if files == nil || open == nil {
+		return
+	}
+	if lastCancelled(lr) {
+		// Nothing ran, so it has no run folder: the folder lastRunFolder
+		// would fall back to is another run's (Dev 5).
+		files.SetText(nothingRan)
+		files.SetVisible(true)
+		open.SetVisible(false)
 		return
 	}
 	run, ok := w.lastRunFolder()
