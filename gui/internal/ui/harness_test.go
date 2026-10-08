@@ -118,6 +118,11 @@ type report struct {
 	// the second (a notice).
 	FirstViewLines uint
 	ClearedItems   uint
+	// real-failed: the failed step's actions after the first run (their
+	// labels, or "hidden"), and while the second goes; what Copy error
+	// copied; the Logs page Open log showed ("page run category").
+	FailedActs, FailedBusy []string
+	Copied, FailedLog      string
 	// LastTag and LastTone are the last run's outcome tag and its tone
 	// class (am-tag-ok, -warn, -danger, -neutral).
 	LastTag, LastTone string
@@ -326,6 +331,8 @@ func runChild(scenario, path string) int {
 		action = actions.IDTopgrade
 	case "real-askpass-cancel":
 		action, cancelPassword = actions.IDTopgrade, true
+	case "real-failed": // topgrade fails; its step's Copy error, Open log, then Run again
+		action = actions.IDTopgrade
 	case "real-close-topgrade": // Run topgrade, then Stop and Quit mid-topgrade
 		action = actions.IDTopgrade
 	case "real-close-finished": // the question asked mid-topgrade, answered after its end
@@ -681,6 +688,12 @@ func runChild(scenario, path string) int {
 					}
 					rep.ClearedItems = w.tl.total() + uint(len(w.model.Output()))
 				}
+				if scenario == "real-failed" && len(rep.Outcomes) == 1 {
+					// The failed step's buttons, as a user clicks them,
+					// once its header is drawn.
+					glib.TimeoutAdd(60, func() { clickFailed(w, rep, fail) })
+					return
+				}
 				if scenario == "real-runs" && len(rep.Outcomes) <= realRuns {
 					// The next run, from its Overview row again; the last
 					// one with dry run switched on in Settings.
@@ -763,6 +776,53 @@ func runChild(scenario, path string) int {
 		return 3
 	}
 	return 0
+}
+
+// clickFailed clicks the failed topgrade step's actions: Copy error,
+// Open topgrade.log, then Run topgrade, whose run (it fails again) ends
+// the scenario.
+func clickFailed(w *Window, rep *report, fail func(string, ...any)) {
+	var h *stepHeader
+	for _, s := range w.tl.sections {
+		if s.step == steps.IDTopgrade {
+			h = s.header
+		}
+	}
+	if h == nil {
+		fail("the failed topgrade step has no header drawn")
+		w.win.Close()
+		return
+	}
+	acts := func() []string {
+		if !h.acts.box.Visible() {
+			return []string{"hidden"}
+		}
+		return []string{h.acts.again.Label(), h.acts.log.Label(), h.acts.copy.Label()}
+	}
+	rep.FailedActs = acts()
+	for _, s := range w.tl.sections {
+		if s.header != nil && s.header != h && s.header.acts.box.Visible() {
+			fail("step %s (not failed) shows the failed actions", s.step)
+		}
+	}
+	h.acts.copy.Emit("clicked")
+	rep.Copied = w.copied
+	h.acts.log.Emit("clicked")
+	if run := w.logs.run; run != nil {
+		rep.FailedLog = w.stack.VisibleChildName() + " " + run.Name + " " + string(w.logs.cat)
+	}
+	h.acts.again.Emit("clicked")
+	if w.stack.VisibleChildName() != "run" || !w.busy {
+		fail("Run topgrade didn't start a run (page %q)", w.stack.VisibleChildName())
+		w.win.Close()
+		return
+	}
+	// While the new run goes, no header offers the actions.
+	for _, s := range w.tl.sections {
+		if s.header != nil && s.header.acts.box.Visible() {
+			rep.FailedBusy = append(rep.FailedBusy, s.step)
+		}
+	}
 }
 
 // browseLogs opens the Logs page (as the Logs tab does; the Overview's

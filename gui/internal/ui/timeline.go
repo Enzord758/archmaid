@@ -61,6 +61,7 @@ type stepHeader struct {
 	title *gtk.Label
 	root  *gtk.Label
 	sub   *gtk.Label
+	acts  *failedActions // a failed step's actions (failed.go)
 	sec   *section
 }
 
@@ -104,16 +105,18 @@ func (w *Window) newRunPage() gtk.Widgetter {
 	headers := gtk.NewSignalListItemFactory()
 	headers.ConnectSetup(func(obj *coreglib.Object) {
 		lh := obj.Cast().(*gtk.ListHeader)
-		h := newStepHeader()
+		h, row := w.newStepHeader()
 		lh.SetChild(h.box)
 		tl.headers[coreglib.InternObject(lh).Native()] = h
+		// A click on the header's line folds or opens the step (not one on
+		// its failed-step buttons below it).
 		click := gtk.NewGestureClick()
 		click.ConnectReleased(func(int, float64, float64) {
 			if h.sec != nil {
 				w.toggleStep(h.sec)
 			}
 		})
-		h.box.AddController(click)
+		row.AddController(click)
 	})
 	headers.ConnectBind(func(obj *coreglib.Object) {
 		lh := obj.Cast().(*gtk.ListHeader)
@@ -220,7 +223,8 @@ func (w *Window) newRunHeader() gtk.Widgetter {
 	return box
 }
 
-func newStepHeader() *stepHeader {
+// newStepHeader is a step header widget, and its clickable line.
+func (w *Window) newStepHeader() (*stepHeader, *gtk.Box) {
 	h := &stepHeader{icon: gtk.NewImage(), spin: adw.NewSpinner()}
 	h.num = gtk.NewLabel("")
 	h.num.AddCSSClass("am-step-num")
@@ -235,15 +239,19 @@ func newStepHeader() *stepHeader {
 	h.sub.SetWrap(true)
 	h.sub.SetUseMarkup(false)
 	h.sub.AddCSSClass("am-step-sub")
-	h.box = gtk.NewBox(gtk.OrientationHorizontal, 10)
+	row := gtk.NewBox(gtk.OrientationHorizontal, 10)
+	row.Append(h.icon)
+	row.Append(h.spin)
+	row.Append(h.num)
+	row.Append(h.title)
+	row.Append(h.root)
+	row.Append(h.sub)
+	h.box = gtk.NewBox(gtk.OrientationVertical, 6)
 	h.box.AddCSSClass("am-step-header")
-	h.box.Append(h.icon)
-	h.box.Append(h.spin)
-	h.box.Append(h.num)
-	h.box.Append(h.title)
-	h.box.Append(h.root)
-	h.box.Append(h.sub)
-	return h
+	h.box.Append(row)
+	h.acts = w.newFailedActions(h)
+	h.box.Append(h.acts.box)
+	return h, row
 }
 
 // rowOf is the model's row for step, and its index; -1 when it has none.
@@ -287,6 +295,7 @@ func (w *Window) drawHeader(h *stepHeader) {
 	if icon != "" {
 		h.icon.SetFromIconName(icon)
 	}
+	w.drawFailed(h, r)
 }
 
 // bindLine shows item text at flat position pos: an output line with its

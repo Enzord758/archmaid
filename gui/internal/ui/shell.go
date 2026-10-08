@@ -219,6 +219,7 @@ func (w *Window) setBusy(busy bool) {
 	w.stopBtn.SetVisible(busy)
 	w.stopBtn.SetSensitive(busy)
 	w.updateRunBadge()
+	w.redrawHeaders()
 }
 
 // updateRunBadge is the Run entry's badge: "NN/MM" while a run goes (the

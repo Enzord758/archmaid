@@ -56,6 +56,11 @@ type Window struct {
 	outView *gtk.ListView
 	// dragStop: a drag on the output's scrollbar stops following.
 	dragStop *gtk.GestureDrag
+	// dry: the current run's Driver was made dry this once (startDry), so
+	// a failed step's Run again repeats it dry. copied is what Copy error
+	// last put on the clipboard (the harness reads it).
+	dry    bool
+	copied string
 	// follow: keep the newest line in view. Scrolling up stops it;
 	// reaching the bottom again restarts it.
 	follow bool
@@ -224,7 +229,7 @@ func (w *Window) start(id string, dry bool) {
 	// A new run starts with an empty Run page (Q12), also one that ends in
 	// a notice before any queue: the last run's output is in Logs.
 	w.redraw(w.model.Clear())
-	w.current, w.model.Stopped, w.agentNotice = id, "", ""
+	w.current, w.dry, w.model.Stopped, w.agentNotice = id, dry, "", ""
 	w.setBusy(true)
 	w.stack.SetVisibleChildName("run")
 	w.updateTitle()

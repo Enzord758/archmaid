@@ -12,6 +12,7 @@ import (
 
 	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -72,6 +73,9 @@ type Row struct {
 	// LogLabel is what the step's log entry calls it ("Old package cache
 	// cleaned"): a finished step's summary when its output had nothing.
 	LogLabel string
+	// Category is the log the step writes to (its failure goes there):
+	// the failed step's Open log.
+	Category logstore.Category
 	// NeedsPriv: the step needs root; Optional: "no" at its confirm skips
 	// it rather than ending the queue.
 	NeedsPriv, Optional bool
@@ -520,7 +524,7 @@ func (m *Model) lastText(n int) string {
 }
 
 func newRow(s engine.PlanStep) Row {
-	return Row{ID: s.ID, Title: s.Title, LogLabel: s.LogLabel, NeedsPriv: s.NeedsPriv, Optional: s.Optional}
+	return Row{ID: s.ID, Title: s.Title, LogLabel: s.LogLabel, NeedsPriv: s.NeedsPriv, Optional: s.Optional, Category: s.Category}
 }
 
 // EngineStopped is what the GUI says when the Driver's events end without

@@ -305,6 +305,8 @@ fi
 		topgrade += "(trap '' INT; exec sleep 30) >/dev/null 2>&1 &\necho $! > " + q(dir+"/topgrade.bg") + "\nexec sleep 30\n"
 	case "slow":
 		topgrade += "sleep 1\n"
+	case "fail": // as a failing git pull: its remote, credentials and all
+		topgrade += "echo \"fatal: unable to access 'https://user:s3cret@aur.example/pkg.git/'\" >&2\nexit 1\n"
 	}
 	yay := "#!/bin/sh\necho $$ > " + q(dir+"/yay.pid") + "\nprintf '%s\\n' \"$*\" >> " + q(dir+"/yay.log") + "\n"
 	if o.yay == "sudo" {
@@ -494,6 +496,52 @@ func TestGUIRealDriver(t *testing.T) {
 		// not as the queue's "completed".
 		if !strings.HasPrefix(rep.EndStatus, "Finished: failed (1 step)") || !slices.Contains(rep.Toasts, "Run finished with 1 failed step") {
 			t.Errorf("status %q toasts %q; want the failed run said so", rep.EndStatus, rep.Toasts)
+		}
+	})
+
+	t.Run("failed", func(t *testing.T) {
+		dir, env := installShims(t, shimOpts{topgrade: "fail"})
+		state := t.TempDir()
+		rep, _ := child(t, "real-failed", append(env, "ARCHMAID_GUI_STATE="+state)...)
+		if len(rep.Outcomes) != 2 || !slices.Contains(rep.Rows, steps.IDTopgrade+"=failed") {
+			t.Fatalf("outcomes %q rows %q: want topgrade failed, twice", rep.Outcomes, rep.Rows)
+		}
+		if want := []string{"Run topgrade", "Open topgrade.log", "Copy error"}; !slices.Equal(rep.FailedActs, want) {
+			t.Errorf("failed step's actions %q, want %q", rep.FailedActs, want)
+		}
+		if rep.FailedBusy != nil {
+			t.Errorf("steps %q offered the failed actions while the next run went", rep.FailedBusy)
+		}
+		// Copy error: the step, its error and its lines, the URL's
+		// credentials gone.
+		if strings.Contains(rep.Copied, "s3cret") || strings.Contains(rep.Copied, "user:") ||
+			!strings.Contains(rep.Copied, "https://***@aur.example/pkg.git/") || !strings.Contains(rep.Copied, "Error: ") {
+			t.Errorf("copied %q", rep.Copied)
+		}
+		// Open log: the Logs page at this run's folder (the first run's:
+		// the second run's own folder is made after the click) and
+		// topgrade's log.
+		ents, err := os.ReadDir(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var runs []string
+		for _, e := range ents {
+			if e.IsDir() {
+				runs = append(runs, e.Name())
+			}
+		}
+		if len(runs) == 0 || rep.FailedLog != "logs "+runs[0]+" topgrade" {
+			t.Errorf("Open log showed %q; run folders %q", rep.FailedLog, runs)
+		}
+		// Run topgrade started the action again, as a click on it does: a
+		// fresh Driver, its gate asked and answered again, topgrade run
+		// again (the shim's pid file is the second run's).
+		if !slices.Equal(rep.Sent, []string{"confirm 1 true", "confirm 1 true"}) || len(rep.DriverOpts) != 3 {
+			t.Errorf("sent %q, %d Drivers; want the gate answered in each of 2 runs", rep.Sent, len(rep.DriverOpts))
+		}
+		if pids := readLines(t, filepath.Join(dir, "topgrade.pid")); len(pids) != 1 || pids[0] == "" {
+			t.Errorf("topgrade shim pid %q: it never ran", pids)
 		}
 	})
 
