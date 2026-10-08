@@ -541,7 +541,13 @@ What the decisions (section 7) add to the plan:
   output and adds `runview.Model.Clear`. Dev 4's row 11 calls
   `w.redraw(w.model.Clear())` in `startAction`, so an action that ends in a
   notice doesn't show the last run's output either. It has a harness check:
-  the second run's page holds none of the first run's lines.
+  the second run's page holds none of the first run's lines. **Changed in
+  row 13** (Dev 5's VM round: a declined gate after a failed step's Run
+  topgrade blanked the failed run and timed the gate): the page clears when
+  the new run's queue starts (`QueueStarted`), not in `startAction`. An
+  action that ends before its queue (a declined gate, a notice) keeps the
+  last run's page, header and elapsed time; a toast says how it ended.
+  `TestGUIClearRerun` and `TestGUIRealDriver/failed-decline` check both.
 - **Q13, a gate for Run topgrade:** `actions.Action.Gate` on Run topgrade,
   plus the TUI's `topgrade_*` transcript goldens, as a separate commit by
   **Dev 3** (`internal/actions`, `internal/tui/testdata`). No P8 row touches

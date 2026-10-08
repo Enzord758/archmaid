@@ -267,11 +267,10 @@ func (m *Model) Output() []string { return m.out.since(m.lowest()) }
 // lowest is the oldest sequence number the view can hold.
 func (m *Model) lowest() int { return max(m.out.total-len(m.out.buf), m.base) }
 
-// Clear empties the page for the next action (the owner's decision Q12):
-// no checklist rows and no output; the last run's output is in Logs. The
-// window calls it when it starts an action, so even an action that ends
-// in a notice before any queue doesn't show the last run's output.
-// QueueStarted clears the output too.
+// Clear empties the page (the owner's decision Q12): no rows and no
+// output; the last run's output is in Logs. QueueStarted does the same for
+// a new run. The window no longer calls it when an action starts (P8 row
+// 13): an action that ends before its queue keeps the last run's page.
 func (m *Model) Clear() Change {
 	m.Rows = m.Rows[:0]
 	m.base = m.out.total

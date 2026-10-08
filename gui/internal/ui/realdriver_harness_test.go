@@ -556,6 +556,26 @@ func TestGUIRealDriver(t *testing.T) {
 		}
 	})
 
+	t.Run("failed-decline", func(t *testing.T) {
+		// A failed topgrade, then its Run topgrade with the gate declined
+		// (Dev 5): the failed run stays on the page, its header and elapsed
+		// time too (not the gate's), and its step offers the actions again.
+		_, env := installShims(t, shimOpts{topgrade: "fail"})
+		rep, _ := child(t, "real-failed-decline", append(env, "ARCHMAID_GUI_STATE="+t.TempDir())...)
+		if !slices.Equal(rep.Outcomes, []string{"completed", "cancelled"}) || len(rep.Pages) != 2 {
+			t.Fatalf("outcomes %q pages %q", rep.Outcomes, rep.Pages)
+		}
+		if rep.Pages[1] != rep.Pages[0] || !strings.Contains(rep.Pages[0], `kicker="Finished: failed (1 step)"`) || strings.Contains(rep.Pages[0], " lines=0") {
+			t.Errorf("the declined gate changed the failed run's page:\n%s\n%s", rep.Pages[0], rep.Pages[1])
+		}
+		if !slices.Equal(rep.FailedActs, []string{"Run topgrade again"}) {
+			t.Errorf("after the declined gate the failed step offers %q, want Run topgrade again", rep.FailedActs)
+		}
+		if !slices.Contains(rep.Toasts, "Run cancelled, nothing ran") {
+			t.Errorf("toasts %q: the declined attempt isn't told", rep.Toasts)
+		}
+	})
+
 	t.Run("runs", func(t *testing.T) {
 		dir, env := installShims(t, shimOpts{})
 		state, cfg := t.TempDir(), t.TempDir()

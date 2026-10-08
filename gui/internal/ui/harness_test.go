@@ -115,11 +115,9 @@ type report struct {
 	// Summaries and Headers are the timeline's shown summary lines and
 	// step titles at the end (the folded steps, the headers drawn).
 	Summaries, Headers []string
-	// FirstViewLines is clear-rerun's output lines after its first run;
-	// ClearedItems the timeline's items and the model's output lines after
-	// the second (a notice).
-	FirstViewLines uint
-	ClearedItems   uint
+	// Pages is the Run page at each run's end (clear-rerun,
+	// real-failed-decline): runPage.
+	Pages []string
 	// real-failed: the failed step's actions after the first run (their
 	// labels, or "hidden"), and while the second goes; what Copy error
 	// copied; the Logs page Open log showed ("page run category").
@@ -332,7 +330,7 @@ func runChild(scenario, path string) int {
 	case "narrow-nav": // 630x372: the sidebar overlay (shell_harness_test.go)
 	case "toast-markup": // a toast whose message looks like markup
 	case "dry-first": // Full Cleanup from the hero's Dry run first
-	case "clear-rerun": // Full Cleanup, then Repair (a notice): Q12's clean page
+	case "clear-rerun": // Full Cleanup, then Repair (a notice), then Clear user cache: when the page clears
 	case "confirm-flag": // --confirm fullcleanup: the window opens into the gate; "no"
 		answerNo = true
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
@@ -348,7 +346,8 @@ func runChild(scenario, path string) int {
 		action = stub.IDFullCleanupAskpass
 	case "real-askpass-cancel":
 		action, cancelPassword = actions.IDTopgrade, true
-	case "real-failed": // topgrade fails; its step's Copy error, Open log, then Run again
+	case "real-failed", // topgrade fails; its step's Copy error, Open log, then Run again
+		"real-failed-decline": // ... Run topgrade with its gate declined
 		action = actions.IDTopgrade
 	case "real-close-topgrade": // Run topgrade, then Stop and Quit mid-topgrade
 		action = actions.IDTopgrade
@@ -545,6 +544,9 @@ func runChild(scenario, path string) int {
 					if answerNo {
 						resp = "no"
 					}
+					if scenario == "real-failed-decline" && len(rep.Outcomes) == 1 {
+						resp = "no" // Run topgrade's gate, declined
+					}
 					if p.Confirm != nil {
 						rep.Buttons = append(rep.Buttons, fmt.Sprintf("%d %s/%s", id, d.ResponseLabel("yes"), d.ResponseLabel("no")))
 						rep.Confirms = append(rep.Confirms, d.Heading()+"\n"+dialogLabels(d, nil))
@@ -663,8 +665,8 @@ func runChild(scenario, path string) int {
 				rep.EndMem = readMem()
 				m := w.model
 				rep.Outcome = "stopped" // the engine stopped: no Finished
-				if m.Finished != nil {
-					rep.Outcome = m.Finished.Outcome.String()
+				if w.ended != nil {     // this action's end, also one before its queue
+					rep.Outcome = w.ended.Outcome.String()
 				}
 				rep.Notice = m.Notice
 				for _, r := range m.Rows {
@@ -726,16 +728,45 @@ func runChild(scenario, path string) int {
 					fail("the run finished before the window closed")
 				}
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
-				if scenario == "clear-rerun" {
-					if len(rep.Outcomes) == 1 {
-						// Then an action that ends in a notice, before any
-						// queue: its Run page must not show the first
-						// run's output (Q12).
-						rep.FirstViewLines = rep.ViewLines
-						glib.TimeoutAdd(50, func() { w.menu[actions.IDRepair].start() })
-						return
+				if scenario == "clear-rerun" || scenario == "real-failed-decline" {
+					rep.Pages = append(rep.Pages, runPage(w))
+				}
+				if scenario == "clear-rerun" && len(rep.Outcomes) < 3 {
+					// Then an action that ends in a notice, before any
+					// queue (the page stays), then one with a queue (the
+					// page clears when it starts).
+					next := actions.IDRepair
+					if len(rep.Outcomes) == 2 {
+						next = actions.IDUserCache
 					}
-					rep.ClearedItems = w.tl.total() + uint(len(w.model.Output()))
+					glib.TimeoutAdd(50, func() { w.menu[next].start() })
+					return
+				}
+				if scenario == "real-failed-decline" && len(rep.Outcomes) == 1 {
+					// Run topgrade on the failed step; its gate is declined.
+					glib.TimeoutAdd(60, func() {
+						for _, s := range w.tl.sections {
+							if s.step == steps.IDTopgrade && s.header != nil {
+								s.header.acts.again.Emit("clicked")
+								return
+							}
+						}
+						fail("the failed topgrade step has no header drawn")
+						w.win.Close()
+					})
+					return
+				}
+				if scenario == "real-failed-decline" {
+					// The failed step offers its actions again.
+					glib.TimeoutAdd(60, func() {
+						for _, s := range w.tl.sections {
+							if s.step == steps.IDTopgrade && s.header != nil && s.header.acts.box.Visible() {
+								rep.FailedActs = append(rep.FailedActs, s.header.acts.again.Label())
+							}
+						}
+						w.win.Close()
+					})
+					return
 				}
 				if scenario == "real-failed" && len(rep.Outcomes) == 1 {
 					// The failed step's buttons, as a user clicks them,
@@ -1306,18 +1337,32 @@ func TestGUIOverviewStarts(t *testing.T) {
 	}
 }
 
-// TestGUIClearRerun: Q12. A new action starts with an empty Run page: a
-// Full Cleanup's output is gone once Repair (which ends in a notice, before
-// any queue) starts, and the timeline holds nothing.
+// runPage is the Run page as shown: the header's kicker and elapsed time,
+// the timeline's steps, and the output lines it holds.
+func runPage(w *Window) string {
+	var ids []string
+	for _, s := range w.tl.sections {
+		ids = append(ids, s.step)
+	}
+	return fmt.Sprintf("kicker=%q elapsed=%q steps=%s lines=%d", w.tl.kicker.Text(), w.tl.elapsed.Text(), strings.Join(ids, ","), w.outLen)
+}
+
+// TestGUIClearRerun: Q12, as P8 row 13 has it. The Run page clears when a
+// new run's queue starts, not when the action starts: after Full Cleanup,
+// Repair (which ends in a notice before any queue) leaves Full Cleanup's
+// page as it was, header and all; Clear user cache (a queue) then shows
+// only its own steps.
 func TestGUIClearRerun(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "clear-rerun")
-	if len(rep.Outcomes) != 2 || rep.Outcomes[1] != "notice" {
-		t.Fatalf("outcomes %q", rep.Outcomes)
+	if !slices.Equal(rep.Outcomes, []string{"completed", "notice", "completed"}) || len(rep.Pages) != 3 {
+		t.Fatalf("outcomes %q pages %q", rep.Outcomes, rep.Pages)
 	}
-	if rep.FirstViewLines == 0 || rep.ViewLines != 0 || rep.ClearedItems != 0 {
-		t.Errorf("first run %d lines; after the notice %d lines, %d items and model lines: want the page empty",
-			rep.FirstViewLines, rep.ViewLines, rep.ClearedItems)
+	if rep.Pages[1] != rep.Pages[0] || !strings.Contains(rep.Pages[0], steps.IDTopgrade) || strings.Contains(rep.Pages[0], " lines=0") {
+		t.Errorf("Repair's notice changed the Run page:\n%s\n%s", rep.Pages[0], rep.Pages[1])
+	}
+	if strings.Contains(rep.Pages[2], steps.IDTopgrade) || !strings.Contains(rep.Pages[2], "steps="+steps.IDUserCache) {
+		t.Errorf("Clear user cache's page still holds Full Cleanup's steps: %s", rep.Pages[2])
 	}
 }
 

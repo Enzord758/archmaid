@@ -64,6 +64,15 @@ type Window struct {
 	// drvDry: the current Driver is a dry run (the Settings switch, or Dry
 	// run first); its confirms say so up front.
 	drvDry bool
+	// queued: the current action's queue has started (QueueStarted, which
+	// clears the Run page). lastFinished is the Run page's run's end when
+	// the action started: an action that ends before its queue puts it
+	// back, so the page, its header and elapsed time stay the last run's.
+	queued       bool
+	lastFinished *engine.Finished
+	// ended is how the current action ended (its Finished), whether or not
+	// the page shows it.
+	ended *engine.Finished
 	// follow: keep the newest line in view. Scrolling up stops it;
 	// reaching the bottom again restarts it.
 	follow bool
@@ -230,9 +239,11 @@ func (w *Window) start(id string, dry bool) {
 	// when the window opened or the last run ended), and the Settings
 	// page's changes apply to it.
 	w.replaceDriver(dry)
-	// A new run starts with an empty Run page (Q12), also one that ends in
-	// a notice before any queue: the last run's output is in Logs.
-	w.redraw(w.model.Clear())
+	// The Run page is cleared when the new run's queue starts (the model
+	// clears at QueueStarted, Q12), not here: until then it keeps the last
+	// run, so an action that ends before any queue (a declined gate, a
+	// notice) leaves it as it was (P8 row 13, Dev 5).
+	w.queued, w.lastFinished, w.ended = false, w.model.Finished, nil
 	w.current, w.dry, w.model.Stopped, w.agentNotice = id, dry, "", ""
 	w.setBusy(true)
 	w.stack.SetVisibleChildName("run")
@@ -321,6 +332,8 @@ func (w *Window) apply(evs []engine.Event) {
 // redraw redraws exactly what c says changed.
 func (w *Window) redraw(c runview.Change) {
 	if c.Reset {
+		// Only QueueStarted resets the model: the run's queue started.
+		w.queued = true
 		w.rebuild()
 	}
 	for _, i := range c.Inserted {
@@ -344,9 +357,18 @@ func (w *Window) redraw(c runview.Change) {
 		w.toast(t)
 	}
 	if c.Finished {
+		f := w.model.Finished
+		w.ended = f
+		if !w.queued {
+			// It ended before its queue (a declined gate, a notice): the
+			// page still shows the last run, so its header does too, not
+			// this attempt's outcome and the time its gate was open. The
+			// toast says how the attempt ended.
+			w.model.Finished = w.lastFinished
+		}
 		w.setBusy(false)
 		w.refreshLastRun()
-		if f := w.model.Finished; f != nil {
+		if f != nil {
 			_, toast := runview.FinishedText(*f)
 			w.toast(toast)
 		}
