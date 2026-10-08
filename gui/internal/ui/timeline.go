@@ -77,6 +77,7 @@ type timeline struct {
 
 	// The run header.
 	kicker, meta, elapsed *gtk.Label
+	prev                  *gtk.Label // the "previous run" tag
 	// counts holds the done, failed and skipped tags (P8, Dev 5's r8).
 	counts                *gtk.Box
 	done, failed, skipped *gtk.Label
@@ -208,9 +209,16 @@ func (w *Window) newRunHeader() gtk.Widgetter {
 	for _, t := range []*gtk.Label{tl.done, tl.failed, tl.skipped} {
 		tl.counts.Append(t)
 	}
+	// "previous run": the page shows the run before the action that is
+	// starting, or that ended before its queue (w.pagePrev).
+	tl.prev = tag("previous run", "am-tag-neutral")
+	tl.prev.SetVisible(false)
+	kicker := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	kicker.Append(tl.kicker)
+	kicker.Append(tl.prev)
 	left := gtk.NewBox(gtk.OrientationVertical, 2)
 	left.SetHExpand(true)
-	left.Append(tl.kicker)
+	left.Append(kicker)
 	left.Append(tl.meta)
 	left.Append(tl.counts)
 	tl.elapsed = gtk.NewLabel("")
@@ -622,6 +630,7 @@ func (w *Window) updateRunHeader() {
 	tl, m := w.tl, w.model
 	h := m.Header()
 	tl.kicker.SetText(h.Kicker)
+	tl.prev.SetVisible(w.pagePrev && len(m.Rows) > 0)
 	meta := ""
 	if !m.Started.IsZero() && len(m.Rows) > 0 {
 		meta = "Started " + m.Started.Local().Format("15:04:05")

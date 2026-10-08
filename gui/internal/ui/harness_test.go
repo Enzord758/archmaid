@@ -118,6 +118,8 @@ type report struct {
 	// Pages is the Run page at each run's end (clear-rerun,
 	// real-failed-decline): runPage.
 	Pages []string
+	// Heads: the same moments' "previous run" tag and page title.
+	Heads []string
 	// real-failed: the failed step's actions after the first run (their
 	// labels, or "hidden"), and while the second goes; what Copy error
 	// copied; the Logs page Open log showed ("page run category").
@@ -346,9 +348,9 @@ func runChild(scenario, path string) int {
 		action = stub.IDFullCleanupAskpass
 	case "real-askpass-cancel":
 		action, cancelPassword = actions.IDTopgrade, true
-	case "real-failed", // topgrade fails; its step's Copy error, Open log, then Run again
-		"real-failed-decline": // ... Run topgrade with its gate declined
+	case "real-failed": // topgrade fails; its step's Copy error, Open log, then Run again
 		action = actions.IDTopgrade
+	case "real-failed-decline": // Full Cleanup whose topgrade fails, then Run topgrade again with its gate declined
 	case "real-close-topgrade": // Run topgrade, then Stop and Quit mid-topgrade
 		action = actions.IDTopgrade
 	case "real-close-finished": // the question asked mid-topgrade, answered after its end
@@ -730,6 +732,7 @@ func runChild(scenario, path string) int {
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
 				if scenario == "clear-rerun" || scenario == "real-failed-decline" {
 					rep.Pages = append(rep.Pages, runPage(w))
+					rep.Heads = append(rep.Heads, fmt.Sprintf("prev=%v title=%q", w.tl.prev.IsVisible(), w.shell.title.Label()))
 				}
 				if scenario == "clear-rerun" && len(rep.Outcomes) < 3 {
 					// Then an action that ends in a notice, before any
@@ -1363,6 +1366,11 @@ func TestGUIClearRerun(t *testing.T) {
 	}
 	if strings.Contains(rep.Pages[2], steps.IDTopgrade) || !strings.Contains(rep.Pages[2], "steps="+steps.IDUserCache) {
 		t.Errorf("Clear user cache's page still holds Full Cleanup's steps: %s", rep.Pages[2])
+	}
+	// After Repair's notice the page is tagged "previous run", under Full
+	// Cleanup's title; Clear user cache's own run isn't.
+	if want := []string{`prev=false title="Full Cleanup (Recommended)"`, `prev=true title="Full Cleanup (Recommended)"`, `prev=false title="Clear user cache"`}; !slices.Equal(rep.Heads, want) {
+		t.Errorf("the page's tag and title %q, want %q", rep.Heads, want)
 	}
 }
 

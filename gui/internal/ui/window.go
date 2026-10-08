@@ -70,6 +70,10 @@ type Window struct {
 	// back, so the page, its header and elapsed time stay the last run's.
 	queued       bool
 	lastFinished *engine.Finished
+	// pagePrev: the Run page shows the run before the current action (from
+	// its start until its queue starts, and after it ended before one);
+	// the header's "previous run" tag.
+	pagePrev bool
 	// ended is how the current action ended (its Finished), whether or not
 	// the page shows it.
 	ended *engine.Finished
@@ -244,7 +248,9 @@ func (w *Window) start(id string, dry bool) {
 	// run, so an action that ends before any queue (a declined gate, a
 	// notice) leaves it as it was (P8 row 13, Dev 5).
 	w.queued, w.lastFinished, w.ended = false, w.model.Finished, nil
+	w.pagePrev = len(w.model.Rows) > 0
 	w.current, w.dry, w.model.Stopped, w.agentNotice = id, dry, "", ""
+	w.updateRunHeader()
 	w.setBusy(true)
 	w.stack.SetVisibleChildName("run")
 	w.updateTitle()
@@ -333,7 +339,7 @@ func (w *Window) apply(evs []engine.Event) {
 func (w *Window) redraw(c runview.Change) {
 	if c.Reset {
 		// Only QueueStarted resets the model: the run's queue started.
-		w.queued = true
+		w.queued, w.pagePrev = true, false
 		w.rebuild()
 	}
 	for _, i := range c.Inserted {
@@ -363,8 +369,14 @@ func (w *Window) redraw(c runview.Change) {
 			// It ended before its queue (a declined gate, a notice): the
 			// page still shows the last run, so its header does too, not
 			// this attempt's outcome and the time its gate was open. The
-			// toast says how the attempt ended.
+			// toast says how the attempt ended. The page title names
+			// the page's run too, not the attempted action, and the header
+			// is tagged "previous run".
 			w.model.Finished = w.lastFinished
+			if w.pagePrev && w.model.Action != "" {
+				w.current = w.model.Action
+				w.updateTitle()
+			}
 		}
 		w.setBusy(false)
 		w.refreshLastRun()
