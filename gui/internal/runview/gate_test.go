@@ -27,12 +27,19 @@ func TestGateNotes(t *testing.T) {
 		"Orphans are listed for you to confirm before anything is removed.",
 		"If an AUR package changed maintainer or gained a co-maintainer, you're asked before the update.",
 	}
-	if got := GateNotes(full, false); !slices.Equal(got, want) {
+	if got := GateNotes(full, false, false); !slices.Equal(got, want) {
 		t.Errorf("notes\n%q\nwant\n%q", got, want)
 	}
 	want[0] = "3 steps run as root, together. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
-	if got := GateNotes(full, true); !slices.Equal(got, want) {
+	if got := GateNotes(full, true, false); !slices.Equal(got, want) {
 		t.Errorf("kept: notes\n%q\nwant\n%q", got, want)
+	}
+	// A dry run asks for no password, kept or not (Dev 5).
+	want[0] = DryNoPassword
+	for _, kept := range []bool{false, true} {
+		if got := GateNotes(full, kept, true); !slices.Equal(got, want) {
+			t.Errorf("dry, kept %v: notes\n%q\nwant\n%q", kept, got, want)
+		}
 	}
 	if got := GateKicker(full); got != "7 steps, in this order" {
 		t.Errorf("kicker %q", got)
@@ -40,17 +47,17 @@ func TestGateNotes(t *testing.T) {
 
 	// Run topgrade: no helper step; topgrade's sudo asks in our dialog.
 	tg := []engine.PlanStep{{ID: steps.IDAURAudit}, {ID: steps.IDTopgrade, NeedsPriv: true}}
-	if got := GateNotes(tg, true); !slices.Equal(got, []string{
+	if got := GateNotes(tg, true, false); !slices.Equal(got, []string{
 		"You type your password once, the first time a step needs it; archmaid keeps it for this run only.",
 		"If an AUR package changed maintainer or gained a co-maintainer, you're asked before the update.",
 	}) {
 		t.Errorf("topgrade: %q", got)
 	}
 	one := []engine.PlanStep{{ID: "x", Verb: "v", NeedsPriv: true, Confirm: true}}
-	if got := GateNotes(one, false); !slices.Equal(got, []string{"1 step runs as root, after one polkit authorisation.", "Step 1 asks before it runs."}) {
+	if got := GateNotes(one, false, false); !slices.Equal(got, []string{"1 step runs as root, after one polkit authorisation.", "Step 1 asks before it runs."}) {
 		t.Errorf("one: %q", got)
 	}
-	if got := GateNotes(nil, false); got != nil {
+	if got := GateNotes(nil, false, true); got != nil {
 		t.Errorf("no plan: %q", got)
 	}
 }

@@ -112,7 +112,7 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 		box.Append(itemList("", p.Items, p.Destructive))
 	}
 	if len(p.Plan) > 0 {
-		box.Append(planRail(p.Plan, runview.GateNotes(p.Plan, w.opts.KeepsPassword)))
+		box.Append(planRail(p.Plan, runview.GateNotes(p.Plan, w.opts.KeepsPassword, w.drvDry)))
 	}
 	if box.FirstChild() != nil {
 		d.SetExtraChild(box)

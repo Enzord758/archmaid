@@ -18,10 +18,10 @@ func GateKicker(plan []engine.PlanStep) string {
 }
 
 // GateNotes are the notes under the gate's plan: how the root steps are
-// authorised (kept: the Driver keeps the run's password, one-password),
-// each step that asks before it runs, by number, and the AUR gate before
-// topgrade.
-func GateNotes(plan []engine.PlanStep, kept bool) []string {
+// authorised (kept: the Driver keeps the run's password, one-password; in
+// a dry run nothing is), each step that asks before it runs, by number,
+// and the AUR gate before topgrade.
+func GateNotes(plan []engine.PlanStep, kept, dry bool) []string {
 	var notes []string
 	helper, sudo := 0, false // root steps the helper runs (one polkit call); a step that runs sudo itself
 	for _, s := range plan {
@@ -36,6 +36,8 @@ func GateNotes(plan []engine.PlanStep, kept bool) []string {
 		return slices.ContainsFunc(plan, func(s engine.PlanStep) bool { return s.ID == id })
 	}
 	switch {
+	case dry && (helper > 0 || sudo):
+		notes = append(notes, DryNoPassword)
 	case helper > 0 && kept:
 		notes = append(notes, rootSteps(helper)+". You type your password once, the first time a step needs it; archmaid keeps it for this run only.")
 	case helper > 0:
@@ -69,6 +71,10 @@ func GateNotes(plan []engine.PlanStep, kept bool) []string {
 	}
 	return notes
 }
+
+// DryNoPassword is a dry run's gate note in place of the password note:
+// a dry run runs nothing as root (Dev 5).
+const DryNoPassword = "Nothing asks for a password or authorisation in a dry run."
 
 // rootSteps is "1 step runs as root" or "{n} steps run as root, together".
 func rootSteps(n int) string {

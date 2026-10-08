@@ -1406,6 +1406,10 @@ func TestGUIDryFirst(t *testing.T) {
 			t.Errorf("a dry run's confirm doesn't open with %q:\n%s", dryBannerText, c)
 		}
 	}
+	// Its gate says nothing asks for a password, not how to type it.
+	if !strings.Contains(rep.Confirms[0], runview.DryNoPassword) || strings.Contains(rep.Confirms[0], "password once") || strings.Contains(rep.Confirms[0], "polkit authorisation") {
+		t.Errorf("the dry run's gate notes:\n%s", rep.Confirms[0])
+	}
 }
 
 // TestGUIConfirmFlag: --confirm fullcleanup opens the window straight into
