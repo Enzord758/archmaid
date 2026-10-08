@@ -447,7 +447,7 @@ the GUI suite without the budgets):
   `flood-colour`, with its budgets: ≥ 5k lines/s unpaced with nothing
   dropped, main-thread work per flush p95 ≤ 4 ms, nothing dropped at 10k
   lines/s paced, RSS after 50k lines < 200 MB. Plus `TestGUIFirstFrameAndIdleRAM`
-  (< 400 ms, < 120 MB).
+  (< 400 ms, < 125 MB, raised from 120 in row 13 with measurements).
 - **New with commit 11:** a `flood-steps` scenario, 50k lines over the
   10-step plan with steps finishing mid-flood (several sections, the cap
   trimming across a section boundary, collapsed steps), under the same
