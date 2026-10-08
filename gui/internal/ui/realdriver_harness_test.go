@@ -30,7 +30,9 @@ import (
 	"unsafe"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/Enzord758/archmaid/gui/internal/polkitagent/agenttest"
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
@@ -402,6 +404,15 @@ func TestGUIRealDriver(t *testing.T) {
 		for _, f := range []string{"pkexec.log", "sudo.log", "topgrade.pid"} {
 			if l := readLines(t, filepath.Join(dir, f)); l != nil {
 				t.Errorf("a dry run left %s: %q", f, l)
+			}
+		}
+		// The Settings page's dry run: every confirm says so up front.
+		if len(rep.Confirms) != 3 {
+			t.Errorf("confirms %q, want 3", rep.Confirms)
+		}
+		for _, c := range rep.Confirms {
+			if _, rest, _ := strings.Cut(c, "\n"); !strings.HasPrefix(rest+"\n", dryBannerText+"\n") {
+				t.Errorf("a dry run's confirm doesn't open with %q:\n%s", dryBannerText, c)
 			}
 		}
 	})
@@ -916,6 +927,124 @@ func TestGUISmallWindow(t *testing.T) {
 	if rep.Shell != "collapsed=true title=in-view stop=in-view meters=hidden" {
 		t.Errorf("at 630x372 the shell is %q, want the sidebar collapsed, the title and Stop in view, the meters hidden", rep.Shell)
 	}
+
+	// The password dialog at 630x372 (Dev 5's finding; spec 1.4): its title
+	// in view with the entry focused, and the caller line shown whole, as
+	// plain text, wrapped, never ellipsized or dimmed, for a 120-character
+	// requester whose path says "polkit" (still sudo's dialog); polkit's
+	// own dialog with its title and the action id, without PAM's raw
+	// "Password:" line.
+	for _, sc := range []string{"small-askpass", "small-polkit"} {
+		rep, _ := child(t, sc)
+		t.Logf("%s: %s; caller %s; entry %s", sc, rep.Geometry, rep.Caller, rep.Focus)
+		if _, err := fmt.Sscanf(rep.Geometry, "heading y=%g h=%g scrolled=%g window=%g", &y, &h, &scrolled, &winH); err != nil {
+			t.Fatalf("%s: geometry %q: %v", sc, rep.Geometry, err)
+		}
+		if scrolled != 0 || y < 0 || y+h > winH {
+			t.Errorf("%s: the password dialog's title is out of view (%s)", sc, rep.Geometry)
+		}
+		if rep.Focus != "focus=true in-view=true" {
+			t.Errorf("%s: the password entry: %s; want it focused and in view", sc, rep.Focus)
+		}
+		want := "Asked by " + longRequester + "."
+		heading := "sudo Asks for Your Password"
+		if sc == "small-polkit" {
+			want, heading = "Asked by polkit for org.archmaid.helper.full-cleanup.", PolkitTitle
+		}
+		if wantCaller := fmt.Sprintf("text=%q in-view=true ellipsized=false dim=false wrap=true markup=false visible=true", want); rep.Caller != wantCaller {
+			t.Errorf("%s: the caller line is\n%s\nwant\n%s", sc, rep.Caller, wantCaller)
+		}
+		if len(rep.PwBodies) != 1 || !strings.HasPrefix(rep.PwBodies[0], heading+"\n") || !strings.Contains(rep.PwBodies[0], KeptNote) {
+			t.Errorf("%s: password dialog %q, want the %q dialog with the kept-password note", sc, rep.PwBodies, heading)
+		}
+		if sc == "small-polkit" && strings.Contains(rep.PwBodies[0], "Password:") {
+			t.Errorf("polkit's dialog shows PAM's raw prompt: %q", rep.PwBodies)
+		}
+	}
+}
+
+// longRequester is small-askpass's caller: 120 characters, as a build
+// script's sudo might name itself, with "polkit" in its path: the dialog
+// is still sudo's (its kind comes from NeedsPassword.Polkit).
+var longRequester = func() string {
+	head, tail := "/home/user/.cache/yay/polkit-helper-git/src/build/", "/run-sudo.sh (pid 4242)"
+	return head + strings.Repeat("d", 120-len(head)-len(tail)) + tail
+}()
+
+// smallPassword rewrites the stub's askpass prompt for the small-*
+// scenarios: sudo's with longRequester, or polkit's agent asking for
+// archmaid's helper (with PAM's raw "Password:" prompt, which the dialog
+// must not show).
+func smallPassword(scenario string) func(engine.NeedsPassword) engine.NeedsPassword {
+	return func(p engine.NeedsPassword) engine.NeedsPassword {
+		if scenario == "small-polkit" {
+			p.Polkit, p.Action, p.Requester, p.Prompt = true, "org.archmaid.helper.full-cleanup", "polkit's agent (pkttyagent)", "Password: "
+		} else {
+			p.Requester = longRequester
+		}
+		return p
+	}
+}
+
+// retouchDriver passes a Driver's events on with its askpass prompts
+// rewritten.
+type retouchDriver struct {
+	engine.Driver
+	out chan engine.Event
+}
+
+func newRetouchDriver(d engine.Driver, f func(engine.NeedsPassword) engine.NeedsPassword) *retouchDriver {
+	x := &retouchDriver{Driver: d, out: make(chan engine.Event, 64)}
+	go func() {
+		defer close(x.out)
+		for ev := range d.Events() {
+			if p, ok := ev.(engine.NeedsPassword); ok && p.Kind == engine.PasswordAskpass {
+				ev = f(p)
+			}
+			x.out <- ev
+		}
+	}()
+	return x
+}
+
+func (x *retouchDriver) Events() <-chan engine.Event { return x.out }
+
+// callerGeometry is the password dialog's caller label as shown: its text,
+// where it is in the window, whether Pango ellipsized it, whether it is
+// dimmed, and whether it wraps.
+func callerGeometry(w *Window) string {
+	l := w.pwCaller
+	if l == nil {
+		return "no caller label"
+	}
+	b, ok := l.ComputeBounds(w.win)
+	if !ok {
+		return "caller not placed"
+	}
+	inView := b.Y() >= 0 && b.Y()+b.Height() <= float32(w.win.Height()) && b.X() >= 0 && b.X()+b.Width() <= float32(w.win.Width())
+	return fmt.Sprintf("text=%q in-view=%v ellipsized=%v dim=%v wrap=%v markup=%v visible=%v",
+		l.Label(), inView, l.Layout().IsEllipsized() || l.Ellipsize() != pango.EllipsizeNone,
+		l.HasCSSClass("dim-label") || l.HasCSSClass("dimmed") || l.HasCSSClass("caption") || l.Opacity() < 1,
+		l.Wrap(), l.UseMarkup(), l.IsDrawable())
+}
+
+// focusIn says whether the window's focus is in wd, and whether wd is
+// inside the window.
+func focusIn(w *Window, wd gtk.Widgetter) string {
+	if wd == nil {
+		return "no entry"
+	}
+	f := w.win.Focus()
+	in := false
+	for p := f; p != nil; p = gtk.BaseWidget(p).Parent() {
+		if glib.InternObject(p).Native() == glib.InternObject(wd).Native() {
+			in = true
+			break
+		}
+	}
+	b, ok := gtk.BaseWidget(wd).ComputeBounds(w.win)
+	inView := ok && b.Y() >= 0 && b.Y()+b.Height() <= float32(w.win.Height())
+	return fmt.Sprintf("focus=%v in-view=%v", in, inView)
 }
 
 // shellGeometry says whether the sidebar is collapsed, and whether the

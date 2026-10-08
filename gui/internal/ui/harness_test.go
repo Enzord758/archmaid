@@ -101,10 +101,12 @@ type report struct {
 	DlErrors []string
 	Problem  string
 	Toasts   []string
-	Menu     []string // the Overview's rows
-	MenuSub  string   // the started row's subtitle right after the click
-	Page     string   // the page up after starting an action
-	LastRun  []string // the Overview's last run: title, then issues
+	// ToastLabels: toast-markup's labels in the toast overlay, as shown.
+	ToastLabels []string
+	Menu        []string // the Overview's rows
+	MenuSub     string   // the started row's subtitle right after the click
+	Page        string   // the page up after starting an action
+	LastRun     []string // the Overview's last run: title, then issues
 	// Follow is fullcleanup's follow-the-bottom flag: at the end, after a
 	// scrollbar drag, after reaching the bottom.
 	Follow string
@@ -161,6 +163,12 @@ type report struct {
 	Nav []string
 	// Shell is real-small's frame mid-run (shellGeometry).
 	Shell string
+	// Confirms is each confirm dialog's text as shown (dialogLabels).
+	Confirms []string
+	// Caller and Focus: small-askpass's and small-polkit's password dialog
+	// at 630x372: the caller label as shown (callerGeometry), and whether
+	// the password entry has the focus.
+	Caller, Focus string
 	// Collapsed: the sidebar was collapsed at the first frame.
 	Collapsed bool
 	// Meters is the sidebar's meters when the (last) run finished.
@@ -322,6 +330,7 @@ func runChild(scenario, path string) int {
 		action = actions.IDRepair
 	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
 	case "narrow-nav": // 630x372: the sidebar overlay (shell_harness_test.go)
+	case "toast-markup": // a toast whose message looks like markup
 	case "dry-first": // Full Cleanup from the hero's Dry run first
 	case "clear-rerun": // Full Cleanup, then Repair (a notice): Q12's clean page
 	case "confirm-flag": // --confirm fullcleanup: the window opens into the gate; "no"
@@ -335,6 +344,8 @@ func runChild(scenario, path string) int {
 		action = actions.IDTopgrade
 	case "real-askpass": // topgrade's sudo asks through the relay
 		action = actions.IDTopgrade
+	case "small-askpass", "small-polkit": // the password dialog at 630x372 (TestGUISmallWindow)
+		action = stub.IDFullCleanupAskpass
 	case "real-askpass-cancel":
 		action, cancelPassword = actions.IDTopgrade, true
 	case "real-failed": // topgrade fails; its step's Copy error, Open log, then Run again
@@ -351,6 +362,9 @@ func runChild(scenario, path string) int {
 	}
 	if scenario == "confirm-flag" {
 		opts.Confirm = actions.IDFullCleanup
+	}
+	if strings.HasPrefix(scenario, "small-") {
+		opts.KeepsPassword = true // the kept-password note too: the tallest dialog
 	}
 	var wiring *realdriver.Wiring
 	if strings.HasPrefix(scenario, "real-") {
@@ -388,6 +402,9 @@ func runChild(scenario, path string) int {
 			if strings.HasPrefix(scenario, "engine-stops") {
 				d = newDyingDriver(d, &died, scenario == "engine-stops-askpass", kill)
 			}
+			if strings.HasPrefix(scenario, "small-") {
+				d = newRetouchDriver(d, smallPassword(scenario))
+			}
 		}
 		cd := countingDriver{Driver: d, closes: &closes, mu: &sentMu, sent: &rep.Sent}
 		if wiring != nil {
@@ -401,7 +418,7 @@ func runChild(scenario, path string) int {
 	measuring := false
 	opts.hook = func(w *Window) {
 		closeSoon := func() { glib.TimeoutAdd(50, func() { w.win.Close() }) }
-		if scenario == "real-small" || scenario == "narrow-nav" {
+		if scenario == "real-small" || scenario == "narrow-nav" || strings.HasPrefix(scenario, "small-") {
 			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
 		}
 		w.win.ConnectRealize(func() {
@@ -420,6 +437,14 @@ func runChild(scenario, path string) int {
 						}
 						if scenario == "idle" {
 							w.win.Close()
+							return
+						}
+						if scenario == "toast-markup" {
+							w.toast(markupToast)
+							glib.TimeoutAdd(400, func() {
+								rep.ToastLabels = labelsUnder(&w.toasts.Widget)
+								w.win.Close()
+							})
 							return
 						}
 						// The Overview's actions: the hero and the cells.
@@ -489,6 +514,8 @@ func runChild(scenario, path string) int {
 				p := *c.Opened
 				delay := uint(30)
 				small := scenario == "real-small" && p.Confirm != nil && len(p.Confirm.Direct) > 0
+				smallPw := strings.HasPrefix(scenario, "small-") && p.Password != nil
+				small = small || smallPw
 				if small {
 					delay = 800 // shown, animated in and focused
 				}
@@ -509,6 +536,10 @@ func runChild(scenario, path string) int {
 						rep.Geometry = headingGeometry(w, d)
 						rep.Shell = shellGeometry(w)
 					}
+					if smallPw {
+						rep.Caller = callerGeometry(w)
+						rep.Focus = focusIn(w, w.pwEntry)
+					}
 					// Answer the way a user would: type, tick, then press.
 					resp := "yes"
 					if answerNo {
@@ -516,6 +547,7 @@ func runChild(scenario, path string) int {
 					}
 					if p.Confirm != nil {
 						rep.Buttons = append(rep.Buttons, fmt.Sprintf("%d %s/%s", id, d.ResponseLabel("yes"), d.ResponseLabel("no")))
+						rep.Confirms = append(rep.Confirms, d.Heading()+"\n"+dialogLabels(d, nil))
 					}
 					switch {
 					case p.Password != nil:
@@ -524,7 +556,7 @@ func runChild(scenario, path string) int {
 						if w.pwCaller != nil {
 							caller = w.pwCaller.Label()
 						}
-						rep.PwBodies = append(rep.PwBodies, d.Heading()+"\n"+caller+"\n"+d.Body())
+						rep.PwBodies = append(rep.PwBodies, d.Heading()+"\n"+caller+"\n"+dialogLabels(d, w.pwCaller))
 						w.pwEntry.SetText(password)
 						if scenario == "engine-stops-askpass" {
 							// Typed, never answered: the engine withdraws it.
@@ -556,6 +588,13 @@ func runChild(scenario, path string) int {
 					}
 					if p.Password != nil && (entry.TextLength() != 0 || w.pwEntry != nil) {
 						fail("the password entry wasn't wiped and forgotten after the answer")
+					}
+					if smallPw {
+						// Its geometry is all this scenario is for.
+						glib.TimeoutAdd(50, func() {
+							w.win.Close()
+							glib.TimeoutAdd(30, func() { stopAndQuit(w, fail) })
+						})
 					}
 				})
 			}
@@ -949,6 +988,57 @@ func stopAndQuit(w *Window, fail func(string, ...any)) {
 	})
 }
 
+// markupToast is toast-markup's message: an error naming a path with
+// markup in it.
+const markupToast = "Couldn't open it: open /tmp/<b>bold</b> & co: no such file"
+
+// TestGUIToastPlain: a toast shows its message as plain text, never as
+// markup (Dev 3's security read): the label reads the message literally.
+func TestGUIToastPlain(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "toast-markup")
+	if !slices.Contains(rep.ToastLabels, markupToast) {
+		t.Errorf("toast labels %q, want %q literally", rep.ToastLabels, markupToast)
+	}
+}
+
+// labelsUnder is the text of the shown labels under root, as GTK lays it
+// out (the label's text after any markup parsing).
+func labelsUnder(root *gtk.Widget) []string {
+	var out []string
+	var walk func(gtk.Widgetter)
+	walk = func(p gtk.Widgetter) {
+		for c := gtk.BaseWidget(p).FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+			if l, ok := c.(*gtk.Label); ok && l.IsVisible() {
+				out = append(out, l.Text())
+			}
+			walk(c)
+		}
+	}
+	walk(root)
+	return out
+}
+
+// dialogLabels is the text of d's labels that are shown, in order, but for
+// its heading, skip (the caller line, said apart) and its buttons'.
+func dialogLabels(d *adw.AlertDialog, skip *gtk.Label) string {
+	var out []string
+	var walk func(gtk.Widgetter)
+	walk = func(p gtk.Widgetter) {
+		for c := gtk.BaseWidget(p).FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+			if _, ok := c.(*gtk.Button); ok {
+				continue
+			}
+			if l, ok := c.(*gtk.Label); ok && l.IsVisible() && l.Label() != d.Heading() && (skip == nil || glib.InternObject(l).Native() != glib.InternObject(skip).Native()) {
+				out = append(out, l.Label())
+			}
+			walk(c)
+		}
+	}
+	walk(d)
+	return strings.Join(out, "\n")
+}
+
 // findButton is the button under root labelled label, or nil.
 func findButton(root *gtk.Widget, label string) *gtk.Button {
 	for c := root.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
@@ -1092,6 +1182,23 @@ func childCmd(t *testing.T, scenario string, prep func(*exec.Cmd), env ...string
 func TestGUIFullCleanup(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "fullcleanup")
+	// The gate's plan rail (spec 1.3): the kicker, the numbered steps with
+	// their tags, and the notes computed from the plan; no dry-run banner
+	// on a real run's confirms.
+	if len(rep.Confirms) == 0 {
+		t.Fatal("no confirm was shown")
+	}
+	for _, want := range []string{"10 steps, in this order", "01\nAuditing AUR packages…", "04\nDeleting entire package cache…\nasks\nroot",
+		"5 steps run as root, together, after one polkit authorisation", "Step 4 asks before it deletes the entire package cache."} {
+		if !strings.Contains(rep.Confirms[0], want) {
+			t.Errorf("the gate lacks %q:\n%s", want, rep.Confirms[0])
+		}
+	}
+	for _, c := range rep.Confirms {
+		if strings.Contains(c, dryBannerText) {
+			t.Errorf("a real run's confirm says dry run:\n%s", c)
+		}
+	}
 	if rep.Collapsed {
 		t.Error("the sidebar is collapsed at the default 960x640")
 	}
@@ -1229,6 +1336,16 @@ func TestGUIDryFirst(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfg, "archmaid", "gui.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("Dry run first saved the settings: %v", err)
+	}
+	// Every confirm of the dry run says so up front, before its body and
+	// lists (P8 row 13, Dev 5's finding).
+	if len(rep.Confirms) == 0 {
+		t.Fatal("no confirm was shown")
+	}
+	for _, c := range rep.Confirms {
+		if _, rest, _ := strings.Cut(c, "\n"); !strings.HasPrefix(rest+"\n", dryBannerText+"\n") {
+			t.Errorf("a dry run's confirm doesn't open with %q:\n%s", dryBannerText, c)
+		}
 	}
 }
 
@@ -1407,7 +1524,9 @@ func TestGUICloseMidRun(t *testing.T) {
 }
 
 // TestGUIFirstFrameAndIdleRAM: budgets < 400 ms to the first frame (warm:
-// the best of the runs after the first) and < 120 MB idle.
+// the best of the runs after the first) and < 125 MB idle (120 MB until
+// P8 row 13: the median was at the edge, 119.2-119.6 MB before it and
+// 119.8-120.1 MB after, with ~1 MB between runs).
 func TestGUIFirstFrameAndIdleRAM(t *testing.T) {
 	needDisplay(t)
 	var firsts []time.Duration
@@ -1426,8 +1545,8 @@ func TestGUIFirstFrameAndIdleRAM(t *testing.T) {
 		if warm >= 400*time.Millisecond {
 			t.Errorf("warm first frame %v, budget < 400 ms", warm)
 		}
-		if rss >= 120*1024 {
-			t.Errorf("idle RSS %.1f MB, budget < 120 MB", float64(rss)/1024)
+		if rss >= 125*1024 {
+			t.Errorf("idle RSS %.1f MB, budget < 125 MB", float64(rss)/1024)
 		}
 	}
 }

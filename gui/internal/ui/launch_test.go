@@ -72,13 +72,19 @@ func TestPasswordTextClipsPrompt(t *testing.T) {
 
 // TestPasswordTextKind: the dialog's kind and title come from the prompt's
 // data, never from the Requester string. polkit's prompt has its own title
-// and shows the action id verbatim; a sudo requester whose path says
-// "polkit" (whatever ran sudo names itself) still gets the sudo dialog.
+// and shows the action id verbatim on its caller line, without PAM's raw
+// "Password:" prompt; a sudo requester whose path says "polkit" (whatever
+// ran sudo names itself) still gets the sudo dialog.
 func TestPasswordTextKind(t *testing.T) {
 	head, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Polkit: true,
 		Action: "org.archmaid.helper.full-cleanup", Requester: "polkit's agent (pkttyagent)", Prompt: "Password: "})
-	if head != PolkitTitle || !strings.Contains(body, "org.archmaid.helper.full-cleanup") || strings.Contains(head+caller+body, "sudo") {
+	if head != PolkitTitle || caller != "Asked by polkit for org.archmaid.helper.full-cleanup." || body != "" {
 		t.Errorf("polkit: %q / %q / %q", head, caller, body)
+	}
+	_, _, body = passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Polkit: true, Prompt: "Password: ",
+		Action: "org.archmaid.helper.full-cleanup", Error: "Incorrect password — 2 attempts left", AttemptsLeft: 2})
+	if body != "Incorrect password — 2 attempts left" {
+		t.Errorf("polkit after a wrong password: %q", body)
 	}
 	head, caller, body = passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass,
 		Requester: "/home/me/polkit, for org.archmaid.helper.full-cleanup (pid 9)", Prompt: "[sudo] password for me: "})

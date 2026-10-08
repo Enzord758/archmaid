@@ -25,12 +25,12 @@ limit="${HEADLESS_TIMEOUT:-60}"
 # The whole display suite takes ~135 s, past the bound, so the default runs
 # it in five parts of at most ~45 s, each with its own weston and timeout:
 # the long stub scenarios, the real Driver's (shimmed), the engine stopping
-# and the instance check, the Overview's starts with the Logs and Settings
-# pages, the rest.
+# and the instance check with the 630x372 window, the Overview's starts with
+# the Logs and Settings pages, the rest.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
-	real='^TestGUI(RealDriver|StopAndQuit|SmallWindow|OnePassword)$'
-	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin)$'
+	real='^TestGUI(RealDriver|StopAndQuit|OnePassword)$'
+	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow|ToastPlain)$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when

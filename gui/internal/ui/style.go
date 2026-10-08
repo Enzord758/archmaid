@@ -53,6 +53,7 @@ func loadStyle() {
 // window is shown as a window of its own, outside the main window's tree.
 func scoped(d *adw.AlertDialog) *adw.AlertDialog {
 	d.AddCSSClass(scopeClass)
+	d.AddCSSClass("am-dialog") // style.css: the dialogs' look (P8 row 13)
 	return d
 }
 

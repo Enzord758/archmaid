@@ -63,12 +63,17 @@ func (w *Window) answer(id engine.PromptID, cmd func() engine.Command) {
 // step the no button is the default whatever Default says, and yes is red;
 // otherwise Default picks the default and yes is the suggested action.
 // Closing the dialog is no. A gate confirm shows the plan it stands for.
+//
+// Restyled (P8 row 13, spec 1.3): a dry run's banner first, then the body,
+// the lists, and a gate's plan as a numbered rail with its tags and notes.
+// The body is a label of the extra child, not the dialog's own, so the dry
+// run's banner can come before it.
 func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 	heading, body := p.Title, p.Body
 	if heading == "" {
 		heading = p.Msg
 	}
-	d := scoped(adw.NewAlertDialog(heading, body))
+	d := scoped(adw.NewAlertDialog(heading, ""))
 	yes, no := w.model.ConfirmLabels(p)
 	d.AddResponse("no", no)
 	d.AddResponse("yes", yes)
@@ -85,6 +90,12 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 		d.SetResponseAppearance("yes", adw.ResponseSuggested)
 	}
 	box := gtk.NewBox(gtk.OrientationVertical, 12)
+	if w.drvDry {
+		box.Append(dryBanner())
+	}
+	if body != "" {
+		box.Append(dialogText(body, "am-dialog-body"))
+	}
 	if len(p.Direct) > 0 || len(p.Cascade) > 0 {
 		// Orphans: what was found, then what goes with it.
 		box.Append(itemList("Orphaned", p.Direct, p.Destructive))
@@ -101,7 +112,7 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 		box.Append(itemList("", p.Items, p.Destructive))
 	}
 	if len(p.Plan) > 0 {
-		box.Append(itemList("Steps", runview.PlanLines(p.Plan), false))
+		box.Append(planRail(p.Plan, runview.GateNotes(p.Plan, w.opts.KeepsPassword)))
 	}
 	if box.FirstChild() != nil {
 		d.SetExtraChild(box)
@@ -110,6 +121,79 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 		w.answer(p.ID, func() engine.Command { return engine.Confirm{Prompt: p.ID, Yes: resp == "yes"} })
 	})
 	return d
+}
+
+// dryBanner says up front that the run is a dry run: the Driver was made
+// with dry run on (the Settings switch, or Dry run first).
+func dryBanner() gtk.Widgetter {
+	l := gtk.NewLabel(dryBannerText)
+	l.AddCSSClass("am-dry-banner")
+	l.SetWrap(true)
+	l.SetJustify(gtk.JustifyCenter)
+	return l
+}
+
+// dryBannerText is the dry-run tag's text (spec 1.11).
+const dryBannerText = "DRY RUN · NOTHING ON THE SYSTEM CHANGES"
+
+// dialogText is a dialog's text as a plain label of its extra child:
+// never markup, wrapped, left-aligned. Not focusable (labels aren't), so
+// it never scrolls the dialog's title away.
+func dialogText(text, class string) *gtk.Label {
+	l := gtk.NewLabel(text)
+	l.SetUseMarkup(false)
+	l.SetWrap(true)
+	l.SetWrapMode(pango.WrapWordChar)
+	l.SetXAlign(0)
+	l.AddCSSClass(class)
+	return l
+}
+
+// planRail is a gate's plan (spec 1.3): the kicker, the steps as a
+// numbered rail with their asks and root tags (scrolling past a few), and
+// the notes computed from the plan.
+func planRail(plan []engine.PlanStep, notes []string) gtk.Widgetter {
+	box := gtk.NewBox(gtk.OrientationVertical, 8)
+	kicker := gtk.NewLabel(runview.GateKicker(plan))
+	kicker.SetXAlign(0)
+	kicker.AddCSSClass("am-kicker")
+	box.Append(kicker)
+	rail := gtk.NewBox(gtk.OrientationVertical, 0)
+	rail.AddCSSClass("am-rail")
+	for i, s := range plan {
+		row := gtk.NewBox(gtk.OrientationHorizontal, 8)
+		row.AddCSSClass("am-rail-step")
+		num := gtk.NewLabel(fmt.Sprintf("%02d", i+1))
+		num.AddCSSClass("am-step-num")
+		num.SetVAlign(gtk.AlignStart)
+		row.Append(num)
+		title := gtk.NewLabel(s.Title)
+		title.SetXAlign(0)
+		title.SetHExpand(true)
+		title.SetWrap(true)
+		row.Append(title)
+		for _, t := range []struct {
+			on         bool
+			text, tone string
+		}{{s.Confirm, "asks", "am-tag-asks"}, {s.NeedsPriv, "root", "am-tag-root"}} {
+			if t.on {
+				l := tag(t.text, t.tone)
+				l.SetVAlign(gtk.AlignStart)
+				row.Append(l)
+			}
+		}
+		rail.Append(row)
+	}
+	sc := gtk.NewScrolledWindow()
+	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	sc.SetPropagateNaturalHeight(true)
+	sc.SetMaxContentHeight(180)
+	sc.SetChild(rail)
+	box.Append(sc)
+	for _, n := range notes {
+		box.Append(dialogText(n, "am-note"))
+	}
+	return box
 }
 
 // itemList is a titled list of package or file names, scrolling past a
@@ -146,19 +230,25 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 }
 
 // KeptNote is what a password dialog adds on the real Driver, which keeps
-// the run's first password (driver.Deps.KeepPassword).
-const KeptNote = "Kept for this run only, for topgrade's and yay's sudo and archmaid's own polkit prompts; any other program that asks shows this dialog with its name."
+// the run's first password (driver.Deps.KeepPassword): the spec's wording
+// (1.11), unchanged.
+const KeptNote = "archmaid keeps this password in memory for this run only. It answers topgrade's and yay's sudo and archmaid's own polkit prompts. Any other program that asks shows this dialog with its name."
 
 // passwordDialog asks for the sudo password: up front (with the gate it
 // stands in for as its heading), or for sudo's askpass mid-step (naming
 // who asked). "Cancel" is CancelPrompt.
+//
+// Restyled (P8 row 13, spec 1.4): the extra child holds, in order, the
+// caller line, sudo's prompt and the error, the entry, and the kept-password
+// note; the dialog's own body stays empty. Its message area must not
+// scroll the title away when the entry takes the focus, in a 630x372
+// window too (keepTitle).
 func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	heading, caller, body := passwordText(p)
-	if w.opts.KeepsPassword {
-		body += "\n\n" + KeptNote
-		body = strings.TrimPrefix(body, "\n\n")
-	}
-	d := scoped(adw.NewAlertDialog(heading, body))
+	d := scoped(adw.NewAlertDialog(heading, ""))
+	// Wide where the window is wide enough (libadwaita decides): the
+	// caller line and the note take fewer lines.
+	d.SetPreferWideLayout(true)
 	d.AddResponse("cancel", "Cancel")
 	d.AddResponse("ok", "Authenticate")
 	d.SetResponseAppearance("ok", adw.ResponseSuggested)
@@ -174,7 +264,7 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	list.AddCSSClass("boxed-list")
 	list.SetSelectionMode(gtk.SelectionNone)
 	list.Append(entry)
-	box := gtk.NewBox(gtk.OrientationVertical, 12)
+	box := gtk.NewBox(gtk.OrientationVertical, 10)
 	w.pwCaller = nil
 	if caller != "" {
 		// Who asks, on a line of its own: plain text (whatever ran sudo
@@ -189,8 +279,17 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		w.pwCaller = l
 		box.Append(l)
 	}
+	if body != "" {
+		box.Append(dialogText(body, "am-dialog-body"))
+	}
 	box.Append(list)
+	if w.opts.KeepsPassword {
+		// Not muted: what the kept password answers, and that any other
+		// program asking shows this dialog, is part of the check.
+		box.Append(dialogText(KeptNote, "am-kept"))
+	}
 	d.SetExtraChild(box)
+	keepTitle(box)
 
 	forget := func() {
 		if w.pwEntry == entry {
@@ -242,6 +341,24 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 	return d
 }
 
+// keepTitle stops a dialog's message area from scrolling to the focused entry:
+// the area (heading, then the extra child) is a GtkScrolledWindow whose
+// viewport scrolls to its focus child, so in a short window focusing the
+// entry scrolled the title out of view (Dev 5, 630x372). The entry keeps
+// the focus; the area starts at its top, and a short window scrolls it by
+// hand. Found from box (the extra child) once it is in the dialog.
+func keepTitle(box *gtk.Box) {
+	box.ConnectRealize(func() {
+		// The nearest viewport above the extra child, inside the dialog.
+		for p, n := box.Parent(), 0; p != nil && n < 8; p, n = gtk.BaseWidget(p).Parent(), n+1 {
+			if vp, ok := p.(*gtk.Viewport); ok {
+				vp.SetScrollToFocus(false)
+				return
+			}
+		}
+	})
+}
+
 // PolkitTitle is the title of polkit's password dialog (its agent asks for
 // archmaid's root helper), as the P8 spec has it.
 const PolkitTitle = "Authorise archmaid's Root Steps"
@@ -253,11 +370,12 @@ const PolkitTitle = "Authorise archmaid's Root Steps"
 func passwordText(p engine.NeedsPassword) (heading, caller, body string) {
 	switch {
 	case p.Kind == engine.PasswordAskpass && p.Polkit:
+		// The action id verbatim, on the caller line. polkit's own prompt
+		// (PAM's "Password:") isn't shown: the entry says it.
 		heading = PolkitTitle
 		caller = "Asked by polkit for archmaid's root helper."
-		body = "Action: " + p.Action
-		if p.Prompt != "" {
-			body += "\n" + sanitize.Clip(sanitize.OneLine(p.Prompt), askpassPromptMax)
+		if p.Action != "" {
+			caller = "Asked by polkit for " + sanitize.OneLine(p.Action) + "."
 		}
 	case p.Kind == engine.PasswordAskpass:
 		heading = "sudo Asks for Your Password"

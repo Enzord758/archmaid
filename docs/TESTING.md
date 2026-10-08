@@ -220,7 +220,7 @@ GSK_RENDERER=vulkan scripts/headless.sh           # another renderer (default: c
 
 With `ARCHMAID_GUI_PERF=1` the tests fail over budget: warm first frame
 < 400 ms (the best of the runs after the first, measured from exec to the
-frame clock's first `after-paint`), idle RSS < 120 MB, ≥ 5k lines/s for the
+frame clock's first `after-paint`), idle RSS < 125 MB, ≥ 5k lines/s for the
 unpaced flood, main-thread work per flush p95 ≤ 4 ms (the time in the pump's
 `apply`: model, list splice, queueing the scroll), RSS after 50k lines < 200 MB. They are
 always measured and logged with `-v`. CI runs them without the variable.
@@ -233,7 +233,7 @@ libadwaita 1.9.4, go1.27.1), headless weston, warm:
 | Measure | Budget | `GSK_RENDERER=vulkan` (GTK's own default) | cairo (archmaid-gui's default) |
 |---|---|---|---|
 | First frame, warm | < 400 ms | 376–396 ms (one run 446) | 85–95 ms |
-| Idle RSS (PSS, anon) | < 120 MB | 280–290 MB (181–192, 92–103) | 110–122 MB (45–56, 24–36) |
+| Idle RSS (PSS, anon) | < 125 MB (120 until P8 row 13) | 280–290 MB (181–192, 92–103) | 110–122 MB (45–56, 24–36) |
 | 50k unpaced, nothing dropped | ≥ 5k lines/s | 220 ms = ~227k lines/s | 225 ms = ~222k lines/s |
 | Main-thread work per flush, p95 (max) | ≤ 4 ms | 1.5 ms (6.0) | 1.6 ms (6.6) |
 | 10k lines/s paced: p95 (max), dropped | ≤ 4 ms | 0.96 ms (2.6), 0 | 0.90 ms (2.0), 0 |

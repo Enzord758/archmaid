@@ -260,7 +260,7 @@ func Run(args []string, opts Options) int {
 //
 // Why cairo: with the GPU renderers NVIDIA's userspace driver is mapped
 // into the process, which puts the idle RSS at ~280–390 MB against a
-// 120 MB budget and the first frame at ~375–450 ms; with cairo it is
+// 125 MB budget and the first frame at ~375–450 ms; with cairo it is
 // ~110–120 MB and ~85 ms, and the 50k-line flood stays within its budgets
 // (docs/TESTING.md → GUI measurements). The window is lists and text,
 // which cairo draws as fast.

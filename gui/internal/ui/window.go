@@ -61,6 +61,9 @@ type Window struct {
 	// last put on the clipboard (the harness reads it).
 	dry    bool
 	copied string
+	// drvDry: the current Driver is a dry run (the Settings switch, or Dry
+	// run first); its confirms say so up front.
+	drvDry bool
 	// follow: keep the newest line in view. Scrolling up stops it;
 	// reaching the bottom again restarts it.
 	follow bool
@@ -168,6 +171,7 @@ func (w *Window) newDriver(dry bool) {
 	if dry {
 		s.DryRun = true
 	}
+	w.drvDry = s.DryRun
 	w.drv = w.opts.NewDriver(s.Apply(w.opts.Engine))
 	po := w.opts.Pump
 	po.Ended = func() {
@@ -292,7 +296,17 @@ func pumpDone(p *runview.Pump) bool {
 
 func (w *Window) toast(msg string) {
 	w.toasted = append(w.toasted, msg)
-	w.toasts.AddToast(adw.NewToast(msg))
+	w.toasts.AddToast(plainToast(msg))
+}
+
+// plainToast is a toast showing msg as plain text. AdwToast parses its
+// title as markup by default, and a toast's message can carry an error's
+// text or a path: a "<" or "&" in it would garble the toast or fake markup.
+func plainToast(msg string) *adw.Toast {
+	t := adw.NewToast("")
+	t.SetUseMarkup(false)
+	t.SetTitle(msg)
+	return t
 }
 
 // apply is the pump's flush: fold the batch into the model and redraw

@@ -626,7 +626,7 @@ func (w *Window) updateRunHeader() {
 	if !m.Started.IsZero() && len(m.Rows) > 0 {
 		meta = "Started " + m.Started.Local().Format("15:04:05")
 		if m.DryRun {
-			meta += " · DRY RUN · NOTHING ON THE SYSTEM CHANGES"
+			meta += " · " + dryBannerText
 		}
 	}
 	tl.meta.SetText(meta)
