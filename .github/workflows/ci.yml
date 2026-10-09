@@ -19,7 +19,8 @@ env:
 jobs:
   core:
     runs-on: ubuntu-latest
-    container: archlinux:latest
+    # Docker official image via AWS ECR Public, not Docker Hub (anonymous pull rate limit).
+    container: public.ecr.aws/docker/library/archlinux:latest
     steps:
       - name: Install toolchain
         # gcc: -race needs cgo. diffutils: scripts/state-guard.sh compares
@@ -132,7 +133,8 @@ jobs:
   # cache is keyed on gui/go.sum and kept.
   gui:
     runs-on: ubuntu-latest
-    container: archlinux:latest
+    # Docker official image via AWS ECR Public, not Docker Hub (anonymous pull rate limit).
+    container: public.ecr.aws/docker/library/archlinux:latest
     timeout-minutes: 40
     steps:
       - name: Install toolchain, GTK and weston

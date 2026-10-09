@@ -317,10 +317,10 @@ the same ref cancels the older run. Paths are in the workflow's `env:` block.
 
 | Job | Where | Runs |
 |---|---|---|
-| `core` | `archlinux:latest` container (some discovery tests expect Arch tooling) | `make all`: the gate (TUI and helper). Go build and module caches keyed on `go.sum` and the Go version. |
+| `core` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) (some discovery tests expect Arch tooling) | `make all`: the gate (TUI and helper). Go build and module caches keyed on `go.sum` and the Go version. |
 | `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `cmd/archmaid/e2e/*.txt` as an artifact on failure. A tape whose VHS browser never started ("could not start browser", a runner flake) runs once more (`e2e/browser-retry.sh`, proved on a stub vhs by `browser-retry-selftest.sh` at the start of every run); any other failure fails at once. |
 | `bench` | `ubuntu-latest` + setup-go, full history | `scripts/bench-compare.sh <base>` on the one runner: the PR's merge-base (or a push's previous SHA) against HEAD, benchstat-compared; fails on a significant slowdown (see "Bench compare"); uploads `benchstat` (old/new results, report) as an artifact, always. About 1–2 minutes. |
-| `gui` | `archlinux:latest` container + gtk4, libadwaita, weston, dbus, a font | `make gui-test` as an unprivileged user with `GSK_RENDERER=cairo` (no GPU): build, vet, the plain-Go tests, the display tests in headless weston; budgets not enforced. Build and module caches keyed on `gui/go.sum` + `go.sum` and the Go version (a cold gotk4 build is ~7 min on 16 threads, more on a runner). |
+| `gui` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) + gtk4, libadwaita, weston, dbus, a font | `make gui-test` as an unprivileged user with `GSK_RENDERER=cairo` (no GPU): build, vet, the plain-Go tests, the display tests in headless weston; budgets not enforced. Build and module caches keyed on `gui/go.sum` + `go.sum` and the Go version (a cold gotk4 build is ~7 min on 16 threads, more on a runner). |
 
 Stays manual (not in CI): a real Full Cleanup, sudo/faillock behaviour, the
 polkit live test on a scratch user, sudo without a tty, and askpass against real
