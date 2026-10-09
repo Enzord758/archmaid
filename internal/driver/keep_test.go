@@ -53,12 +53,15 @@ type keepRig struct {
 	pid   int
 	start uint64
 	file  string // the step exits once it exists: 0 if it holds "ok"
+	// capped: Deps.KeepFor is short, so the kept password may be gone
+	// (wiped at the cap) by the time capture looks.
+	capped bool
 }
 
 func newKeepRig(t *testing.T, deps Deps) *keepRig {
 	t.Helper()
 	suShim(t)
-	k := &keepRig{reqs: make(chan *privilege.Request), file: filepath.Join(t.TempDir(), "end")}
+	k := &keepRig{reqs: make(chan *privilege.Request), file: filepath.Join(t.TempDir(), "end"), capped: deps.KeepFor > 0}
 	deps.Askpass, deps.KeepPassword, deps.Detach = k.reqs, true, true
 	st := shStep("sudo-step", "echo $$; while [ ! -f "+k.file+" ]; do sleep 0.02; done; [ \"$(cat "+k.file+")\" = ok ]")
 	st.NeedsPriv = true
@@ -163,7 +166,13 @@ func (k *keepRig) noPrompt(what string) {
 	}
 }
 
-// capture answers the first request as the user, which keeps it.
+// capture answers the first request as the user, which keeps it, and
+// returns once the Session has closed that request (AuthResolved). Not
+// before: the answer reaches sudo, and is kept, on a worker that only then
+// posts AskpassAnswered, and until the Session has taken that, its request
+// is still open and it hangs up any other one ("a second sudo password
+// request while one is open"), so a test's next request to the Session
+// would get no prompt.
 func (k *keepRig) capture() {
 	k.t.Helper()
 	first := k.ask(helperPid)
@@ -172,11 +181,23 @@ func (k *keepRig) capture() {
 	if line := got(k.t, first); line != "good\n" {
 		k.t.Fatalf("the first sudo got %q", line)
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	for !k.d.keep.Has() && time.Now().Before(deadline) {
-		time.Sleep(5 * time.Millisecond)
+	for {
+		ev, ok := k.next()
+		if !ok {
+			k.t.Fatal("events ended before the first request was resolved")
+		}
+		if r, isRes := ev.(engine.AuthResolved); isRes {
+			if !r.Granted {
+				k.t.Fatalf("the first request resolved as %+v", r)
+			}
+			break
+		}
+		if p, isPrompt := ev.(engine.NeedsPassword); isPrompt {
+			k.t.Fatalf("asked again after the right password: %+v", p)
+		}
 	}
-	if !k.d.keep.Has() {
+	// The worker kept it before it posted AskpassAnswered.
+	if !k.d.keep.Has() && !(k.capped && k.d.keep.Wiped()) {
 		k.t.Fatal("the user's password wasn't kept")
 	}
 }
