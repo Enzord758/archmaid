@@ -133,7 +133,8 @@ Actions start from their Overview row against the stub's `Catalog`
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
 "Skip"/"Cancel"), `usercache-no` (a required step's confirm declined: the
 step skipped, outcome aborted), `repair` (the menu as shown, a discovery
-ending in a notice, the empty last run), `logs` (a scratch state dir with a
+ending in a notice — shown as the toast and on the status line —, the
+empty last run), `logs` (a scratch state dir with a
 20-day-old failed last-run.json and two runs' logs: the Overview's stale
 warning, View log's run rows, one log opened; the state dir must be
 unchanged after), `settings` (a scratch `XDG_CONFIG_HOME`: the home folder typed as the downloads folder is refused inline, a folder and dry run are kept in `archmaid/gui.json` at 0600, the next Start gets a fresh Driver made with them, both Drivers closed; a second app start begins with them), `stop` (Stop during topgrade → `Aborted`, outcome aborted),
@@ -193,7 +194,12 @@ topgrade shim's pid is gone and goleak is clean), `real-runs` (one window,
 each time, in a scratch state dir with a clock stepping a minute per
 Driver: a fresh Driver per Start, one run directory per real run, the
 oldest rotated out, the dry run in `dryrun/`, `last-run.json` in the
-root). The plain-Go `gui/internal/realdriver` tests cover the relay,
+root), and `real-services`, `real-services-none`, `real-services-error`
+(`TestGUIRealServices`: Disable unused services from its Overview cell,
+with a `systemctl` shim first on PATH: the fixture machine's
+enabled-but-inactive units as the pick list shown, the two ticked disabled
+by one `disable-unit` helper call; nothing found, and a `list-units` that
+fails, each said in the toast and on the status line, nothing run). The plain-Go `gui/internal/realdriver` tests cover the relay,
 `Options.Validate`, a dry Full Cleanup on the real Driver without a
 display, the per-run directories and rotation (`TestRunDirs`, a topgrade
 shim first on PATH), and the audit prefetch with a blocking fake

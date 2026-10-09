@@ -34,3 +34,17 @@ func FinishedText(f engine.Finished) (status, toast string) {
 	}
 	return "Finished", "Run finished" // a notice or a report: the run's end is what it showed
 }
+
+// EndToast is the toast for the action that ended with f. One that ended
+// in a notice is told by the notice itself (what its discovery found, or
+// why it couldn't look: "No enabled-but-inactive services found."), as the
+// TUI's notice popup tells it; the notice is often all the action shows,
+// since it ends before any queue and the Run page keeps the last run. Any
+// other end is FinishedText's toast.
+func (m *Model) EndToast(f engine.Finished) string {
+	if f.Outcome == engine.OutcomeNotice && m.Notice != "" {
+		return m.Notice
+	}
+	_, toast := FinishedText(f)
+	return toast
+}

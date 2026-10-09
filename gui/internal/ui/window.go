@@ -250,6 +250,7 @@ func (w *Window) start(id string, dry bool) {
 	w.queued, w.lastFinished, w.ended = false, w.model.Finished, nil
 	w.pagePrev = len(w.model.Rows) > 0
 	w.current, w.dry, w.model.Stopped, w.agentNotice = id, dry, "", ""
+	w.model.Notice = "" // the last action's; this one's comes with its end
 	w.updateRunHeader()
 	w.setBusy(true)
 	w.stack.SetVisibleChildName("run")
@@ -381,8 +382,7 @@ func (w *Window) redraw(c runview.Change) {
 		w.setBusy(false)
 		w.refreshLastRun()
 		if f != nil {
-			_, toast := runview.FinishedText(*f)
-			w.toast(toast)
+			w.toast(w.model.EndToast(*f))
 		}
 	}
 	if c.Reset || len(c.Rows) > 0 || c.Status || c.Finished {
@@ -416,6 +416,12 @@ func (w *Window) statusText() string {
 	switch {
 	case m.Stopped != "":
 		parts = append(parts, m.Stopped)
+	case m.Notice != "" && !m.Running:
+		// The action ended in a notice (what it found, or why it couldn't
+		// look). A discovery's ends it before any queue, so the page and
+		// m.Finished are still the last run's: the notice is what this
+		// action said, and it stays until the next one starts.
+		parts = append(parts, m.Notice)
 	case m.Finished != nil:
 		status, _ := runview.FinishedText(*m.Finished)
 		parts = append(parts, status)

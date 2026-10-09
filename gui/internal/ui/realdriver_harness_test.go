@@ -199,11 +199,18 @@ func pkexecWaiting() bool {
 // -Sc does, unless it is given --aur (yay's AUR mode runs no pacman); pkexecWait has pkexec write its pid and then wait without a
 // start line, as pkexec does while its polkit dialog is up, until it is
 // killed.
+//
+// systemctl, when set, writes a systemctl shim that logs its argv to
+// systemctl.log: "units" answers list-units and is-enabled from
+// internal/actions/testdata (a machine with enabled-but-inactive
+// services), "none" lists nothing, "fail" fails as systemctl does
+// without its bus. Unset, a systemctl call reaches testenv's trap.
 type shimOpts struct {
 	refuse     []string
 	topgrade   string
 	yay        string
 	pkexecWait bool
+	systemctl  string
 }
 
 // installShims writes the shims into a fresh dir and returns it, with the
@@ -315,7 +322,11 @@ fi
 		yay += "case \" $* \" in *' --aur '*) ;; *) sudo pacman -Sc || exit 1 ;; esac\n"
 	}
 	yay += "echo 'yay shim: cache cleaned'\n"
-	for name, body := range map[string]string{"pkexec": pkexec, "sudo": sudo, "su": su, "topgrade": topgrade, "yay": yay, "pkttyagent": agenttest.Shim} {
+	shims := map[string]string{"pkexec": pkexec, "sudo": sudo, "su": su, "topgrade": topgrade, "yay": yay, "pkttyagent": agenttest.Shim}
+	if o.systemctl != "" {
+		shims["systemctl"] = systemctlShim(t, o.systemctl, q(dir+"/systemctl.log"))
+	}
+	for name, body := range shims {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -329,6 +340,43 @@ fi
 	}
 	return dir, []string{envShims + "=" + dir, "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"AGENT_DIR=" + dir, "AGENT_USER=" + me.Username, "AGENT_WANT=" + shimPw}
+}
+
+// systemctlShim is the systemctl shim for shimOpts.systemctl (kind),
+// logging its argv to log (shell-quoted).
+func systemctlShim(t *testing.T, kind, log string) string {
+	t.Helper()
+	sh := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + log + "\n"
+	switch kind {
+	case "none":
+		return sh + "exit 0\n"
+	case "fail":
+		return sh + "echo 'Failed to connect to bus: No such file or directory' >&2\nexit 1\n"
+	case "units":
+	default:
+		t.Fatalf("systemctl shim %q", kind)
+	}
+	fix, err := filepath.Abs("../../../internal/actions/testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	units, files := filepath.Join(fix, "systemctl_list_units.txt"), filepath.Join(fix, "systemctl_list_unit_files.txt")
+	// is-enabled prints one state per unit with a unit file, an error on
+	// stderr (and no line) for one without, and exits 1 unless every unit
+	// is enabled: real systemctl's shape, which takes the discovery's
+	// per-unit fallback.
+	return sh + `case "$1" in
+list-units) cat '` + units + `' ;;
+is-enabled)
+	shift; [ "$1" = -- ] && shift
+	for u; do
+		awk -v u="$u" '$1==u {print $2; f=1} END {exit !f}' '` + files + `' ||
+			echo "Failed to get unit file state for $u: No such file or directory" >&2
+	done
+	exit 1 ;;
+*) exit 1 ;;
+esac
+`
 }
 
 func readLines(t *testing.T, path string) []string {
@@ -925,6 +973,71 @@ func TestGUIOnePassword(t *testing.T) {
 			t.Errorf("an agent was answered: %q", g)
 		}
 	})
+}
+
+// TestGUIRealServices: "Disable unused services" from its Overview cell on
+// the real Driver, its discovery run against a systemctl shim. The owner
+// clicked it and saw nothing: the discovery ended in a notice, which the
+// window never showed (the Run page kept the last run and the toast said
+// only "Run finished").
+//
+//   - services: enabled-but-inactive units are the pick list, as shown;
+//     the two ticked are disabled through the helper's one disable-unit
+//     call, and systemctl itself is only asked to list;
+//   - services-none: nothing found is said, in a toast and on the status
+//     line, and nothing runs;
+//   - services-error: a systemctl that can't list the units is said with
+//     its error, the same way, never as "nothing found".
+func TestGUIRealServices(t *testing.T) {
+	needDisplay(t)
+
+	t.Run("found", func(t *testing.T) {
+		dir, env := installShims(t, shimOpts{systemctl: "units"})
+		rep, _ := child(t, "real-services", append(env, "ARCHMAID_GUI_STATE="+t.TempDir())...)
+		want := "Enabled but not running — select services to disable\n" +
+			"avahi-daemon.service\nbluetooth.service\ncups.service\ndocker.service\n4 boxes"
+		if !slices.Equal(rep.Picks, []string{want}) {
+			t.Errorf("pick lists shown %q, want %q", rep.Picks, want)
+		}
+		if rep.Page != "run" || rep.Outcome != "completed" || len(rep.Sent) == 0 || rep.Sent[0] != "select 1 [avahi-daemon.service bluetooth.service]" ||
+			!slices.Equal(rep.Rows, []string{steps.IDDisableUnits + "=ok"}) {
+			t.Errorf("page %q outcome %q sent %q rows %q", rep.Page, rep.Outcome, rep.Sent, rep.Rows)
+		}
+		calls := readLines(t, filepath.Join(dir, "pkexec.log"))
+		if len(calls) != 1 || !strings.HasSuffix(calls[0], " "+steps.VerbDisableUnit+" avahi-daemon.service bluetooth.service") {
+			t.Errorf("pkexec ran %q, want one disable-unit call for the two picked", calls)
+		}
+		for _, c := range readLines(t, filepath.Join(dir, "systemctl.log")) {
+			if !strings.HasPrefix(c, "list-units ") && !strings.HasPrefix(c, "is-enabled ") {
+				t.Errorf("systemctl ran %q: the discovery only lists", c)
+			}
+		}
+	})
+
+	for _, tc := range []struct{ name, systemctl, scenario, says string }{
+		{"none", "none", "real-services-none", "No enabled-but-inactive services found."},
+		{"error", "fail", "real-services-error", "Couldn't list services: Failed to connect to bus: No such file or directory"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, env := installShims(t, shimOpts{systemctl: tc.systemctl})
+			rep, _ := child(t, tc.scenario, append(env, "ARCHMAID_GUI_STATE="+t.TempDir())...)
+			if rep.Page != "run" || rep.Outcome != "notice" || rep.Picks != nil || rep.Rows != nil {
+				t.Errorf("page %q outcome %q picks %q rows %q", rep.Page, rep.Outcome, rep.Picks, rep.Rows)
+			}
+			if !slices.ContainsFunc(rep.Toasts, func(s string) bool { return strings.HasPrefix(s, tc.says) }) {
+				t.Errorf("toasts %q: the discovery's result %q isn't shown", rep.Toasts, tc.says)
+			}
+			if !strings.HasPrefix(rep.EndStatus, tc.says) {
+				t.Errorf("status line %q, want it to start with %q", rep.EndStatus, tc.says)
+			}
+			if l := readLines(t, filepath.Join(dir, "pkexec.log")); l != nil {
+				t.Errorf("pkexec ran %q", l)
+			}
+			if l := readLines(t, filepath.Join(dir, "systemctl.log")); len(l) == 0 || !strings.HasPrefix(l[0], "list-units ") {
+				t.Errorf("systemctl ran %q, want the listing first", l)
+			}
+		})
+	}
 }
 
 // TestGUISmallWindow: in a window of 630x372 (half a 1280x800 screen,

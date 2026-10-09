@@ -29,7 +29,7 @@ limit="${HEADLESS_TIMEOUT:-60}"
 # the Logs and Settings pages, the rest.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
-	real='^TestGUI(RealDriver|StopAndQuit|OnePassword)$'
+	real='^TestGUI(RealDriver|StopAndQuit|OnePassword|RealServices)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow|ToastPlain|NarrowNav)$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:

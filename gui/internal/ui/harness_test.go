@@ -168,6 +168,8 @@ type report struct {
 	Shell string
 	// Confirms is each confirm dialog's text as shown (dialogLabels).
 	Confirms []string
+	// Picks is each pick list as shown: heading, rows, the boxes' count.
+	Picks []string
 	// Caller and Focus: small-askpass's and small-polkit's password dialog
 	// at 630x372: the caller label as shown (callerGeometry), and whether
 	// the password entry has the focus.
@@ -351,6 +353,8 @@ func runChild(scenario, path string) int {
 		action = stub.IDFullCleanupAskpass
 	case "real-askpass-cancel":
 		action, cancelPassword = actions.IDTopgrade, true
+	case "real-services", "real-services-none", "real-services-error": // the services discovery on a systemctl shim
+		action = actions.IDServices
 	case "real-failed": // topgrade fails; its step's Copy error, Open log, then Run again
 		action = actions.IDTopgrade
 	case "real-failed-decline": // Full Cleanup whose topgrade fails, then Run topgrade again with its gate declined
@@ -579,6 +583,9 @@ func runChild(scenario, path string) int {
 							resp = "cancel"
 						}
 					case p.Selection != nil:
+						// The pick list as shown: its heading, its rows
+						// and how many boxes there are to tick.
+						rep.Picks = append(rep.Picks, fmt.Sprintf("%s\n%s\n%d boxes", d.Heading(), dialogLabels(d, nil), len(w.checks)))
 						w.checks[0].SetActive(true)
 						w.checks[1].SetActive(true)
 						resp = "ok"
@@ -1337,6 +1344,10 @@ func TestGUIOverviewStarts(t *testing.T) {
 	}
 	if rep.Page != "run" || rep.Outcome != "notice" || rep.Notice != "No broken packages found." {
 		t.Errorf("page %q outcome %q notice %q", rep.Page, rep.Outcome, rep.Notice)
+	}
+	// The notice is shown: in the toast and on the status line.
+	if !slices.Contains(rep.Toasts, "No broken packages found.") || !strings.HasPrefix(rep.EndStatus, "STUB · No broken packages found.") {
+		t.Errorf("toasts %q status %q: the notice isn't shown", rep.Toasts, rep.EndStatus)
 	}
 	if rep.MenuSub == "" {
 		t.Errorf("the started row says nothing while it runs")

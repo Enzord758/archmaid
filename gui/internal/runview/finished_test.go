@@ -30,3 +30,27 @@ func TestFinishedText(t *testing.T) {
 		}
 	}
 }
+
+// TestEndToast: an action that ended in a notice is told by what the
+// notice says (the services discovery's "No enabled-but-inactive services
+// found.", or why it couldn't look), never by a bare "Run finished"; any
+// other end is FinishedText's toast, a stale notice notwithstanding.
+func TestEndToast(t *testing.T) {
+	m := NewModel()
+	none := "No enabled-but-inactive services found."
+	m.Apply([]engine.Event{
+		engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Finding unused services…"},
+		engine.Notice{Text: none},
+		engine.Finished{Action: "services", Outcome: engine.OutcomeNotice},
+		engine.PhaseChanged{Phase: engine.PhaseIdle},
+	})
+	if got := m.EndToast(*m.Finished); got != none {
+		t.Errorf("notice: toast %q, want %q", got, none)
+	}
+	if got := m.EndToast(engine.Finished{Outcome: engine.OutcomeCancelled}); got != "Run cancelled, nothing ran" {
+		t.Errorf("cancelled after a notice: toast %q", got)
+	}
+	if got := NewModel().EndToast(engine.Finished{Outcome: engine.OutcomeNotice}); got != "Run finished" {
+		t.Errorf("a notice without text: toast %q", got)
+	}
+}
