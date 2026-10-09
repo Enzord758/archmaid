@@ -63,25 +63,32 @@ type AgentPrompt interface {
 // asker is an open request the Session may answer: sudo's (askpass) or
 // polkit's agent's.
 type asker interface {
-	answer(ctx context.Context, pw string) (detail string, err error)
+	// answer su-checks pw and hands it on. accepted runs once su has
+	// accepted it and before it goes out, so whatever the answer sets off
+	// (sudo's command, polkit's verdict and the next helper step's prompt)
+	// comes after it.
+	answer(ctx context.Context, pw string, accepted func()) (detail string, err error)
 	cancel()
 }
 
 type sudoAsk struct{ r *privilege.Request }
 
-func (a sudoAsk) answer(_ context.Context, pw string) (string, error) { return a.r.Answer(pw) }
-func (a sudoAsk) cancel()                                             { a.r.Cancel() }
+func (a sudoAsk) answer(_ context.Context, pw string, accepted func()) (string, error) {
+	return a.r.AnswerThen(pw, accepted)
+}
+func (a sudoAsk) cancel() { a.r.Cancel() }
 
 type agentAsk struct{ p AgentPrompt }
 
 // answer su-checks pw before it reaches polkit (whose PAM stack counts a
 // wrong password against pam_faillock; su's doesn't), then writes it.
-func (a agentAsk) answer(ctx context.Context, pw string) (string, error) {
+func (a agentAsk) answer(ctx context.Context, pw string, accepted func()) (string, error) {
 	b := []byte(pw)
 	defer clear(b)
 	if detail, err := privilege.CheckPasswordBytes(ctx, b); err != nil {
 		return detail, err
 	}
+	accepted()
 	return "", a.p.Answer(b)
 }
 func (a agentAsk) cancel() { a.p.Cancel() }
@@ -205,18 +212,36 @@ func (d *Driver) watchAgent(p AgentPrompt) {
 	})
 }
 
-// keepAnswer keeps a password the user gave that su accepted and that was
-// handed on, for the run's later prompts (the first one only).
-func (d *Driver) keepAnswer(a asker, pw string) {
+// answerUser answers the Session's open request a with the user's pw (the
+// AnswerAskpass effect, on a worker). A password su accepts is kept for
+// the run's later prompts (the first one only) before it goes out, not
+// after: what the answer sets off may ask again at once (polkit grants
+// the helper step, the next one's agent prompt comes in), and that prompt
+// must find it kept, or it goes to the user, who has already answered.
+// One kept that then can't be handed on (the agent went away) is dropped.
+func (d *Driver) answerUser(a asker, pw string) (detail string, err error) {
+	kept := false
+	detail, err = a.answer(d.root, pw, func() { kept = d.keepAnswer(pw) })
+	switch {
+	case err != nil && kept:
+		d.keep.Fail()
+	case err == nil && d.cfg.KeepPassword:
+		if ag, ok := a.(agentAsk); ok {
+			d.watchAgent(ag.p) // polkit's verdict on it
+		}
+	}
+	return detail, err
+}
+
+// keepAnswer keeps a password the user gave that su accepted; true when
+// it is now the kept one.
+func (d *Driver) keepAnswer(pw string) bool {
 	if !d.cfg.KeepPassword {
-		return
+		return false
 	}
 	b := []byte(pw)
-	d.keep.Keep(b)
-	clear(b)
-	if ag, ok := a.(agentAsk); ok {
-		d.watchAgent(ag.p)
-	}
+	defer clear(b)
+	return d.keep.Keep(b)
 }
 
 // requesterOf names a verified caller as the TUI's askpass popup does:

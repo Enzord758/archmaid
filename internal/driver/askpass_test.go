@@ -44,6 +44,16 @@ func newAskpassClient(t *testing.T, prompt string, peer privilege.Peer) *askpass
 	return c
 }
 
+// sendReq hands r to the Driver's askpass reader, or fails after 5 s.
+func sendReq(t *testing.T, reqs chan<- *privilege.Request, r *privilege.Request) {
+	t.Helper()
+	select {
+	case reqs <- r:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Driver took no askpass request")
+	}
+}
+
 // suShim puts an su first on PATH that takes "good" only.
 func suShim(t *testing.T) {
 	dir := t.TempDir()
@@ -88,7 +98,7 @@ func TestAskpass(t *testing.T) {
 		return proc.Info{}, errors.New("no such process")
 	})
 	good := newAskpassClient(t, "[sudo] password for me:", privilege.Peer{Pid: helperPid, UID: ourUID, Start: child.Start + 20})
-	reqs <- good.req
+	sendReq(t, reqs, good.req)
 
 	awaitPassword := func() engine.NeedsPassword {
 		for {
@@ -126,14 +136,14 @@ func TestAskpass(t *testing.T) {
 
 	// A peer that isn't ours: hung up on, and said so in the output.
 	bad := newAskpassClient(t, "[sudo] password:", privilege.Peer{Pid: helperPid, UID: ourUID + 1, Start: child.Start + 20})
-	reqs <- bad.req
+	sendReq(t, reqs, bad.req)
 	for {
 		ev, _ := r.next()
 		if c, ok := ev.(engine.OutputChunk); ok && strings.Contains(strings.Join(c.Lines, "\n"), "refused a sudo password request") {
 			break
 		}
 	}
-	if line := <-bad.got; line != "" {
+	if line := got(t, bad); line != "" {
 		t.Fatalf("a refused peer got %q", line)
 	}
 	r.d.Send(engine.Abort{})
@@ -149,15 +159,15 @@ func TestAskpass(t *testing.T) {
 	if !gone(pid, 5*time.Second) {
 		t.Fatal("the aborted child was not reaped")
 	}
-	reqs <- idle.req
-	if line := <-idle.got; line != "" {
+	sendReq(t, reqs, idle.req)
+	if line := got(t, idle); line != "" {
 		t.Fatalf("a request with nothing running got %q", line)
 	}
 	// One left unanswered at Close is hung up on by Close.
 	last := newAskpassClient(t, "[sudo] password:", privilege.Peer{Pid: helperPid, UID: ourUID, Start: child.Start + 20})
-	reqs <- last.req
+	sendReq(t, reqs, last.req)
 	r.d.Close()
-	if line := <-last.got; line != "" {
+	if line := got(t, last); line != "" {
 		t.Fatalf("a request open at Close got %q", line)
 	}
 }

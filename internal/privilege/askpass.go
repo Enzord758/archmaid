@@ -296,6 +296,14 @@ func (r *Request) Verify(stepPid int, stepStart uint64) (Requester, error) {
 // A request that Verify hasn't passed is refused first (ErrUnverified):
 // nothing is written, su doesn't run, and the request stays open (Cancel it).
 func (r *Request) Answer(pw string) (detail string, err error) {
+	return r.AnswerThen(pw, nil)
+}
+
+// AnswerThen is Answer that runs accepted (when not nil) once su has
+// accepted pw, before anything is written: what the caller does with a
+// password known to be right (the GUI's Driver keeps it for the run) is
+// done before sudo, or anything it then runs, can act on the answer.
+func (r *Request) AnswerThen(pw string, accepted func()) (detail string, err error) {
 	if !r.verified.Load() {
 		return "", ErrUnverified
 	}
@@ -304,6 +312,9 @@ func (r *Request) Answer(pw string) (detail string, err error) {
 	}
 	if detail, err := CheckPassword(context.Background(), pw); err != nil {
 		return detail, err
+	}
+	if accepted != nil {
+		accepted()
 	}
 	// A write that fails means the helper (and so its sudo) is gone; that
 	// sudo's step reports the failure, so the answer itself still counts.

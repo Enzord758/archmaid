@@ -3,6 +3,8 @@ package driver
 import (
 	"context"
 	"errors"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -117,7 +119,7 @@ func newKeepRig(t *testing.T, deps Deps) *keepRig {
 func (k *keepRig) ask(pid int) *askpassClient {
 	k.t.Helper()
 	c := newAskpassClient(k.t, "[sudo] password for me:", privilege.Peer{Pid: pid, UID: ourUID, Start: k.start + 20})
-	k.reqs <- c.req
+	sendReq(k.t, k.reqs, c.req)
 	return c
 }
 
@@ -265,7 +267,7 @@ func TestKeepNotForeignRequests(t *testing.T) {
 	k := newKeepRig(t, Deps{})
 	k.capture()
 	bad := newAskpassClient(t, "[sudo] password:", privilege.Peer{Pid: helperPid2, UID: ourUID + 1, Start: k.start + 20})
-	k.reqs <- bad.req
+	sendReq(t, k.reqs, bad.req)
 	if line := got(t, bad); line != "" {
 		t.Fatalf("a foreign uid got %q", line)
 	}
@@ -278,6 +280,45 @@ func TestKeepNotForeignRequests(t *testing.T) {
 	if !k.d.keep.Has() {
 		t.Fatal("a foreign request dropped the kept password")
 	}
+}
+
+// The user's password is kept once su has accepted it, before sudo has it:
+// a sudo of the run that asks while the first answer is still going out
+// (here sudo has read the password but not its line end yet) is answered
+// from it, not hung up as a second request to the Session.
+func TestKeepBeforeSudoHasIt(t *testing.T) {
+	k := newKeepRig(t, Deps{})
+	server, client := net.Pipe()
+	t.Cleanup(func() { server.Close(); client.Close() })
+	sendReq(t, k.reqs, privtest.NewRequest(server, "[sudo] password for me:", privilege.Peer{Pid: helperPid, UID: ourUID, Start: k.start + 20}))
+	p := k.prompt()
+	k.d.Send(engine.SubmitPassword{Prompt: p.ID, Password: "good"})
+	_ = client.SetDeadline(time.Now().Add(10 * time.Second))
+	read := func(n int) string {
+		t.Helper()
+		b := make([]byte, n)
+		if _, err := io.ReadFull(client, b); err != nil {
+			t.Fatalf("the first sudo's side: %v", err)
+		}
+		return string(b)
+	}
+	if line := read(len("verified\n")); line != "verified\n" {
+		t.Fatalf("handshake %q", line)
+	}
+	if _, err := io.WriteString(client, "ok\n"); err != nil {
+		t.Fatal(err)
+	}
+	if pw := read(len("good")); pw != "good" {
+		t.Fatalf("the first sudo got %q", pw)
+	}
+	second := k.ask(helperPid2) // the newline is still to come
+	if line := got(t, second); line != "good\n" {
+		t.Fatalf("a sudo asking while the first answer went out got %q, want the kept password", line)
+	}
+	if rest := read(1); rest != "\n" {
+		t.Fatalf("the first sudo's line ends in %q", rest)
+	}
+	k.noPrompt("a sudo asking while the first answer went out")
 }
 
 // A kept password su now refuses is never written: it is dropped and the
@@ -372,6 +413,17 @@ type fakePrompt struct {
 	once         sync.Once
 	cancelled    chan struct{}
 	cancelOnce   sync.Once
+	// then, if set, runs at the end of Answer, after polkit's verdict is
+	// out (done closed): what that verdict sets off can happen before
+	// Answer returns, as with the real agent.
+	then func()
+}
+
+// setThen sets p.then.
+func (p *fakePrompt) setThen(f func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.then = f
 }
 
 func newFakePrompt(action, want string) *fakePrompt {
@@ -386,8 +438,12 @@ func (p *fakePrompt) Answer(pw []byte) error {
 	if string(pw) != p.want {
 		p.err = errors.New("polkit: authentication failed")
 	}
+	then := p.then
 	p.mu.Unlock()
 	p.once.Do(func() { close(p.done) })
+	if then != nil {
+		then()
+	}
 	return nil
 }
 func (p *fakePrompt) Done() <-chan struct{} { return p.done }
@@ -410,8 +466,13 @@ func (p *fakePrompt) got() []string {
 func agentHelper(agent chan<- AgentPrompt, prompts chan<- *fakePrompt, want string) Helper {
 	return func(ctx context.Context, seq uint64, _ steps.Step, emit func(engine.Input)) helperclient.Outcome {
 		p := newFakePrompt("org.archmaid.helper.full-cleanup", want)
-		prompts <- p
-		agent <- p
+		prompts <- p // buffered: the tests make room for every helper step
+		select {
+		case agent <- p:
+		case <-ctx.Done():
+			emit(engine.StepExited{Seq: seq, NotGranted: true, Err: ctx.Err()})
+			return helperclient.Outcome{NotGranted: true}
+		}
 		select {
 		case <-p.done:
 			if p.Err() == nil {
@@ -427,10 +488,24 @@ func agentHelper(agent chan<- AgentPrompt, prompts chan<- *fakePrompt, want stri
 	}
 }
 
+// nextPrompt is the next helper step's polkit prompt, or fails after 10 s.
+func nextPrompt(t *testing.T, prompts <-chan *fakePrompt) *fakePrompt {
+	t.Helper()
+	select {
+	case p := <-prompts:
+		return p
+	case <-time.After(10 * time.Second):
+		t.Fatal("no helper step asked polkit within 10 s")
+		return nil
+	}
+}
+
 // polkit's agent: the run's first prompt goes to the user (su-checked,
 // then to the agent), and is kept; the next helper steps' prompts are
 // answered from it without asking. The password su refuses never reaches
-// polkit.
+// polkit. polkit's verdict on the first answer sets off the next helper
+// step, whose prompt may come in before that Answer has returned (here it
+// always does): the password is kept by then.
 func TestKeepAnswersPolkitsAgent(t *testing.T) {
 	suShim(t)
 	agent, prompts := make(chan AgentPrompt), make(chan *fakePrompt, 3)
@@ -445,14 +520,28 @@ func TestKeepAnswersPolkitsAgent(t *testing.T) {
 	if p.Kind != engine.PasswordAskpass || !p.Polkit || p.Action != "org.archmaid.helper.full-cleanup" {
 		t.Fatalf("NeedsPassword = %+v", p)
 	}
-	first := <-prompts
+	first := nextPrompt(t, prompts)
+	release := make(chan struct{})
+	first.setThen(func() { // the first Answer returns once the next prompt is over
+		select {
+		case <-release:
+		case <-time.After(5 * time.Second):
+		}
+	})
 	r.d.Send(engine.SubmitPassword{Prompt: p.ID, Password: "bad"}) // su refuses it
 	p = k.prompt()
 	if p.AttemptsLeft != 2 {
 		t.Fatalf("after a wrong password: %+v", p)
 	}
 	r.d.Send(engine.SubmitPassword{Prompt: p.ID, Password: "good"})
-	second, third := <-prompts, <-prompts
+	second := nextPrompt(t, prompts)
+	select {
+	case <-second.done:
+	case <-time.After(3 * time.Second):
+		t.Error("the next helper step's prompt wasn't answered from the kept password while the first answer was going out")
+	}
+	close(release)
+	third := nextPrompt(t, prompts)
 	for { // nothing more is asked
 		ev, _ := r.next()
 		if p, ok := ev.(engine.NeedsPassword); ok {
@@ -487,7 +576,11 @@ func TestKeepPolkitRefusesIt(t *testing.T) {
 	r := newRig(t, engine.Options{Auth: engine.AuthPolkit},
 		Deps{Polkit: true, Agent: agent, KeepPassword: true, Helper: agentHelper(agent, prompts, "other")}, action("pk", h))
 	idle := newFakePrompt("org.archmaid.helper.full-cleanup", "good")
-	agent <- idle
+	select {
+	case agent <- idle:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the Driver took no agent prompt")
+	}
 	select {
 	case <-idle.cancelled:
 	case <-time.After(5 * time.Second):
@@ -495,7 +588,7 @@ func TestKeepPolkitRefusesIt(t *testing.T) {
 	}
 	r.d.keep.Keep([]byte("good")) // as if an earlier prompt kept it
 	r.d.Send(engine.Start{Action: "pk"})
-	p := <-prompts
+	p := nextPrompt(t, prompts)
 	select {
 	case <-p.done:
 	case <-time.After(5 * time.Second):

@@ -543,6 +543,41 @@ func TestAskpassAnswerRightPassword(t *testing.T) {
 	requireSuOnly(t, dir, "secret")
 }
 
+// TestAskpassAnswerThen: accepted runs once su has accepted the password and
+// before anything (the handshake included) reaches the helper; never for a
+// password su refuses.
+func TestAskpassAnswerThen(t *testing.T) {
+	shimAuth(t, 0, 0, "")
+	req, helper := pipeRequest(t)
+	got := make(chan string, 1)
+	go func() {
+		pw, _ := ReadAnswer(helper, nil)
+		got <- pw
+	}()
+	ran := false
+	_, err := req.AnswerThen("secret", func() {
+		ran = true
+		select {
+		case pw := <-got:
+			t.Errorf("the helper had %q before accepted ran", pw)
+		default:
+		}
+	})
+	if err != nil || !ran {
+		t.Fatalf("AnswerThen = %v, accepted ran: %v", err, ran)
+	}
+	if pw := recv(t, got, "the password"); pw != "secret\n" {
+		t.Fatalf("helper received %q", pw)
+	}
+
+	shimAuth(t, 1, 0, "")
+	req, helper = pipeRequest(t)
+	if _, err := req.AnswerThen("wrong", func() { t.Error("accepted ran for a password su refused") }); err == nil {
+		t.Fatal("AnswerThen took a password su refused")
+	}
+	requireNothingWritten(t, helper)
+}
+
 // TestAskpassAnswerWrongPasswordNeverWritten: su rejects → nothing reaches the
 // helper, the connection stays open for another try, and su's lockout line
 // comes back as the detail.

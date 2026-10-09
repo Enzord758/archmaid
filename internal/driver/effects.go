@@ -71,10 +71,7 @@ func (d *Driver) effect(e engine.Effect) {
 		}
 		pw := string(e.Password)
 		d.work(func() engine.Input {
-			detail, err := a.answer(d.root, pw)
-			if err == nil {
-				d.keepAnswer(a, pw)
-			}
+			detail, err := d.answerUser(a, pw)
 			return engine.AskpassAnswered{Req: e.Req, OK: err == nil, Detail: detail}
 		})
 	case engine.HangUpAskpass:
