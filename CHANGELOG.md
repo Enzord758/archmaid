@@ -66,6 +66,7 @@ the commit that made the change; the range is `5585358..refactor/p0` (308 commit
 ### Changed
 
 - GUI: the six Overview action cells now light up in the accent colour on hover (a little stronger while pressed, and on keyboard focus), so they read as buttons; the last-run cell and the sidebar are unchanged.
+- Packaging: only the GUI shows in the app launcher. `archmaid.desktop` (the TUI) now has `NoDisplay=true`; the `archmaid` command still starts the TUI.
 - `archmaid --help` (or `-h`) now prints the usage and exits 0. Before, it started the full TUI. An unknown option or a stray argument now exits 2 with a message instead of being ignored (13eb21a).
 - History rotation now keeps 5 runs **including the current one**: you see 5 run folders, not 5 old ones plus the current one (6 before). The rotation happens when a real run writes its first log entry, not at every start (420733b, 13eb21a).
 - A dry run, `--help`, a bad option and a start that ends at the menu no longer delete anything from the run history (13eb21a).

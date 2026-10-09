@@ -6,6 +6,7 @@ Comment=Clean caches, remove orphans, update, and tidy your Arch system
 Exec=archmaid
 Icon=archmaid
 Terminal=true
+NoDisplay=true
 Categories=System;
 Keywords=maintenance;cleanup;pacman;orphans;update;topgrade;arch;
 StartupNotify=false
