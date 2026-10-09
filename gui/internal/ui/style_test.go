@@ -6,6 +6,8 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/Enzord758/archmaid/gui/internal/runview"
@@ -72,4 +74,35 @@ func magentaShare(img image.Image) float64 {
 		}
 	}
 	return float64(hit) / float64(n)
+}
+
+// TestCellHoverOnlyOnButtons: the action cells (GtkButtons) light up on
+// hover, the last-run cell (a GtkBox, also am-cell) must not. Every
+// :hover selector that names am-cell has to be button.am-cell.
+func TestCellHoverOnlyOnButtons(t *testing.T) {
+	css, err := os.ReadFile("style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	body := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(string(css), "")
+	for _, rule := range strings.Split(body, "}") {
+		sel, _, ok := strings.Cut(rule, "{")
+		if !ok {
+			continue
+		}
+		for _, one := range strings.Split(sel, ",") {
+			if !strings.Contains(one, ":hover") || !strings.Contains(one, "am-cell") {
+				continue
+			}
+			if !strings.Contains(one, "button.am-cell") || strings.Contains(one, "am-last-run") {
+				t.Errorf("hover selector %q would hit the last-run box", strings.TrimSpace(one))
+				continue
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Error("style.css has no :hover rule for button.am-cell")
+	}
 }

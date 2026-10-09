@@ -89,6 +89,20 @@
   border-radius: 0;
   background-color: @card_bg_color;
 }
+/* The action cells are buttons; the last-run cell is a plain box and stays
+   still. am-cell's background above out-specifies libadwaita's own
+   button:hover, which would hide any hover, so tint it here in the accent
+   colour (a mix of named colours, so it follows DMS). Not while the cell
+   is insensitive (a run is going). The keyboard focus ring stays
+   libadwaita's; focus-visible only adds the same tint. */
+.archmaid button.am-cell { transition: background-color 120ms ease; }
+.archmaid button.am-cell:hover:not(:disabled),
+.archmaid button.am-cell:focus-visible:not(:disabled) {
+  background-color: mix(@card_bg_color, @accent_bg_color, 0.15);
+}
+.archmaid button.am-cell:active:not(:disabled) {
+  background-color: mix(@card_bg_color, @accent_bg_color, 0.25);
+}
 .archmaid .am-cell-title { font-weight: 700; }
 .archmaid .am-cell-desc, .archmaid .am-cell-sub { color: @am_muted; }
 .archmaid .am-tag {
