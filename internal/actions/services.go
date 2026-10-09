@@ -67,10 +67,15 @@ func enabledServices(ctx context.Context, units []string) []string {
 // discoverServices finds services that are enabled but not running, for the
 // user to pick from. Listing loaded units is ~3 ms where `list-unit-files`
 // costs ~430 ms, so it asks for the inactive units first and checks only
-// those with one is-enabled call.
+// those with one is-enabled call. A listing that fails is said as such (with
+// systemctl's error), never as "nothing found"; is-enabled exits non-zero
+// whenever a unit isn't enabled, so its status says nothing.
 func discoverServices(ctx context.Context, _ Env) Discovery {
-	out, _ := proc.Query(ctx, "systemctl", "list-units", "--type=service", "--all",
+	out, err := proc.Query(ctx, "systemctl", "list-units", "--type=service", "--all",
 		"--state=inactive", "--plain", "--no-legend")
+	if err != nil {
+		return Notice{"Couldn't list services: " + clipErr(err)}
+	}
 	svcs := enabledServices(ctx, parseInactiveServices(string(out)))
 	if len(svcs) == 0 {
 		return Notice{"No enabled-but-inactive services found."}
