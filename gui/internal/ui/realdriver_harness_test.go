@@ -234,14 +234,18 @@ if [ -n "${PKEXEC_FOREIGN:-}" ] && [ -n "$agent" ]; then
 	# Something else asks polkit first with archmaid-gui as its subject
 	# (not archmaid's action): the agent cancels it. Then polkitd asks
 	# whichever agent is registered for our request: a new one, if the old
-	# one was spent.
+	# one was spent. Our request comes once the spent agent is gone, however
+	# long its Stop takes (a fixed 0.3 s once sent it to a spent agent that
+	# lived until Stop's SIGKILL); if it is never stopped (5 s), it gets
+	# the request, as from polkitd, and fails it.
 	rm -f ` + q(dir+"/result") + `
 	printf 'org.freedesktop.systemd1.manage-units' > ` + q(dir+"/request.tmp") + `
 	mv ` + q(dir+"/request.tmp") + ` ` + q(dir+"/request") + `
 	i=0
 	while [ ! -f ` + q(dir+"/result") + ` ] && [ $i -lt 250 ]; do sleep 0.02; i=$((i+1)); done
 	printf '%s\n' "$(cat ` + q(dir+"/result") + ` 2>/dev/null)" >> ` + q(dir+"/foreign.log") + `
-	sleep 0.3
+	i=0
+	while kill -0 "$agent" 2>/dev/null && [ $i -lt 250 ]; do sleep 0.02; i=$((i+1)); done
 	i=0
 	while [ $i -lt 250 ]; do
 		agent=$(cat ` + q(dir+"/agent.pid") + ` 2>/dev/null)
@@ -933,30 +937,36 @@ func TestGUIOnePassword(t *testing.T) {
 		}
 	})
 
-	t.Run("foreign-first", func(t *testing.T) {
-		// Before our pkexec's request, something else asks polkit with
-		// archmaid-gui as its subject. The agent cancels it with an end of
-		// file, which spends the listener (its stdio EOF is sticky); a new
-		// agent is registered while the helper call waits, and it gets our
-		// request: the user is asked once, polkit-gnome never.
-		dir, env := installShims(t, shimOpts{})
-		rep, _ := child(t, "real-foreign-first", append(env, "PKEXEC_FOREIGN=1")...)
-		if got := readLines(t, filepath.Join(dir, "foreign.log")); !slices.Equal(got, []string{"cancel"}) {
-			t.Errorf("the foreign request ended %q, want cancelled", got)
-		}
-		if rep.Outcome != "completed" || hasRow(rep.Rows, "=auth refused") {
-			t.Errorf("outcome %q rows %q: our request after the foreign one must be served", rep.Outcome, rep.Rows)
-		}
-		if len(rep.PwBodies) != 1 || !strings.Contains(rep.PwBodies[0], PolkitTitle) || !strings.Contains(rep.PwBodies[0], "org.archmaid.helper.full-cleanup") {
-			t.Errorf("password dialogs %q, want one for polkit", rep.PwBodies)
-		}
-		if got := readLines(t, filepath.Join(dir, "agent.got")); !slices.Equal(got, []string{shimPw}) {
-			t.Errorf("the agents got %q", got)
-		}
-		if g := readLines(t, filepath.Join(dir, "gnome.log")); g != nil {
-			t.Errorf("the desktop's polkit agent asked for %q", g)
-		}
-	})
+	// foreign-first: before our pkexec's request, something else asks
+	// polkit with archmaid-gui as its subject. The agent cancels it with an
+	// end of file, which spends the listener (its stdio EOF is sticky); a
+	// new agent is registered while the helper call waits, and it gets our
+	// request: the user is asked once, polkit-gnome never.
+	// foreign-first-slow-stop: the spent agent takes 0.6 s to go after
+	// Stop's SIGTERM (on CI it took up to Stop's SIGKILL a second later,
+	// when the shim's trap lost the SIGTERM): our request still reaches
+	// the new agent, never the spent one.
+	for _, tc := range []struct{ name, mode string }{{"foreign-first", ""}, {"foreign-first-slow-stop", "slowstop"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir, env := installShims(t, shimOpts{})
+			rep, _ := child(t, "real-foreign-first", append(env, "PKEXEC_FOREIGN=1", "AGENT_MODE="+tc.mode)...)
+			if got := readLines(t, filepath.Join(dir, "foreign.log")); !slices.Equal(got, []string{"cancel"}) {
+				t.Errorf("the foreign request ended %q, want cancelled", got)
+			}
+			if rep.Outcome != "completed" || hasRow(rep.Rows, "=auth refused") {
+				t.Errorf("outcome %q rows %q: our request after the foreign one must be served", rep.Outcome, rep.Rows)
+			}
+			if len(rep.PwBodies) != 1 || !strings.Contains(rep.PwBodies[0], PolkitTitle) || !strings.Contains(rep.PwBodies[0], "org.archmaid.helper.full-cleanup") {
+				t.Errorf("password dialogs %q, want one for polkit", rep.PwBodies)
+			}
+			if got := readLines(t, filepath.Join(dir, "agent.got")); !slices.Equal(got, []string{shimPw}) {
+				t.Errorf("the agents got %q", got)
+			}
+			if g := readLines(t, filepath.Join(dir, "gnome.log")); g != nil {
+				t.Errorf("the desktop's polkit agent asked for %q", g)
+			}
+		})
+	}
 
 	t.Run("agent-missing", func(t *testing.T) {
 		dir, env := installShims(t, shimOpts{})

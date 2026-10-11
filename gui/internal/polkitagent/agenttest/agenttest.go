@@ -16,10 +16,12 @@ package agenttest
 // snoop.pid) open the terminal by name and hold it before registering, as
 // a same-uid snooper could; AGENT_IDENTS=multi offers root and the user,
 // other authenticates as someone else; AGENT_MODE=twoprompts asks a
-// second hidden question after the password. An end of file at a prompt,
-// or an invalid identity choice, cancels the request (result: cancel), as
-// the listener does; and, as there, an end of file is sticky: every read
-// after it fails at once (rd). Like the real text listener
+// second hidden question after the password; AGENT_MODE=slowstop ends
+// only 0.6 s after SIGTERM, as a stopped agent may on a loaded machine.
+// An end of file at a prompt, or an invalid identity choice, cancels the
+// request (result: cancel), as the listener does; and, as there, an end
+// of file is sticky: every read after it fails at once (rd). Like the
+// real text listener
 // (polkitagenttextlistener.c, initable_init) it opens its terminal once,
 // before it registers (fd 4), and only uses that fd from then on.
 const Shim = `#!/bin/sh
@@ -41,9 +43,17 @@ echo $$ > "$d/agent.pid"
 # so every read after one fails too.
 # SIGTERM (Agent.Stop) ends it as it ends pkttyagent, but only once the
 # loop's sleep has exited, so no sleep outlives it; and it ends by itself
-# once the process that started it is gone.
+# once the process that started it is gone. On a loaded CPU bash 5.3
+# sometimes takes a SIGTERM that comes right after an end-of-file cancel
+# (no longer pending, caught) without ever running the trap, and only
+# Stop's SIGKILL a second later ends it: nothing may depend on how soon a
+# stopped agent is gone.
 p=$PPID
-trap 'exit 0' TERM
+if [ "${AGENT_MODE:-}" = slowstop ]; then
+	trap 'sleep 0.6; exit 0' TERM
+else
+	trap 'exit 0' TERM
+fi
 eof=
 rd() {
 	[ -z "$eof" ] || return 1
