@@ -861,6 +861,27 @@ to:
   the safe assumption. The owner's step-by-step check, with a throwaway
   action and a results table: `docs/polkit-keep-session-check.md`.
 
+  *Residual for the owner to decide (Dev 3, from polkit 127's source,
+  `polkitbackendinteractiveauthority.c`):* a kept authorization is stored
+  for the subject process, but `subject_equal_for_authz` also lets a
+  *different* process use it when all of these hold: both processes have
+  safe pidfds, the same uid, the same parent that is still running (ppid >
+  1), the same cgroup as each other and as that parent, and the same
+  controlling `/dev/pts/N`, created before both processes started. archmaid's
+  4 `auth_admin_keep` actions are kept for archmaid-gui (pkexec's subject).
+  Started from a terminal shell, any other child of that same shell in the
+  same cgroup on the same terminal can reuse them for about 5 minutes
+  without a prompt. Started from the desktop (its parent has no
+  controlling terminal) or on a VT (the code only builds a `/dev/pts`
+  path), there is no sibling reuse. And because archmaid-gui's pkttyagent is
+  registered for its own process, these kept authorizations are
+  process-scoped: `pkcheck --list-temp` doesn't show them and
+  `pkcheck --revoke-temp` doesn't remove them (both only cover the caller's
+  session scope); they only expire. Lead's recommendation: accept, since
+  reuse needs the same user in the same shell on the same terminal, and
+  the helper's verbs are fixed and validate their own input. Owner: accept,
+  or ask for a sibling check (a G6) in the keep-check guide.
+
 - **The GUI on the real Driver has been run live** (the owner's run and the
   VM runs: one polkit dialog per Full Cleanup, topgrade's askpass). The
   root helper and policy come only from the package (`packaging/arch`);
