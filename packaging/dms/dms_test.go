@@ -193,19 +193,21 @@ func TestUpdatesScript(t *testing.T) {
 		{"yay timed out", three, 0, &yayShim{rc: 124}, 3, -1, -1, 3},
 		{"yay fails after some output", three, 0, &yayShim{out: "x 1 -> 2 [9d]\n", rc: 1}, 3, -1, -1, 3},
 	} {
-		raw, err := updatesRun(t, c.out, c.rc, c.yay, "")
-		if err != nil {
-			t.Fatalf("%s: script failed: %v", c.name, err)
-		}
-		var u upd
-		if jerr := json.Unmarshal([]byte(raw), &u); jerr != nil || u.V != 2 || u.Count != c.wantCount || u.Repo != c.repo ||
-			(c.aur < 0) != (u.Aur == nil) || (c.aur < 0) != (u.AurHeld == nil) ||
-			(u.Aur != nil && (*u.Aur != c.aur || *u.AurHeld != c.held)) || time.Since(u.Checked) > time.Minute {
-			t.Fatalf("%s: %q -> %+v (%v)", c.name, raw, u, jerr)
-		}
-		if c.aur < 0 && !strings.Contains(raw, `"aur":null,"aur_held":null`) {
-			t.Fatalf("%s: aur and aur_held must be JSON nulls: %s", c.name, raw)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			raw, err := updatesRun(t, c.out, c.rc, c.yay, "")
+			if err != nil {
+				t.Fatalf("%s: script failed: %v", c.name, err)
+			}
+			var u upd
+			if jerr := json.Unmarshal([]byte(raw), &u); jerr != nil || u.V != 2 || u.Count != c.wantCount || u.Repo != c.repo ||
+				(c.aur < 0) != (u.Aur == nil) || (c.aur < 0) != (u.AurHeld == nil) ||
+				(u.Aur != nil && (*u.Aur != c.aur || *u.AurHeld != c.held)) || time.Since(u.Checked) > time.Minute {
+				t.Fatalf("%s: %q -> %+v (%v)", c.name, raw, u, jerr)
+			}
+			if c.aur < 0 && !strings.Contains(raw, `"aur":null,"aur_held":null`) {
+				t.Fatalf("%s: aur and aur_held must be JSON nulls: %s", c.name, raw)
+			}
+		})
 	}
 	// checkupdates failing keeps the old file and fails the run, with or without yay.
 	old := `{"v":2,"count":7,"repo":4,"aur":3,"aur_held":0,"checked":"2026-10-04T10:00:00+02:00"}` + "\n"
