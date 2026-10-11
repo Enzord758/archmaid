@@ -43,7 +43,7 @@ func TestDiscoverServicesListFails(t *testing.T) {
 func TestDiscoverServicesNoneFound(t *testing.T) {
 	shimSystemctl(t, "exit 0\n")
 	d := discoverServices(context.Background(), Env{})
-	if n, ok := d.(Notice); !ok || n.Text != "No stopped services to check." || n.Err != "" {
+	if n, ok := d.(Notice); !ok || n.Text != "No enabled-but-inactive services found. No stopped services to check." || n.Err != "" {
 		t.Fatalf("got %#v", d)
 	}
 }

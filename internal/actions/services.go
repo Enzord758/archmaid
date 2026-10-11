@@ -152,7 +152,7 @@ func discoverServices(ctx context.Context, _ Env) Discovery {
 	}
 	summary := fmt.Sprintf("Checked %d stopped %s: %s.", len(units), plural(len(units), "service", "services"), found)
 	if len(units) == 0 {
-		summary = "No stopped services to check."
+		summary = "No enabled-but-inactive services found. No stopped services to check."
 	}
 	if len(skipped) > 0 {
 		summary += fmt.Sprintf(" Skipped %d (%s).", len(skipped), skipRules(skipped))
