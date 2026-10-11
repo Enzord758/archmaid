@@ -37,8 +37,9 @@ optional and adds about 5. The steps are numbered 1–14, Part C's C1–C4.
 
 ## What you are looking for
 
-- **Which action's banner appeared.** On a tty, pkexec's own text agent
-  prints `==== AUTHENTICATING FOR org.archmaid.keepcheck.k7q2 ====`, and the
+- **Which action's banner appeared.** On tty3, polkit's text agent
+  (`pkttyagent`, started in step 11) prints
+  `==== AUTHENTICATING FOR org.archmaid.keepcheck.k7q2 ====`, and the
   next line is the message
   `archmaid keep check k7q2: throwaway test, runs /usr/bin/true`. In the
   graphical session, the polkit-gnome dialog shows that same message; its
@@ -47,8 +48,44 @@ optional and adds about 5. The steps are numbered 1–14, Part C's C1–C4.
   `k7q2`), don't type your password. Write down what it says, cancel it
   (that costs one faillock row) and go to the cleanup.
 - **pkcheck's exit code.** `0` = authorized now, without a prompt (stdout may
-  show `polkit.temporary_authorization_id=…`). `2` = would need a password
-  (pkcheck was told not to ask). Anything else: copy stderr into the notes.
+  show `polkit\56temporary_authorization_id=…` or `polkit\56result=…`:
+  pkcheck itself writes the dot in a key as `\56`, not your shell). `2` =
+  would need a password (pkcheck was told not to ask). Anything else: copy
+  stderr into the notes.
+
+## Where each step runs
+
+Two logind sessions take part, and a step only means something in the
+one it names. "Terminal 1" is one terminal window in your graphical
+session (tty2); keep it open from step 1 to step 14, because `$d` (step 2)
+and `$p` (Part C) live in that shell.
+
+| Steps | Session | Shell |
+|---|---|---|
+| 1–9 (G0–G5) | graphical (tty2) | terminal 1; G4 in a new terminal window (terminal 2) |
+| 10–12 (T0–T5) | the tty3 text login, a session of its own | tty3's login shell, all in that one shell |
+| C1–C4 (K0–K2) | graphical (tty2) | terminal 1 |
+| 13–14 (cleanup) | graphical (tty2) | terminal 1 |
+
+In the graphical session you can paste; on tty3 (a text console) you type.
+None of the tty3 lines holds a URL, so zsh's url-quote-magic (step 2)
+leaves them alone.
+
+**pkexec's built-in text agent doesn't work with this polkit (127).** On a
+console with no agent of its own, pkexec starts its own text agent. It
+prints the banner and takes the password, PAM accepts it (no faillock
+row), and then pkexec says `AUTHENTICATION FAILED` / `Not authorized`;
+the journal shows `polkit-agent-helper-1: error response to PolicyKit
+daemon: ... No session for cookie`. "Session" there means polkit's
+authentication session (the cookie), not the logind session. The cause
+is in polkit itself: polkit 126 and later run `polkit-agent-helper-1` from
+a socket (`/run/polkit/agent-helper.socket`, not setuid any more), and the
+helper takes the agent's uid from the socket. pkexec is setuid root, so
+that uid is 0. polkitd registered pkexec's agent under the user of the
+subject (your uid), and only accepts a reply from the uid the agent was
+registered under, so the reply is refused. polkit-gnome and `pkttyagent`
+run as you, so their replies match. Part B therefore runs `pkttyagent` for
+the tty3 shell and calls pkexec with `--disable-internal-agent`.
 
 ## Setup
 
@@ -69,6 +106,14 @@ optional and adds about 5. The steps are numbered 1–14, Part C's C1–C4.
    document"). `pkaction` then says "No action with action id". The fenced
    blocks in steps 2-4 are deliberately not indented, so a copy from the
    raw Markdown file needs no stripping.
+
+   **Paste it (Ctrl+Shift+V in the terminal), don't type it.** zsh's
+   url-quote-magic escapes shell characters you type into a word that
+   looks like a URL, so a typed `policyconfig.dtd">` becomes
+   `policyconfig.dtd"\>` and the file no longer parses (the `head` and
+   `xmllint` check below catches it). A paste is inserted as it is. If you
+   have to type it, first run `zle -A .self-insert self-insert` in that
+   shell; that turns url-quote-magic off for this shell only.
 
 ```sh
 d=$(mktemp -d) && cat > "$d/org.archmaid.keepcheck.k7q2.policy" <<'EOF'
@@ -185,28 +230,63 @@ otherwise.
 ## Part B: a tty login (optional)
 
 Only if faillock still shows 0 rows (`faillock --user "$USER"`). Logging in on
-tty3 is a password too.
+tty3 is a password too. Every command in steps 10–12 runs in tty3's login
+shell (one session, one shell; don't start a sub-shell or `tmux` there).
+Do steps 11 and 12 within 5 minutes.
 
 10. Press **Ctrl+Alt+F3** and log in as yourself. Then run step 5's commands
     (case **T0**). Also write down how long it has been since G1. A `0` here
     would mean the graphical session's keep reaches a different session.
 
-11. **The one password for Part B**:
+11. **The one password for Part B.** pkexec's built-in agent can't be used
+    (see "Where each step runs"), so start polkit's text agent for this
+    shell first, in the background, with job control off so it may read
+    the console:
 
     ```sh
-    pkexec /usr/bin/true archmaid-keepcheck-k7q2; echo "rc=$?"
+    set +m; pkttyagent --process $$ & a=$!; sleep 2; kill -0 "$a" && echo "agent $a up for $$"
     ```
 
-    Case **T1**. pkexec's own text agent prints the
-    `==== AUTHENTICATING FOR org.archmaid.keepcheck.k7q2 ====` banner. Check
-    the id, then type the password once. If no banner appears within 10 s
-    (the prompt went somewhere else), press Ctrl+C, which costs one faillock
-    row. Note it and go to the cleanup.
+    It must print `agent … up for …`. If it doesn't (pkttyagent printed an
+    error and exited), don't go on: no password has been asked; note the
+    error, `set -m`, and skip to `exit` at the end of step 12. Then:
+
+    ```sh
+    pkexec --disable-internal-agent /usr/bin/true archmaid-keepcheck-k7q2; echo "rc=$?"
+    ```
+
+    Case **T1**. pkttyagent prints the
+    `==== AUTHENTICATING FOR org.archmaid.keepcheck.k7q2 ====` banner and
+    `Password:`. Check the id, then type the password once. Expected:
+    `rc=0`. Then, in every case, stop the agent and turn job control back
+    on, so nothing in step 12 can reach it:
+
+    ```sh
+    kill "$a"; wait "$a"; set -m
+    ```
+
+    If T1 went wrong, run that line, `exit`, Ctrl+Alt+F2 and go to the
+    cleanup (step 13), noting what happened:
+    - "No authentication agent found" (`rc=127`): no password was asked,
+      nothing counted.
+    - No banner within 10 s: press Ctrl+C (one faillock row).
+    - `AUTHENTICATION FAILED` after the password: count it as a wrong
+      password (stop rule) and copy
+      `journalctl -b --since -5min --no-pager | grep -E 'polkit|pkexec'`
+      (read-only) into the notes.
+
+    Which agent asked doesn't change what polkit keeps: the kept
+    authorization is stored for pkexec's subject (this shell, or its
+    session), exactly as with pkexec's own agent, and T2–T5 read which.
+    The agent was registered for this shell's process only (`--process
+    $$`), never for the tty3 session, so once it is stopped nothing can
+    answer a prompt in step 12.
 
 12. Run step 7 (**T2**), step 8's `sh -c …` line (**T3**) and step 9 (**T5**).
     Then a real exec from a new process, which can't prompt either: with
-    `--disable-internal-agent` and no agent registered for the tty3 session,
-    pkexec fails with "No authentication agent found" instead of asking:
+    `--disable-internal-agent` and no agent registered for the tty3 session
+    (or for the new `sh` process), pkexec fails with "No authentication
+    agent found" instead of asking:
 
     ```sh
     sh -c 'pkexec --disable-internal-agent /usr/bin/true archmaid-keepcheck-k7q2; echo "pid $$ rc=$?"'
@@ -249,13 +329,18 @@ are 0 rows**; otherwise skip to the cleanup. `pkcheck` must give `rc=2`
 pkexec /usr/bin/true archmaid-keepcheck-k7q2 & p=$!; echo "pkexec pid $p"
 ```
 
-The polkit-gnome dialog appears. Check the message and the action id as
-in "What you are looking for". **Type nothing, and don't press Cancel**:
-leave the dialog open.
+The polkit-gnome dialog appears and **takes the keyboard focus**: from
+now on every key you press goes into its password field, and Enter would
+submit it as a wrong password (one faillock row). Check the message and
+the action id (mouse only: Details is an expander) as in "What you are
+looking for". **Type nothing, and don't press Cancel**: leave the dialog
+open.
 
 **C3. Kill it, as archmaid's Stop does** (within about 30 s of C2, in
-terminal 1; the dialog can stay on screen, the terminal still takes
-input):
+terminal 1). First **click into terminal 1** with the mouse, so the
+keyboard goes to the terminal; the dialog stays on screen. Check that the
+terminal has the focus (its cursor is solid, or your typing shows up
+there, not as dots in the dialog) before you press Enter. Then type:
 
 ```sh
 kill -KILL "$p"; wait "$p"; echo "rc=$?"
@@ -310,7 +395,7 @@ Checklist:
 - [ ] `/usr/share/polkit-1/actions/org.archmaid.keepcheck.k7q2.policy` removed; `pkaction` doesn't know the id
 - [ ] scratch directory `$d` removed
 - [ ] `pkcheck --revoke-temp` run in the graphical session (and on tty3, if Part B ran)
-- [ ] logged out of tty3, back on tty2
+- [ ] step 11's `pkttyagent` stopped (`kill "$a"` in step 11), logged out of tty3, back on tty2
 - [ ] terminal 2 closed
 - [ ] Part C's pkexec is gone (`kill -0 "$p"` fails), if Part C ran
 - [ ] `faillock --user "$USER"` shows 0 rows (or the count is written down below)
@@ -328,7 +413,7 @@ Date: ______  polkit `pkcheck --version`: ______  faillock rows at step 1: ___ /
 | G4 new terminal | 0 | 0 | | | |
 | G5 `--list-temp` | 0 | 0 | | | subject: |
 | T0 tty3 baseline | 0 | 0 | | | minutes since G1: |
-| T1 pkexec | 1 (right) | | | | banner id: |
+| T1 pkexec (via pkttyagent) | 1 (right) | | | | banner id: |
 | T2 same shell | 0 | 0 | | | |
 | T3 new process (`sh -c`) | 0 | 0 | | | |
 | T4 `pkexec --disable-internal-agent` from a new process | 0 | | | | |
