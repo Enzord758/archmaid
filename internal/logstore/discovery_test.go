@@ -158,10 +158,17 @@ func TestDiscoveryClassificationFailsSafe(t *testing.T) {
 		{[]string{"services.log", "repair.log"}, true},
 		{[]string{"services.log", "audit.log"}, false},
 		{[]string{"services.log.tmp"}, false},
+		{[]string{"services.log/"}, false}, // a directory named like a log is not a log
+		{[]string{"services"}, false},      // no .log suffix: not a log
+		{[]string{"services", "services.log"}, false},
 		{nil, false},
 	} {
 		dir := t.TempDir()
 		for _, f := range c.files {
+			if name, isDir := strings.CutSuffix(f, "/"); isDir {
+				os.Mkdir(filepath.Join(dir, name), 0o700)
+				continue
+			}
 			os.WriteFile(filepath.Join(dir, f), nil, 0o600)
 		}
 		if _, only := discoveryLogs(dir); only != c.only {
