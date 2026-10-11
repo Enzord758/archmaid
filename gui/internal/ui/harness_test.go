@@ -14,6 +14,7 @@ package ui
 // always measured and logged).
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -109,6 +110,7 @@ type report struct {
 	// "<hidden>") before the run, while it waits at its gate, and once
 	// the run has ended and the cell re-measured.
 	CacheStart, CacheRunning, CacheEnd string
+	CacheMeasures                      int64    // finished measurements by the end
 	Page                               string   // the page up after starting an action
 	LastRun                            []string // the Overview's last run: title, then issues
 	// Follow is fullcleanup's follow-the-bottom flag: at the end, after a
@@ -772,7 +774,8 @@ func runChild(scenario, path string) int {
 					poll = func() {
 						polls++
 						rep.CacheEnd = cacheCell(w)
-						if rep.CacheEnd == "Empty" || (scenario == "usercache-none" && polls > 10) || polls > 60 {
+						if rep.CacheEnd == "Empty" || (scenario == "usercache-none" && cacheMeasures.Load() >= 2) || polls > 60 {
+							rep.CacheMeasures = cacheMeasures.Load()
 							w.win.Close()
 							return
 						}
@@ -1424,12 +1427,22 @@ func TestGUIUserCacheSize(t *testing.T) {
 	if err := os.MkdirAll(cache, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Random bytes: zeros could be stored compressed or sparse (btrfs zstd,
+	// tmpfs) and report less than 3 MiB of blocks.
 	for _, f := range []string{filepath.Join(cache, "blob"), filepath.Join(home, ".cache", ".hidden"), filepath.Join(xdg, "other")} {
-		if err := os.WriteFile(f, make([]byte, 3<<20), 0o644); err != nil {
+		buf := make([]byte, 3<<20)
+		if _, err := rand.Read(buf); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(f, buf, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	rep, _ := child(t, "usercache-size", "HOME="+home, "XDG_CACHE_HOME="+xdg)
+	// Only blob (3 MiB = 3.0M, rounded up) and the directory "app" count: the
+	// dot entry and XDG_CACHE_HOME's file would add 3 MiB each (6.x/9.x). The
+	// directory's own blocks (0 on tmpfs, 4 KiB on ext4/btrfs) tip the ceil
+	// from 3.0M to 3.1M, so exactly those two lines are right.
 	if rep.CacheStart != "3.1M in ~/.cache" && rep.CacheStart != "3.0M in ~/.cache" {
 		t.Errorf("idle line %q, want the 3 MiB fixture", rep.CacheStart)
 	}
@@ -1443,11 +1456,40 @@ func TestGUIUserCacheSize(t *testing.T) {
 
 // TestGUIUserCacheUnreadable: no ~/.cache, nothing is shown (never a wrong
 // number), before the run and after it.
+//
+// The measurement must have run, or hidden would prove nothing: the scenario
+// waits until two finished (at the start and after the run), and the count
+// is asserted. A ~/.cache with mode 000 is the same (skipped as root, which
+// reads it anyway).
 func TestGUIUserCacheUnreadable(t *testing.T) {
 	needDisplay(t)
-	rep, _ := child(t, "usercache-none", "HOME="+t.TempDir())
-	if rep.CacheStart != "<hidden>" || rep.CacheEnd != "<hidden>" {
-		t.Errorf("lines %q / %q with no ~/.cache, want hidden", rep.CacheStart, rep.CacheEnd)
+	for _, tc := range []string{"missing", "denied"} {
+		t.Run(tc, func(t *testing.T) {
+			home := t.TempDir()
+			if tc == "denied" {
+				if os.Geteuid() == 0 {
+					t.Skip("root reads a mode 000 folder")
+				}
+				cache := filepath.Join(home, ".cache")
+				if err := os.MkdirAll(filepath.Join(cache, "app"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(cache, "app", "blob"), make([]byte, 1<<20), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(cache, 0); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.Chmod(cache, 0o755) })
+			}
+			rep, _ := child(t, "usercache-none", "HOME="+home)
+			if rep.CacheStart != "<hidden>" || rep.CacheEnd != "<hidden>" {
+				t.Errorf("lines %q / %q with an unreadable ~/.cache, want hidden", rep.CacheStart, rep.CacheEnd)
+			}
+			if rep.CacheMeasures < 2 {
+				t.Errorf("%d measurements finished, want the start's and the run's: the feature never ran", rep.CacheMeasures)
+			}
+		})
 	}
 }
 

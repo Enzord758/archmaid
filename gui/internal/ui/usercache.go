@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/sysstat"
@@ -18,6 +19,10 @@ import (
 // abandoned and the cell shows nothing, as it does for an unreadable folder.
 
 const cacheMeasureLimit = 5 * time.Second
+
+// cacheMeasures counts the finished measurements (the harness reads it to
+// prove the feature ran when the cell stayed hidden).
+var cacheMeasures atomic.Int64
 
 // userCacheDir is the folder Clear user cache empties, "" without a $HOME.
 func userCacheDir() string {
@@ -40,39 +45,84 @@ func userCacheLine(size string, bytes uint64, err error) string {
 	return size + " in ~/.cache"
 }
 
+// cacheLineOf measures dir and returns the sub line; "" when the walk failed
+// or ctx ended first (a cancelled or timed-out measurement shows nothing).
+func cacheLineOf(ctx context.Context, dir string) string {
+	size, n, err := sysstat.EntriesUsage(ctx, dir)
+	return userCacheLine(size, n, err)
+}
+
+// cacheMeter is the measurement bookkeeping, with no GTK in it: the shown
+// line, whether a measurement goes, whether another was asked for meanwhile,
+// and the generation that makes a result stale. Main thread only.
+type cacheMeter struct {
+	line  string
+	busy  bool
+	again bool
+	gen   int
+}
+
+// request asks for a measurement: true when the caller should start one
+// now, false when one goes (then another follows its end).
+func (m *cacheMeter) request() bool {
+	if m.busy {
+		m.again = true
+		return false
+	}
+	m.busy = true
+	return true
+}
+
+// finish takes the result of a measurement that started at generation gen.
+// changed: the shown line changed. again: start another measurement now.
+// A result that began before the last invalidate is stale and never shows.
+func (m *cacheMeter) finish(gen int, line string) (changed, again bool) {
+	m.busy = false
+	if gen == m.gen && line != m.line {
+		m.line = line
+		changed = true
+	}
+	again = m.again
+	m.again = false
+	return changed, again
+}
+
+// invalidate is a run's end: the shown line goes (changed when it was shown).
+func (m *cacheMeter) invalidate() (changed bool) {
+	m.gen++
+	if m.line != "" {
+		m.line = ""
+		return true
+	}
+	return false
+}
+
 // measureUserCache starts a measurement unless one is going (then it asks
 // for another when that one ends). Main thread only.
 func (w *Window) measureUserCache() {
 	if w.closed {
 		return
 	}
-	if w.cacheBusy {
-		w.cacheAgain = true
-		return
-	}
 	dir := userCacheDir()
-	if dir == "" {
+	if dir == "" || !w.cache.request() {
 		return
 	}
-	w.cacheBusy = true
-	gen := w.cacheGen
+	gen := w.cache.gen
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), cacheMeasureLimit)
 		defer cancel()
-		size, n, err := sysstat.EntriesUsage(ctx, dir)
-		line := userCacheLine(size, n, err)
+		line := cacheLineOf(ctx, dir)
+		cacheMeasures.Add(1)
 		post(func() {
-			w.cacheBusy = false
 			if w.closed {
+				w.cache.busy = false
 				return
 			}
-			// A result that began before the last run ended is stale.
-			if gen == w.cacheGen && line != w.cacheLine {
-				w.cacheLine = line
+			changed, again := w.cache.finish(gen, line)
+			if changed {
 				w.updateOverview()
 			}
-			if w.cacheAgain {
-				w.cacheAgain = false
+			if again {
 				w.measureUserCache()
 			}
 		})
@@ -82,9 +132,7 @@ func (w *Window) measureUserCache() {
 // invalidateUserCache is a run's end: the shown size is stale until the
 // next measurement, so it goes, and one is asked for.
 func (w *Window) invalidateUserCache() {
-	w.cacheGen++
-	if w.cacheLine != "" {
-		w.cacheLine = ""
+	if w.cache.invalidate() {
 		w.updateOverview()
 	}
 	w.measureUserCache()

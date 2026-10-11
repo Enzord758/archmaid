@@ -120,9 +120,7 @@ type Window struct {
 	// The Clear user cache cell's size line (usercache.go): what was
 	// measured, whether a measurement goes, whether another was asked for
 	// meanwhile, and the run count that tells a stale result.
-	cacheLine             string
-	cacheBusy, cacheAgain bool
-	cacheGen              int
+	cache cacheMeter
 
 	// onApply, when set, sees every applied batch's Change (the harness).
 	onApply func(runview.Change)
