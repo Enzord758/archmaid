@@ -31,7 +31,8 @@ long='^TestGUIPrompts$'
 real='^TestGUI(RealDriver|StopAndQuit)$'
 svc='^TestGUI(FullCleanup|OnePassword|RealServices)$'
 stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
-narrow='^TestGUI(NarrowNav|ToastPlain|LastRunTones|LogsPage|SettingsCards)$'
+narrow='^TestGUI(NarrowNav|ToastPlain|LogsPage|SettingsCards)$'
+tones='^TestGUI(LastRunTones|AuditRerun)$'
 starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 cov='^TestGUICov'
 perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
@@ -47,8 +48,9 @@ scripts/headless.sh go test "${cover[@]}" -count=1 -run "$real" ./internal/ui ||
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$svc" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -tags shots -count=1 -run "$stops" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -tags shots -count=1 -run "$narrow" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -tags shots -count=1 -run "$tones" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$starts" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$cov" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$perf" ./internal/ui || rc=1
-scripts/headless.sh go test "${cover[@]}" -count=1 -skip "$long|$real|$svc|$stops|$narrow|$starts|$cov|$perf" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -count=1 -skip "$long|$real|$svc|$stops|$narrow|$tones|$starts|$cov|$perf" ./internal/ui || rc=1
 exit "$rc"
