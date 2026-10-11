@@ -1377,7 +1377,7 @@ func TestGUIAudit(t *testing.T) {
 }
 
 // repairNone is the stub Repair's summary (engine/stub.RepairNone).
-const repairNone = "No broken packages: checked 1422 installed packages for missing files (pacman -Qk, as the user)."
+const repairNone = "No broken packages found."
 
 // TestGUIOverviewStarts: an action started from its Overview row (the
 // menu is actions.Menu without Exit and Edit config) shows the Run page.
@@ -1549,7 +1549,7 @@ func TestGUIRepairNothingFound(t *testing.T) {
 	if d == nil || rep.Outcome != "notice" {
 		t.Fatalf("outcome %q disc %+v", rep.Outcome, d)
 	}
-	const summary = "No broken packages: checked 1422 installed packages for missing files (pacman -Qk, as the user)."
+	const summary = "No broken packages found."
 	if d.Title != "Repair broken packages" || d.Prev || d.Kicker != "Nothing found" || d.State != "am-state-ok" ||
 		!slices.Equal(d.Steps, []string{runview.DiscoveryStepID}) || d.Summary != summary {
 		t.Errorf("page %+v", d)

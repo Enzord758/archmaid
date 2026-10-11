@@ -1021,7 +1021,7 @@ func TestGUIRealServices(t *testing.T) {
 	// failed for a look that failed; no "previous run"; the record's log is
 	// on the Logs page and the Overview's last run cell reads it.
 	for _, tc := range []struct{ name, systemctl, scenario, says, state, kicker, tag, tone string }{
-		{"none", "none", "real-services-none", "No stopped services to check.", "am-state-ok", "Nothing found", "NOTHING FOUND", "am-tag-ok"},
+		{"none", "none", "real-services-none", "No enabled-but-inactive services found. No stopped services to check.", "am-state-ok", "Nothing found", "NOTHING FOUND", "am-tag-ok"},
 		{"error", "fail", "real-services-error", "Couldn't list services: Failed to connect to bus: No such file or directory", "am-state-failed", "Failed: the check didn't finish", "FAILED", "am-tag-danger"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
