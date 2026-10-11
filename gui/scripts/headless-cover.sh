@@ -27,11 +27,14 @@ cd "$gui"
 env -u ARCHMAID_GUI_DISPLAY_TESTS go test -count=1 "${cover[@]}" ./...
 
 # The groups are headless.sh's own; keep them in step with it.
-long='^TestGUI(Prompts|FullCleanup)$'
-real='^TestGUI(RealDriver|StopAndQuit|OnePassword|RealServices)$'
-stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow|ToastPlain|NarrowNav)$'
-starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|RepairNothingFound|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
+long='^TestGUIPrompts$'
+real='^TestGUI(RealDriver|StopAndQuit)$'
+svc='^TestGUI(FullCleanup|OnePassword|RealServices)$'
+stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
+narrow='^TestGUI(NarrowNav|ToastPlain|LastRunTones|LogsPage|SettingsCards)$'
+starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 cov='^TestGUICov'
+perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 # Build once outside the timeouts: the instrumented ui test binary is cached
 # for the runs below.
 go test -count=1 "${cover[@]}" -run '^$' ./internal/ui >/dev/null
@@ -41,8 +44,11 @@ go test -count=1 "${cover[@]}" -tags shots -run '^$' ./internal/ui >/dev/null
 rc=0
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$long" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$real" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -count=1 -run "$svc" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -tags shots -count=1 -run "$stops" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -tags shots -count=1 -run "$narrow" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$starts" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$cov" ./internal/ui || rc=1
-scripts/headless.sh go test "${cover[@]}" -count=1 -skip "$long|$real|$stops|$starts|$cov" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -count=1 -run "$perf" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -count=1 -skip "$long|$real|$svc|$stops|$narrow|$starts|$cov|$perf" ./internal/ui || rc=1
 exit "$rc"

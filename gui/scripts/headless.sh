@@ -23,17 +23,21 @@ cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
 # The whole display suite takes ~135 s, past the bound, so the default runs
-# it in six parts of at most ~50 s, each with its own weston and timeout:
-# the long stub scenarios, the real Driver's (shimmed), the engine stopping
-# and the instance check with the 630x372 windows, the Overview's starts with
-# the Logs and Settings pages, the coverage scenarios (cover_harness_test.go),
-# the rest.
+# it in nine parts of at most ~40 s, each with its own weston and timeout:
+# the prompts, the real Driver and Stop, the Full Cleanup and the shimmed
+# password and services scenarios, the engine stopping and the instance
+# check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
+# windows, the Overview's starts, the coverage scenarios
+# (cover_harness_test.go), the first frame and throughput proofs, the rest.
 if [[ $# -eq 0 ]]; then
-	long='^TestGUI(Prompts|FullCleanup)$'
-	real='^TestGUI(RealDriver|StopAndQuit|OnePassword|RealServices)$'
-	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow|ToastPlain|NarrowNav)$'
-	starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|RepairNothingFound|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
+	long='^TestGUIPrompts$'
+	real='^TestGUI(RealDriver|StopAndQuit)$'
+	svc='^TestGUI(FullCleanup|OnePassword|RealServices)$'
+	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
+	narrow='^TestGUI(NarrowNav|ToastPlain|LastRunTones|LogsPage|SettingsCards)$'
+	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
+	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when
 	# ARCHMAID_GUI_SHOTS asks for screenshots.
@@ -41,10 +45,13 @@ if [[ $# -eq 0 ]]; then
 	[[ -n "${ARCHMAID_GUI_SHOTS:-}" ]] && tags=(-tags shots)
 	"$self" go test "${tags[@]}" -count=1 -v -run "$long" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$real" ./internal/ui
+	"$self" go test "${tags[@]}" -count=1 -v -run "$svc" ./internal/ui
 	"$self" go test -tags shots -count=1 -v -run "$stops" ./internal/ui
+	"$self" go test -tags shots -count=1 -v -run "$narrow" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$stops|$starts|$cov" ./internal/ui
+	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$starts|$cov|$perf" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and
