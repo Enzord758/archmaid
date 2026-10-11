@@ -90,4 +90,6 @@ func TestGUIShots(t *testing.T) {
 			t.Errorf("shots %q: no %s", names, want)
 		}
 	}
+	// A shot that can't be taken is an error naming the step, no file.
+	child(t, "cov-savepng")
 }

@@ -379,7 +379,9 @@ func runChild(scenario, path string) int {
 	case "real-sigint", "real-sighup", "real-sigint-twice": // Run topgrade, then the signal mid-topgrade
 		action = actions.IDTopgrade
 	default:
-		fail("unknown scenario %q", scenario)
+		if covScenarios[scenario] == nil { // cover_harness_test.go's
+			fail("unknown scenario %q", scenario)
+		}
 	}
 	if scenario == "confirm-flag" {
 		opts.Confirm = actions.IDFullCleanup
@@ -449,7 +451,11 @@ func runChild(scenario, path string) int {
 				if rep.FirstFrame == 0 {
 					rep.FirstFrame = time.Now().UnixNano()
 					// Idle: let the first frames settle, read RSS, then go.
-					glib.TimeoutAdd(1500, func() {
+					settle := uint(1500)
+					if covScenarios[scenario] != nil {
+						settle = 200 // the cover scenarios measure nothing
+					}
+					glib.TimeoutAdd(settle, func() {
 						rep.IdleMem = readMem()
 						shoot(w, scenario, "start")
 						rep.Collapsed = w.shell.split.Collapsed()
@@ -488,6 +494,10 @@ func runChild(scenario, path string) int {
 						rep.Title, rep.FirstStatus = w.win.Title(), w.status.Text()
 						if w.banner != nil && w.banner.Revealed() {
 							rep.Banner = w.banner.Title()
+						}
+						if run := covScenarios[scenario]; run != nil {
+							run(&covEnv{w: w, rep: rep, fail: fail})
+							return
 						}
 						if scenario == "logs" {
 							browseLogs(w, rep, fail)
@@ -895,6 +905,9 @@ func runChild(scenario, path string) int {
 		}
 	}
 
+	if set := covOptions[scenario]; set != nil {
+		set(&opts, rep)
+	}
 	code := Run([]string{"archmaid-gui-test"}, opts)
 	rep.Launched = launcher.Calls()
 	styleMu.Lock()
