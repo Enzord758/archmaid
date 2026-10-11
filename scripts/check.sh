@@ -10,10 +10,13 @@
 #                                            # its thresholds are machine-specific)
 set -euo pipefail
 
-# Coverage floors, in percent of statements. Raise them when coverage rises;
-# never lower one to make a change pass.
-MIN_TOTAL=89.1   # cmd/archmaid + internal/... (the TUI is internal/tui since P5), measured after the askpass tests + view goldens
-MIN_ASKPASS=90   # internal/privilege/askpass.go: it carries the sudo password (95.0% after the move)
+# Coverage floors, in percent of statements. Raised with every coverage batch
+# (docs/coverage-map.md, "Work packages") to the figure the gate then
+# measures, rounded down to one decimal; never lowered to make a change pass.
+# The goal is 100 % of reachable statements (docs/coverage-exempt.md): the
+# gate also prints the reachable figure, so the floor and the goal stay in view.
+MIN_TOTAL=92.1   # cmd/archmaid + internal/... (the TUI is internal/tui since P5); 92.1 measured at 8bf5d3a (5454/5918)
+MIN_ASKPASS=93   # internal/privilege/askpass.go: it carries the sudo password (93.3 % at 8bf5d3a)
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -179,6 +182,10 @@ floor() {
 	fi
 }
 floor total "" "$MIN_TOTAL"
+# The same profile against the exempt list (docs/coverage-exempt.md): raw and
+# reachable side by side. Informational; the floor above is the raw figure.
+# A stale entry (code moved) is named on stderr: refresh the list.
+echo "info: $(go run ./scripts/covblocks -reachable -exempt docs/coverage-exempt.tsv "$PROFILE" | grep '^core')"
 floor internal/privilege/askpass.go /internal/privilege/askpass.go "$MIN_ASKPASS"
 
 if ((failed)); then

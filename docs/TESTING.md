@@ -36,7 +36,7 @@ set at the top of the script: `MIN_TOTAL` for `cmd/archmaid` plus `internal/...`
 together, and `MIN_ASKPASS` for `internal/privilege/askpass.go` (matched by
 that path suffix), which carries the sudo password. Per-file
 coverage is computed from the profile itself. When coverage rises, raise the
-floor in the same commit; never lower one to make a change pass. Around all
+floor in the same commit (to the figure the gate then measures, rounded down to one decimal); never lower one to make a change pass. The gate also prints the *reachable* figure, covered / (total - exempt), against the exempt list in [`coverage-exempt.md`](coverage-exempt.md); the goal is 100 % of reachable. Around all
 of that, `scripts/state-guard.sh` snapshots the real state dir first and
 compares it last (ground rule 8); a change fails the gate. Before trusting
 the guard, the gate runs `scripts/state-guard-selftest.sh`, which checks on
@@ -99,7 +99,7 @@ HEAD it has no base column and is checked only against its cap.
 
 The gate's coverage figure counts `go test` only. Every statement still
 uncovered is listed and sorted (unit test, e2e, test VM, the owner, unreachable)
-in [`coverage-map.md`](coverage-map.md), with the path to 100 %. To count runs
+in [`coverage-map.md`](coverage-map.md), with the path to 100 % of reachable, the exemption list and the work packages that close the gap. To count runs
 outside `go test`, everything below writes raw coverage data (a `GOCOVERDIR`
 of `covmeta.*`/`covcounters.*` files) in atomic mode, so any mix of runs merges
 into one number:
@@ -110,7 +110,7 @@ into one number:
 | `gui/scripts/headless-cover.sh DIR` | the GUI's plain tests and `headless.sh`'s display groups (private headless weston, as `make gui-test`) |
 | `E2E_COVER_DIR=DIR bash cmd/archmaid/e2e/run.sh` | the e2e tapes on a cover-built `archmaid` (each run's `GOCOVERDIR` inside its scratch dir, copied to DIR) |
 | `scripts/cover-build.sh OUTDIR` (`make cover-build COVER_BIN=…`) | builds `archmaid`, `archmaid-helper`, `archmaid-gui` with `-cover`; each writes to `$GOCOVERDIR` when it exits normally (a SIGKILLed process writes nothing). For the test VM and the owner's measured runs (`coverage-map.md`, "Collecting coverage") |
-| `scripts/cover-merge.sh [-o OUT] DIR...` | merges, then prints core (`cmd/archmaid` + `internal/...`, check.sh's set), helper, gui and all; OUT holds the merged covdata, `profile.txt`, `summary.txt`, `uncovered.txt` and `coverage.html` |
+| `scripts/cover-merge.sh [-o OUT] DIR...` | merges, then prints core (`cmd/archmaid` + `internal/...`, check.sh's set), helper, gui and all, raw and reachable (`docs/coverage-exempt.tsv`); OUT holds the merged covdata, `profile.txt`, `summary.txt`, `uncovered.txt` and `coverage.html` |
 | `make e2e-cover` (`scripts/cover-report.sh`) | unit + e2e merged; `COVER_GUI=1` adds the GUI; `COVER_OUT=dir` keeps everything |
 
 `go run ./scripts/covblocks [-summary|-json|-src] PROFILE...` lists a
@@ -843,6 +843,7 @@ the names.
 
 | `cmd/archmaid-helper/internal/coverdir/coverdir_test.go` | The cover helper's baked counter dir (cover builds only): used only by root with no `GOCOVERDIR`, and only a real, root-owned directory nobody else can write; a symlink, a file, a group- or world-writable or user-owned dir, a missing one and a user's own temp dir are refused. |
 | `scripts/covblocks/main_test.go` | The uncovered-block lister: profiles merge with check.sh's rule (covered in any profile is covered), totals truncate like check.sh, malformed lines are refused, blocks are named after their function, method, closure or `<package>`. |
+| `scripts/covblocks/exempt_test.go` | The exempt list: seven tab-separated fields, comments skipped, bad lines refused; exempt statements leave the denominator per scope, an entry that no longer names an uncovered block of the same size is stale and takes nothing out, and a scope the profile lacks is not stale. |
 
 The uncovered statements themselves, sorted by what it takes to cover them:
 [`coverage-map.md`](coverage-map.md).

@@ -14,8 +14,7 @@ import json, re, sys
 
 M = "github.com/Enzord758/archmaid/"
 
-PENDING = ("internal/actions/", "internal/engine/", "internal/logstore/", "internal/driver/",
-           "internal/tui/", "internal/frontend/audit.go", "packaging/dms/")
+PENDING = ()
 # internal/engine/stub and enginetest are classified (Dev 3's change is the engine package).
 NOT_PENDING = ("internal/engine/stub/", "internal/engine/enginetest/")
 
@@ -87,7 +86,8 @@ rule("internal/privilege/askpass.go", r"Server.peerOf", "E", "SyscallConn/Contro
 rule("internal/privilege/askpass.go", r"verifyPeer", "E", "os.Executable fails only without /proc", "", rec="keep")
 rule("internal/privilege/askpass.go", r"", "A", "net.Pipe relays that hang up or answer the wrong line; a harden func that fails", "internal/privilege/askpass_test.go")
 rule("internal/privilege/faillock.go", r"", "A", "a tally path that is a directory, an unreadable faillock.conf, a scanner error (an over-long line)", "internal/privilege/faillock_test.go")
-rule("internal/privilege/kept.go", r"KeptPassword.Keep|wipeLocked", "E", "mmap/mlock fail only under a tiny RLIMIT_MEMLOCK; the wipe check can't see non-zero bytes after the wipe", "", rec="keep: defensive")
+rule("internal/privilege/kept.go", r"KeptPassword.Keep", "A", "unix.Mmap or Mlock failing: a re-executed test child with setrlimit(RLIMIT_AS / RLIMIT_MEMLOCK) lowered (needs Dev 3: it is the kept-password code)", "internal/privilege/kept_test.go")
+rule("internal/privilege/kept.go", r"wipeLocked", "E", "the wipe check can't see non-zero bytes after the wipe", "", rec="keep-exempt")
 rule("internal/privilege/kept.go", r"", "A", "a password with a line break; su's check failing (shim)", "internal/privilege/kept_test.go")
 rule("internal/privilege/privilege.go", r"CheckPassword", "A", "su shim missing/failing to start", "internal/privilege/privilege_test.go")
 # ---- proc
@@ -114,6 +114,34 @@ rule(H + "internal/helper/checks.go", r"LstatFile", "A", "a plain os.Lstat wrapp
 rule(H + "internal/helper/helper.go", r"DefaultOptions", "B", "only main uses it: covered by any cover-helper run", "e2e (new helper check)")
 rule(H + "internal/helper/", r"", "A", "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r", "cmd/archmaid-helper/internal/helper/*_test.go")
 
+# ---- internal/actions
+rule("internal/actions/downloads.go", r"", "A", "the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days", "internal/actions/downloads_test.go")
+rule("internal/actions/services.go", r"", "A", "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules", "internal/actions/services_test.go")
+# ---- internal/engine
+rule("internal/engine/events.go", r"DiscoveryOutcome.String", "A", "String of an out-of-range outcome", "internal/engine/events_test.go")
+rule("internal/engine/", r"", "A", "a combined queue whose parts are all declined, finish out of order, or exit without having run", "internal/engine/combine_test.go")
+# ---- internal/logstore
+rule("internal/logstore/lastrun.go", r"Store.WriteLastRun", "E", "json.Marshal of a RunRecord can't fail", "", lo=66, hi=67, rec="keep-exempt")
+rule("internal/logstore/lastrun.go", r"Store.WriteLastRun", "A", "MkdirAll under a regular file / CreateTemp in a 0500 dir", "internal/logstore/lastrun_test.go", lo=71, hi=79)
+rule("internal/logstore/lastrun.go", r"Store.WriteLastRun", "E", "write/chmod/fsync/close of a fresh temp file fail only on ENOSPC/EIO; no seam", "", lo=80, hi=96, rec="make-testable: the shared atomic-write helper with an injectable file")
+rule("internal/logstore/logstore.go", r"", "A", "a store with an error, a run dir under a regular file, a log path that is a directory", "internal/logstore/logstore_test.go")
+# ---- internal/driver
+rule("internal/driver/driver.go", r"currentFaillock", "E", "user.Current fails only when the uid has no passwd entry; no seam", "", rec="keep-exempt")
+rule("internal/driver/driver.go", r"Driver.command.func", "E", "the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's", "", rec="keep-exempt")
+rule("internal/driver/driver.go", r"Driver.handle|Driver.loop", "A", "a Session that panics on the local or inputs path: the Driver tears down", "internal/driver/driver_test.go")
+rule("internal/driver/", r"", "A", "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe", "internal/driver/*_test.go")
+# ---- internal/tui
+rule("internal/tui/askpass.go", r"startAskpassServer", "E", "os.Executable fails only without /proc", "", rec="keep-exempt")
+rule("internal/tui/tui.go", r"^Run", "A", "ttyguard.Hold refusing stdin (a closed or non-terminal fd in the TTY child)", "internal/tui/tui_test.go", lo=60, hi=66)
+rule("internal/tui/tui.go", r"^Run", "E", "Release of the guard fails only if the fd was closed concurrently", "", rec="keep-exempt")
+rule("internal/tui/tui.go", r"DisableCoreDumps", "E", "prctl(PR_SET_DUMPABLE) on our own process doesn't fail", "", rec="keep-exempt")
+rule("internal/tui/tui.go", r"DropSudoTicket", "A", "privilege.DropTicket failing (sudo shim)", "internal/tui/tui_test.go")
+rule("internal/tui/view.go", r"model.viewOf", "E", "safe fallback: renderScreen/baseScreen name every screen", "", rec="keep-exempt")
+rule("internal/tui/tasks.go", r"^<package>$", "B", "the default execProcess hands the terminal to the editor: a pty tape with EDITOR set to a script (the unit tests swap the seam)", "cmd/archmaid/e2e/run.sh")
+rule("internal/tui/tasks.go", r"handedTerminal", "B", "the terminal handover to a real editor: a pty tape with EDITOR set to a script", "cmd/archmaid/e2e/run.sh")
+rule("internal/tui/", r"", "A", "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome", "internal/tui/*_test.go")
+rule("internal/frontend/", r"", "A", "an audit helper edge", "internal/frontend/audit_test.go")
+
 # ---- cover tooling itself
 rule("cmd/archmaid-helper/internal/coverdir/coverdir.go", r"init", "B", "only a cover helper running as root sets it: verified under unshare -r with a scratch HOME (coverage-map.md, helper check); in the VM every pkexec run does", "e2e (new helper check)")
 rule("internal/testenv/cover.go", r"", "E", "the early return is for runs without coverage, which count nothing", "", rec="keep")
@@ -128,7 +156,7 @@ rule(G + "polkitagent/polkitagent.go", r"waitNoEcho", "E", "the termios read fai
 rule(G + "polkitagent/", r"", "A", "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject", "gui/internal/polkitagent/polkitagent_test.go")
 rule(G + "realdriver/realdriver.go", r"Wiring.env", "A", "Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C)", "gui/internal/realdriver/realdriver_test.go")
 rule(G + "realdriver/", r"", "A", "a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config", "gui/internal/realdriver/agent_test.go")
-rule(G + "runview/palette.go", r"Dank16Path", "E", "os.UserHomeDir fails only with HOME unset, and XDG_CACHE_HOME empty too", "", rec="keep")
+rule(G + "runview/palette.go", r"Dank16Path", "A", "XDG_CACHE_HOME empty: the ~/.cache fallback, and HOME unset too (t.Setenv)", "gui/internal/runview/palette_test.go")
 rule(G + "runview/", r"", "A", "SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks", "gui/internal/runview/*_test.go")
 rule(G + "settings/settings.go", r"Save", "E", "write/fsync/close of a fresh temp file fail only on ENOSPC/EIO", "", lo=94, hi=106, rec="keep")
 rule(G + "settings/", r"", "A", "no XDG_CONFIG_HOME nor HOME, an unreadable gui.json, a read-only config dir, a rename onto a directory, a bad downloads folder", "gui/internal/settings/settings_test.go")
@@ -153,6 +181,26 @@ def classify(b):
             return f, cat, why, home, rec
     return f, "?", "", "", ""
 
+# Security code: a change to these (a test, a seam, a removal) is Dev 3's to review.
+SEC_PREFIX = ("cmd/archmaid-helper/", "internal/privilege/", "internal/helperclient/", "internal/ttyguard/",
+              "gui/internal/polkitagent/", "gui/internal/realdriver/", "internal/downloads/",
+              "internal/driver/keep.go", "internal/engine/askpass.go", "internal/tui/askpass.go")
+
+def is_sec(f):
+    return f.startswith(SEC_PREFIX)
+
+# The three recommendations of docs/coverage-exempt.md.
+def norm_rec(f, fn, why, rec):
+    if "make-testable" in rec:
+        return "make-testable"
+    if "write/fsync/close" in why or "write/chmod/fsync/close" in why or "opening the directory it just wrote into" in why:
+        return "make-testable"
+    if f == "internal/downloads/downloads.go" and "TOCTOU" in rec and re.search(r"removeContents|removeTree|entryIsOld|checkDownloadsDir", fn):
+        return "make-testable"
+    if "callers pass" in rec:
+        return "remove"
+    return "keep-exempt"
+
 blocks = json.load(open(sys.argv[1]))
 out = []
 for b in blocks:
@@ -161,7 +209,9 @@ for b in blocks:
     if home:
         d["home"] = home
     if rec:
-        d["recommend"] = rec
+        d["recommend"] = norm_rec(f, b["func"], why, rec)
+        d["note"] = rec
+    d["security"] = is_sec(f)
     out.append(d)
 json.dump(out, open(sys.argv[2], "w"), indent=1, ensure_ascii=False)
 from collections import Counter
