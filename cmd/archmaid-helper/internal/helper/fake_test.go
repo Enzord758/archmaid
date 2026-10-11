@@ -15,6 +15,8 @@ import (
 type reply struct {
 	out, err string
 	exit     int
+	// fail: the command couldn't be run at all (Query's and Stream's err).
+	fail error
 }
 
 // fakeRunner records every argv and answers from a table keyed by the
@@ -41,6 +43,9 @@ func (f *fakeRunner) Query(argv []string) (string, string, int, error) {
 	defer f.mu.Unlock()
 	f.queries = append(f.queries, slices.Clone(argv))
 	r := f.replies[strings.Join(argv, " ")]
+	if r.fail != nil {
+		return "", "", -1, r.fail
+	}
 	return r.out, r.err, r.exit, nil
 }
 
@@ -49,6 +54,9 @@ func (f *fakeRunner) Stream(argv []string, line func(stream, text string)) (int,
 	f.streams = append(f.streams, slices.Clone(argv))
 	r := f.replies[strings.Join(argv, " ")]
 	f.mu.Unlock()
+	if r.fail != nil {
+		return -1, r.fail
+	}
 	for _, l := range nonEmptyLines(f.streamOut + r.out) {
 		line("out", l)
 	}

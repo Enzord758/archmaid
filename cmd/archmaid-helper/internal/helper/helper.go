@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -96,15 +97,7 @@ var verbs = map[string]verb{
 }
 
 // Verbs lists the verb names, sorted.
-func Verbs() []string {
-	return slices.Sorted(func(yield func(string) bool) {
-		for k := range verbs {
-			if !yield(k) {
-				return
-			}
-		}
-	})
-}
+func Verbs() []string { return slices.Sorted(maps.Keys(verbs)) }
 
 // session is one invocation's state.
 type session struct {

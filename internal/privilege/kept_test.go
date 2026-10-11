@@ -77,6 +77,12 @@ func TestKeptPasswordRefuses(t *testing.T) {
 		t.Error("a nil KeptPassword held something")
 	}
 	none.Wipe()
+	// A run that ends before anything was kept keeps nothing afterwards.
+	ended := NewKeptPassword(time.Hour)
+	ended.Wipe()
+	if ended.Keep([]byte("hunter2")) || ended.Has() {
+		t.Error("kept a password after the run ended with nothing kept")
+	}
 }
 
 // TestAnswerBytes: as Answer, from bytes: su first, then the password and
@@ -107,6 +113,27 @@ func TestAnswerBytes(t *testing.T) {
 	req, _ = unverifiedPipeRequest(t)
 	if _, err := req.AnswerBytes(context.Background(), []byte("secret")); err != ErrUnverified {
 		t.Fatalf("unverified: %v", err)
+	}
+}
+
+// TestBytesRefuseALineBreak: CheckPasswordBytes and AnswerBytes refuse a
+// password with a line break before su runs (su and sudo each read one
+// line, so each would check something else), and AnswerBytes writes
+// nothing to sudo's helper.
+func TestBytesRefuseALineBreak(t *testing.T) {
+	for _, pw := range []string{"a\nb", "a\rb", "secret\n"} {
+		dir := shimAuth(t, 0, 0, "")
+		if _, err := CheckPasswordBytes(context.Background(), []byte(pw)); err != ErrLineBreak {
+			t.Errorf("CheckPasswordBytes(%q) = %v, want ErrLineBreak", pw, err)
+		}
+		req, helper := pipeRequest(t)
+		if _, err := req.AnswerBytes(context.Background(), []byte(pw)); err != ErrLineBreak {
+			t.Errorf("AnswerBytes(%q) = %v, want ErrLineBreak", pw, err)
+		}
+		if argv, ok := called(t, dir, "su"); ok {
+			t.Fatalf("su ran (%q) for %q", argv, pw)
+		}
+		requireNothingWritten(t, helper)
 	}
 }
 

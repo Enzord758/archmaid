@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -371,8 +372,30 @@ func TestAskpassCloseDropsUndelivered(t *testing.T) {
 	}
 	defer conn.Close()
 	fmt.Fprintln(conn, "Password:")
+	// Close only once the request waits to be taken: before that, Close
+	// shuts the listener on a connection still in its backlog, and the
+	// hang-up seen below would be the kernel's, not serve's.
+	waitServeBlocked(t)
 	s.Close() // nobody ever reads Requests
 	requireHangup(t, conn)
+}
+
+// waitServeBlocked waits until a Server's serve goroutine has read its
+// client's prompt and blocks handing the request on.
+func waitServeBlocked(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(askpassTimeout)
+	for time.Now().Before(deadline) {
+		buf := make([]byte, 1<<20)
+		buf = buf[:runtime.Stack(buf, true)]
+		for _, g := range strings.Split(string(buf), "\n\n") {
+			if strings.Contains(g, "[select") && strings.Contains(g, "privilege.(*Server).serve(") {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("no serve goroutine is waiting to deliver a request")
 }
 
 // TestUnidentifiedPeerDropped: a client the server can't look up in /proc is

@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-
+	"strings"
 	"testing"
 	"time"
 )
@@ -193,5 +193,47 @@ func TestFaillockStatusLive(t *testing.T) {
 	}
 	if st.Deny < 0 || st.Failures < 0 {
 		t.Fatalf("nonsense status %+v", st)
+	}
+}
+
+// TestFaillockUnreadableConf: a faillock.conf that can't be read (a path
+// through a file, a directory, a line too long to scan) is an error, never
+// faillock's defaults: those could say "no lockout" or name the wrong
+// tally dir, and a frontend would then not warn before the last attempt.
+func TestFaillockUnreadableConf(t *testing.T) {
+	good := faillockFixture(t, "deny = 1", tally(record{"sudo", valid, ago(time.Minute)}))
+	if st, err := faillockStatus(good, "alice", faillockNow); err != nil || !st.Locked || st.Deny != 1 {
+		t.Fatalf("the readable fixture: %+v, %v", st, err)
+	}
+	dir := t.TempDir()
+	file := filepath.Join(dir, "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Readable up to the long line: deny = 1 is read, then the scan fails.
+	long := filepath.Join(dir, "long.conf")
+	if err := os.WriteFile(long, []byte("deny = 1\n"+strings.Repeat("#", 70<<10)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, conf := range map[string]string{
+		"not a directory": filepath.Join(file, "faillock.conf"),
+		"a directory":     dir,
+		"line too long":   long,
+	} {
+		if st, err := faillockStatus(conf, "alice", faillockNow); err == nil {
+			t.Errorf("%s: read as %+v, want an error", name, st)
+		}
+	}
+}
+
+// TestFaillockTallyIsADirectory: a tally path that opens but can't be read
+// is an error, not zero failures (root included, unlike a 0000 file).
+func TestFaillockTallyIsADirectory(t *testing.T) {
+	conf := faillockFixture(t, "", nil)
+	if err := os.Mkdir(filepath.Join(filepath.Dir(conf), "faillock", "alice"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := faillockStatus(conf, "alice", faillockNow); err == nil {
+		t.Fatalf("read as %+v, want an error", st)
 	}
 }
