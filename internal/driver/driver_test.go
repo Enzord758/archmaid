@@ -149,6 +149,22 @@ func TestDiscoveryRecord(t *testing.T) {
 	if dr := find[engine.DiscoveryResult](t, r.run("services", nil)); dr.LogPath != "" {
 		t.Errorf("unwritten record has LogPath %q", dr.LogPath)
 	}
+
+	// A store that has a Path but whose Append fails (a file where the
+	// state folder should be): only the driver's written check keeps the
+	// LogPath off.
+	blocker := filepath.Join(t.TempDir(), "state")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bad := logstore.New(logstore.Options{Dir: filepath.Join(blocker, "sub")})
+	if bad.Path(logstore.Services) == "" {
+		t.Fatal("setup: the store has no Path, so this tests nothing")
+	}
+	r = newRig(t, engine.Options{}, Deps{Log: bad}, a)
+	if dr := find[engine.DiscoveryResult](t, r.run("services", nil)); dr.LogPath != "" {
+		t.Errorf("record whose write failed has LogPath %q", dr.LogPath)
+	}
 }
 
 // A dry run starts no child: the step reports what it would run.
