@@ -161,7 +161,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~135 s warm, so with no command it runs four parts of at most ~40 s, each with its own weston; CI sets 600), so nothing outlives the run. Scenarios:
+~135 s warm, so with no command it runs six parts of at most ~50 s, each with its own weston (the coverage scenarios are one part); CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -196,6 +196,29 @@ and 24-bit; it also checks that every visible output row carries its Pango
 attributes). Every scenario also checks
 that `Close` was called on the Driver and that no goroutine is left after
 `Run` returns (goleak, against the goroutines from before the app started).
+
+The `cov-*` scenarios (`cover_harness_test.go`, `cover_harness2_test.go`; their
+`TestGUICov*` tests are in `cover_scenarios_test.go`) are the coverage work's:
+small children that drive one area through its real widgets and signals and
+assert the outcome inside the child (`covEnv.ok`; a failed check is in the
+report's `Errors`, which `child` turns into a test failure). They start 200 ms
+after the first frame, feed events through `Window.apply` (the pump's own
+entry), and close the window: dialogs (a question without a title, Enter in
+the password entry, a withdrawn prompt, a selection cancelled, the window
+closing under an open dialog), the quit question and a signal's quit, the
+default Launcher and an engine that never takes a command, the sidebar
+overlay's key and click controllers, the timeline (a click on a step's
+header, the follow-the-bottom controllers, lines outside any step, a failed
+step's actions), the Logs page (row, back, category toggle, search, section
+activate, Open in Logs on another run, a run with no logs, a log removed or
+unreadable since it was listed, an unreadable state dir), the Settings page
+(unreadable and unwritable settings, a topgrade config that can't be made or
+opened, a folder typed with spaces, no HOME) and a screenshot that can't be
+taken (`TestGUIShots`, built with `-tags shots`). `cover_plain_test.go` and
+`cover_plain2_test.go` are their plain-Go half (no display): a `Window`
+built by hand with only the fields the code touches, the timeline's sections
+over a bare `gio.ListStore`, `runFolder`, the status line, the user-cache
+re-measure and a signal before the window exists.
 
 The `real-*` scenarios (`TestGUIRealDriver`, its own part of the default
 `headless.sh` run) drive the **real Driver** through `gui/internal/realdriver`

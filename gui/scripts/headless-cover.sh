@@ -30,7 +30,8 @@ env -u ARCHMAID_GUI_DISPLAY_TESTS go test -count=1 "${cover[@]}" ./...
 long='^TestGUI(Prompts|FullCleanup)$'
 real='^TestGUI(RealDriver|StopAndQuit|OnePassword|RealServices)$'
 stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow|ToastPlain|NarrowNav)$'
-starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
+starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|RepairNothingFound|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
+cov='^TestGUICov'
 # Build once outside the timeouts: the instrumented ui test binary is cached
 # for the runs below.
 go test -count=1 "${cover[@]}" -run '^$' ./internal/ui >/dev/null
@@ -42,5 +43,6 @@ scripts/headless.sh go test "${cover[@]}" -count=1 -run "$long" ./internal/ui ||
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$real" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -tags shots -count=1 -run "$stops" ./internal/ui || rc=1
 scripts/headless.sh go test "${cover[@]}" -count=1 -run "$starts" ./internal/ui || rc=1
-scripts/headless.sh go test "${cover[@]}" -count=1 -skip "$long|$real|$stops|$starts" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -count=1 -run "$cov" ./internal/ui || rc=1
+scripts/headless.sh go test "${cover[@]}" -count=1 -skip "$long|$real|$stops|$starts|$cov" ./internal/ui || rc=1
 exit "$rc"

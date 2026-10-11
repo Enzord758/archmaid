@@ -147,7 +147,11 @@ func TestPopRunsMergesRemovalsOfOneStep(t *testing.T) {
 		t.Fatalf("removed %d lines, want 6", c.OutRemove)
 	}
 	if len(c.Steps) != 2 || c.Steps[0].ID != "a" || c.Steps[0].Remove != 4 || c.Steps[0].Append != nil {
-		t.Errorf("steps %+v, want a's 4 removals as one entry first", c.Steps)
+		var got []string
+		for _, s := range c.Steps {
+			got = append(got, fmt.Sprintf("%s -%d +%d", s.ID, s.Remove, len(s.Append)))
+		}
+		t.Errorf("steps %q, want a's 4 removals as one entry first", got)
 	}
 }
 

@@ -23,15 +23,17 @@ cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
 # The whole display suite takes ~135 s, past the bound, so the default runs
-# it in five parts of at most ~45 s, each with its own weston and timeout:
+# it in six parts of at most ~50 s, each with its own weston and timeout:
 # the long stub scenarios, the real Driver's (shimmed), the engine stopping
 # and the instance check with the 630x372 windows, the Overview's starts with
-# the Logs and Settings pages, the rest.
+# the Logs and Settings pages, the coverage scenarios (cover_harness_test.go),
+# the rest.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
 	real='^TestGUI(RealDriver|StopAndQuit|OnePassword|RealServices)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow|ToastPlain|NarrowNav)$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|RepairNothingFound|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
+	cov='^TestGUICov'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when
 	# ARCHMAID_GUI_SHOTS asks for screenshots.
@@ -41,7 +43,8 @@ if [[ $# -eq 0 ]]; then
 	"$self" go test "${tags[@]}" -count=1 -v -run "$real" ./internal/ui
 	"$self" go test -tags shots -count=1 -v -run "$stops" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$stops|$starts" ./internal/ui
+	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$stops|$starts|$cov" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and
