@@ -38,7 +38,7 @@ Everything is built from `refactor/p0` in a separate worktree,
 | Package cache thinned to 3 versions (`paccache -r`); the whole cache only if you say yes | `~/.local/bin/archmaid` (the old build) and its `.desktop` entry; `install.sh` isn't used |
 | Orphaned packages removed, **only** if you say yes at a confirm that lists them | Your Downloads folder, user cache, services (those actions aren't run) |
 | AUR build cache cleaned (`yay -Sc`), `/tmp` and `/var/tmp` aged per tmpfiles.d, journal entries older than 2 weeks deleted (gone for good) | No unit is enabled; no setuid file is installed |
-| Hyprland plugins updated (`hyprpm update`) | The DMS bar: the widget files are installed by Part B, but nothing shows until you enable the plugin (optional, last) |
+| Hyprland plugins updated (`hyprpm update`) | The DMS shell: the widget files are installed by Part B, but nothing shows until you enable the plugin (optional, last) |
 | `~/.local/state/archmaid`: new run folders (rotation keeps the 5 newest), `last-run.json` overwritten, the AUR snapshot and `audit-state.json` written | |
 | S0: a new git worktree, `~/archmaid-live` | `~/archmaid`'s working tree and its branch (`main`) |
 | Part B: the `archmaid-git` package (files listed in B2) | |

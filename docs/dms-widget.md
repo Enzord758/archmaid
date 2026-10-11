@@ -1,4 +1,4 @@
-# DMS bar widget (P7): design
+# DMS widget plugin (P7): design
 
 Status: **implemented (P7)** as described in "Implementation as built" below; the
 rest of this file is the original design, kept for the data contract (section 3).
