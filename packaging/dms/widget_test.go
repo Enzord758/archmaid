@@ -99,6 +99,20 @@ func TestWidgetFilesSurviveAtomicReplace(t *testing.T) {
 				t.Errorf("%s lacks %q:\n%s", id, want, blk)
 			}
 		}
+		// A reload's path flip fires onLoadFailed with path "": the guard
+		// must come first, or the flip itself counts as a failed read.
+		lf := strings.Index(blk, "onLoadFailed: {")
+		if lf < 0 {
+			t.Errorf("%s has no onLoadFailed block", id)
+			continue
+		}
+		fb := blk[lf:]
+		g := strings.Index(fb, `if (path === "")`)
+		r := strings.Index(fb, "return;")
+		h := strings.Index(fb, "root.loadFailedRetry()")
+		if g < 0 || r < g || h < r {
+			t.Errorf(`%s: onLoadFailed needs the 'if (path === "") return;' guard before loadFailedRetry:\n%s`, id, fb)
+		}
 	}
 	rl := src[strings.Index(src, "function reloadFiles()"):]
 	rl = rl[:strings.Index(rl, "\n    }\n")]
@@ -106,6 +120,23 @@ func TestWidgetFilesSurviveAtomicReplace(t *testing.T) {
 		if !strings.Contains(rl, want) {
 			t.Errorf("reloadFiles lacks %q", want)
 		}
+	}
+	// Order: off, on, then the explicit reloads (a reload before the flip
+	// reads the old inode).
+	off, on := strings.Index(rl, "filesOn = false"), strings.Index(rl, "filesOn = true")
+	if off < 0 || on < off {
+		t.Error("reloadFiles must set filesOn = false before filesOn = true")
+	}
+	for _, f := range []string{"lastRunFile", "auditFile", "updatesFile"} {
+		if i := strings.Index(rl, f+".reload()"); i < on || on < 0 {
+			t.Errorf("reloadFiles must call %s.reload() after filesOn = true", f)
+		}
+	}
+	ra := src[strings.Index(src, "function reloadAll()"):]
+	ra = ra[:strings.Index(ra, "\n    }\n")]
+	rr, rf := strings.Index(ra, "retries = 0"), strings.Index(ra, "reloadFiles()")
+	if rr < 0 || rf < rr {
+		t.Error("reloadAll must reset retries = 0 before reloadFiles()")
 	}
 	if !strings.Contains(src, "id: retryTimer") {
 		t.Error("no retry timer for a failed read")
