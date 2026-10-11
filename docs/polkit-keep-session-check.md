@@ -2,7 +2,9 @@
 
 For the owner to run by hand. No agent runs any of this (CLAUDE.md rule 2).
 
-**The open question** (HANDOVER → Open items, `docs/polkit-live-test.md` case
+**Answered for the graphical session** (the owner, Part A, 2026-10-11/12:
+G3 rc 0, G5 `unix-session:`; see "Results" below and HANDOVER → "`auth_admin_keep`
+is kept for the scope of the agent that asked"). **The question** (`docs/polkit-live-test.md` case
 F2): outside any logind session, polkit kept an `auth_admin_keep`
 authorization only for the process that asked (pkexec's parent); a new process
 was prompted again. Inside a real session (the graphical one, or a tty login),
@@ -467,6 +469,18 @@ Checklist:
 - [ ] `faillock --user "$USER"` shows 0 rows (or the count is written down below)
 
 ## Results (fill in)
+
+**Part A, the owner's machine (r518.59f90b3, 2026-10-11/12):** G3 `rc=0`
+(a new process authorised without a prompt) and G5 showed the kept
+authorization for a `unix-session:` subject: in the graphical session, with
+polkit-gnome as the agent, `auth_admin_keep` is scoped to the **session**.
+polkitd keeps it for the scope of the agent that asked, so archmaid-gui's own
+pkttyagent (registered for its process) keeps it process-scoped, and only the
+fallback through the desktop's agent is session-scoped. Recorded in HANDOVER
+("`auth_admin_keep` is kept for the scope of the agent that asked"); the
+question is closed. Parts B and C weren't reported. The table stays for a
+re-run.
+
 
 Date: ______  polkit `pkcheck --version`: ______  faillock rows at step 1: ___ / at step 14: ___
 

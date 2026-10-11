@@ -262,7 +262,13 @@ display, the per-run directories and rotation (`TestRunDirs`, a topgrade
 shim first on PATH), and the audit prefetch with a blocking fake
 `Foreign` (no pacman, no AUR): it starts while the gate is up and the step
 consumes it (one lookup), and a declined gate or `Close` cancels and
-reaps it (`TestAuditPrefetch*`).
+reaps it (`TestAuditPrefetch*`). `TestServicesPolkitCancel` runs Disable unused
+services on the real Driver with archmaid's agent (the pkttyagent shim,
+`agenttest.Shim`) and `pkexec`, `su` and `systemctl` shims: a Cancel in
+archmaid's own polkit dialog ends cancelled with nothing refused in
+`Finished`, `last-run.json`, the Overview's summary and the Run page's
+text, while three wrong passwords and a cancel at the desktop's dialog stay
+"not authorised".
 
 The stub is only ever `--stub`: `TestParseLaunch` (plain Go) checks that
 `ARCHMAID_GUI_STUB` and any `ARCHMAID_GUI_SCRIPT` leave a launch without it
@@ -899,8 +905,10 @@ fake runner. It can't answer these questions, which decide the GUI's design:
 2. **Yes**: a dismissed dialog (EOF or Ctrl-C) adds one failure.
 3. **The requesting process**, when it has no login session: a second pkexec
    from the same parent skipped the prompt, a new parent was asked again.
-   Still to re-check inside a real session (tty3 or the GUI), where polkit may
-   tie it to the session instead.
+   In the owner's graphical session it is the **session** (2026-10-11/12,
+   `polkit-keep-session-check.md`): polkitd keeps it for the scope of the
+   agent that asked (HANDOVER, "`auth_admin_keep` is kept for the scope of
+   the agent that asked").
 4. **Yes**, but an action *without* argv1 on the same `exec.path` can win over
    an argv1-specific one. Our policy has none (every action carries its verb as
    argv1, and `TestPolicyMatchesVerbs` fails otherwise) — keep it that way.

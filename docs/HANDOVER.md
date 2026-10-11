@@ -59,7 +59,7 @@ charmbracelet, except `internal/tui`, and any that imports gotk4):
 | `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace}`, its combined output streamed as `Msg`s on one ordered channel, the dry-run echo, `ErrWaitDelay` → success on a clean exit), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
 | `internal/steps` | what a unit of work is: `Step` (stable `ID`, the root helper's `Verb` where one exists, `Argv` or an in-process `Run(ctx, Env) Result`, `Confirm`/`Optional`/`OnAccept`, `Items`/`Cascade` (what a confirm lists, as data), `NeedsPriv`, `AlwaysLog`, log `Category`, `Prefetch`), `Result` (`Output`, `Err`, `ConfirmNext`, `Commit`, `InsertNext`; `Check` forbids gating and inserting at once), `ErrResultTaken` (the cause a front end releases an in-process step's ctx with once its result is taken; any other cancel is an abort), `Status` (`Pending` … `AuthRefused` — privilege not granted, one status whatever the reason, since pkexec exits 127 for every refusal — and `Aborted`) |
 | `internal/actions` | the menu as data: `Menu []Action` (`ID`, `Label`, `Icon`, `Gate`, `Busy`, `Steps func(Env) []steps.Step` or `Discover func(ctx, Env) Discovery`, `Record` — the discovery's log category), `ByID`; the queues (Full Cleanup, Run topgrade, Clear user cache), the orphan probe, Repair's user scan and root recheck, the services discovery and `DisableUnits`, the downloads discovery. `Discovery` is a typed union: `Notice{Text, Err, Details, Log}` (ends the action: nothing found, or with `Err` the look failed), `Pending`, `NeedsSelection{Items, Steps}`, `Report{Text, Accept}` (`Accept func() error` accepts the flagged findings, nil when there is nothing to accept), `NeedsRoot{Items, Busy, AuthFailed, Rescan}`; `Pending`, `NeedsSelection` and `NeedsRoot` carry `Checked{Summary, Details, Log}`, what the discovery looked at (see "The discovery record"). `Env` carries the run's flags and what still lives in the TUI, as func values: the AUR audit (`AuditStep`, `AuditReport`) and the downloads delete step (`Downloads`, `DeleteDownloads`). Those four are required (a nil one panics mid-action); `Env.Validate` names any left out, and the TUI's `main` calls it on `actionEnv()` at startup. `DryRun`, `LookPath` and `RepairWorkers` may stay zero |
-| `internal/engine` | the run logic as a state machine with no IO, shared by the TUI and the GUI. **API frozen at E0: changes after this are additive only** (new types, fields, constants; nothing renamed, removed or given a new meaning). The package doc is the contract: event ordering within a step, prompt IDs (stale ones ignored), that only `OutputChunk` may be coalesced or dropped (by a Driver, never the engine) and that no Event carries a password. `Session` (`New(Options{DryRun, Now, Env, Auth})`, checked by `Options.Validate`; `Start`, `Confirm`, `SubmitPassword`, `CancelPrompt`, `Select`, `Abort`, `Handle(Input)`, each returning `Output{Events, Effects}`) runs, as of E1–E5, an action's discovery (a notice, a queue, a pick list or a report) and the whole queue core: the sudo probe and the proceed-gate, step confirms, steps' output and results, the logging policy, steps a result inserts (`InsertNext`) or gates (`ConfirmNext`, failing closed on a refused result), hyprpm kept last, the last-run record; auth (`auth.go`: the up-front password with three attempts and the give-up that refuses the queue's `NeedsPriv` steps, the faillock read before the prompt and before each polkit helper step — a locked account refuses the helper step without a dialog —, Repair's `NeedsRoot` probe/password/rescan, `WaitPolkit` until `PrivilegeGranted` or a `NotGranted` exit); askpass (`askpass.go`: only for the running sudo step, peer-checked by the Driver, on the run's attempt count). E5: `Abort` (`abort.go`: from a running step — `Stop`, then `Aborted` —, a prompt — `PromptClosed` — or a wait; pending steps get no event and count in `Finished.NotRun`; last-run.json as the TUI's abortRunning), the pick list (`select.go`: `NeedsSelection`/`Select`, matched by what was shown; nothing picked ends cancelled), reports (`report.go`: `OutputReport{Audit}`, accepted through `RunHook` then `ReportAccepted`), Repair's polkit recheck decided from the helper's check event (`repaircheck.go`, the `HelperCheck` input), the gate's plan preview and each confirm's `YesLabel`, and the discovery record (`discovery.go`: `DiscoveryResult`, the record's `WriteLog` and the `nothing-found`/`failed` last-run record; see "The discovery record"). Nothing panics (`queue.go` holds the run, `session.go` the API). Both front ends run on it through a `Driver` (`Events`, `Send(Command) bool` — never blocks — `Close`): the TUI since E7b and the GUI, each on `internal/driver`. Events mirror `internal/testtranscript`'s vocabulary so a `sessionTarget` maps them 1:1; privilege is one outcome (`steps.AuthRefused`), with `AuthWaiting`/`AuthResolved`/`FaillockState` for the polkit flow; passwords travel only as `Secret` (prints `<redacted>`) in Commands and Effects |
+| `internal/engine` | the run logic as a state machine with no IO, shared by the TUI and the GUI. **API frozen at E0: changes after this are additive only** (new types, fields, constants; nothing renamed, removed or given a new meaning). The package doc is the contract: event ordering within a step, prompt IDs (stale ones ignored), that only `OutputChunk` may be coalesced or dropped (by a Driver, never the engine) and that no Event carries a password. `Session` (`New(Options{DryRun, Now, Env, Auth})`, checked by `Options.Validate`; `Start`, `Confirm`, `SubmitPassword`, `CancelPrompt`, `Select`, `Abort`, `Handle(Input)`, each returning `Output{Events, Effects}`) runs, as of E1–E5, an action's discovery (a notice, a queue, a pick list or a report) and the whole queue core: the sudo probe and the proceed-gate, step confirms, steps' output and results, the logging policy, steps a result inserts (`InsertNext`) or gates (`ConfirmNext`, failing closed on a refused result), hyprpm kept last, the last-run record; auth (`auth.go`: the up-front password with three attempts and the give-up that refuses the queue's `NeedsPriv` steps, the faillock read before the prompt and before each polkit helper step — a locked account refuses the helper step without a dialog —, Repair's `NeedsRoot` probe/password/rescan, `WaitPolkit` until `PrivilegeGranted` or a `NotGranted` exit); askpass (`askpass.go`: only for the running sudo step, peer-checked by the Driver, on the run's attempt count). E5: `Abort` (`abort.go`: from a running step — `Stop`, then `Aborted` —, a prompt — `PromptClosed` — or a wait; pending steps get no event and count in `Finished.NotRun`; last-run.json as the TUI's abortRunning), the pick list (`select.go`: `NeedsSelection`/`Select`, matched by what was shown; nothing picked ends cancelled), reports (`report.go`: `OutputReport{Audit}`, accepted through `RunHook` then `ReportAccepted`), Repair's polkit recheck decided from the helper's check event (`repaircheck.go`, the `HelperCheck` input), the gate's plan preview and each confirm's `YesLabel`, and the discovery record (`discovery.go`: `DiscoveryResult`, the record's `WriteLog` and the `nothing-found`/`failed` last-run record; see "The discovery record"). Nothing panics (`queue.go` holds the run, `session.go` the API). Both front ends run on it through a `Driver` (`Events`, `Send(Command) bool` — never blocks — `Close`): the TUI since E7b and the GUI, each on `internal/driver`. Events mirror `internal/testtranscript`'s vocabulary so a `sessionTarget` maps them 1:1; privilege is one outcome (`steps.AuthRefused`) — except a Cancel in the GUI's own polkit dialog, which the Session sees and ends as the user's no (`askpass.go`, `cancelledByUser`; see "pkexec: one exit code" below) —, with `AuthWaiting`/`AuthResolved`/`FaillockState` for the polkit flow; passwords travel only as `Secret` (prints `<redacted>`) in Commands and Effects |
 | `internal/engine/enginetest` | test helpers shared by the engine's tests, the stub's and the transcript harness: `CheckContract(t, events)` holds an event sequence to the package doc's ordering rules |
 | `internal/engine/stub` | a `Driver` that replays a scripted event sequence (`Script` of `Cue{After, Event}`) on a `Clock` (the wall clock, or `FakeClock`, which jumps instead of sleeping): prompts wait for their answer, stale IDs and early commands are ignored, `Abort` withdraws the prompt and ends the run like the engine would. `FullCleanup(start)` is a ready-made run shaped like the orphan-cascade transcript. Only the GUI's `--stub` demo runs on it; real runs use `internal/driver` (E6) |
 
@@ -356,7 +356,43 @@ comments and `git log`; this is the "read before you touch it" list.
     request with archmaid-gui as its subject doesn't fail a request of ours
     that follows. Accepted residual (Dev 3, LOW): between stopping a spent
     agent and registering the next, a request goes to the desktop's dialog
-    without the status-line notice; it fails safe. Without pkttyagent, or if
+    without the status-line notice; it fails safe.
+
+    *Residual, for the owner to decide (Dev 3, from Dev 2's #77 finding
+    and polkit 127's source):* a request of ours that reaches the spent
+    pkttyagent is refused without any dialog. **What:** polkitd allows one
+    agent per subject and routes our pkexec's request to whichever agent is
+    registered for archmaid-gui when it arrives. The text listener serves
+    D-Bus on its own thread (`POLKIT_AGENT_REGISTER_FLAGS_RUN_IN_THREAD`,
+    `pkttyagent.c`) and blocks that thread in `getc` while a password prompt
+    is up (`on_request`), so our `BeginAuthentication` waits behind the
+    foreign request. **When:** our request reaches polkitd while a foreign
+    request for archmaid-gui's subject has our agent (its prompt is up for
+    the few ms until our end of file), or in the ~10 ms after that request
+    ended and before the spent pkttyagent has exited; it needs a foreign
+    polkit request with archmaid-gui as its subject during one of our helper
+    calls, which nothing on the owner's desktop is known to make. **Effect:**
+    the spent listener prints our banner, starts a PAM session, and its
+    sticky end of file cancels it at once: no dialog, pkexec exits 127, the
+    step(s) read "Not authorised" and nothing runs as root (fails safe).
+    It also costs one `pam_faillock` row the user never saw a dialog for
+    (the session was cancelled after PAM began, as above). Once the agent
+    has exited, a request polkitd still routes to it fails without PAM (no
+    row); one that comes after the next agent registered gets our dialog.
+    **Why not closed:** archmaid doesn't decide when pkexec's request
+    reaches polkitd or when a foreign request comes; the agent exists only
+    during our helper call, so there is no "next pkexec" to hold back until
+    the spent agent is gone and the new one registered. A retry of a call
+    refused without a dialog of ours would close the user-visible part, but
+    it can't tell that case from a refusal at the desktop's dialog in the
+    gap above (it would ask again right after the user cancelled there) and
+    it bypasses the engine's faillock read; not small. **Recommendation:**
+    accept the refusal; if the hidden row matters, cancel a foreign request
+    at its password prompt by stopping pkttyagent instead of an end of file
+    (its thread is still blocked in `getc`, so our queued request is never
+    served by a spent listener: refused without PAM, no row), which also
+    changes the foreign-request tests (`agenttest`, the GUI harness's
+    foreign-first case). Without pkttyagent, or if
     it can't register, polkit asks through the desktop's agent as before,
     and the status line says so. Which desktop agent that is depends on
     who registered first: DMS (DankMaterialShell) has its own polkit
@@ -600,7 +636,8 @@ comments and `git log`; this is the "read before you touch it" list.
   nothing failed but a step was refused sudo, counted in `steps_refused`; `cancelled` if no
   step ran, e.g. sudo gave up), ctrl+c abort (`aborted`), a declined required step
   (`aborted`, or `cancelled` if nothing ran yet), a declined gate or cancelled password
-  prompt (`cancelled`), an action that ended at its discovery (`nothing-found`, or
+  prompt (`cancelled`), a Cancel in the GUI's own polkit dialog (as a declined required
+  step: `cancelled` if nothing ran, else `aborted`; `steps_refused` 0), an action that ended at its discovery (`nothing-found`, or
   `failed` with `steps_failed` 1 for a failed look; see "The discovery record"). The
   action is the menu `id` (the three static actions have ids `fullcleanup`, `usercache`,
   `topgrade` for this). A dry run writes `dryrun/last-run.json` instead and never touches
@@ -795,6 +832,49 @@ comments and `git log`; this is the "read before you touch it" list.
   model on `syncDriver` (pull mode) and the goldens are recorded through it
   (`tuiEngineTarget`).
 
+- **`auth_admin_keep` is kept for the scope of the agent that asked.**
+  Answered by the owner on their machine (`docs/polkit-keep-session-check.md`
+  Part A, r518.59f90b3, 2026-10-11/12): in the graphical session, with
+  polkit-gnome as the agent, a new process (G3, `sh -c`) was authorised
+  without a prompt (rc 0), and `pkcheck --list-temp` (G5) showed the kept
+  authorization for a `unix-session:` subject. polkitd stores a kept
+  authorization for the scope of the agent that authenticated it
+  (`authentication_agent_get_scope (agent)`, `check_authorization_challenge_cb`
+  in `polkitbackendinteractiveauthority.c`), which is what the earlier
+  no-session run (process scope, `docs/polkit-live-test.md` F2) and this one
+  both show. For archmaid-gui that means:
+  - *Normal path:* its own pkttyagent is registered for archmaid-gui's
+    process (`--process`), so the authorization is process-scoped: only
+    archmaid-gui (and the sibling case below) reuses it.
+  - *Fallback path* (no pkttyagent, or it can't register, so the desktop's
+    agent asks): the authorization is session-scoped. Any process of the
+    owner's session can then use archmaid's 4 `auth_admin_keep` actions for
+    about 5 minutes without a prompt.
+  - That session scope is the one the docs already assumed as the safe
+    case; nothing changes. A tty login (Part B) wasn't run; it is the same
+    rule (the agent's scope).
+
+  *Accepted residual (owner, 2026-10-11; Dev 3, from polkit 127's source,
+  `polkitbackendinteractiveauthority.c`):* a kept authorization is stored
+  for the subject process, but `subject_equal_for_authz` also lets a
+  *different* process use it when all of these hold: both processes have
+  safe pidfds, the same uid, the same parent that is still running (ppid >
+  1), the same cgroup as each other and as that parent, and the same
+  controlling `/dev/pts/N`, created before both processes started. archmaid's
+  4 `auth_admin_keep` actions are kept for archmaid-gui (pkexec's subject).
+  Started from a terminal shell, any other child of that same shell in the
+  same cgroup on the same terminal can reuse them for about 5 minutes
+  without a prompt. Started from the desktop (its parent has no
+  controlling terminal) or on a VT (the code only builds a `/dev/pts`
+  path), there is no sibling reuse. And because archmaid-gui's pkttyagent is
+  registered for its own process, these kept authorizations are
+  process-scoped: `pkcheck --list-temp` doesn't show them and
+  `pkcheck --revoke-temp` doesn't remove them (both only cover the caller's
+  session scope); they only expire. The owner accepted this on 2026-10-11, since
+  reuse needs the same user in the same shell on the same terminal, and
+  the helper's verbs are fixed and validate their own input. No sibling
+  check (G6) was added to the keep-check guide.
+
 ## Live-testing safely
 
 Unit tests can't cover real PAM, real pacman or a real terminal. When you need
@@ -818,6 +898,42 @@ to:
   `pam_faillock` failure (deny=3), and so does cancelling the dialog; a
   success resets the count. Never add a policy action without `exec.argv1`
   for the helper's path: it can capture calls meant for the verb actions.
+
+  *The one cancel archmaid can tell apart* is a Cancel in archmaid-gui's
+  own dialog ("Authorise archmaid's Root Steps", polkit's prompt through
+  its pkttyagent): the Session saw the `CancelPrompt`, so the 127 that
+  follows ends the step(s) that dialog covered `Skipped` ("authorisation
+  cancelled" in the log), skips the rest as behind a declined required
+  step, and ends the action cancelled when nothing ran (else aborted),
+  `steps_refused` 0: every front end says cancelled, as for a declined gate
+  (`internal/engine/polkitcancel_test.go`, end to end on the real Driver in
+  `gui/internal/realdriver/cancel_test.go`). Everything else stays "not
+  authorised": the desktop agent's Cancel or wrong password (archmaid sees
+  only the 127), no agent, three wrong passwords at our dialog (su refused
+  each; the third gives up on the request).
+
+  *That cancel still costs one faillock row, and no cancel can avoid it*
+  (polkit 127's source): our dialog only opens once PAM is already asking,
+  since pkttyagent passes on the prompt from `on_request`
+  (`polkitagenttextlistener.c`), which runs when `polkit-agent-helper-1`'s
+  conversation sends `PAM_PROMPT_ECHO_OFF` from inside `pam_authenticate`
+  (`polkitagenthelper-pam.c`). Every way to end it from there closes the
+  helper's socket: an end of file (`on_request` → `polkit_agent_session_cancel`),
+  stopping pkttyagent (its socket closes with it), or killing pkexec
+  (polkitd's name-owner-changed handler cancels the caller's sessions →
+  `CancelAuthentication` → `on_cancelled` → the same `session_cancel`).
+  `kill_helper` (`polkitagentsession.c`) closes the socket of the
+  socket-activated helper (Arch's `polkit-agent-helper.socket`; it can't
+  signal it: the helper runs as root under systemd), so the helper's
+  `conversation_function` gets `fgets` = NULL, returns `PAM_CONV_ERR`,
+  `pam_unix` fails, and Arch's `system-auth` runs `pam_faillock authfail`.
+  The only cancel with no row would come before pkexec starts: archmaid
+  asking for the password itself before the helper step (su-checked, then
+  kept and handed to the agent). Not built: it would ask even when polkit
+  wouldn't (a kept `auth_admin_keep` authorization, a rule that allows the
+  action), and it changes when the dialog appears. *For the owner to
+  decide*; my recommendation (Dev 3) is to keep the row as a documented
+  cost: the last-attempt warning already says a cancelled dialog counts.
 - **Read the faillock state before every password or polkit prompt.**
   `privilege.FaillockStatus(user, now)` returns `Status{Failures, Locked,
   Unlock, Deny}` as pam_faillock would judge it, read-only and without root:
@@ -860,34 +976,6 @@ to:
   after and fail on any difference (`scripts/state-guard.sh`).
 
 ## Open items
-
-- **`auth_admin_keep` inside a real session.** The live test (see
-  `docs/polkit-live-test.md`) showed keep scoped to the requesting process when
-  there is no login session; re-check on tty3 or from the GUI, where polkit may
-  scope it to the session. The docs assume the wider (session) scope, which is
-  the safe assumption. The owner's step-by-step check, with a throwaway
-  action and a results table: `docs/polkit-keep-session-check.md`.
-
-  *Accepted residual (owner, 2026-10-11; Dev 3, from polkit 127's source,
-  `polkitbackendinteractiveauthority.c`):* a kept authorization is stored
-  for the subject process, but `subject_equal_for_authz` also lets a
-  *different* process use it when all of these hold: both processes have
-  safe pidfds, the same uid, the same parent that is still running (ppid >
-  1), the same cgroup as each other and as that parent, and the same
-  controlling `/dev/pts/N`, created before both processes started. archmaid's
-  4 `auth_admin_keep` actions are kept for archmaid-gui (pkexec's subject).
-  Started from a terminal shell, any other child of that same shell in the
-  same cgroup on the same terminal can reuse them for about 5 minutes
-  without a prompt. Started from the desktop (its parent has no
-  controlling terminal) or on a VT (the code only builds a `/dev/pts`
-  path), there is no sibling reuse. And because archmaid-gui's pkttyagent is
-  registered for its own process, these kept authorizations are
-  process-scoped: `pkcheck --list-temp` doesn't show them and
-  `pkcheck --revoke-temp` doesn't remove them (both only cover the caller's
-  session scope); they only expire. The owner accepted this on 2026-10-11, since
-  reuse needs the same user in the same shell on the same terminal, and
-  the helper's verbs are fixed and validate their own input. No sibling
-  check (G6) was added to the keep-check guide.
 
 - **The GUI on the real Driver has been run live** (the owner's run and the
   VM runs: one polkit dialog per Full Cleanup, topgrade's askpass). The
