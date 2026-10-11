@@ -1,4 +1,5 @@
 post_install() {
-  echo ':: archmaid bar widget: enable "archmaid" under DMS Settings > Plugins, then add it'
+  echo ':: archmaid bar widget: restart DMS once so it finds the plugin (it does not rescan while'
+  echo '   running), then enable "archmaid" under DMS Settings > Plugins, then add it'
   echo '   to the bar. Pending-updates count: systemctl --user enable --now archmaid-updates-check.timer'
 }

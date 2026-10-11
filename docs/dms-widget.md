@@ -83,8 +83,14 @@ Units go to `/usr/lib/systemd/user/`, the script to `/usr/lib/archmaid/`.
 **Enable (owner)**, after installing the package:
 
 1. `systemctl --user enable --now archmaid-updates-check.timer` (for the counts: repo and AUR, every 30 min).
-2. DMS Settings, Plugins: enable "archmaid" (DMS rescans the directory by itself; if it is
-   not listed, `dms ipc call plugins reload archmaid`).
+2. Restart DMS once (log out and in, or restart the DMS service), then DMS Settings, Plugins:
+   enable "archmaid". DMS does not find a plugin installed while it runs: it watches
+   `/etc/xdg/quickshell/dms-plugins` only if that directory existed when DMS started, which on
+   a machine that never had a system plugin it did not (seen in the test VM: after the first
+   install the plugin was not listed, and `dms ipc call plugins reload archmaid` and
+   `plugins enable archmaid` both answered PLUGIN_NOT_FOUND until DMS was restarted). After
+   that first restart, later updates of the widget are picked up with
+   `dms ipc call plugins reload archmaid`.
 3. DMS Settings, Dank Bar: add the "archmaid" widget to a bar section.
 
 Disable: remove the widget from the bar and `systemctl --user disable --now
