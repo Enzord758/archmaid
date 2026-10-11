@@ -2,6 +2,8 @@ package dms
 
 import (
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -140,5 +142,50 @@ func TestWidgetFilesSurviveAtomicReplace(t *testing.T) {
 	}
 	if !strings.Contains(src, "id: retryTimer") {
 		t.Error("no retry timer for a failed read")
+	}
+}
+
+// TestWidgetRetriesUntilFileAppears: F1 of VM batch 4. The updates timer's
+// first write creates updates-cache.json AND its directory after DMS started;
+// a FileView cannot watch a missing directory, and the old budget (two tries,
+// each of the three failing views counting one) was spent within ~4 s. The
+// retry must count one try per round, keep going at <= 4 s steps for most of
+// the 60 s cycle, and stay bounded.
+func TestWidgetRetriesUntilFileAppears(t *testing.T) {
+	b, err := os.ReadFile("archmaid/ArchmaidWidget.qml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	i := strings.Index(src, "function loadFailedRetry()")
+	if i < 0 {
+		t.Fatal("no loadFailedRetry")
+	}
+	fn := src[i:]
+	fn = fn[:strings.Index(fn, "\n    }\n")]
+	m := regexp.MustCompile(`retries < (\d+)`).FindStringSubmatch(fn)
+	if m == nil {
+		t.Fatalf("no retry bound in:\n%s", fn)
+	}
+	n, _ := strconv.Atoi(m[1])
+	iv := regexp.MustCompile(`: (\d+)`).FindAllStringSubmatch(fn, -1)
+	maxIv := 0
+	for _, x := range iv {
+		v, _ := strconv.Atoi(x[1])
+		if v > maxIv {
+			maxIv = v
+		}
+	}
+	if maxIv == 0 || maxIv > 4000 {
+		t.Errorf("retry step %d ms: a created file must show within ~4 s", maxIv)
+	}
+	if n*maxIv < 40000 {
+		t.Errorf("%d retries of <= %d ms cover under 40 s of the 60 s cycle; a file created later is missed", n, maxIv)
+	}
+	if n > 20 {
+		t.Errorf("%d retries per cycle is polling, not a bounded retry", n)
+	}
+	if !strings.Contains(fn, "!retryTimer.running") {
+		t.Error("three failing views must count as one try (guard on retryTimer.running)")
 	}
 }

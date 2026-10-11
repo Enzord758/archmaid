@@ -100,18 +100,22 @@ PluginComponent {
         reloadFiles();
     }
 
-    // A failed read gets two more tries a couple of seconds apart, then waits
-    // for the 60 s timer or the next open: a file that is really absent
-    // is not polled hard.
+    // A failed read is retried while the file is absent: a FileView cannot
+    // watch a file whose directory does not exist yet (the updates timer's
+    // first write creates both, after DMS started), so only a fresh open sees
+    // it. The first two tries are 2 s apart, the rest 4 s, at most 12 per 60 s
+    // cycle (the timer's tick resets the budget); the three views fail together
+    // and count as one try. A file that is present never reaches this, so the
+    // steady state costs nothing.
     function loadFailedRetry() {
-        if (retries < 2) {
+        if (retries < 12 && !retryTimer.running) {
             retries++;
-            retryTimer.restart();
+            retryTimer.interval = retries <= 2 ? 2000 : 4000;
+            retryTimer.start();
         }
     }
     Timer {
         id: retryTimer
-        interval: 2000
         onTriggered: root.reloadFiles()
     }
 
