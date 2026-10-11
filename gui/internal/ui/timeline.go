@@ -175,7 +175,13 @@ func (w *Window) newRunPage() gtk.Widgetter {
 	keys := gtk.NewEventControllerKey()
 	keys.ConnectKeyPressed(func(keyval, _ uint, _ gdk.ModifierType) bool {
 		switch keyval {
-		case gdk.KEY_Up, gdk.KEY_Page_Up, gdk.KEY_Home, gdk.KEY_KP_Up, gdk.KEY_KP_Page_Up:
+		case gdk.KEY_Home, gdk.KEY_KP_Home:
+			// Home goes to the top, header and all, whichever row has
+			// the focus (the list's own Home moves only its focus).
+			w.follow = false
+			w.scrollTop()
+			return true
+		case gdk.KEY_Up, gdk.KEY_Page_Up, gdk.KEY_KP_Up, gdk.KEY_KP_Page_Up:
 			w.follow = false
 		}
 		return false
@@ -599,6 +605,21 @@ func (w *Window) followBottom() {
 			w.outView.ScrollTo(n-1, gtk.ListScrollNone, nil)
 		}
 		return false // once
+	})
+}
+
+// scrollTop scrolls the page to its top, step header included. The list
+// lays its rows out over the next frames and moves its scroll position as
+// it learns their heights, so the top is kept for the first few frames.
+func (w *Window) scrollTop() {
+	frames := 0
+	w.outView.AddTickCallback(func(gtk.Widgetter, gdk.FrameClocker) bool {
+		if w.closed {
+			return false
+		}
+		w.tl.scroll.VAdjustment().SetValue(0)
+		frames++
+		return frames < 12 && !w.follow
 	})
 }
 

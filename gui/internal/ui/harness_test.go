@@ -141,6 +141,8 @@ type report struct {
 	// Disc is a discovery-only action's Run page at its end, and what the
 	// Overview's last run cell and the Logs page show after it (discPage).
 	Disc *discPage
+	// DiscScroll is disc-scroll's long discovery page (discscroll_harness_test.go).
+	DiscScroll string
 
 	// The Logs page's list while searching for ARCHMAID_GUI_LOGSEARCH,
 	// and with its first section folded (logs_harness_test.go).
@@ -338,7 +340,7 @@ func runChild(scenario, path string) int {
 		action, answerNo = actions.IDUserCache, true
 	case "usercache-size", "usercache-none": // the cell's size line, before and after a run
 		action = actions.IDUserCache
-	case "repair": // a discovery that ends in a notice
+	case "repair", "disc-scroll": // a discovery that ends in a notice (disc-scroll: then a long one, injected)
 		action = actions.IDRepair
 	case "settings": // home refused, a folder and dry run kept, then a run
 		action = actions.IDRepair
@@ -792,6 +794,9 @@ func runChild(scenario, path string) int {
 				if scenario == "clear-rerun" || scenario == "real-failed-decline" {
 					rep.Pages = append(rep.Pages, runPage(w))
 					rep.Heads = append(rep.Heads, fmt.Sprintf("prev=%v title=%q", w.tl.prev.IsVisible(), w.shell.title.Label()))
+				}
+				if scenario == "disc-scroll" && discScroll(w, rep, len(rep.Outcomes)) {
+					return
 				}
 				if scenario == "clear-rerun" && len(rep.Outcomes) < 3 {
 					// Then an action that ends in a notice, before any

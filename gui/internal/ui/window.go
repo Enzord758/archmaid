@@ -348,6 +348,12 @@ func (w *Window) redraw(c runview.Change) {
 		// Only QueueStarted resets the model: the run's queue started.
 		w.queued, w.pagePrev = true, false
 		w.rebuild()
+		// A queue run follows its newest line; a discovery result is a
+		// finished page that opens at its top, header in view.
+		w.follow = w.model.Discovery == nil
+		if !w.follow {
+			w.scrollTop()
+		}
 	}
 	for _, i := range c.Inserted {
 		w.insert(i)
