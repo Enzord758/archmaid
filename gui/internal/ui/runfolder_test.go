@@ -58,3 +58,40 @@ func TestLastRunFolderIsTheRecordsRun(t *testing.T) {
 		t.Errorf("folder %q for a run that wrote none", r.Name)
 	}
 }
+
+// TestRecordFolderBoundaries: recordFolder takes a folder whose logs lie
+// within recordSlack of the record's start and end, inclusive, and no
+// other; the minute before the record's own is searched too; a folder
+// without logs (zero Modified) is nobody's, even when it is the first match.
+func TestRecordFolderBoundaries(t *testing.T) {
+	start := time.Date(2026, 10, 11, 14, 34, 30, 0, time.Local)
+	rec := logstore.RunRecord{Started: start, Finished: start.Add(10 * time.Second)}
+	one := func(name string, mod time.Time) []logview.Run {
+		return []logview.Run{{Name: name, Modified: mod}}
+	}
+	early := logstore.RunRecord{Started: time.Date(2026, 10, 11, 14, 34, 1, 0, time.Local), Finished: time.Date(2026, 10, 11, 14, 34, 9, 0, time.Local)}
+	cases := []struct {
+		what string
+		runs []logview.Run
+		rec  logstore.RunRecord
+		want string // "" = no folder
+	}{
+		{"at start-slack", one("20261011-1434", start.Add(-recordSlack)), rec, "20261011-1434"},
+		{"before start-slack", one("20261011-1434", start.Add(-recordSlack-time.Nanosecond)), rec, ""},
+		{"at end+slack", one("20261011-1434", rec.Finished.Add(recordSlack)), rec, "20261011-1434"},
+		{"after end+slack", one("20261011-1434", rec.Finished.Add(recordSlack+time.Nanosecond)), rec, ""},
+		{"no end: any later time", one("20261011-1434", start.Add(time.Hour)), logstore.RunRecord{Started: start}, "20261011-1434"},
+		// The store is stamped before the queue is planned: the minute before.
+		{"previous minute", one("20261011-1433", early.Started.Add(-time.Second)), early, "20261011-1433"},
+		{"previous minute, too early", one("20261011-1433", early.Started.Add(-time.Hour)), early, ""},
+		// A stale empty <stamp>-02 folder, newest first, must not be the record's.
+		{"empty folder first", []logview.Run{{Name: "20261011-1434-02"}, {Name: "20261011-1434", Modified: start.Add(time.Second)}}, rec, "20261011-1434"},
+		{"only an empty folder", []logview.Run{{Name: "20261011-1434"}}, rec, ""},
+	}
+	for _, c := range cases {
+		r, ok := recordFolder(c.runs, c.rec)
+		if ok != (c.want != "") || r.Name != c.want {
+			t.Errorf("%s: folder %q %v, want %q", c.what, r.Name, ok, c.want)
+		}
+	}
+}

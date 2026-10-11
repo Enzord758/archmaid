@@ -164,7 +164,8 @@ const recordSlack = 2 * time.Second
 // the newest whose logs were written between the record's start and end: a
 // later run of the same minute (<stamp>-02, an audit, which writes no
 // record) is not the record's. With folders of that minute but none of
-// them its, there is no folder, not another run's. A dry run, a record
+// them its (a folder with no logs is nobody's), there is no folder, not
+// another run's. A dry run, a record
 // without a start time, or no folder of its minute at all: runFolder's
 // choice.
 func recordFolder(runs []logview.Run, r logstore.RunRecord) (logview.Run, bool) {
@@ -181,7 +182,7 @@ func recordFolder(runs []logview.Run, r logstore.RunRecord) (logview.Run, bool) 
 			}
 			stamped = true
 			m := run.Modified
-			if m.IsZero() || (!m.Before(r.Started.Add(-recordSlack)) && (r.Finished.IsZero() || !m.After(r.Finished.Add(recordSlack)))) {
+			if !m.IsZero() && !m.Before(r.Started.Add(-recordSlack)) && (r.Finished.IsZero() || !m.After(r.Finished.Add(recordSlack))) {
 				return run, true
 			}
 		}
