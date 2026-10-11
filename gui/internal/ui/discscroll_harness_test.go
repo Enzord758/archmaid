@@ -66,4 +66,10 @@ func TestGUIDiscScroll(t *testing.T) {
 	if value != 0 || !header || follow {
 		t.Errorf("the discovery page opened scrolled (%s): want the top, its header drawn, not following", rep.DiscScroll)
 	}
+	// The page never scrolls sideways: the header's "Done · …" sits at the
+	// right edge of the view, so a line wider than the view wraps rather
+	// than pushing that edge out of sight (the VM round: clipped).
+	if hupper > hpage {
+		t.Errorf("the page scrolls sideways (%s): a wide line must wrap, so the header's state text stays in view", rep.DiscScroll)
+	}
 }

@@ -99,6 +99,11 @@ func (w *Window) newRunPage() gtk.Widgetter {
 	lines.ConnectSetup(func(obj *coreglib.Object) {
 		label := gtk.NewLabel("")
 		label.SetXAlign(0)
+		// A line wider than the view wraps: the list never scrolls
+		// sideways, so a step header's right edge ("Done · …") stays in
+		// view.
+		label.SetWrap(true)
+		label.SetWrapMode(pango.WrapWordChar)
 		label.AddCSSClass("am-line")
 		obj.Cast().(*gtk.ListItem).SetChild(label)
 	})
@@ -155,6 +160,7 @@ func (w *Window) newRunPage() gtk.Widgetter {
 	w.outView = tl.view
 	tl.scroll = gtk.NewScrolledWindow()
 	tl.scroll.SetChild(tl.view)
+	tl.scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	tl.scroll.SetVExpand(true)
 	tl.scroll.SetHExpand(true)
 
