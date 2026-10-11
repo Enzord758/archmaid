@@ -5,7 +5,7 @@
 # dir is never read or touched here.
 #
 # Cases: unchanged -> ok; file grown, nested entry deleted, entry added,
-# mtime-only change -> fail; no diff on PATH -> exit 2 and the message; absent -> still absent -> ok; absent -> created
+# mtime-only change -> fail; the timer's updates-cache.json and updates-yay.err.* -> ok, look-alikes -> fail; no diff on PATH -> exit 2 and the message; absent -> still absent -> ok; absent -> created
 # -> fail. Exit 0 if the guard got every case right, 1 with the case names
 # otherwise.
 set -euo pipefail
@@ -21,7 +21,8 @@ seed() {
 	mkdir -p "$1/archmaid/20260101-0000"
 	printf 'scratch\n' >"$1/archmaid/20260101-0000/cleanup.log"
 	printf '{}\n' >"$1/archmaid/last-run.json"
-	touch -d '2026-01-01 00:00' "$1/archmaid/20260101-0000/cleanup.log" \
+	printf '{}\n' >"$1/archmaid/updates-cache.json"
+	touch -d '2026-01-01 00:00' "$1/archmaid/updates-cache.json" "$1/archmaid/20260101-0000/cleanup.log" \
 		"$1/archmaid/last-run.json" "$1/archmaid/20260101-0000" "$1/archmaid"
 }
 
@@ -42,6 +43,14 @@ check grown fail 'printf more >>"$S/archmaid/20260101-0000/cleanup.log"'
 check deleted fail 'rm "$S/archmaid/20260101-0000/cleanup.log"'
 check added fail 'touch -d "2026-01-01 00:00" "$S/archmaid/new.log"'
 check touched fail 'touch "$S/archmaid/last-run.json"'
+# The owner's updates-check timer: its cache file and temp names pass; a
+# look-alike name, a nested one or any other file still fails.
+check timer-cache-rewritten ok 'printf "{\"v\":2}\n" >"$S/archmaid/updates-cache.json"'
+check timer-temp-files ok 'touch "$S/archmaid/updates-yay.err.AbC123" "$S/archmaid/updates-cache.json.tmp.xYz789"'
+check timer-cache-removed ok 'rm -f "$S/archmaid/updates-cache.json"'
+check lookalike-added fail 'touch "$S/archmaid/updates-cache.json.bak"'
+check nested-lookalike fail 'touch "$S/archmaid/20260101-0000/updates-cache.json"'
+check other-with-timer fail 'printf x >"$S/archmaid/updates-cache.json" && printf more >>"$S/archmaid/last-run.json"'
 check absent-unchanged ok ':'
 check absent-created fail 'mkdir "$S/archmaid"'
 
@@ -63,4 +72,4 @@ if ((${#failed[@]})); then
 	printf '  %s\n' "${failed[@]}"
 	exit 1
 fi
-echo "ok: state-guard self-test (8 cases)"
+echo "ok: state-guard self-test (14 cases)"

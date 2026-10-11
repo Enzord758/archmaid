@@ -20,8 +20,8 @@
 set -euo pipefail
 
 # Fail up front, not later with an empty or confusing diff.
-declare -A pkg=([find]=findutils [sort]=coreutils [diff]=diffutils)
-for tool in find sort diff; do
+declare -A pkg=([find]=findutils [sort]=coreutils [diff]=diffutils [awk]=gawk)
+for tool in find sort diff awk; do
 	command -v "$tool" >/dev/null 2>&1 || {
 		echo "state-guard: $tool not found; install ${pkg[$tool]}" >&2
 		exit 2
@@ -38,7 +38,21 @@ snapshot() {
 	fi
 	# -H: a symlinked state dir is listed, not just the link. /%P path below
 	# dir ("/" for dir itself), %y type, %s size, %T@ mtime (ns).
-	find -H "$dir" -printf '/%P\t%y\t%s\t%T@\n' 2>/dev/null | LC_ALL=C sort || true
+	#
+	# Not guarded: the owner's updates-check user timer
+	# (packaging/systemd/archmaid-updates-check, every ~30 min) rewrites
+	# updates-cache.json at the top of the dir via updates-cache.json.tmp.*
+	# and briefly creates updates-yay.err.*. A gate run never writes those
+	# (the tests of that script use a scratch XDG_STATE_HOME), so exactly
+	# these names are skipped, and nothing else. The renames also move the
+	# dir's own size and mtime, so those two are blanked on the "/" line;
+	# any other file added, removed or changed still shows by its own line.
+	find -H "$dir" -printf '/%P\t%y\t%s\t%T@\n' 2>/dev/null |
+		awk -F'\t' -v OFS='\t' '
+			$1 == "/updates-cache.json" || $1 ~ /^\/updates-cache\.json\.tmp\.[^\/]*$/ || $1 ~ /^\/updates-yay\.err\.[^\/]*$/ { next }
+			$1 == "/" { $3 = "-"; $4 = "-" }
+			{ print }' |
+		LC_ALL=C sort || true
 }
 
 case "${1:-}" in
