@@ -210,16 +210,14 @@ func (d *decoder) partDone(line []byte) {
 	c.events = append(c.events, partEvent{done: true, step: c.parts[c.cur].ID, err: err})
 }
 
-// combinedOutcome is the call's Err once its result line is in: a result
-// before any part (a refusal at the lock or the input) is the call's
-// failure; otherwise every part must have ended, and the result must
-// agree with their outcomes, and the call's Err is the last part's own.
+// combinedOutcome is the call's Err once its result line is in, for a call
+// that ended a part or succeeded (outcome reports a failed result before
+// any part ended, such as a refusal at the lock or the input, itself):
+// every part must have ended, the result must agree with their outcomes,
+// and the call's Err is the last part's own.
 func (d *decoder) combinedOutcome() error {
 	c := d.comb
-	switch {
-	case c.done == 0 && c.cur < 0 && !d.res.OK:
-		return nil // the caller reports the result's failure
-	case c.done != len(c.parts):
+	if c.done != len(c.parts) {
 		return fmt.Errorf("%w: the result came after %d of %d parts", ErrProtocol, c.done, len(c.parts))
 	}
 	want := 0
