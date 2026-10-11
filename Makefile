@@ -9,7 +9,7 @@ E2E_RUN    := $(TUI_DIR)/e2e/run.sh
 CHECK      := scripts/check.sh
 GUI_DIR    := gui
 
-.PHONY: all gate e2e perf perf-baseline bench gui gui-test
+.PHONY: all gate e2e e2e-cover cover-build perf perf-baseline bench gui gui-test
 
 all: gate
 
@@ -26,6 +26,18 @@ e2e:
 # the dev machine's, which is why the default gate leaves it out.
 perf:
 	ARCHMAID_PERF_GUARD=1 $(CHECK)
+
+# Coverage beyond `go test` (docs/coverage-map.md; TESTING.md, "Coverage from
+# real runs"). e2e-cover: the unit tests and the e2e tapes on a cover binary,
+# merged into one number (COVER_GUI=1 adds the GUI's headless tests;
+# COVER_OUT=dir keeps the data, default a temp dir). cover-build: the three
+# binaries built with -cover into COVER_BIN (default a temp dir), for the
+# test VM and the owner's measured runs; never packaged.
+e2e-cover:
+	scripts/cover-report.sh
+
+cover-build:
+	scripts/cover-build.sh "$${COVER_BIN:-$$(mktemp -d "$${TMPDIR:-/tmp}/archmaid-cover-bin.XXXXXX")}"
 
 # Re-measure the plan's perf baselines (benchmarks, perf guard, GUI first
 # frame/RAM/throughput, binary sizes) on a quiet machine only: it refuses

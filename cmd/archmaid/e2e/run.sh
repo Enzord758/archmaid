@@ -16,7 +16,22 @@ cd "$(dirname "$0")/.."   # cmd/archmaid: the tapes run from here (they use ./ar
 E2E="$PWD/e2e"
 
 # Build with the real HOME so the Go build cache is reused.
-go build -trimpath -o archmaid .
+#
+# E2E_COVER_DIR=DIR (make e2e-cover): build the binary with coverage instead
+# (as scripts/cover-build.sh does) and collect every run's covdata into DIR.
+# Each run writes its counters to a GOCOVERDIR inside its own scratch dir,
+# copied to DIR afterwards; merge DIR with scripts/cover-merge.sh. The tapes
+# and their assertions are the same either way.
+COVER_DIR="${E2E_COVER_DIR:-}"
+if [[ -n "$COVER_DIR" ]]; then
+	mkdir -p "$COVER_DIR"
+	COVER_DIR="$(realpath "$COVER_DIR")"
+	go build -trimpath -cover -covermode=atomic \
+		-coverpkg=github.com/Enzord758/archmaid/cmd/...,github.com/Enzord758/archmaid/internal/... \
+		-o archmaid .
+else
+	go build -trimpath -o archmaid .
+fi
 
 # The privileged binaries match internal/testenv's traps (su, sudo, pkexec,
 # runuser, faillock): none may run for real, and calling any is a failure.
@@ -43,6 +58,21 @@ trap finish EXIT
 # prove it on a stub vhs first (well under a second).
 "$E2E/browser-retry-selftest.sh"
 
+# cover_env DIR prints the GOCOVERDIR=DIR assignment for one run of the
+# binary (nothing without E2E_COVER_DIR); cover_collect DIR copies what that
+# run wrote into E2E_COVER_DIR. A run killed before it exits (SIGKILL, a tape
+# that never quits) writes no counters: every tape ends with q.
+cover_env() {
+	[[ -n "$COVER_DIR" ]] || return 0
+	mkdir -p "$1"
+	echo "GOCOVERDIR=$1"
+}
+cover_collect() {
+	[[ -n "$COVER_DIR" ]] || return 0
+	compgen -G "$1/covcounters.*" >/dev/null || fail "coverage: no counters in $1 (did the binary exit normally?)"
+	cp "$1"/cov* "$COVER_DIR"/
+}
+
 # run_tape NAME [VAR=VALUE...]: runs e2e/NAME.tape with a fresh HOME + shim dir,
 # leaving HOME_DIR, SHIM_LOG, TXT and CLEANUP_LOG for the caller's assertions.
 run_tape() {
@@ -67,8 +97,9 @@ run_tape() {
 	"$E2E/browser-retry.sh" env HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
 		PATH="$shims:$PATH" SHIM_LOG="$SHIM_LOG" \
 		HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
-		ALL_PROXY=http://127.0.0.1:9 "$@" \
+		ALL_PROXY=http://127.0.0.1:9 $(cover_env "$dir/cover") "$@" \
 		vhs "e2e/$name.tape"
+	cover_collect "$dir/cover"
 	for c in "${MUTATING[@]}"; do
 		# sudo is allowed only in its two read-only forms: the ticket probe and
 		# Repair's root recheck (the shim only logs them and prints canned output).
@@ -223,14 +254,16 @@ fi
 if want help-and-bad-flag; then
 	# No VHS: the binary runs under a scratch HOME like everywhere else here.
 	h="$SCRATCH_ROOT/help-home"; mkdir -p "$h"
-	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" ./archmaid --help 2>&1)" || rc=$?
+	hc="$SCRATCH_ROOT/help-cover" # outside $h: the check below wants $h empty
+	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" $(cover_env "$hc") ./archmaid --help 2>&1)" || rc=$?
 	[[ $rc -eq 0 ]] || fail "help: --help exited $rc"
 	[[ "$out" == *"Usage: archmaid"* && "$out" == *"--dryrun"* && "$out" == *"--downloads"* ]] ||
 		fail "help: usage text incomplete: $out"
-	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" ./archmaid --bogus 2>&1)" || rc=$?
+	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" $(cover_env "$hc") ./archmaid --bogus 2>&1)" || rc=$?
 	[[ $rc -eq 2 ]] || fail "help: --bogus exited $rc, want 2"
 	[[ "$out" == *"unknown option"* && "$out" == *"--help"* ]] || fail "help: bad-flag message wrong: $out"
 	[[ -z "$(ls -A "$h")" ]] || fail "help: --help/--bogus wrote under HOME: $(ls -A "$h")"
+	cover_collect "$hc"
 	echo "PASS: --help prints usage and exits 0, --bogus exits 2, neither writes anything"
 fi
 

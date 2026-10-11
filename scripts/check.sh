@@ -124,6 +124,18 @@ for pkg in $(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./cmd/...
 	fi
 done
 
+# A cover build (scripts/cover-build.sh) is never what gets installed: a
+# normal build of the helper doesn't link the cover-only coverdir package
+# (tag archmaidcover), and the PKGBUILD builds no cover binary.
+if go list -deps ./cmd/archmaid-helper | grep -q '/cmd/archmaid-helper/internal/coverdir$'; then
+	echo "FAIL: a normal build of cmd/archmaid-helper links internal/coverdir (cover builds only, tag archmaidcover)"
+	exit 1
+fi
+if grep -nE -- '-cover|archmaidcover|GOCOVERDIR' packaging/arch/PKGBUILD; then
+	echo "FAIL: packaging/arch/PKGBUILD names a coverage build; the package ships plain binaries (scripts/cover-build.sh is for test runs)"
+	exit 1
+fi
+
 echo "==> coverage"
 PROFILE="$(mktemp)" # removed by finish
 if ! out="$(go test -count=1 -coverpkg="$COVERPKG" -coverprofile="$PROFILE" "${COVERTESTS[@]}" 2>&1)"; then

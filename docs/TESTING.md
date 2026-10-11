@@ -95,6 +95,40 @@ Noise shows as `~` and passes. It takes about 40 s plus the build. Output
 dir by default; `BENCH_COUNT` changes the sample count. If a benchmark is new on
 HEAD it has no base column and is checked only against its cap.
 
+### Coverage from real runs (`make e2e-cover`, `make cover-build`)
+
+The gate's coverage figure counts `go test` only. Every statement still
+uncovered is listed and sorted (unit test, e2e, test VM, the owner, unreachable)
+in [`coverage-map.md`](coverage-map.md), with the path to 100 %. To count runs
+outside `go test`, everything below writes raw coverage data (a `GOCOVERDIR`
+of `covmeta.*`/`covcounters.*` files) in atomic mode, so any mix of runs merges
+into one number:
+
+| Script | Writes covdata from |
+|---|---|
+| `scripts/cover-unit.sh DIR [PKG...]` | the root module's tests (`go test ./...`, every package under `testenv.Run` as always), through `scripts/cover-exec.sh`, so a test binary's re-executed children count too (plain `go test -cover` drops what they write) |
+| `gui/scripts/headless-cover.sh DIR` | the GUI's plain tests and `headless.sh`'s display groups (private headless weston, as `make gui-test`) |
+| `E2E_COVER_DIR=DIR bash cmd/archmaid/e2e/run.sh` | the e2e tapes on a cover-built `archmaid` (each run's `GOCOVERDIR` inside its scratch dir, copied to DIR) |
+| `scripts/cover-build.sh OUTDIR` (`make cover-build COVER_BIN=…`) | builds `archmaid`, `archmaid-helper`, `archmaid-gui` with `-cover`; each writes to `$GOCOVERDIR` when it exits normally (a SIGKILLed process writes nothing). For the test VM and the owner's measured runs (`coverage-map.md`, "Collecting coverage") |
+| `scripts/cover-merge.sh [-o OUT] DIR...` | merges, then prints core (`cmd/archmaid` + `internal/...`, check.sh's set), helper, gui and all; OUT holds the merged covdata, `profile.txt`, `summary.txt`, `uncovered.txt` and `coverage.html` |
+| `make e2e-cover` (`scripts/cover-report.sh`) | unit + e2e merged; `COVER_GUI=1` adds the GUI; `COVER_OUT=dir` keeps everything |
+
+`go run ./scripts/covblocks [-summary|-json|-src] PROFILE...` lists a
+profile's uncovered blocks with their function (the raw material of the map).
+Two measuring facts behind the scripts: a re-executed test binary gets
+`GOCOVERDIR` but not `-test.gocoverdir`, so `testenv.Run` points the flag at
+it (`internal/testenv/cover.go`; coverage only); and code that runs in
+`TestMain` after `m.Run` (testenv's own checks) is never counted, because the
+testing package writes its counters when `m.Run` returns.
+
+A cover build is never what gets installed: `packaging/arch/PKGBUILD` builds
+plain binaries, and `check.sh` fails if it names `-cover`, the
+`archmaidcover` tag or `GOCOVERDIR`, or if a normal helper build links
+`cmd/archmaid-helper/internal/coverdir` (the cover-only package that lets the
+helper write its counters under pkexec). Run a cover binary like any archmaid
+binary: under a scratch `HOME`/`XDG_*` on this machine (ground rule 8), with
+`GOCOVERDIR` a scratch dir, never under `~/.local/state/archmaid`.
+
 ## GUI (`gui/`, its own module)
 
 The GUI is a separate Go module, so nothing above builds it: the root gate,
@@ -308,6 +342,8 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 | `make perf-baseline` | `scripts/perf-baseline.sh`: re-measures the baselines (TUI/sysstat/sanitize/runview benchmarks, `TestPerfGuard`, the GUI's first frame, idle RSS and throughput headless, stripped binary sizes) into `$PERF_OUT`'s `summary.txt`. It refuses (exit 3) unless the machine is quiet: load ≤ `PERF_MAX_LOAD` (an eighth of the CPUs), no `qemu-system`, no other gate or test run. `PERF_COUNT=1 PERF_FORCE=1` is a smoke test marked NOT A BASELINE. The Repair scan, services discovery and the installed GUI's idle CPU need the real system: measured by hand. |
 | `make gui` | in `gui/`: build, vet, gofmt, `runview` tests under `-race`, `go test ./...` (display tests skip) |
 | `make gui-test` | `gui`, then the display tests under `gui/scripts/headless.sh` (needs weston) |
+| `make e2e-cover` | `scripts/cover-report.sh`: the unit tests and the e2e tapes writing covdata, merged into one number (`COVER_GUI=1` adds the GUI's tests) — see "Coverage from real runs" |
+| `make cover-build` | `scripts/cover-build.sh`: the three binaries built with `-cover` into `COVER_BIN` (default a temp dir), for the test VM and the owner's measured runs; never packaged |
 | `make all` | `gate` — run before pushing |
 
 ## CI
@@ -804,6 +840,12 @@ the names.
 | `adapter_test.go` | The TUI as an engine front end, on a `fakeDriver`: Events → the model (askpass popup over the running step, its retry, lock and withdrawal; abort → the menu with what never ran skipped; a declined required step → the aborted summary; the report, its accept notice and dismissal; prompts, selection and the menu `Start`; the status line), keys → Commands (esc on askpass hangs up; abort confirm: n/esc/ctrl+c/enter-on-No resume and send nothing), the askpass prompt shown quoted and stripped of escapes, `forwardEvents`, and the binary's wiring: `newDriver` builds the real Driver and closing it closes Events, `startPrefetch` starts only the audit, `reportLog` keeps 20 errors and counts the rest. |
 | `lastrun_test.go` | last-run.json through whole scenarios on the TUI: three wrong passwords → `incomplete` with every sudo step refused; an aborted Full Cleanup → `aborted`, every step from topgrade on skipped; a declined gate → `cancelled`; nothing before a run. The outcomes themselves are `internal/engine`'s. |
 | `cmd/archmaid/e2e/*.tape` + `run.sh` + `shim.sh` | The real binary under `--dryrun`, one tape each, in a throwaway `HOME` with a shim dir first on `PATH` (every external command is a symlink to `shim.sh`, which only logs argv to a file and prints canned output; `run.sh` checks the shadowing first and that no mutating shim ran). `clear-cache`: asserts the `DRYRUN:` entry. `services`: toggles one of two shimmed units; the log names exactly that unit and `systemctl` was only asked to list units and `is-enabled`. `orphans`: Full Cleanup's confirm reads "2 … 3 total" (from the tape's `.txt`) and `orphans.log` has the dry-run removal. `abort`: ctrl+c on the blocked audit step, confirm; back on the menu, nothing logged. `repair-none`: the user scan, the "No broken packages found" notice, no sudo. `repair-found`: the root recheck as `sudo -n pacman -Qkq -- …`, the reinstall confirm declined and logged, nothing reinstalled. `downloads`: `--downloads` honoured, a year-old mtime isn't old (ctime), nothing deleted. `fullcleanup-gate-declined`: a declined gate runs only the audit prefetch's `pacman -Qqm` and leaves a `cancelled` record in `dryrun/` only. `help-and-bad-flag` (no tape): `--help` exits 0, `--bogus` exits 2, neither writes under the scratch `HOME`. `bash cmd/archmaid/e2e/run.sh services abort` runs a subset; generated `cmd/archmaid/e2e/*.txt` is gitignored. |
+
+| `cmd/archmaid-helper/internal/coverdir/coverdir_test.go` | The cover helper's baked counter dir (cover builds only): used only by root with no `GOCOVERDIR`, and only a real, root-owned directory nobody else can write; a symlink, a file, a group- or world-writable or user-owned dir, a missing one and a user's own temp dir are refused. |
+| `scripts/covblocks/main_test.go` | The uncovered-block lister: profiles merge with check.sh's rule (covered in any profile is covered), totals truncate like check.sh, malformed lines are refused, blocks are named after their function, method, closure or `<package>`. |
+
+The uncovered statements themselves, sorted by what it takes to cover them:
+[`coverage-map.md`](coverage-map.md).
 
 ## Manual verification
 
