@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
@@ -175,6 +176,8 @@ type report struct {
 	Statuses  []string
 	// EndStatuses: the status line at each run's end (audit-rerun).
 	EndStatuses []string
+	// EndLines: the model's output line count at each run's end (audit-rerun).
+	EndLines []int
 	// Geometry is real-small's orphan dialog as shown (headingGeometry).
 	Geometry string
 	// Nav is narrow-nav's record of the sidebar overlay (shell_harness_test.go).
@@ -812,6 +815,7 @@ func runChild(scenario, path string) int {
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
 				if scenario == "audit-rerun" {
 					rep.EndStatuses = append(rep.EndStatuses, w.status.Text())
+					rep.EndLines = append(rep.EndLines, w.model.Lines)
 				}
 				if scenario == "clear-rerun" || scenario == "audit-rerun" || scenario == "real-failed-decline" {
 					rep.Pages = append(rep.Pages, runPage(w))
@@ -821,7 +825,22 @@ func runChild(scenario, path string) int {
 					return
 				}
 				if scenario == "audit-rerun" && len(rep.Outcomes) == 1 {
-					glib.TimeoutAdd(50, func() { w.menu[actions.IDAURAudit].start() })
+					// Start the audit once the first run has settled (not
+					// busy), not after a guessed delay; and check it started.
+					polls := 0
+					var again func()
+					again = func() {
+						if polls++; w.busy && polls < 400 {
+							glib.TimeoutAdd(25, again)
+							return
+						}
+						w.menu[actions.IDAURAudit].start()
+						if !w.busy {
+							fail("the audit didn't start (polls %d)", polls)
+							w.win.Close()
+						}
+					}
+					glib.TimeoutAdd(25, again)
 					return
 				}
 				if scenario == "clear-rerun" && len(rep.Outcomes) < 3 {
@@ -1620,7 +1639,7 @@ func TestGUIClearRerun(t *testing.T) {
 func TestGUIAuditRerun(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "audit-rerun")
-	if !slices.Equal(rep.Outcomes, []string{"completed", "report"}) || len(rep.Pages) != 2 {
+	if !slices.Equal(rep.Outcomes, []string{"completed", "report"}) || len(rep.Pages) != 2 || len(rep.Heads) != 2 {
 		t.Fatalf("outcomes %q pages %q", rep.Outcomes, rep.Pages)
 	}
 	if strings.Contains(rep.Pages[1], steps.IDTopgrade) {
@@ -1629,8 +1648,17 @@ func TestGUIAuditRerun(t *testing.T) {
 	if want := `prev=false title="Audit AUR packages"`; rep.Heads[1] != want {
 		t.Errorf("the audit page's tag and title %q, want %q", rep.Heads[1], want)
 	}
-	if !strings.Contains(rep.EndStatuses[0], " lines") || strings.Contains(rep.EndStatuses[1], " line") {
-		t.Errorf("status lines %q: the audit's carries the earlier run's count", rep.EndStatuses)
+	// The status line carries the run's own line count, not the earlier
+	// run's (wording-independent: the model's counts and the numbers shown).
+	if len(rep.EndLines) != 2 || rep.EndLines[0] <= 1 || rep.EndLines[1] >= rep.EndLines[0] {
+		t.Fatalf("line counts %v: want Full Cleanup's many, then fewer for the audit", rep.EndLines)
+	}
+	first := regexp.MustCompile(`\b` + strconv.Itoa(rep.EndLines[0]) + `\b`)
+	if !first.MatchString(rep.EndStatuses[0]) {
+		t.Errorf("status %q doesn't show the run's %d lines", rep.EndStatuses[0], rep.EndLines[0])
+	}
+	if first.MatchString(rep.EndStatuses[1]) {
+		t.Errorf("the audit's status %q carries the earlier run's count %d", rep.EndStatuses[1], rep.EndLines[0])
 	}
 }
 
