@@ -62,10 +62,12 @@ func main() {
 	asJSON := flag.Bool("json", false, "print the uncovered blocks as JSON")
 	summary := flag.Bool("summary", false, "print per-package totals instead of blocks")
 	src := flag.Bool("src", false, "print each uncovered block's source lines")
+	exempt := flag.String("exempt", "", "with -reachable: the exempt list (docs/coverage-exempt.tsv)")
+	reach := flag.Bool("reachable", false, "print raw and reachable (covered / (total - exempt)) coverage per scope; needs -exempt")
 	root := flag.String("root", ".", "the repo root (holds go.mod and gui/go.mod)")
 	flag.Parse()
 	if flag.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "usage: covblocks [-json] [-summary] [-src] PROFILE...")
+		fmt.Fprintln(os.Stderr, "usage: covblocks [-json] [-summary] [-src] [-reachable -exempt FILE] PROFILE...")
 		os.Exit(2)
 	}
 	var readers []io.Reader
@@ -84,6 +86,30 @@ func main() {
 	mods, err := Modules(*root)
 	if err != nil {
 		fatal(err)
+	}
+	if *reach {
+		if *exempt == "" {
+			fatal(fmt.Errorf("-reachable needs -exempt"))
+		}
+		f, err := os.Open(*exempt)
+		if err != nil {
+			fatal(err)
+		}
+		ex, err := ReadExempt(f)
+		f.Close()
+		if err != nil {
+			fatal(err)
+		}
+		abs, err := filepath.Abs(*root)
+		if err != nil {
+			fatal(err)
+		}
+		stats, stale := Report(blocks, ex, relFunc(abs, mods))
+		WriteReachable(os.Stdout, stats)
+		for _, e := range stale {
+			fmt.Fprintf(os.Stderr, "covblocks: stale exempt entry (refresh docs/coverage-exempt.tsv): %s:%d-%d %s\n", e.File, e.Start, e.End, e.Func)
+		}
+		return
 	}
 	if *summary {
 		WriteSummary(os.Stdout, blocks)
