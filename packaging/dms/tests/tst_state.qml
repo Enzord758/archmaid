@@ -37,6 +37,51 @@ TestCase {
         compare(State.parseUpdates(F.fx.updatesNone).count, 0);
     }
 
+    // Not authorised: only a cancelled run with steps_refused > 0. The bar's
+    // level is "warn" for it and for a plain cancel alike (the chip tells them
+    // apart); the words are the Overview's and the Run page's, singular and
+    // plural.
+    function test_notAuthorisedEdges() {
+        const na3 = sum(F.fx.lastNA3, null, null, t0);
+        compare(na3.level, "warn");
+        compare(kinds(na3), "notauthorised");
+        compare(na3.issues[0].text, "Last run not authorised · nothing ran (3 steps not authorised)");
+        compare(sum(F.fx.lastCancelled, null, null, t0).level, na3.level);
+        // an older archmaid's record has no steps_refused, nor a damaged one a count: a plain cancel
+        compare(State.parseLastRun(F.fx.lastCancelledAbsent).stepsRefused, 0);
+        const bad = ["lastCancelledAbsent", "lastCancelledStr", "lastCancelledNeg", "lastCancelledFrac"];
+        for (let i = 0; i < bad.length; i++) {
+            const s = sum(F.fx[bad[i]], null, null, t0);
+            compare(kinds(s), "cancelled", bad[i]);
+            const p = State.popout(s, t0);
+            compare(p.lastRun.tag, "CANCELLED", bad[i]);
+            compare(p.lastRun.tint, "muted", bad[i]);
+            compare(p.lastRun.notes.length, 0, bad[i]);
+        }
+        // steps_refused on any other outcome changes nothing
+        const fs = sum(F.fx.lastFailedRefused, null, null, t0);
+        compare(fs.issues[0].text, "Last run failed (1 step)");
+        const f = State.popout(fs, t0);
+        compare(f.lastRun.tag, "FAILED");
+        compare(f.lastRun.tint, "error");
+        const as = sum(F.fx.lastAbortedRefused, null, null, t0);
+        compare(kinds(as), "aborted");
+        const a = State.popout(as, t0);
+        compare(a.lastRun.tag, "ABORTED");
+        compare(a.lastRun.tint, "warning");
+        compare(State.outcomeTag("incomplete", 2), "INCOMPLETE");
+        compare(State.outcomeTag("ok", 5), "OK");
+        compare(State.outcomeTint("failed", 5), "error");
+        // the count is optional: none is a plain cancel
+        compare(State.outcomeTag("cancelled"), "CANCELLED");
+        compare(State.outcomeTint("cancelled"), "muted");
+        compare(State.outcomeTag("cancelled", 0), "CANCELLED");
+        compare(State.outcomeTag("cancelled", 1), "NOT AUTHORISED");
+        compare(State.outcomeTint("cancelled", 1), "warning");
+        // the popout's note for it is a warning, like the incomplete one
+        compare(State.popout(na3, t0).lastRun.notes.map(n => n.tint), ["warning"]);
+    }
+
     function test_neutralOnBadInput() {
         const bad = [undefined, null, "", "{", "[]", "null", "42", F.fx.lastTorn, F.fx.lastV2, '{"v":1}', '{"v":"1","finished":"2026-10-04T10:00:00Z"}', '{"v":1,"finished":"yesterday"}'];
         for (let i = 0; i < bad.length; i++) {

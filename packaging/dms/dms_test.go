@@ -64,6 +64,23 @@ func withRefused(t *testing.T, raw string, refused int, outcome ...string) strin
 	return string(b) + "\n"
 }
 
+// withField sets (or, for nil, deletes) one key of a real record's JSON: an
+// older archmaid's record without steps_refused, or a damaged value.
+func withField(t *testing.T, raw, key string, val any) string {
+	t.Helper()
+	m := map[string]any{}
+	if err := json.Unmarshal([]byte(raw), &m); err != nil {
+		t.Fatal(err)
+	}
+	if val == nil {
+		delete(m, key)
+	} else {
+		m[key] = val
+	}
+	b, _ := json.Marshal(m)
+	return string(b) + "\n"
+}
+
 func auditState(t *testing.T, s audit.State) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), audit.StateFile)
@@ -305,12 +322,21 @@ func TestStateJS(t *testing.T) {
 		"lastCancelled":     lastRun(t, logstore.OutcomeCancelled, 0),
 		"lastNotAuthorised": withRefused(t, lastRun(t, logstore.OutcomeCancelled, 0), 1, logstore.OutcomeCancelled),
 		"lastNothing":       lastRun(t, logstore.OutcomeNothingFound, 0),
-		"lastIncomplete":    withRefused(t, okRaw, 2),
-		"lastUnknownField":  strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),
-		"lastV2":            strings.Replace(okRaw, `"v":1`, `"v":2`, 1),
-		"lastTorn":          okRaw[:len(okRaw)/2],
-		"lastDry":           strings.Replace(okRaw, `"dry_run":false`, `"dry_run":true`, 1),
-		"auditClean":        auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true}),
+		// Cancelled with 3 refused; with the field absent (an older archmaid);
+		// with a damaged value; and the other outcomes carrying steps_refused.
+		"lastNA3":             withRefused(t, lastRun(t, logstore.OutcomeCancelled, 0), 3, logstore.OutcomeCancelled),
+		"lastCancelledAbsent": withField(t, lastRun(t, logstore.OutcomeCancelled, 0), "steps_refused", nil),
+		"lastCancelledStr":    withField(t, lastRun(t, logstore.OutcomeCancelled, 0), "steps_refused", "3"),
+		"lastCancelledNeg":    withField(t, lastRun(t, logstore.OutcomeCancelled, 0), "steps_refused", -1),
+		"lastCancelledFrac":   withField(t, lastRun(t, logstore.OutcomeCancelled, 0), "steps_refused", 1.5),
+		"lastFailedRefused":   withRefused(t, lastRun(t, logstore.OutcomeFailed, 1), 2, logstore.OutcomeFailed),
+		"lastAbortedRefused":  withRefused(t, lastRun(t, logstore.OutcomeAborted, 0), 2, logstore.OutcomeAborted),
+		"lastIncomplete":      withRefused(t, okRaw, 2),
+		"lastUnknownField":    strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),
+		"lastV2":              strings.Replace(okRaw, `"v":1`, `"v":2`, 1),
+		"lastTorn":            okRaw[:len(okRaw)/2],
+		"lastDry":             strings.Replace(okRaw, `"dry_run":false`, `"dry_run":true`, 1),
+		"auditClean":          auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true}),
 		"auditHigh": auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true,
 			High: []audit.StateFinding{{Pkg: "foo", Reason: "maintainer alice → mallory"}, {Pkg: "bar", Reason: "adopted by x"}}}),
 		"updates3":     updatesFile(t, "a\nb\nc\n", 0),

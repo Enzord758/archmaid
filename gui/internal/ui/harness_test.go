@@ -1749,6 +1749,11 @@ func TestGUILastRunTones(t *testing.T) {
 		{logstore.OutcomeCancelled, "CANCELLED", "am-tag-neutral", fmt.Sprintf("files=%q open=false", nothingRan), 0},
 		// Every step refused: the engine records it cancelled, steps_refused 1.
 		{logstore.OutcomeCancelled, "NOT AUTHORISED", "am-tag-warn", fmt.Sprintf("files=%q open=false", nothingRan), 1},
+		{logstore.OutcomeCancelled, "NOT AUTHORISED", "am-tag-warn", fmt.Sprintf("files=%q open=false", nothingRan), 3},
+		// steps_refused on any other outcome keeps that outcome's own tag.
+		{logstore.OutcomeFailed, "FAILED", "am-tag-danger", `files="topgrade.log" open=true`, 2},
+		{logstore.OutcomeAborted, "ABORTED", "am-tag-warn", `files="topgrade.log" open=true`, 2},
+		{logstore.OutcomeIncomplete, "INCOMPLETE", "am-tag-warn", `files="topgrade.log" open=true`, 2},
 		{logstore.OutcomeOK, "OK", "am-tag-ok", `files="topgrade.log" open=true`, 0},
 		{logstore.OutcomeNothingFound, "NOTHING FOUND", "am-tag-ok", `files="topgrade.log" open=true`, 0},
 	} {
