@@ -18,7 +18,7 @@ import (
 // nothing ran (N steps not authorised)".
 func (m *Model) FinishedText(f engine.Finished) (status, toast string) {
 	if f.Refused > 0 && f.Errs == 0 && f.Outcome != engine.OutcomeAborted && m.nothingRan() {
-		n := plural.N(f.Refused, "step", "steps") + " not authorised"
+		n := plural.Refused(f.Refused)
 		return "Finished: not authorised · nothing ran (" + n + ")",
 			"Run not authorised · nothing ran (" + n + ")"
 	}
@@ -40,12 +40,15 @@ func (m *Model) nothingRan() bool {
 }
 
 func finishedText(f engine.Finished) (status, toast string) {
+	// Steps refused next to a failure or an abort are said too, in the same
+	// words as the Overview and the DMS widget: " · 5 steps not authorised".
+	also := plural.AlsoRefused(f.Refused)
 	switch f.Outcome {
 	case engine.OutcomeCompleted:
 		switch {
 		case f.Errs > 0:
-			return "Finished: failed (" + plural.N(f.Errs, "step", "steps") + ")",
-				"Run finished with " + plural.N(f.Errs, "failed step", "failed steps")
+			return "Finished: failed (" + plural.N(f.Errs, "step", "steps") + ")" + also,
+				"Run finished with " + plural.N(f.Errs, "failed step", "failed steps") + also
 		case f.Refused > 0:
 			return "Finished: incomplete (" + plural.N(f.Refused, "step", "steps") + " not authorised)",
 				"Run incomplete: " + plural.N(f.Refused, "step was", "steps were") + " not authorised"
@@ -53,10 +56,10 @@ func finishedText(f engine.Finished) (status, toast string) {
 		return "Finished: completed", "Run completed"
 	case engine.OutcomeAborted:
 		if f.Errs > 0 {
-			return "Finished: aborted (" + plural.N(f.Errs, "step", "steps") + " failed)",
-				"Run aborted, " + plural.N(f.Errs, "step", "steps") + " failed"
+			return "Finished: aborted (" + plural.N(f.Errs, "step", "steps") + " failed)" + also,
+				"Run aborted, " + plural.N(f.Errs, "step", "steps") + " failed" + also
 		}
-		return "Finished: aborted", "Run aborted"
+		return "Finished: aborted" + also, "Run aborted" + also
 	case engine.OutcomeCancelled:
 		return "Finished: cancelled", "Run cancelled, nothing ran"
 	}

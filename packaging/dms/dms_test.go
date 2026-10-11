@@ -330,6 +330,8 @@ func TestStateJS(t *testing.T) {
 		"lastCancelledNeg":    withField(t, lastRun(t, logstore.OutcomeCancelled, 0), "steps_refused", -1),
 		"lastCancelledFrac":   withField(t, lastRun(t, logstore.OutcomeCancelled, 0), "steps_refused", 1.5),
 		"lastFailedRefused":   withRefused(t, lastRun(t, logstore.OutcomeFailed, 1), 2, logstore.OutcomeFailed),
+		"lastFailedRefused5":  withRefused(t, lastRun(t, logstore.OutcomeFailed, 1), 5, logstore.OutcomeFailed),
+		"lastFailed2Refused1": withRefused(t, lastRun(t, logstore.OutcomeFailed, 2), 1, logstore.OutcomeFailed),
 		"lastAbortedRefused":  withRefused(t, lastRun(t, logstore.OutcomeAborted, 0), 2, logstore.OutcomeAborted),
 		"lastIncomplete":      withRefused(t, okRaw, 2),
 		"lastUnknownField":    strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),

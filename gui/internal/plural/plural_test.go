@@ -19,3 +19,18 @@ func TestN(t *testing.T) {
 		}
 	}
 }
+
+// TestRefused: the words every place that reports a run shares.
+func TestRefused(t *testing.T) {
+	for _, c := range []struct {
+		n          int
+		want, also string
+	}{{0, "0 steps not authorised", ""}, {1, "1 step not authorised", " · 1 step not authorised"}, {5, "5 steps not authorised", " · 5 steps not authorised"}} {
+		if got := Refused(c.n); got != c.want {
+			t.Errorf("Refused(%d) = %q, want %q", c.n, got, c.want)
+		}
+		if got := AlsoRefused(c.n); got != c.also {
+			t.Errorf("AlsoRefused(%d) = %q, want %q", c.n, got, c.also)
+		}
+	}
+}

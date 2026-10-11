@@ -146,13 +146,13 @@ function summarize(lastRun, audit, updates, now) {
     if (lastRun) {
         switch (lastRun.outcome) {
         case "failed":
-            errors.push({ kind: "failed", text: "Last run failed" + (lastRun.stepsFailed > 0 ? " (" + plural(lastRun.stepsFailed, "step", "steps") + ")" : "") });
+            errors.push({ kind: "failed", text: "Last run failed" + (lastRun.stepsFailed > 0 ? " (" + plural(lastRun.stepsFailed, "step", "steps") + ")" : "") + alsoRefused(lastRun.stepsRefused) });
             break;
         case "incomplete":
             warns.push({ kind: "incomplete", text: "Last run incomplete: root steps refused" + (lastRun.stepsRefused > 0 ? " (" + lastRun.stepsRefused + ")" : "") });
             break;
         case "aborted":
-            warns.push({ kind: "aborted", text: "Last run aborted" });
+            warns.push({ kind: "aborted", text: "Last run aborted" + alsoRefused(lastRun.stepsRefused) });
             break;
         case "cancelled":
             // Every step refused: the engine records it cancelled (nothing
@@ -315,6 +315,12 @@ function popout(s, now) {
 // plural(n, one, many): "1 step", "2 steps" (the GUI's plural.N).
 function plural(n, one, many) {
     return n + " " + (n === 1 || n === -1 ? one : many);
+}
+
+// alsoRefused(n): " \u00b7 5 steps not authorised" after a failed or aborted
+// run that also had refused steps, "" when none; the GUI's plural.AlsoRefused.
+function alsoRefused(n) {
+    return n > 0 ? " \u00b7 " + plural(n, "step", "steps") + " not authorised" : "";
 }
 
 // ago(then, now): "just now", "5 min ago", "3 h ago", "12 days ago".

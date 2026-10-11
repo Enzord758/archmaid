@@ -79,12 +79,12 @@ type timeline struct {
 	kicker, meta, elapsed *gtk.Label
 	prev                  *gtk.Label // the "previous run" tag
 	// counts holds the done, failed and skipped tags (P8, Dev 5's r8).
-	counts                *gtk.Box
-	done, failed, skipped *gtk.Label
-	segments              *gtk.Box
-	segs                  []*gtk.Box
-	ticking               bool
-	foldQueued            bool // foldNow is queued
+	counts                         *gtk.FlowBox // wraps: four chips are wider than a 360 px window
+	done, failed, skipped, refused *gtk.Label
+	segments                       *gtk.Box
+	segs                           []*gtk.Box
+	ticking                        bool
+	foldQueued                     bool // foldNow is queued
 }
 
 // newRunPage builds the Run page: the run header over the timeline.
@@ -215,11 +215,18 @@ func (w *Window) newRunHeader() gtk.Widgetter {
 	tl.meta = gtk.NewLabel("")
 	tl.meta.SetXAlign(0)
 	tl.meta.AddCSSClass("am-run-meta")
-	tl.counts = gtk.NewBox(gtk.OrientationHorizontal, 6)
+	tl.counts = gtk.NewFlowBox()
+	tl.counts.SetSelectionMode(gtk.SelectionNone)
+	tl.counts.SetFocusable(false)
+	tl.counts.SetMaxChildrenPerLine(4)
+	tl.counts.SetColumnSpacing(6)
+	tl.counts.SetHAlign(gtk.AlignStart)
 	tl.counts.AddCSSClass("am-run-counts")
 	tl.done, tl.failed, tl.skipped = tag("", "am-tag-ok"), tag("", "am-tag-danger"), tag("", "am-tag-neutral")
-	for _, t := range []*gtk.Label{tl.done, tl.failed, tl.skipped} {
+	tl.refused = tag("", "am-tag-warn")
+	for _, t := range []*gtk.Label{tl.done, tl.failed, tl.skipped, tl.refused} {
 		tl.counts.Append(t)
+		gtk.BaseWidget(t.Parent()).SetFocusable(false)
 	}
 	// "previous run": the page shows the run before the action that is
 	// starting, or that ended before its queue (w.pagePrev).
@@ -668,10 +675,13 @@ func (w *Window) updateRunHeader() {
 	tl.meta.SetText(meta)
 	tl.meta.SetVisible(meta != "")
 	// The counts as tags in the state colours: done, failed, skipped (the
-	// refused and not-run steps count as skipped).
+	// not-run steps count as skipped; a refused step is its own chip, "not
+	// authorised", shown only when one was).
 	tl.done.SetText(fmt.Sprintf("%d done", h.Done))
 	tl.failed.SetText(fmt.Sprintf("%d failed", h.Failed))
-	tl.skipped.SetText(fmt.Sprintf("%d skipped", h.Skipped+h.Refused+h.NotRun))
+	tl.skipped.SetText(fmt.Sprintf("%d skipped", h.Skipped+h.NotRun))
+	tl.refused.SetText(fmt.Sprintf("%d not authorised", h.Refused))
+	gtk.BaseWidget(tl.refused.Parent()).SetVisible(h.Refused > 0)
 	tl.counts.SetVisible(h.Of > 0)
 	// The segment bar: one segment per step, in its state's colour.
 	for len(tl.segs) < len(m.Rows) {

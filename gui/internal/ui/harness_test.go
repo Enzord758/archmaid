@@ -14,10 +14,12 @@ package ui
 // always measured and logged).
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -105,8 +107,10 @@ type report struct {
 	Toasts   []string
 	// ToastLabels: toast-markup's labels in the toast overlay, as shown.
 	ToastLabels []string
-	Menu        []string // the Overview's rows
-	MenuSub     string   // the started row's subtitle right after the click
+	// Chips: the Run page's visible count chips at the end ("1 done").
+	Chips   []string
+	Menu    []string // the Overview's rows
+	MenuSub string   // the started row's subtitle right after the click
 	// usercache-size: the Clear user cache cell's sub line (text, or
 	// "<hidden>") before the run, while it waits at its gate, and once
 	// the run has ended and the cell re-measured.
@@ -356,6 +360,7 @@ func runChild(scenario, path string) int {
 	case "idle", "logs", "logs-newer", "fullcleanup", "stop", "close-midrun":
 	case "narrow-nav": // 630x372: the sidebar overlay (shell_harness_test.go)
 	case "toast-markup": // a toast whose message looks like markup
+	case "toast-half": // half of a 1920 px screen: the longest toasts, no GTK warning
 	case "dry-first": // Full Cleanup from the hero's Dry run first
 	case "audit-rerun": // Full Cleanup, then the AUR audit (a report, no queue): the audit's page
 	case "clear-rerun": // Full Cleanup, then Repair (a notice), then Clear user cache: when the page clears
@@ -449,6 +454,10 @@ func runChild(scenario, path string) int {
 	measuring := false
 	opts.hook = func(w *Window) {
 		closeSoon := func() { glib.TimeoutAdd(50, func() { w.win.Close() }) }
+		if scenario == "toast-half" {
+			wd, _ := strconv.Atoi(os.Getenv("ARCHMAID_GUI_TOAST_W"))
+			w.win.SetDefaultSize(wd, 372)
+		}
 		if scenario == "real-small" || scenario == "narrow-nav" || strings.HasPrefix(scenario, "small-") {
 			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
 		}
@@ -480,6 +489,20 @@ func runChild(scenario, path string) int {
 								rep.ToastLabels = labelsUnder(&w.toasts.Widget)
 								w.win.Close()
 							})
+							return
+						}
+						if scenario == "toast-half" {
+							// One at a time: the overlay queues, so each is shown
+							// for a moment, then dismissed.
+							for i, m := range halfToasts {
+								glib.TimeoutAdd(uint(i)*700, func() {
+									t := plainToast(m)
+									w.toasted = append(w.toasted, m)
+									w.toasts.AddToast(t)
+									glib.TimeoutAdd(500, t.Dismiss)
+								})
+							}
+							glib.TimeoutAdd(uint(len(halfToasts))*700+300, func() { w.win.Close() })
 							return
 						}
 						// The Overview's actions: the hero and the cells.
@@ -750,6 +773,11 @@ func runChild(scenario, path string) int {
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
+					for _, c := range []*gtk.Label{w.tl.done, w.tl.failed, w.tl.skipped, w.tl.refused} {
+						if c.IsVisible() {
+							rep.Chips = append(rep.Chips, c.Text())
+						}
+					}
 					rep.Summaries = labelsWith(&w.outView.Widget, "am-summary")
 					if scenario == "fullcleanup" {
 						// Follow-the-bottom: a drag on the scrollbar stops
@@ -1146,6 +1174,41 @@ func TestGUIToastPlain(t *testing.T) {
 	if !slices.Contains(rep.ToastLabels, markupToast) {
 		t.Errorf("toast labels %q, want %q literally", rep.ToastLabels, markupToast)
 	}
+}
+
+// halfToasts are the longest toasts the window shows: the failed end with
+// refused steps, a notice at ShortMax runes and an error with a path.
+var halfToasts = []string{
+	"Run completed",
+	"Run finished with 1 failed step · 5 steps not authorised",
+	strings.Repeat("A notice that runs on and on. ", 4)[:runview.ShortMax-1] + "…",
+	"Couldn't open it: open /home/someone/.local/state/archmaid/runs/2026-10-12_09-30-00_full-cleanup: no such file",
+}
+
+// TestGUIToastHalfScreen: with the window at the width of half a 1920 px
+// screen (960 px), half a 1280 px one (630 px) and libadwaita's 360 px
+// minimum, no toast makes GTK or libadwaita log a warning (Dev 5's VM
+// round: AdwToastOverlay "exceeds AdwApplicationWindow width", because the
+// Overview's minimum width was 371 px, past a 360 px window).
+func TestGUIToastHalfScreen(t *testing.T) {
+	needDisplay(t)
+	for _, wd := range []string{"960", "630", "360"} {
+		t.Run(wd, func(t *testing.T) {
+			var buf bytes.Buffer
+			childCmd(t, "toast-half", func(c *exec.Cmd) { c.Stderr = io.MultiWriter(os.Stderr, &buf) }, "ARCHMAID_GUI_TOAST_W="+wd)
+			for _, l := range strings.Split(buf.String(), "\n") {
+				if glibWarned(l) {
+					t.Errorf("GTK logged: %s", l)
+				}
+			}
+		})
+	}
+}
+
+// glibWarned: a stderr line that is a GLib warning, critical or error (the
+// log writer prints them as slog lines: "WARN ...", "ERROR ...").
+func glibWarned(l string) bool {
+	return strings.Contains(l, " WARN ") || strings.Contains(l, " ERROR ") || strings.Contains(l, "-WARNING") || strings.Contains(l, "-CRITICAL")
 }
 
 // labelsUnder is the text of the shown labels under root, as GTK lays it

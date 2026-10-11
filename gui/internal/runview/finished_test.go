@@ -17,7 +17,12 @@ func TestFinishedText(t *testing.T) {
 	}{
 		{engine.Finished{Outcome: engine.OutcomeCompleted}, "Finished: completed", "Run completed"},
 		{engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 1}, "Finished: failed (1 step)", "Run finished with 1 failed step"},
-		{engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 2, Refused: 1}, "Finished: failed (2 steps)", "Run finished with 2 failed steps"},
+		// A step failed and others were refused: both are said, as the
+		// Overview and the DMS widget say them.
+		{engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 2, Refused: 1}, "Finished: failed (2 steps) · 1 step not authorised", "Run finished with 2 failed steps · 1 step not authorised"},
+		{engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 1, Refused: 5}, "Finished: failed (1 step) · 5 steps not authorised", "Run finished with 1 failed step · 5 steps not authorised"},
+		{engine.Finished{Outcome: engine.OutcomeAborted, Errs: 1, Refused: 5}, "Finished: aborted (1 step failed) · 5 steps not authorised", "Run aborted, 1 step failed · 5 steps not authorised"},
+		{engine.Finished{Outcome: engine.OutcomeAborted, Refused: 1}, "Finished: aborted · 1 step not authorised", "Run aborted · 1 step not authorised"},
 		{engine.Finished{Outcome: engine.OutcomeCompleted, Refused: 1, Skipped: 1}, "Finished: incomplete (1 step not authorised)", "Run incomplete: 1 step was not authorised"},
 		{engine.Finished{Outcome: engine.OutcomeCompleted, Refused: 6, Skipped: 6}, "Finished: incomplete (6 steps not authorised)", "Run incomplete: 6 steps were not authorised"},
 		{engine.Finished{Outcome: engine.OutcomeAborted, NotRun: 3}, "Finished: aborted", "Run aborted"},

@@ -487,6 +487,10 @@ func TestGUIRealDriver(t *testing.T) {
 				t.Errorf("rows %q: want %s=%s", rep.Rows, id, st)
 			}
 		}
+		// A refused step is "not authorised" on the chip, not a skip.
+		if !slices.Equal(rep.Chips, []string{"4 done", "0 failed", "0 skipped", "7 not authorised"}) {
+			t.Errorf("chips %q, want 4 done, 0 failed, 0 skipped, 7 not authorised", rep.Chips)
+		}
 		if !hasRow(rep.Subtitles, "Cleaning package cache…: Not authorised") {
 			t.Errorf("the refused row never read Not authorised: %q", rep.Subtitles)
 		}

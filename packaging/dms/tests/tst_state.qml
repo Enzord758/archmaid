@@ -58,14 +58,18 @@ TestCase {
             compare(p.lastRun.tint, "muted", bad[i]);
             compare(p.lastRun.notes.length, 0, bad[i]);
         }
-        // steps_refused on any other outcome changes nothing
+        // steps_refused next to a failure or an abort is said too (the GUI's words)
         const fs = sum(F.fx.lastFailedRefused, null, null, t0);
-        compare(fs.issues[0].text, "Last run failed (1 step)");
+        compare(fs.issues[0].text, "Last run failed (1 step) \u00b7 2 steps not authorised");
+        compare(sum(F.fx.lastFailedRefused5, null, null, t0).issues[0].text, "Last run failed (1 step) \u00b7 5 steps not authorised");
+        compare(sum(F.fx.lastFailed2Refused1, null, null, t0).issues[0].text, "Last run failed (2 steps) \u00b7 1 step not authorised");
         const f = State.popout(fs, t0);
         compare(f.lastRun.tag, "FAILED");
         compare(f.lastRun.tint, "error");
+        compare(f.lastRun.notes[0].text, "Last run failed (1 step) \u00b7 2 steps not authorised");
         const as = sum(F.fx.lastAbortedRefused, null, null, t0);
         compare(kinds(as), "aborted");
+        compare(as.issues[0].text, "Last run aborted \u00b7 2 steps not authorised");
         const a = State.popout(as, t0);
         compare(a.lastRun.tag, "ABORTED");
         compare(a.lastRun.tint, "warning");

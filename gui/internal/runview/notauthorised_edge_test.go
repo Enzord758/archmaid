@@ -69,15 +69,15 @@ func TestFinishedTextRefusedNotAllOfIt(t *testing.T) {
 		{"ran + refused", queueModel(2, ok(), done("a", 0, steps.OK), done("b", 1, steps.AuthRefused)),
 			engine.Finished{Outcome: engine.OutcomeCompleted, Refused: 1}, "Finished: incomplete (1 step not authorised)"},
 		{"failed + refused", queueModel(3, ok(), done("a", 0, steps.Failed), done("b", 1, steps.AuthRefused), done("c", 2, steps.AuthRefused)),
-			engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 1, Refused: 2}, "Finished: failed (1 step)"},
+			engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 1, Refused: 2}, "Finished: failed (1 step) · 2 steps not authorised"},
 		{"refused first, then a step ran", queueModel(2, done("a", 0, steps.AuthRefused), engine.StepStarted{ID: "b", Index: 1}, done("b", 1, steps.OK)),
 			engine.Finished{Outcome: engine.OutcomeCompleted, Refused: 1}, "Finished: incomplete (1 step not authorised)"},
 		{"stopped while running", queueModel(2, ok(), done("b", 1, steps.AuthRefused)),
-			engine.Finished{Outcome: engine.OutcomeAborted, Refused: 1}, "Finished: aborted"},
+			engine.Finished{Outcome: engine.OutcomeAborted, Refused: 1}, "Finished: aborted · 1 step not authorised"},
 		{"aborted row + refused", queueModel(2, ok(), engine.Aborted{ID: "a", Index: 0}, done("b", 1, steps.AuthRefused)),
-			engine.Finished{Outcome: engine.OutcomeAborted, Refused: 1}, "Finished: aborted"},
+			engine.Finished{Outcome: engine.OutcomeAborted, Refused: 1}, "Finished: aborted · 1 step not authorised"},
 		{"errs counted, nothing started", queueModel(1, done("a", 0, steps.AuthRefused)),
-			engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 1, Refused: 1}, "Finished: failed (1 step)"},
+			engine.Finished{Outcome: engine.OutcomeCompleted, Errs: 1, Refused: 1}, "Finished: failed (1 step) · 1 step not authorised"},
 	} {
 		s, toast := c.m.FinishedText(c.f)
 		if s != c.want || strings.Contains(toast, "nothing ran") || strings.Contains(s, "nothing ran") {
@@ -118,8 +118,8 @@ func TestSummarizeNotAuthorisedOnlyWhenCancelled(t *testing.T) {
 		refused int
 		want    string
 	}{
-		{logstore.OutcomeAborted, 2, "Last run aborted"},
-		{logstore.OutcomeFailed, 2, "Last run failed (1 step)"},
+		{logstore.OutcomeAborted, 2, "Last run aborted · 2 steps not authorised"},
+		{logstore.OutcomeFailed, 2, "Last run failed (1 step) · 2 steps not authorised"},
 		{logstore.OutcomeIncomplete, 2, "Last run incomplete: root steps refused (2)"},
 		{logstore.OutcomeCancelled, 0, "Last run cancelled, nothing ran"},
 	} {

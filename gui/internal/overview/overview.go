@@ -151,6 +151,7 @@ func Summarize(r logstore.RunRecord, now time.Time) LastRun {
 		if r.StepsFailed > 0 {
 			s += " (" + plural.N(r.StepsFailed, "step", "steps") + ")"
 		}
+		s += plural.AlsoRefused(r.StepsRefused)
 		errs = append(errs, s)
 	case logstore.OutcomeIncomplete:
 		s := "Last run incomplete: root steps refused"
@@ -159,10 +160,10 @@ func Summarize(r logstore.RunRecord, now time.Time) LastRun {
 		}
 		warns = append(warns, s)
 	case logstore.OutcomeAborted:
-		warns = append(warns, "Last run aborted")
+		warns = append(warns, "Last run aborted"+plural.AlsoRefused(r.StepsRefused))
 	case logstore.OutcomeCancelled:
 		if NotAuthorised(r) {
-			warns = append(warns, "Last run not authorised · nothing ran ("+plural.N(r.StepsRefused, "step", "steps")+" not authorised)")
+			warns = append(warns, "Last run not authorised · nothing ran ("+plural.Refused(r.StepsRefused)+")")
 		} else {
 			warns = append(warns, "Last run cancelled, nothing ran")
 		}

@@ -135,11 +135,23 @@ func (w *Window) newHero() gtk.Widgetter {
 	spin.SetVisible(false)
 	sub := gtk.NewLabel("")
 	sub.AddCSSClass("am-cell-sub")
-	buttons := gtk.NewBox(gtk.OrientationHorizontal, 8)
-	buttons.Append(run)
-	buttons.Append(dry)
-	buttons.Append(spin)
-	buttons.Append(sub)
+	// A FlowBox, not a Box: the row wraps when the window is narrow, so
+	// the page's minimum width is its widest button, not the whole row
+	// (a Box made the Overview 371 px wide at least, and the toast overlay
+	// logged "exceeds AdwApplicationWindow width" in a 360 px window).
+	buttons := gtk.NewFlowBox()
+	buttons.SetSelectionMode(gtk.SelectionNone)
+	buttons.SetFocusable(false)
+	buttons.SetMaxChildrenPerLine(4)
+	buttons.SetColumnSpacing(8)
+	buttons.SetRowSpacing(8)
+	buttons.SetHAlign(gtk.AlignStart)
+	for _, c := range []gtk.Widgetter{run, dry, spin, sub} {
+		buttons.Append(c)
+	}
+	for c := buttons.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+		gtk.BaseWidget(c).SetFocusable(false)
+	}
 	hero.Append(buttons)
 	w.menu[actions.IDFullCleanup] = &menuRow{entry: card.Entry, cell: run, sub: sub, spin: spin}
 	return hero
