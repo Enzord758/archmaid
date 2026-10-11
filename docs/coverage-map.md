@@ -89,21 +89,21 @@ exempt list (`coverage-exempt.md`). Both come out of `scripts/covblocks
 <!-- gen:totals -->
 | Scope | Statements | Covered | Raw | Uncovered | A unit | B e2e | C vm | D owner | E exempt | Reachable (covered / (total - E)) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| core | 5425 | 5268 | 97.1 % | 157 | 87 | 3 | 1 | 0 | 66 | 98.3 % (5268/5359) |
-| helper | 886 | 774 | 87.3 % | 112 | 59 | 52 | 0 | 0 | 1 | 87.4 % (774/885) |
-| gui | 4225 | 3924 | 92.8 % | 301 | 208 | 39 | 22 | 0 | 32 | 93.5 % (3924/4193) |
-| testonly | 489 | 323 | 66.0 % | 166 | 141 | 0 | 0 | 0 | 25 | 69.6 % (323/464) |
-| all | 11025 | 10289 | 93.3 % | 736 | 495 | 94 | 23 | 0 | 124 | 94.3 % (10289/10901) |
+| core | 5444 | 5334 | 97.9 % | 110 | 40 | 3 | 1 | 0 | 66 | 99.1 % (5334/5378) |
+| helper | 883 | 829 | 93.8 % | 54 | 0 | 51 | 0 | 0 | 3 | 94.2 % (829/880) |
+| gui | 4263 | 4124 | 96.7 % | 139 | 42 | 39 | 22 | 0 | 36 | 97.5 % (4124/4227) |
+| testonly | 510 | 338 | 66.2 % | 172 | 138 | 0 | 0 | 0 | 34 | 71.0 % (338/476) |
+| all | 11100 | 10625 | 95.7 % | 475 | 220 | 93 | 23 | 0 | 139 | 96.9 % (10625/10961) |
 
 Raw / reachable, cumulative:
 
 | Scope | Now (unit + e2e + GUI) | after A | after A+B | after A+B+C | after A+B+C+D (= every reachable statement) |
 |---|---|---|---|---|---|
-| core | 97.1 % / 98.3 % | 98.7 % / 99.9 % | 98.7 % / 99.9 % | 98.7 % / 100.0 % | 98.7 % / 100.0 % |
-| helper | 87.3 % / 87.4 % | 94.0 % / 94.1 % | 99.8 % / 100.0 % | 99.8 % / 100.0 % | 99.8 % / 100.0 % |
-| gui | 92.8 % / 93.5 % | 97.7 % / 98.5 % | 98.7 % / 99.4 % | 99.2 % / 100.0 % | 99.2 % / 100.0 % |
-| testonly | 66.0 % / 69.6 % | 94.8 % / 100.0 % | 94.8 % / 100.0 % | 94.8 % / 100.0 % | 94.8 % / 100.0 % |
-| all | 93.3 % / 94.3 % | 97.8 % / 98.9 % | 98.6 % / 99.7 % | 98.8 % / 100.0 % | 98.8 % / 100.0 % |
+| core | 97.9 % / 99.1 % | 98.7 % / 99.9 % | 98.7 % / 99.9 % | 98.7 % / 100.0 % | 98.7 % / 100.0 % |
+| helper | 93.8 % / 94.2 % | 93.8 % / 94.2 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % |
+| gui | 96.7 % / 97.5 % | 97.7 % / 98.5 % | 98.6 % / 99.4 % | 99.1 % / 100.0 % | 99.1 % / 100.0 % |
+| testonly | 66.2 % / 71.0 % | 93.3 % / 100.0 % | 93.3 % / 100.0 % | 93.3 % / 100.0 % | 93.3 % / 100.0 % |
+| all | 95.7 % / 96.9 % | 97.7 % / 98.9 % | 98.5 % / 99.7 % | 98.7 % / 100.0 % | 98.7 % / 100.0 % |
 <!-- /gen:totals -->
 
 D is 0 statements: every line the owner's checks exercise is reachable by
@@ -143,15 +143,15 @@ largest single gain.
 <!-- gen:workpackages -->
 | # | Package | Statements | Gain (all) | Role | Security code | Covers |
 |---|---|---|---|---|---|---|
-| 1 | **Test infrastructure** (A) | 141 | +1.2 pts | architecture | no | testenv's post-`m.Run` checks (orphan reaper, trap report, state-guard compare) called directly inside a test, the recorder's fake targets, the contract checker's own failure paths. By package: `testenv` 123, `engine/enginetest` 13, `testtranscript` 5 |
-| 2 | **Helper and privilege edge cases** (A) | 97 | +0.8 pts | security | 97 stmts: Dev 3 reviews | the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures. By package: `cmd/archmaid-helper/helper` 59, `helperclient` 21, `privilege` 17 |
-| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 10 | +0.0 pts | architecture (driver/keep.go and the askpass bits: security) | 10 stmts: Dev 3 reviews | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `driver` 10 |
+| 1 | **Test infrastructure** (A) | 138 | +1.2 pts | architecture | no | testenv's post-`m.Run` checks (orphan reaper, trap report, state-guard compare) called directly inside a test, the recorder's fake targets, the contract checker's own failure paths. By package: `testenv` 120, `engine/enginetest` 13, `testtranscript` 5 |
+| 2 | **Helper and privilege edge cases** (A) | 0 | +0.0 pts | security | no | the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures. By package:  |
+| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 1 | +0.0 pts | architecture (driver/keep.go and the askpass bits: security) | no | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `logstore` 1 |
 | 4 | **Leaf packages and the polkit agent** (A) | 76 | +0.6 pts | performance-QA (polkitagent, realdriver, downloads: security) | 49 stmts: Dev 3 reviews | audit/downloads write and scan error paths, proc argv forms, sanitize and sysstat edges, polkitagent and realdriver against fake agents. By package: `gui/polkitagent` 23, `gui/realdriver` 14, `audit` 13, `downloads` 12, `proc` 10, `sanitize` 2 |
-| 5 | **GUI logs, timeline and signals pages** (A) | 85 | +0.7 pts | GUI | no | new headless scenarios: log page states (none, unreadable, empty), the timeline, signals mid-run, the failed-step view, logview and overview edges. By package: `gui/ui` 78, `gui/logview` 6, `gui/overview` 1 |
-| 6 | **GUI windows, dialogs, settings, run view** (A) | 86 | +0.7 pts | GUI | no | window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells. By package: `gui/ui` 54, `gui/runview` 25, `gui/settings` 7 |
-| 7 | **E2E: the cover-helper check** (B) | 52 | +0.4 pts | performance-QA with Dev 3's review (helper) | 52 stmts: Dev 3 reviews | main and hardenProcess of the helper binary: the run.sh check of the cover helper as the user and as uid 0 in an unprivileged user namespace (both refused before anything runs). By package: `cmd/archmaid-helper` 50, `cmd/archmaid-helper/coverdir` 1, `cmd/archmaid-helper/helper` 1 |
+| 5 | **GUI logs, timeline and signals pages** (A) | 1 | +0.0 pts | GUI | no | new headless scenarios: log page states (none, unreadable, empty), the timeline, signals mid-run, the failed-step view, logview and overview edges. By package: `gui/ui` 1 |
+| 6 | **GUI windows, dialogs, settings, run view** (A) | 4 | +0.0 pts | GUI | no | window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells. By package: `gui/settings` 3, `gui/ui` 1 |
+| 7 | **E2E: the cover-helper check** (B) | 51 | +0.4 pts | performance-QA with Dev 3's review (helper) | 51 stmts: Dev 3 reviews | main and hardenProcess of the helper binary: the run.sh check of the cover helper as the user and as uid 0 in an unprivileged user namespace (both refused before anything runs). By package: `cmd/archmaid-helper` 50, `cmd/archmaid-helper/coverdir` 1 |
 | 8 | **E2E: binary entries** (B) | 42 | +0.3 pts | GUI (the TUI tape: architecture) | no | archmaid-gui's main, `--stub` with each script (headless), the TUI's error exit and the editor handover on a pty tape. By package: `gui/ui` 33, `gui/cmd/archmaid-gui` 6, `cmd/archmaid` 3 |
-| | **A and B together** | 589 | +5.3 pts | | | |
+| | **A and B together** | 313 | +2.8 pts | | | |
 <!-- /gen:workpackages -->
 
 ## The 10 most important VM (C) checks
@@ -319,32 +319,30 @@ Statements still uncovered after unit + e2e + GUI, by category.
 |---|---|---|---|---|---|
 | `cmd/archmaid-helper` |  | 50 |  |  | 1 |
 | `cmd/archmaid-helper/internal/coverdir` |  | 1 |  |  |  |
-| `cmd/archmaid-helper/internal/helper` | 59 | 1 |  |  |  |
+| `cmd/archmaid-helper/internal/helper` |  |  |  |  | 2 |
 | `cmd/archmaid` |  | 3 |  |  | 3 |
 | `gui/cmd/archmaid-gui` |  | 6 |  |  |  |
-| `gui/internal/logview` | 6 |  |  |  |  |
-| `gui/internal/overview` | 1 |  |  |  |  |
 | `gui/internal/polkitagent` | 23 |  |  |  | 18 |
 | `gui/internal/realdriver` | 14 |  |  |  |  |
-| `gui/internal/runview` | 25 |  |  |  |  |
-| `gui/internal/settings` | 7 |  |  |  | 6 |
-| `gui/internal/ui` | 132 | 33 | 22 |  | 8 |
+| `gui/internal/runview` |  |  |  |  | 1 |
+| `gui/internal/settings` | 3 |  |  |  | 6 |
+| `gui/internal/ui` | 2 | 33 | 22 |  | 11 |
 | `internal/audit` | 13 |  |  |  | 17 |
 | `internal/downloads` | 12 |  |  |  | 15 |
-| `internal/driver` | 10 |  |  |  | 2 |
+| `internal/driver` |  |  |  |  | 2 |
 | `internal/engine` |  |  |  |  | 1 |
 | `internal/engine/enginetest` | 13 |  |  |  |  |
 | `internal/engine/stub` |  |  |  |  | 1 |
 | `internal/frontend` |  |  |  |  | 1 |
-| `internal/helperclient` | 21 |  | 1 |  |  |
 | `internal/helperclient/helpertest` |  |  |  |  | 2 |
-| `internal/logstore` |  |  |  |  | 8 |
-| `internal/privilege` | 17 |  |  |  | 8 |
+| `internal/helperclient` |  |  | 1 |  |  |
+| `internal/logstore` | 1 |  |  |  | 8 |
+| `internal/privilege` |  |  |  |  | 8 |
 | `internal/privilege/privtest` |  |  |  |  | 1 |
 | `internal/proc` | 10 |  |  |  | 1 |
 | `internal/sanitize` | 2 |  |  |  |  |
 | `internal/sysstat` | 2 |  |  |  |  |
-| `internal/testenv` | 123 |  |  |  | 22 |
+| `internal/testenv` | 120 |  |  |  | 31 |
 | `internal/testtranscript` | 5 |  |  |  |  |
 | `internal/ttyguard` |  |  |  |  | 4 |
 | `internal/tui` |  |  |  |  | 5 |
@@ -372,62 +370,11 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 |---|---|---|---|---|---|
 | `coverdir.go:26-27` | `init` | 1 | B | only a cover helper running as root sets it: verified under unshare -r with a scratch HOME (coverage-map.md, helper check); in the VM every pkexec run does | e2e (new helper check) (security: Dev 3) |
 
-#### `cmd/archmaid-helper/internal/helper`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `checks.go:32-33, 34-35, 36-37, 38-39, 40-40` | `LstatFile` | 7 | A | a plain os.Lstat wrapper: call it on a temp file, a missing path | cmd/archmaid-helper/internal/helper/checks_test.go (security: Dev 3) |
-| `checks.go:82-83` | `CheckInstall` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `checks.go:124-125, 128-129, 135-135` | `acquireLock` | 3 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `checks.go:153-154` | `pacmanIdle` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:67-75` | `DefaultOptions` | 1 | B | only main uses it: covered by any cover-helper run | e2e (new helper check) (security: Dev 3) |
-| `helper.go:103-104` | `Verbs.func` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:133-134, 150-151` | `Run` | 2 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:191-191` | `session.lock` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:206-207` | `session.step` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:274-275, 284-285` | `runCheckFiles` | 2 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:319-320` | `session.checkInstalled` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:360-361` | `session.checkPackages` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:424-425` | `runPlanOrphans` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:463-464, 467-468, 484-485` | `session.removeOrphans` | 3 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:532-533` | `runRepair` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:554-555` | `session.repairable` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:592-593` | `session.vetRepair` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:693-693, 697-697` | `qkSummaries` | 2 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `helper.go:713-714` | `missingFiles` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `output.go:264-264` | `skipEscape` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `plan.go:45-46, 53-53, 68-69` | `ComputePlan` | 3 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `plan.go:99-99` | `firstLine` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `runner.go:85-85` | `exitStatus` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `runner.go:108-109, 112-113` | `ExecRunner.Stream` | 2 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `runner.go:151-151, 152-153, 154-154` | `SplitLines` | 3 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `runner.go:169-169, 170-170, 171-172, 173-173, 175-175` | `capped.Write` | 5 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `units.go:23-24, 38-39, 48-49, 77-78` | `runDisableUnit` | 4 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `units.go:112-113, 119-120, 153-154` | `session.vetInstall` | 3 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `units.go:174-175` | `session.vetTriggers` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `units.go:195-196` | `orUnknown` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `units.go:237-238, 240-241` | `session.unitState` | 2 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-| `units.go:271-272` | `session.readInstall` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
-
 #### `cmd/archmaid`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
 | `main.go:63-66` | `main` | 3 | B | tui.Run's error exit: a new e2e run of the binary without a terminal (Bubble Tea can't open one), under the usual scratch HOME | cmd/archmaid/e2e/run.sh |
-
-#### `gui/internal/logview`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `logview.go:53-54` | `Run.Subtitle` | 1 | A | a missing state dir, an unreadable one, a stray name and a DST-gap stamp, an empty run | gui/internal/logview/logview_test.go |
-| `logview.go:64-65, 71-72, 86-86, 95-95` | `Runs` | 4 | A | a missing state dir, an unreadable one, a stray name and a DST-gap stamp, an empty run | gui/internal/logview/logview_test.go |
-| `logview.go:119-120` | `Run.Read` | 1 | A | a missing state dir, an unreadable one, a stray name and a DST-gap stamp, an empty run | gui/internal/logview/logview_test.go |
-
-#### `gui/internal/overview`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `overview.go:137-138` | `Summarize` | 1 | A | a dry-run last-run record | gui/internal/overview/overview_test.go |
 
 #### `gui/internal/polkitagent`
 
@@ -450,111 +397,35 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `agent.go:57-58, 60-61, 70-71, 74-76` | `Wiring.helper.func` | 8 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
 | `agent.go:95-96, 99-100, 103-104` | `Wiring.startAgent` | 3 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
 | `realdriver.go:138-139, 143-144` | `Start` | 2 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
-| `realdriver.go:215-216` | `Wiring.env` | 1 | A | Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C) | gui/internal/realdriver/realdriver_test.go (security: Dev 3) |
-
-#### `gui/internal/runview`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `ansi.go:102-103` | `ParseSGR` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `ansi.go:175-176, 178-178` | `applySGR` | 2 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `ansi.go:258-259` | `extColor.func` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `ansi.go:276-276` | `extColor` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `ansi.go:283-284, 294-295, 299-299` | `extColorSemi` | 3 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `gate.go:54-54` | `GateNotes` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `model.go:130-131` | `lockText` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `model.go:390-393` | `Model.Apply` | 3 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `model.go:538-538` | `Model.lastText` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `model.go:691-692, 703-705` | `Model.popRuns` | 3 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `palette.go:64-65, 66-67, 68-68` | `Dank16Path` | 4 | A | XDG_CACHE_HOME empty: the ~/.cache fallback, and HOME unset too (t.Setenv) | gui/internal/runview/palette_test.go |
-| `palette.go:131-132` | `parseHex` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `scripts.go:89-90` | `FloodSteps` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `stepline.go:14-15` | `Model.StepLine` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
-| `stepline.go:51-52` | `Model.seqLine` | 1 | A | SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks | gui/internal/runview/*_test.go |
+| `realdriver.go:221-222` | `Wiring.env` | 1 | A | Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C) | gui/internal/realdriver/realdriver_test.go (security: Dev 3) |
 
 #### `gui/internal/settings`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `settings.go:59-60, 66-67` | `Load` | 2 | A | no XDG_CONFIG_HOME nor HOME, an unreadable gui.json, a read-only config dir, a rename onto a directory, a bad downloads folder | gui/internal/settings/settings_test.go |
-| `settings.go:83-84, 87-88, 91-92, 108-109` | `Save` | 4 | A | no XDG_CONFIG_HOME nor HOME, an unreadable gui.json, a read-only config dir, a rename onto a directory, a bad downloads folder | gui/internal/settings/settings_test.go |
+| `settings.go:83-84, 108-109` | `Save` | 2 | A | no XDG_CONFIG_HOME nor HOME, an unreadable gui.json, a read-only config dir, a rename onto a directory, a bad downloads folder | gui/internal/settings/settings_test.go |
 | `settings.go:146-146` | `CheckDownloads` | 1 | A | no XDG_CONFIG_HOME nor HOME, an unreadable gui.json, a read-only config dir, a rename onto a directory, a bad downloads folder | gui/internal/settings/settings_test.go |
 
 #### `gui/internal/ui`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `app.go:109-110, 111-113, 114-114, 115-116, 117-117` | `Main` | 7 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `app.go:175-176, 178-180, 182-182, 183-185, 186-186` | `mainReal` | 10 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `app.go:176-176` | `mainReal.func` | 1 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `app.go:192-192, 193-193, 193-193, 195-195, 196-196, 196-196, 206-206, 207-210` | `stubDriver.func` | 10 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `app.go:198-198, 200-200, 202-202, 204-204, 212-212` | `stubDriver` | 5 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `dialogs.go:42-42` | `Window.prompt` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `dialogs.go:56-57` | `Window.answer` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `dialogs.go:74-75, 86-87, 112-113` | `Window.confirmDialog` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `dialogs.go:335-335, 336-337, 338-339` | `Window.passwordDialog.func` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `dialogs.go:416-417` | `Window.selectionDialog` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `dialogs.go:446-447` | `Window.selectionDialog.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `failed.go:67-68` | `Window.failedRow` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `failed.go:90-91` | `Window.drawFailed` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `failed.go:131-131, 132-132, 133-134, 136-136, 153-153` | `runFolder` | 5 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `failed.go:170-171` | `Window.redrawHeaders` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `app.go:114-115, 116-118, 119-119, 120-121, 122-122` | `Main` | 7 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `app.go:180-181, 183-185, 187-187, 188-190, 191-192` | `mainReal` | 10 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `app.go:181-181` | `mainReal.func` | 1 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `app.go:198-198, 199-199, 199-199, 201-201, 202-202, 202-202, 212-212, 213-216` | `stubDriver.func` | 10 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `app.go:204-204, 206-206, 208-208, 210-210, 218-218` | `stubDriver` | 5 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
 | `launcher.go:37-37, 38-39, 40-41, 46-46` | `gtkLauncher.launch` | 5 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `launcher.go:42-42, 43-44` | `gtkLauncher.launch.func` | 2 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `launcher.go:49-49` | `gtkLauncher.OpenFile` | 1 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `launcher.go:50-50` | `gtkLauncher.OpenFolder` | 1 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `launcher.go:53-54, 55-56` | `gtkLauncher.ChooseFolder` | 3 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `launcher.go:57-57, 58-59, 60-62, 63-63` | `gtkLauncher.ChooseFolder.func` | 6 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
-| `logs.go:72-72, 73-75, 88-88, 100-100, 101-102, 115-116, 143-144, 151-152, 183-184, 208-208, 226-226` | `Window.newLogs.func` | 12 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `logs.go:241-242, 249-249, 251-251` | `entryClass` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `logs.go:270-273` | `Window.refreshLogs` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `logs.go:328-328, 329-329, 330-331, 337-341` | `Window.showRun` | 7 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `logs.go:357-357, 359-359` | `Window.openLog` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `logs.go:396-397` | `Window.toggleSection` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `overview.go:163-163` | `cardByID` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `overview.go:298-299` | `Window.lastRunFolder` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `overview.go:377-378` | `Window.refreshLastRun` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `overview.go:422-423` | `Window.updateOverview` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `settings.go:120-121` | `Window.newSettings` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `logs.go:157-158` | `Window.newLogs.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `settings.go:206-206, 207-208` | `Window.topgradeCard.func` | 2 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
-| `settings.go:216-219, 223-224` | `Window.topgradeCard` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `settings.go:231-233, 235-237` | `Window.openTopgradeConfig` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `settings.go:251-252` | `Window.logFolderCard.func` | 1 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
 | `settings.go:266-267` | `Window.chooseDownloads` | 1 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
-| `settings.go:297-298` | `Window.applyDownloads` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `settings.go:310-312` | `Window.saveSettings` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `shell.go:148-148, 153-153, 154-155` | `Window.buildShell.func` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `shell.go:207-208` | `Window.navKey` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `shell.go:218-219` | `Window.navPress` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `shell.go:281-282` | `Window.updateRunBadge` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `shot.go:58-59` | `savePNG` | 1 | A | screenshot to an unwritable path (build tag shots) | gui/internal/ui/harness_test.go |
-| `signals.go:74-77` | `signals.run.func` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `signals.go:123-123` | `abortedOf` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `signals.go:127-130` | `closedCh` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `signals.go:138-139, 142-144` | `Window.quitOnSignal` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:119-119, 120-121, 129-130, 166-166, 167-168, 169-169, 177-177, 179-179, 181-181` | `Window.newRunPage.func` | 9 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:278-278` | `Window.rowOf` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:284-285, 289-290` | `Window.drawHeader` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:355-355` | `timeline.locate` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:362-363` | `timeline.sectionAt` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:401-402, 406-407` | `Window.insert` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:421-426` | `Window.sectionFor` | 6 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:433-434, 437-438` | `Window.wantOpen` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:490-491` | `Window.replaceList` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:526-527` | `Window.foldNow` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:539-542` | `Window.toggleStep` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:567-569` | `Window.output` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `timeline.go:695-696` | `fmtClock` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `usercache.go:31-32` | `userCacheDir` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `usercache.go:104-105, 108-109` | `Window.measureUserCache` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `usercache.go:126-127` | `Window.measureUserCache.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `window.go:137-137, 170-171` | `newWindow.func` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `window.go:244-245` | `Window.start` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `window.go:300-303` | `Window.send.func` | 3 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `window.go:315-315` | `pumpDone` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `window.go:362-364` | `Window.redraw` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `window.go:436-437, 460-461` | `Window.statusText` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `window.go:479-480, 491-492, 522-524` | `Window.closeRequest` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `window.go:137-137` | `newWindow.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 
 #### `internal/audit`
 
@@ -586,15 +457,6 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `downloads.go:501-502` | `Delete` | 1 | A | the folder removed after the scan (OpenRoot fails); mountinfoPath seam on a missing file | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:591-592` | `remover.removeTree` | 1 | A | a file in an old 0500 subdirectory (clock moved past the chmod with Options.Now): Remove fails EACCES | internal/downloads/downloads_test.go (security: Dev 3) |
 
-#### `internal/driver`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `keep.go:108-109` | `Driver.readAgent` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
-| `keep.go:176-178, 181-184, 186-188` | `Driver.agentRequest.func` | 7 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
-| `keep.go:227-227` | `Driver.answerUser` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
-| `keep.go:252-253` | `requesterOf` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
-
 #### `internal/engine/enginetest`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
@@ -606,38 +468,13 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `combined.go:144-145, 165-165` | `decoder.partProgress` | 2 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `combined.go:181-182, 186-187, 202-203` | `decoder.partDone` | 4 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `combined.go:221-221` | `decoder.combinedOutcome` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `decode.go:121-122` | `decoder.feed` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `decode.go:184-185` | `decoder.readCheck` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `decode.go:235-236` | `decoder.readResult` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `plan.go:94-95` | `CheckPlan` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
 | `plan.go:132-133` | `PlanOrphans` | 1 | C | runs the installed /usr/lib/archmaid/archmaid-helper plan-orphans, which runs the real pacman -Qdtq/-Rs --print | VM (security: Dev 3) |
-| `plan.go:142-143` | `planOrphans` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `plan.go:191-192` | `decoder.readPlan` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `plan.go:222-222` | `exitCode` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `run.go:99-100, 112-113` | `Run` | 2 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `run.go:189-189` | `helperInstalled` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `run.go:280-281` | `resultText` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `run.go:358-359` | `decoder.outcome` | 1 | A | a fake pkexec/helper script (helpertest) emitting the malformed or failing JSON lines, or missing from PATH | internal/helperclient/*_test.go (security: Dev 3) |
-| `run.go:374-374` | `exitText` | 1 | A | a fake helper killed by a signal | internal/helperclient/run_test.go (security: Dev 3) |
-| `run.go:403-404` | `tail.Write` | 1 | A | a fake helper writing >4 KiB to stderr | internal/helperclient/run_test.go (security: Dev 3) |
 
-#### `internal/privilege`
+#### `internal/logstore`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `askpass.go:193-193` | `Server.serve` | 1 | A | net.Pipe relays that hang up or answer the wrong line; a harden func that fails | internal/privilege/askpass_test.go (security: Dev 3) |
-| `askpass.go:349-350, 354-355` | `Request.deliver` | 2 | A | net.Pipe relays that hang up or answer the wrong line; a harden func that fails | internal/privilege/askpass_test.go (security: Dev 3) |
-| `askpass.go:378-379, 382-383, 386-387` | `ReadAnswer` | 3 | A | net.Pipe relays that hang up or answer the wrong line; a harden func that fails | internal/privilege/askpass_test.go (security: Dev 3) |
-| `faillock.go:110-111` | `faillockStatus` | 1 | A | a tally path that is a directory, an unreadable faillock.conf, a scanner error (an over-long line) | internal/privilege/faillock_test.go (security: Dev 3) |
-| `faillock.go:168-169` | `readTally` | 1 | A | a tally path that is a directory, an unreadable faillock.conf, a scanner error (an over-long line) | internal/privilege/faillock_test.go (security: Dev 3) |
-| `faillock.go:201-202, 234-235` | `readFaillockConf` | 2 | A | a tally path that is a directory, an unreadable faillock.conf, a scanner error (an over-long line) | internal/privilege/faillock_test.go (security: Dev 3) |
-| `kept.go:68-69, 71-73` | `KeptPassword.Keep` | 3 | A | unix.Mmap or Mlock failing: a re-executed test child with setrlimit(RLIMIT_AS / RLIMIT_MEMLOCK) lowered (needs Dev 3: it is the kept-password code) | internal/privilege/kept_test.go (security: Dev 3) |
-| `kept.go:158-159, 162-163` | `CheckPasswordBytes` | 2 | A | a password with a line break; su's check failing (shim) | internal/privilege/kept_test.go (security: Dev 3) |
-| `kept.go:187-188` | `Request.AnswerBytes` | 1 | A | a password with a line break; su's check failing (shim) | internal/privilege/kept_test.go (security: Dev 3) |
-| `privilege.go:177-178` | `CheckPassword` | 1 | A | su shim missing/failing to start | internal/privilege/privilege_test.go (security: Dev 3) |
+| `logstore.go:231-232` | `freeRun` | 1 | A | a store with an error, a run dir under a regular file, a log path that is a directory | internal/logstore/logstore_test.go |
 
 #### `internal/proc`
 
@@ -671,13 +508,13 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `orphans.go:79-79, 80-82` | `reap` | 3 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:89-90, 91-92, 93-95, 96-97, 98-98, 100-101, 102-102, 104-104, 105-105, 107-107, 108-109, 111-111, 112-113, 127-128, 129-129, 130-130, 132-132, 133-134, 137-137` | `leftovers` | 25 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:114-114, 115-115, 116-117, 118-119, 120-120, 121-122, 123-123, 125-125, 136-136, 136-136` | `leftovers.func` | 11 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
-| `orphans.go:143-144, 145-146, 147-147` | `readStat` | 4 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:173-174, 175-176, 177-178, 179-179, 180-181, 183-183` | `hasMarker` | 8 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:188-189, 190-191, 192-192` | `cmdline` | 4 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
-| `testenv.go:164-165, 166-166, 167-167, 168-169, 170-171, 174-175, 176-178, 179-179, 180-181, 182-183, 184-184, 186-186, 187-188, 189-190, 191-191, 193-193, 194-196, 197-197, 198-199, 200-200` | `Run` | 31 | A | the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them | internal/testenv/trap_test.go |
-| `testenv.go:208-209, 217-218` | `guardScript` | 2 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
-| `testenv.go:231-232` | `guardSnapshot` | 1 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
-| `testenv.go:240-242` | `guardCompare` | 2 | A | post-m.Run: counted only from a direct test | internal/testenv/trap_test.go |
+| `testenv.go:162-164, 172-174, 175-175, 176-176, 177-178, 179-180, 183-184, 185-187, 188-188, 189-190, 191-192, 193-193, 195-195, 196-197, 198-199, 200-200` | `Run` | 29 | A | the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them | internal/testenv/trap_test.go |
+| `testenv.go:217-218, 226-227` | `guardScript` | 2 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
+| `testenv.go:240-241` | `guardSnapshot` | 1 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
+| `testenv.go:249-251` | `guardCompare` | 2 | A | post-m.Run: counted only from a direct test | internal/testenv/trap_test.go |
+| `watchdog.go:62-65` | `watchdog.stop` | 3 | A | post-m.Run in Run (counted never, after the counters are written); a direct call in a test counts | internal/testenv/trap_test.go |
 
 #### `internal/testtranscript`
 

@@ -100,6 +100,8 @@ rule("internal/sysstat/sysstat.go", r"", "A", "a meminfo fixture without the key
 # ---- testenv
 rule("internal/testenv/orphans.go", r"", "A", "runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts", "internal/testenv/orphan_test.go")
 rule("internal/testenv/testenv.go", r"^Run$", "A", "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them", "internal/testenv/trap_test.go", lo=160, hi=200)
+rule("internal/testenv/watchdog.go", r"startWatchdog", "E", "os.Pipe and exec of /bin/sh fail only on fd exhaustion or a missing /bin/sh", "", rec="keep: fail closed")
+rule("internal/testenv/watchdog.go", r"watchdog.stop", "A", "post-m.Run in Run (counted never, after the counters are written); a direct call in a test counts", "internal/testenv/trap_test.go")
 rule("internal/testenv/testenv.go", r"guardCompare", "A", "post-m.Run: counted only from a direct test", "internal/testenv/trap_test.go")
 rule("internal/testenv/testenv.go", r"guardScript|guardSnapshot", "A", "Run from a dir with no scripts/state-guard.sh above it; a guard script that fails", "internal/testenv/trap_test.go")
 rule("internal/testenv/testenv.go", r"", "E", "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)", "", rec="keep: fail closed")
@@ -111,6 +113,8 @@ H = "cmd/archmaid-helper/"
 rule(H + "dev_off.go", r"", "E", "devLockPath is only called when devBuild, which is false in this build", "", rec="keep: build-tag stub")
 rule(H + "main.go", r"", "B", "main only runs in the binary: a cover helper started as the user with a root verb is refused before it runs anything (verified under a scratch HOME); the root path is the VM's", "e2e (new helper check)")
 rule(H + "harden.go", r"", "B", "runs in the harden test's child, but hardenProcess clears GOCOVERDIR before the test binary writes counters; the cover helper binary counts it (any run)", "e2e (new helper check)")
+rule(H + "internal/helper/checks.go", r"LstatFile", "E", "os.FileInfo.Sys() is always a *syscall.Stat_t on Linux", "", lo=37, hi=39, rec="keep: fail-closed type check")
+rule(H + "internal/helper/checks.go", r"acquireLock", "E", "flock(LOCK_EX|LOCK_NB) on a regular file just opened fails only with EWOULDBLOCK (busy, covered); ENOLCK/EBADF/EINTR are not producible", "", lo=135, hi=135, rec="keep: fail-closed")
 rule(H + "internal/helper/checks.go", r"LstatFile", "A", "a plain os.Lstat wrapper: call it on a temp file, a missing path", "cmd/archmaid-helper/internal/helper/checks_test.go")
 rule(H + "internal/helper/helper.go", r"DefaultOptions", "B", "only main uses it: covered by any cover-helper run", "e2e (new helper check)")
 rule(H + "internal/helper/", r"", "A", "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r", "cmd/archmaid-helper/internal/helper/*_test.go")
@@ -159,6 +163,7 @@ rule(G + "polkitagent/", r"", "A", "a fake pkttyagent (agenttest) that is missin
 rule(G + "realdriver/realdriver.go", r"Wiring.env", "A", "Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C)", "gui/internal/realdriver/realdriver_test.go")
 rule(G + "realdriver/", r"", "A", "a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config", "gui/internal/realdriver/agent_test.go")
 rule(G + "runview/palette.go", r"Dank16Path", "A", "XDG_CACHE_HOME empty: the ~/.cache fallback, and HOME unset too (t.Setenv)", "gui/internal/runview/palette_test.go")
+rule(G + "runview/stepline.go", r"seqLine", "E", "StepLine derives seq from viewLo and the run lengths, so it is always inside the view and the ring; the guard is for a future change", "", lo=50, hi=52, rec="keep: fail-closed")
 rule(G + "runview/", r"", "A", "SGR edge cases (bad 38/48 forms, an empty last span), a StepInserted for a known row, the run ring wrapping, a FloodSteps of 0 chunks", "gui/internal/runview/*_test.go")
 rule(G + "settings/settings.go", r"Save", "E", "write/fsync/close of a fresh temp file fail only on ENOSPC/EIO", "", lo=94, hi=106, rec="keep")
 rule(G + "settings/", r"", "A", "no XDG_CONFIG_HOME nor HOME, an unreadable gui.json, a read-only config dir, a rename onto a directory, a bad downloads folder", "gui/internal/settings/settings_test.go")
@@ -171,6 +176,9 @@ rule(G + "ui/dump.go", r"", "E", "setrlimit/prctl on our own process don't fail"
 rule(G + "ui/style.go", r"", "E", "the embedded CSS parses; only a future GTK could report errors", "", rec="keep: it guards GTK upgrades")
 rule(G + "ui/secret.go", r"", "E", "the password entry is always a GtkEditable with a buffer", "", rec="keep")
 rule(G + "ui/shot.go", r"", "A", "screenshot to an unwritable path (build tag shots)", "gui/internal/ui/harness_test.go")
+rule(G + "ui/logs.go", r"newLogs.func", "E", "GTK binds only positions the model holds, so i is always below len(p.rows)", "", lo=187, hi=190, rec="keep: fail-closed")
+rule(G + "ui/overview.go", r"refreshLastRun", "E", "the last-run cell is built before the first refresh, so lastRunExtras never returns nil", "", lo=376, hi=378, rec="keep: fail-closed")
+rule(G + "ui/timeline.go", r"newRunPage.func", "E", "ConnectBind always follows ConnectSetup, which stores the header in tl.headers", "", lo=133, hi=135, rec="keep: fail-closed")
 rule(G + "ui/", r"", "A", "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt", "gui/internal/ui/harness_test.go")
 
 
