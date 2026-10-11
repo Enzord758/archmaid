@@ -417,6 +417,9 @@ type fakePrompt struct {
 	// out (done closed): what that verdict sets off can happen before
 	// Answer returns, as with the real agent.
 	then func()
+	// answerErr, if set, is Answer's error: the agent went away before it
+	// took the password, so polkit gives no verdict on it.
+	answerErr error
 }
 
 // setThen sets p.then.
@@ -435,6 +438,10 @@ func (p *fakePrompt) Prompt() string { return "Password: " }
 func (p *fakePrompt) Answer(pw []byte) error {
 	p.mu.Lock()
 	p.answers = append(p.answers, string(pw))
+	if p.answerErr != nil {
+		defer p.mu.Unlock()
+		return p.answerErr
+	}
 	if string(pw) != p.want {
 		p.err = errors.New("polkit: authentication failed")
 	}

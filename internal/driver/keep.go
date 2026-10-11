@@ -171,22 +171,7 @@ func (d *Driver) agentRequest(m msg) (engine.Input, bool) {
 	}
 	if !m.noKeep && d.keep.Has() {
 		d.work(func() engine.Input {
-			pw, err := d.keep.Copy()
-			if err != nil {
-				d.post(msg{agent: p, noKeep: true})
-				return nil
-			}
-			defer clear(pw)
-			if _, err := privilege.CheckPasswordBytes(d.root, pw); err != nil {
-				d.keep.Fail()
-				d.post(msg{agent: p, noKeep: true})
-				return nil
-			}
-			if p.Answer(pw) != nil {
-				d.keep.Fail()
-				return nil
-			}
-			d.watchAgent(p)
+			d.answerAgentKept(p)
 			return nil
 		})
 		return nil, true
@@ -197,6 +182,29 @@ func (d *Driver) agentRequest(m msg) (engine.Input, bool) {
 		Req: d.lastAsk, Prompt: p.Prompt(), Polkit: true, Action: p.Action(),
 		Requester: "polkit's agent (pkttyagent)",
 	}, false
+}
+
+// answerAgentKept answers polkit's agent's prompt p from the kept password,
+// on a worker: su-checked first; a password that is gone by now (wiped
+// since agentRequest saw it) or that su refuses sends p to the Session
+// (the user), and one su refuses, or the agent can't take, is dropped.
+func (d *Driver) answerAgentKept(p AgentPrompt) {
+	pw, err := d.keep.Copy()
+	if err != nil {
+		d.post(msg{agent: p, noKeep: true})
+		return
+	}
+	defer clear(pw)
+	if _, err := privilege.CheckPasswordBytes(d.root, pw); err != nil {
+		d.keep.Fail()
+		d.post(msg{agent: p, noKeep: true})
+		return
+	}
+	if p.Answer(pw) != nil {
+		d.keep.Fail()
+		return
+	}
+	d.watchAgent(p)
 }
 
 // watchAgent drops the kept password if polkit refuses an answer.
