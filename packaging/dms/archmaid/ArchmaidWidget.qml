@@ -304,6 +304,7 @@ PluginComponent {
 
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            id: updCount
                             visible: root.view.updates.count !== null
                             text: root.view.updates.count !== null ? String(root.view.updates.count) : ""
                             font.family: Theme.monoFontFamily
@@ -313,6 +314,11 @@ PluginComponent {
                         }
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            // Wrap in the width the number leaves: a long note (the
+                            // updates' "N repo · M AUR (K held, <72h) · checked …") is
+                            // otherwise clipped at the popout's right edge.
+                            width: parent.width - (updCount.visible ? updCount.width + parent.spacing : 0)
+                            wrapMode: Text.WordWrap
                             text: root.view.updates.note
                             font.pixelSize: Theme.fontSizeMedium
                             color: root.view.updates.count !== null ? Theme.surfaceText : Theme.surfaceVariantText
@@ -334,6 +340,7 @@ PluginComponent {
 
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            id: aurCount
                             visible: root.view.aur.packages !== null
                             text: root.view.aur.packages !== null ? String(root.view.aur.packages) : ""
                             font.family: Theme.monoFontFamily
@@ -343,6 +350,11 @@ PluginComponent {
                         }
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            // Wrap in the width the number leaves: a long note (the
+                            // updates' "N repo · M AUR (K held, <72h) · checked …") is
+                            // otherwise clipped at the popout's right edge.
+                            width: parent.width - (aurCount.visible ? aurCount.width + parent.spacing : 0)
+                            wrapMode: Text.WordWrap
                             text: root.view.aur.note
                             font.pixelSize: Theme.fontSizeMedium
                             color: root.view.aur.packages !== null ? Theme.surfaceText : Theme.surfaceVariantText
