@@ -143,6 +143,8 @@ type report struct {
 	Disc *discPage
 	// DiscScroll is disc-scroll's long discovery page (discscroll_harness_test.go).
 	DiscScroll string
+	DiscWrap   string
+	DiscHome   string
 
 	// The Logs page's list while searching for ARCHMAID_GUI_LOGSEARCH,
 	// and with its first section folded (logs_harness_test.go).
