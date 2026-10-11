@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -65,7 +66,10 @@ func newKeepRig(t *testing.T, deps Deps) *keepRig {
 	suShim(t)
 	k := &keepRig{reqs: make(chan *privilege.Request), file: filepath.Join(t.TempDir(), "end"), capped: deps.KeepFor > 0}
 	deps.Askpass, deps.KeepPassword, deps.Detach = k.reqs, true, true
-	st := shStep("sudo-step", "echo $$; while [ ! -f "+k.file+" ]; do sleep 0.02; done; [ \"$(cat "+k.file+")\" = ok ]")
+	// The loop also ends when this test binary does ($PPID gone): the
+	// step is in a session of its own (Detach), so nothing else would end
+	// it if the binary died before its cleanups.
+	st := shStep("sudo-step", "echo $$; p=$PPID; while [ ! -f "+k.file+" ] && kill -0 $p 2>/dev/null; do sleep 0.02; done; [ \"$(cat "+k.file+")\" = ok ]")
 	st.NeedsPriv = true
 	k.rig = newRig(t, engine.Options{}, deps, action("a", st))
 	k.d.Send(engine.Start{Action: "a"})
@@ -80,6 +84,15 @@ func newKeepRig(t *testing.T, deps Deps) *keepRig {
 		t.Fatal(err)
 	}
 	k.start = child.Start
+	// However the test ends, the step ends (before the Driver's Close, as
+	// cleanups run last-in first-out): its end file, then its process
+	// group, while it is still this step's (same start time).
+	t.Cleanup(func() {
+		_ = os.WriteFile(k.file, []byte("ok"), 0o600)
+		if c, err := proc.Read(k.pid); err == nil && c.Start == k.start {
+			_ = syscall.Kill(-k.pid, syscall.SIGKILL)
+		}
+	})
 	pid, s := k.pid, k.start
 	privtest.FakeSystem(t, func() int { return ourUID }, "/fake/archmaid", func(p int) (proc.Info, error) {
 		switch p {

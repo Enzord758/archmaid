@@ -156,11 +156,20 @@ func Run(m interface{ Run() int }) int {
 		os.Setenv(k, v)
 	}
 
+	// Should this binary die before the check below (watchdog.go).
+	dog, err := startWatchdog(marker)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testenv: watchdog:", err)
+		return 1
+	}
+
 	coverChildren()
 	code := m.Run()
 
 	// Kill what the tests left running first, while the traps are still on
-	// its PATH.
+	// its PATH. The watchdog goes first: its own kill round would hide a
+	// leak from the report.
+	dog.stop()
 	left, scanErr := reapLeftovers(marker)
 
 	for k, v := range saved {
