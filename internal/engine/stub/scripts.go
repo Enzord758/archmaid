@@ -152,7 +152,7 @@ func RepairNone(start time.Time) Script {
 	b := &builder{now: start, started: start, at: map[string]time.Time{}}
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Scanning for broken packages…"})
 	b.wait(900 * time.Millisecond)
-	const summary = "No broken packages: checked 1422 installed packages for missing files (pacman -Qk, as the user)."
+	const summary = "No broken packages found." // the GUI harness matches it; Details say what was checked
 	b.emit(engine.DiscoveryResult{Action: actions.IDRepair, Outcome: engine.DiscoveryNothing, Summary: summary,
 		Details:  []string{"1422 installed (pacman -Qq), checked with pacman -Qkq in 16 parallel chunks: nothing flagged"},
 		Category: logstore.Repair, Started: start, Elapsed: 900 * time.Millisecond})
