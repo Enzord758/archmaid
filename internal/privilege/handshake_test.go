@@ -134,8 +134,15 @@ func TestReadAnswerRefusesWithoutHandshake(t *testing.T) {
 			if err == nil || pw != "" {
 				t.Fatalf("ReadAnswer = %q, %v; want an error and no password", pw, err)
 			}
-			if name != "hung up" && name != "cut short" && !errors.Is(err, errHandshake) {
-				t.Errorf("err = %v, want errHandshake", err)
+			switch name {
+			case "hung up", "cut short": // the read's own error
+				if !errors.Is(err, io.EOF) {
+					t.Errorf("err = %v, want EOF", err)
+				}
+			default:
+				if !errors.Is(err, errHandshake) {
+					t.Errorf("err = %v, want errHandshake", err)
+				}
 			}
 			if hardened || c.out.Len() != 0 {
 				t.Fatalf("hardened %v, wrote %q: want neither before the handshake", hardened, c.out.String())

@@ -1,11 +1,14 @@
 package privilege
 
 import (
+	"bufio"
 	"encoding/binary"
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -215,13 +218,16 @@ func TestFaillockUnreadableConf(t *testing.T) {
 	if err := os.WriteFile(long, []byte("deny = 1\n"+strings.Repeat("#", 70<<10)+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for name, conf := range map[string]string{
-		"not a directory": filepath.Join(file, "faillock.conf"),
-		"a directory":     dir,
-		"line too long":   long,
+	for name, c := range map[string]struct {
+		conf string
+		want error
+	}{
+		"not a directory": {filepath.Join(file, "faillock.conf"), syscall.ENOTDIR},
+		"a directory":     {dir, syscall.EISDIR},
+		"line too long":   {long, bufio.ErrTooLong},
 	} {
-		if st, err := faillockStatus(conf, "alice", faillockNow); err == nil {
-			t.Errorf("%s: read as %+v, want an error", name, st)
+		if st, err := faillockStatus(c.conf, "alice", faillockNow); !errors.Is(err, c.want) {
+			t.Errorf("%s: read as %+v, %v; want %v", name, st, err, c.want)
 		}
 	}
 }
@@ -233,7 +239,7 @@ func TestFaillockTallyIsADirectory(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(filepath.Dir(conf), "faillock", "alice"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if st, err := faillockStatus(conf, "alice", faillockNow); err == nil {
-		t.Fatalf("read as %+v, want an error", st)
+	if st, err := faillockStatus(conf, "alice", faillockNow); !errors.Is(err, syscall.EISDIR) {
+		t.Fatalf("read as %+v, %v; want EISDIR", st, err)
 	}
 }

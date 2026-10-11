@@ -174,6 +174,13 @@ func TestLockUnusable(t *testing.T) {
 				if code := Run(args, o); code != ExitFailed {
 					t.Fatalf("exit %d, want 1:\n%s", code, out)
 				}
+				want := "open lock " + o.LockPath + ": "
+				if lname == "none configured" {
+					want = "no lock path configured"
+				}
+				if msg := resultError(t, out); !strings.HasPrefix(msg, want) {
+					t.Errorf("error %q, want %q…", msg, want)
+				}
 				if len(f.queries) != 0 {
 					t.Errorf("queried %q", join(f.queries))
 				}
