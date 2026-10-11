@@ -8,7 +8,6 @@ package logview
 import (
 	"errors"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -83,17 +82,14 @@ func Runs(stateDir string) ([]Run, error) {
 		case runName.MatchString(name):
 			// <stamp>, or <stamp>-NN for the NNth run of that minute.
 			t, err := time.ParseInLocation(stamp, name[:len(stamp)], time.Local)
-			if err != nil {
-				continue
+			if err != nil || t.Format(stamp) != name[:len(stamp)] {
+				continue // a stamp that doesn't round-trip (a DST gap)
 			}
 			// A store whose clock reads the stamp is that run's store:
 			// its RunDir is this directory, and Read reads its logs.
 			r = Run{Name: name, Time: t, store: logstore.New(logstore.Options{Dir: root, Run: name, Now: func() time.Time { return t }})}
 		default:
 			continue
-		}
-		if filepath.Base(r.store.RunDir()) != r.Name {
-			continue // a stamp that doesn't round-trip (a DST gap)
 		}
 		for _, c := range logstore.Categories {
 			if fi, err := os.Stat(r.store.Path(c.ID)); err == nil && fi.Mode().IsRegular() && fi.Size() > 0 {

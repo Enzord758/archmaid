@@ -73,6 +73,9 @@ func TestRunsSkipsDSTGapStamp(t *testing.T) {
 	// 2026-03-08 02:30 does not exist in New York.
 	must(t, os.Mkdir(filepath.Join(dir, "20260308-0230"), 0o700))
 	must(t, os.Mkdir(filepath.Join(dir, "20260308-0430"), 0o700))
+	// ...nor does a suffixed run of that minute.
+	must(t, os.Mkdir(filepath.Join(dir, "20260308-0230-02"), 0o700))
+	must(t, os.Mkdir(filepath.Join(dir, "20260308-0430-02"), 0o700))
 	runs, err := Runs(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -81,8 +84,8 @@ func TestRunsSkipsDSTGapStamp(t *testing.T) {
 	for _, r := range runs {
 		names = append(names, r.Name)
 	}
-	if len(names) != 1 || names[0] != "20260308-0430" {
-		t.Errorf("runs %v, want only 20260308-0430", names)
+	if len(names) != 2 || names[0] != "20260308-0430-02" || names[1] != "20260308-0430" {
+		t.Errorf("runs %v, want [20260308-0430-02 20260308-0430]", names)
 	}
 }
 
