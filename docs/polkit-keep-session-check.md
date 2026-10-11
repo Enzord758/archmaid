@@ -62,14 +62,16 @@ and `$p` (Part C) live in that shell.
 
 | Steps | Session | Shell |
 |---|---|---|
-| 1–9 (G0–G5) | graphical (tty2) | terminal 1; G4 in a new terminal window (terminal 2) |
+| 1–9 (G0–G5) | graphical (tty2) | terminal 1's zsh; step 2b in a plain `bash` started there (and left again); G4 in a new terminal window (terminal 2) |
 | 10–12 (T0–T5) | the tty3 text login, a session of its own | tty3's login shell, all in that one shell |
 | C1–C4 (K0–K2) | graphical (tty2) | terminal 1 |
 | 13–14 (cleanup) | graphical (tty2) | terminal 1 |
 
 In the graphical session you can paste; on tty3 (a text console) you type.
-None of the tty3 lines holds a URL, so zsh's url-quote-magic (step 2)
-leaves them alone.
+zsh's url-quote-magic (step 2) only rewrites characters inside a word
+that holds a colon (as a URL does); none of the lines you run in zsh has
+one, so typed or pasted they arrive as written. Only the policy block
+does, which is why step 2b runs in a plain bash.
 
 **pkexec's built-in text agent doesn't work with this polkit (127).** On a
 console with no agent of its own, pkexec starts its own text agent. It
@@ -103,24 +105,37 @@ the terminal it was started from.
    **It must be 0.** If it isn't, wait until the rows are older than 15
    minutes, or find out where they came from first.
 
-2. **Write the policy** to a scratch directory (no root needed). Paste the
-   block **exactly as it is, flush left**. polkit silently ignores a policy
-   file that doesn't parse, and any space before `<?xml` makes it
-   unparseable ("XML declaration allowed only at the start of the
-   document"). `pkaction` then says "No action with action id". The fenced
-   blocks in steps 2-4 are deliberately not indented, so a copy from the
-   raw Markdown file needs no stripping.
+2. **Write the policy** to a scratch directory (no root needed). The
+   block has to arrive in the file **exactly as it is, flush left**.
+   polkit silently ignores a policy file that doesn't parse, and any space
+   before `<?xml` makes it unparseable ("XML declaration allowed only at
+   the start of the document"). `pkaction` then says "No action with
+   action id". The fenced blocks in steps 2-4 are deliberately not
+   indented, so a copy from the raw Markdown file needs no stripping.
 
-   **Paste it (Ctrl+Shift+V in the terminal), don't type it.** zsh's
-   url-quote-magic escapes shell characters you type into a word that
-   looks like a URL, so a typed `policyconfig.dtd">` becomes
-   `policyconfig.dtd"\>` and the file no longer parses (the `head` and
-   `xmllint` check below catches it). A paste is inserted as it is. If you
-   have to type it, first run `zle -A .self-insert self-insert` in that
-   shell; that turns url-quote-magic off for this shell only.
+   **Paste the block into a plain `bash`, not into your zsh.** zsh's line
+   editor rewrites what you paste or type, depending on the plugins you
+   have loaded: oh-my-zsh binds bracketed paste to
+   `bracketed-paste-magic`, which runs a paste through `url-quote-magic`,
+   and that turns the DOCTYPE's `policyconfig.dtd">` into
+   `policyconfig.dtd"\>` ("DOCTYPE improperly terminated"). Pasting again
+   gives the same result. `bash --norc --noprofile` loads none of your
+   shell setup, and bash inserts a paste (or typing) literally. `$d` is
+   set and exported in zsh first, so it is still there after you leave
+   bash.
+
+   2a. In terminal 1 (zsh), make the directory and start the plain bash:
 
 ```sh
-d=$(mktemp -d) && cat > "$d/org.archmaid.keepcheck.k7q2.policy" <<'EOF'
+d=$(mktemp -d) && export d && echo "$d"
+bash --norc --noprofile
+```
+
+   The prompt changes to `bash-5.x$`. 2b. Paste this block there
+   (Ctrl+Shift+V) and press Enter if it doesn't run by itself:
+
+```sh
+cat > "$d/org.archmaid.keepcheck.k7q2.policy" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
@@ -142,11 +157,22 @@ EOF
 echo "$d" && head -c 5 "$d/org.archmaid.keepcheck.k7q2.policy" && echo && xmllint --noout --nonet "$d/org.archmaid.keepcheck.k7q2.policy" && echo XML-OK
 ```
 
-   Keep the printed directory for the cleanup. The `head` line must print
-   `<?xml` with nothing before it, and `XML-OK` must appear. If either is
-   wrong, don't install: `rm -r "$d"` and paste the block again. (No
-   `xmllint`? It is in `libxml2`; without it the `head` check alone must
-   pass.) Run steps 2-4 in the same terminal, so `$d` stays set.
+   The `head` line must print `<?xml` with nothing before it, and
+   `XML-OK` must appear. If either is wrong, don't install: paste the
+   block again in the same bash (it overwrites the file); if it still
+   fails, `exit`, `rm -r "$d"` and stop. (No `xmllint`? It is in
+   `libxml2`; without it the `head` check alone must pass, and
+   `grep -c '\\' "$d/org.archmaid.keepcheck.k7q2.policy"` must print `0`.)
+
+   2c. Leave bash, back to terminal 1's zsh, and check `$d` is still set:
+
+```sh
+exit
+echo "$d"
+```
+
+   It prints the same directory. Keep it for the cleanup. Run steps 3-4
+   (and the rest) in this zsh, so `$d` stays set.
 
 3. **Install it** (one `sudo` password, so type it carefully). The target
    is the directory `/usr/share/polkit-1/actions/`, the file must end in
@@ -225,7 +251,11 @@ otherwise.
    authorization is kept for: `unix-session:…` means session scope,
    `unix-process:…` means process scope. If it errors (for example "no
    session" for a process outside a session scope), copy the error. That's
-   a result too.
+   a result too. `--list-temp` lists only the kept authorizations whose
+   *agent* was registered for your session: polkitd stores each one with
+   its subject and with the scope of the agent that asked, and lists (and
+   `--revoke-temp` removes) by that scope. polkit-gnome is registered for
+   the graphical session, so G5 shows the authorization.
 
    How to read Part A: if G3/G4 give `rc=0`, keep carries across processes
    in the graphical session. If they give `rc=2` while G2 gives `0`, keep is
@@ -279,9 +309,11 @@ Do steps 11 and 12 within 5 minutes.
       `journalctl -b --since -5min --no-pager | grep -E 'polkit|pkexec'`
       (read-only) into the notes.
 
-    Which agent asked doesn't change what polkit keeps: the kept
-    authorization is stored for pkexec's subject (this shell, or its
-    session), exactly as with pkexec's own agent, and T2–T5 read which.
+    Which agent asked doesn't change who may use what polkit keeps: the
+    kept authorization is stored for pkexec's subject (this shell's
+    process), exactly as with pkexec's own agent, and T2–T4 test who it
+    covers. The agent only sets the authorization's *scope*, which decides
+    where `--list-temp` shows it (T5, step 12).
     The agent was registered for this shell's process only (`--process
     $$`), never for the tty3 session, so once it is stopped nothing can
     answer a prompt in step 12.
@@ -301,8 +333,26 @@ Do steps 11 and 12 within 5 minutes.
     If a prompt appears anyway, don't answer it: press Ctrl+C (one faillock
     row) and note it.
 
+    **T5 (`pkcheck --list-temp`) prints nothing here, and that is the
+    expected result**, not an error. polkitd keeps each authorization with
+    the scope of the agent that asked, and `--list-temp` (like
+    `--revoke-temp`) only covers those whose scope is the caller's session
+    (`polkit_subject_equal (ta->scope, session)` in polkit 127's
+    `polkitbackendinteractiveauthority.c`). On tty3 the agent was step 11's
+    pkttyagent, registered for this shell's process (`--process $$`), so
+    the kept authorization is scoped to that process and never listed. T5
+    therefore says nothing about session versus process; T2 and T3 do.
+    T2's stdout names the kept authorization
+    (`polkit\56temporary_authorization_id=tmpauthz…`): copy that id into
+    the T5 notes. If T5 does list something, copy it: then an agent
+    registered for the tty3 session asked, which this procedure doesn't
+    start.
+
     Then `pkcheck --revoke-temp`, `exit`, and **Ctrl+Alt+F2** back to the
-    graphical session.
+    graphical session. For the same reason `--revoke-temp` removes nothing
+    on tty3. That is fine: the kept authorization's subject is this
+    shell's process (pid and start time), so nothing else can use it,
+    `exit` ends that process, and it expires about 5 minutes after T1.
 
 ## Part C: a pkexec killed in the dialog (optional)
 
@@ -400,7 +450,7 @@ Checklist:
 
 - [ ] `/usr/share/polkit-1/actions/org.archmaid.keepcheck.k7q2.policy` removed; `pkaction` doesn't know the id
 - [ ] scratch directory `$d` removed
-- [ ] `pkcheck --revoke-temp` run in the graphical session (and on tty3, if Part B ran)
+- [ ] `pkcheck --revoke-temp` run in the graphical session (on tty3 it removes nothing, see step 12; `exit` there ends the only process that could use T1's authorization)
 - [ ] step 11's `pkttyagent` stopped (`kill "$a"` in step 11), logged out of tty3, back on tty2
 - [ ] terminal 2 closed
 - [ ] Part C's pkexec is gone (`kill -0 "$p"` fails), if Part C ran
@@ -423,7 +473,7 @@ Date: ______  polkit `pkcheck --version`: ______  faillock rows at step 1: ___ /
 | T2 same shell | 0 | 0 | | | |
 | T3 new process (`sh -c`) | 0 | 0 | | | |
 | T4 `pkexec --disable-internal-agent` from a new process | 0 | | | | |
-| T5 `--list-temp` | 0 | 0 | | | subject: |
+| T5 `--list-temp` | 0 | 0 | | | expected: no output; T2's tmpauthz id: |
 | K0 faillock before | 0 | 0 | | | must be 0 rows |
 | K1 pkexec SIGKILLed in the dialog | 0 | | | | dialog closed by itself? after how long? cancelled? |
 | K2 faillock after | 0 | 0 | | | |
