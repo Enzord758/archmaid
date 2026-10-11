@@ -200,6 +200,19 @@ func (s *Session) combinedExited(o *Output, in StepExited) {
 	r := s.run
 	r.stepSeq = 0
 	s.endPolkitWait(o, in.NotGranted)
+	cancelled := r.polkitCancelled
+	r.polkitCancelled = false
+	if in.NotGranted && cancelled {
+		// The user cancelled the call's dialog: every part it covered is
+		// their no, and the queue ends there (cancelledByUser).
+		for _, i := range s.parts() {
+			r.cur = i
+			s.settleCancelled(o)
+		}
+		r.cur, r.comb = r.comb.start, nil
+		s.cancelledByUser(o)
+		return
+	}
 	for _, i := range s.parts() {
 		switch {
 		case in.NotGranted:

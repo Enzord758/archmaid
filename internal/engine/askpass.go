@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/Enzord758/archmaid/internal/sanitize"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // Askpass, as the TUI's handleAskpass does it. A request reaches the
@@ -49,8 +50,10 @@ func (s *Session) askpassRequest(o *Output, in AskpassRequest) {
 		// polkit's agent: only for the helper step waiting for it.
 		ours = st != nil && s.polkitStep(st.step) && r.polkitWait
 	}
-	if !ours {
-		o.effect(HangUpAskpass{Req: in.Req}) // nothing of ours is asking
+	if !ours || in.Polkit && r.polkitCancelled {
+		// Nothing of ours is asking, or the user has already cancelled
+		// this step's polkit dialog: never a second one.
+		o.effect(HangUpAskpass{Req: in.Req})
 		return
 	}
 	if in.Polkit && r.ask == nil && in.Refused == "" {
@@ -112,12 +115,50 @@ func (s *Session) submitAskpass(o *Output, pw Secret) {
 
 // cancelAskpass hangs up on the open request: sudo fails that attempt, and
 // the step goes on.
+//
+// A cancelled polkit prompt is the user's no to the helper step (or the
+// combined call) it asked for: the agent gives up, polkit refuses, pkexec
+// exits 127, and that NotGranted exit ends the step(s) Skipped and the
+// queue with them (cancelledByUser), not AuthRefused. The polkit wait stays
+// set aside, since nothing waits for the user's authorisation any more.
 func (s *Session) cancelAskpass(o *Output) {
 	r := s.run
 	r.prompt = 0
 	o.effect(HangUpAskpass{Req: r.ask.req})
+	polkit := r.ask.polkit
 	r.ask = nil
+	if polkit {
+		r.polkitCancelled = true
+		return
+	}
 	s.resumePolkit(o)
+}
+
+// settleCancelled settles the current step Skipped: the user cancelled
+// the polkit dialog that covered it. It is logged, as a refusal is.
+func (s *Session) settleCancelled(o *Output) {
+	st := s.run.plan[s.run.cur].step
+	s.settle(o, steps.Skipped, "")
+	s.log(o, st.LogCategory(), "SKIP", st.LogLabel+" (authorisation cancelled)", "")
+}
+
+// cancelledByUser ends the queue after the user cancelled a polkit dialog,
+// as a declined required step does: every step not yet settled is skipped.
+// The action is OutcomeCancelled when nothing ran (so last-run.json, the
+// Run page, the Overview and the DMS widget say cancelled, as for a
+// cancelled password prompt or a declined gate), else OutcomeAborted.
+func (s *Session) cancelledByUser(o *Output) {
+	r := s.run
+	for ; r.cur < len(r.plan); r.cur++ {
+		if r.plan[r.cur].status == steps.Pending {
+			s.settle(o, steps.Skipped, "")
+		}
+	}
+	outcome := OutcomeCancelled
+	if r.anyStarted() {
+		outcome = OutcomeAborted
+	}
+	s.finish(o, outcome)
 }
 
 // askpassAnswered takes the check's verdict for the open request.

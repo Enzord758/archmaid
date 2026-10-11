@@ -542,12 +542,13 @@ func TestSessionPolkitAgentEnds(t *testing.T) {
 		case "abort":
 			h.abort()
 		case "cancel":
+			// The user's no: no polkit wait reopened, and the queue ends
+			// (polkitcancel_test.go).
 			o := h.cancel(np.ID)
-			if !reflect.DeepEqual(o.Effects, []Effect{HangUpAskpass{Req: 1}}) || !reflect.DeepEqual(o.Events, []Event{AuthWaiting{Kind: WaitPolkit, Step: "h"}}) {
+			if !reflect.DeepEqual(o.Effects, []Effect{HangUpAskpass{Req: 1}}) || len(o.Events) != 0 {
 				t.Errorf("%s: %#v", end, o)
 			}
-			h.handle(StepExited{Seq: seq, Err: errors.New("exit status 127"), NotGranted: true})
-			h.ok()
+			event[Finished](t, h.handle(StepExited{Seq: seq, Err: errors.New("exit status 127"), NotGranted: true}))
 		}
 		enginetest.CheckContract(t, h.evs)
 	}

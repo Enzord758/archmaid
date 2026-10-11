@@ -47,7 +47,11 @@ type run struct {
 	acceptedLaunch bool               // the helper step waiting on it was confirmed
 	polkitWait     bool               // AuthWaiting{WaitPolkit} is open for the running step
 	polkitPaused   bool               // ... but set aside under polkit's agent's prompt (askpass.go)
-	ask            *askpass           // the open askpass request (askpass.go), or nil
+	// polkitCancelled: the user cancelled the running helper step's polkit
+	// prompt in archmaid's own dialog, so its NotGranted exit is their no,
+	// not a refusal (askpass.go, cancelledByUser).
+	polkitCancelled bool
+	ask             *askpass // the open askpass request (askpass.go), or nil
 
 	// A pick list (NeedsSelection) and what it showed, or nil.
 	sel      *actions.NeedsSelection
@@ -426,6 +430,13 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 	s.run.stepSeq = 0
 	s.dropAskpass(o)
 	s.endPolkitWait(o, in.NotGranted)
+	cancelled := s.run.polkitCancelled
+	s.run.polkitCancelled = false
+	if in.NotGranted && cancelled {
+		s.settleCancelled(o)
+		s.cancelledByUser(o)
+		return
+	}
 	if in.NotGranted {
 		s.settleNotGranted(o, in.Err)
 		s.advance(o)

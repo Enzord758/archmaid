@@ -123,7 +123,15 @@
 // password three times, a dismissed polkit dialog, a locked account — the
 // step ends as steps.AuthRefused: pkexec exits 127 for all of them, so the
 // engine has one outcome (for the helper: it exited 127 before its JSON
-// start line). Before a polkit prompt the engine may ask for the faillock
+// start line). One exception, because the Session sees it happen: a Cancel
+// of polkit's agent's prompt in the front end's own dialog
+// (AskpassRequest.Polkit, then CancelPrompt) is the user's no. That 127
+// ends the step(s) the dialog covered Skipped, logged "(authorisation
+// cancelled)", every step behind them is skipped as behind a declined
+// required step, and the action ends OutcomeCancelled when nothing ran,
+// else OutcomeAborted, with nothing Refused. A refusal the Session didn't
+// see the user make (the desktop's agent, no agent, three wrong passwords)
+// stays AuthRefused. Before a polkit prompt the engine may ask for the faillock
 // count (ReadFaillock) and report it as FaillockState, so a front end can
 // warn before the attempt that locks the account.
 //
