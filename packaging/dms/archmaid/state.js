@@ -6,7 +6,7 @@
 // Contract (docs/dms-widget.md, section 3):
 //   last-run.json        internal/logstore.RunRecord   v:1
 //   audit-state.json     internal/audit.State          v:1
-//   updates-cache.json   written by archmaid-updates-check   v:1
+//   updates-cache.json   written by archmaid-updates-check   v:1 or v:2
 // Unknown fields are ignored. Anything unusable (missing, empty, torn, wrong
 // version, wrong types) parses to null, which the widget shows as "no data".
 // Nothing here throws.
@@ -18,7 +18,7 @@ var DAY_MS = 86400000;
 
 var KNOWN_OUTCOMES = ["ok", "failed", "aborted", "cancelled", "incomplete"];
 
-function _obj(text) {
+function _obj(text, maxV) {
     if (typeof text !== "string" || text.length === 0 || text.length > 1048576)
         return null;
     var v;
@@ -29,7 +29,7 @@ function _obj(text) {
     }
     if (v === null || typeof v !== "object" || Array.isArray(v))
         return null;
-    if (v.v !== 1)
+    if (v.v !== 1 && !(maxV === 2 && v.v === 2))
         return null;
     return v;
 }
@@ -92,16 +92,27 @@ function parseAudit(text) {
     };
 }
 
-// parseUpdates: {count, checked(ms)} or null.
+function _natural(v) {
+    return typeof v === "number" && isFinite(v) && v >= 0 && Math.floor(v) === v;
+}
+
+// parseUpdates: {count, repo, aur, aurHeld, checked(ms)} or null.
+// v:1 files carry only count (repo/aur/aurHeld come back null). v:2 adds
+// repo, aur (AUR updates past the cooldown, null = unknown) and aur_held
+// (AUR updates inside the cooldown). A malformed optional field reads as null.
 function parseUpdates(text) {
-    var o = _obj(text);
+    var o = _obj(text, 2);
     if (!o)
         return null;
     var checked = _time(o.checked);
-    if (checked === null || typeof o.count !== "number" || !isFinite(o.count) || o.count < 0 || Math.floor(o.count) !== o.count)
+    if (checked === null || !_natural(o.count))
         return null;
+    var aurKnown = _natural(o.aur);
     return {
         count: o.count,
+        repo: _natural(o.repo) ? o.repo : null,
+        aur: aurKnown ? o.aur : null,
+        aurHeld: aurKnown && _natural(o.aur_held) ? o.aur_held : 0,
         checked: checked
     };
 }
@@ -126,7 +137,7 @@ function summarize(lastRun, audit, updates, now) {
     var warns = [];
 
     if (!lastRun && !audit && !updates)
-        return { level: "nodata", issues: [], updates: null, updatesChecked: null, lastRun: null, audit: null };
+        return { level: "nodata", issues: [], updates: null, updatesDetail: null, updatesChecked: null, lastRun: null, audit: null };
 
     if (audit && audit.highCount > 0)
         errors.push({ kind: "aur", text: audit.highCount + (audit.highCount === 1 ? " AUR warning" : " AUR warnings") });
@@ -153,11 +164,14 @@ function summarize(lastRun, audit, updates, now) {
     var count = null;
     if (updates && _ageDays(updates.checked, now) <= UPDATES_MAX_AGE_DAYS)
         count = updates.count;
+    // The split (v:2 files only); null when the count is unknown or from a v:1 file.
+    var detail = count !== null && updates.repo !== null ? { repo: updates.repo, aur: updates.aur, aurHeld: updates.aurHeld } : null;
 
     return {
         level: errors.length > 0 ? "error" : (warns.length > 0 ? "warn" : "ok"),
         issues: errors.concat(warns),
         updates: count,
+        updatesDetail: detail,
         updatesChecked: updates ? updates.checked : null,
         lastRun: lastRun,
         audit: audit
@@ -223,6 +237,25 @@ function stamp(then, now) {
 
 var SHOWN_HIGH = 5; // AUR findings listed in the popout; the rest are counted
 
+// updatesNote: the Updates line under the count. The held part (AUR updates
+// younger than the 72 h cooldown, which yay holds back and the count leaves
+// out) shows only when there are some.
+//   "9 repo · 3 AUR (2 held, <72h) · checked 5 min ago"
+//   "9 repo · AUR unknown · checked 5 min ago"   (no yay, or its check failed)
+//   "up to date · checked 5 min ago"             (nothing pending, AUR known)
+//   "pending · checked 5 min ago"                (a v:1 file: no split)
+function updatesNote(s, now) {
+    var d = s.updatesDetail;
+    var tail = " · checked " + ago(s.updatesChecked, now);
+    if (!d)
+        return (s.updates === 0 ? "up to date" : "pending") + tail;
+    if (d.aur === null)
+        return d.repo + " repo · AUR unknown" + tail;
+    if (d.repo === 0 && d.aur === 0 && d.aurHeld === 0)
+        return "up to date" + tail;
+    return d.repo + " repo · " + d.aur + " AUR" + (d.aurHeld > 0 ? " (" + d.aurHeld + " held, <72h)" : "") + tail;
+}
+
 // popout(s, now): the popout's three sections, in Workbench's order, from
 // summarize's result s. Plain strings and numbers only.
 //   lastRun  null (no record) or {action, tag, tint, stamp, notes:[{text, tint}]}
@@ -253,7 +286,7 @@ function popout(s, now) {
     }
     if (s.updates !== null) {
         p.updates.count = s.updates;
-        p.updates.note = (s.updates === 0 ? "up to date" : "pending") + " · checked " + ago(s.updatesChecked, now);
+        p.updates.note = updatesNote(s, now);
     } else if (s.updatesChecked !== null && s.updatesChecked !== undefined) {
         p.updates.note = "Not checked for " + plural(Math.floor(_ageDays(s.updatesChecked, now)), "day", "days");
     }

@@ -1,5 +1,5 @@
 [Unit]
-Description=Count pending pacman updates for the archmaid bar widget
+Description=Count pending repo and AUR updates for the archmaid bar widget
 Documentation=https://github.com/Enzord758/archmaid
 # Network only matters for the sync; a failed run just keeps the old count.
 After=network-online.target

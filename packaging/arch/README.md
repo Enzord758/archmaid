@@ -101,8 +101,8 @@ sudo pacman -U "$P"/archmaid-gui-git-r*.pkg.tar.zst   # the GUI too (see above: 
 | `/usr/share/icons/hicolor/scalable/apps/archmaid.svg` | 0644 | |
 | `/usr/share/doc/archmaid/helper.md` | 0644 | helper docs |
 | `/etc/xdg/quickshell/dms-plugins/archmaid/{plugin.json,ArchmaidWidget.qml,state.js}` | 0644 | DMS bar widget (system plugin dir); enable it in DMS |
-| `/usr/lib/archmaid/archmaid-updates-check` | 0755 | runs `checkupdates`, writes the pending count |
-| `/usr/lib/systemd/user/archmaid-updates-check.{service,timer}` | 0644 | hourly user timer; `systemctl --user enable --now archmaid-updates-check.timer` |
+| `/usr/lib/archmaid/archmaid-updates-check` | 0755 | runs `checkupdates` and `yay -Qua`, writes the pending counts |
+| `/usr/lib/systemd/user/archmaid-updates-check.{service,timer}` | 0644 | user timer, every 30 min; `systemctl --user enable --now archmaid-updates-check.timer` |
 
 `archmaid-gui-git`:
 

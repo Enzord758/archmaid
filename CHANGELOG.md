@@ -65,6 +65,7 @@ the commit that made the change; the range is `5585358..refactor/p0` (308 commit
 
 ### Changed
 
+- The DMS widget's pending-updates check now counts AUR updates too and runs every 30 min (was hourly): `archmaid-updates-check` runs `yay -Qua` (as the user, no sudo, stdin from /dev/null, 120 s timeout) next to `checkupdates` and writes `updates-cache.json` schema v2 (`count`, `repo`, `aur`, `aur_held`; `aur` is null when yay is missing or fails). AUR updates younger than 72 h (the yay cooldown hook, `audit.Cooldown`) are left out of the count and shown as held in the popout ("9 repo · 3 AUR (2 held, <72h)"). The widget still reads v1 files. Restart the timer after updating: `systemctl --user restart archmaid-updates-check.timer`.
 - GUI: the six Overview action cells now light up in the accent colour on hover (a little stronger while pressed, and on keyboard focus), so they read as buttons; the last-run cell and the sidebar are unchanged.
 - Packaging: only the GUI shows in the app launcher. `archmaid.desktop` (the TUI) now has `NoDisplay=true`; the `archmaid` command still starts the TUI.
 - `archmaid --help` (or `-h`) now prints the usage and exits 0. Before, it started the full TUI. An unknown option or a stray argument now exits 2 with a message instead of being ignored (13eb21a).

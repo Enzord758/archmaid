@@ -14,7 +14,7 @@ subcommand (sections 2 and 3 describe that older design). It reads, never writes
 |---|---|---|
 | `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run` |
 | `audit-state.json` | `internal/audit` | `v`, `checked`, `packages`, `high[{pkg,reason}]` |
-| `updates-cache.json` | `archmaid-updates-check` | `v`, `count`, `checked` |
+| `updates-cache.json` | `archmaid-updates-check` | `v` (1 or 2), `count` (repo + AUR past the cooldown), `repo`, `aur` (null = unknown), `aur_held` (AUR updates younger than 72 h), `checked` |
 
 Files: `packaging/dms/archmaid/` (`plugin.json`, `ArchmaidWidget.qml`,
 `state.js` = all parsing and decisions, no I/O), `packaging/systemd/archmaid-updates-check`
@@ -26,7 +26,7 @@ warning (orange) for `incomplete` (root steps refused), `aborted`, `cancelled`, 
 run older than 14 days; dimmed when no file is readable. **Popout** (the GUI's Workbench
 sections, DMS's chrome): **LAST RUN** (the action's name, an outcome tag `OK`/`FAILED`/
 `INCOMPLETE`/`ABORTED`/`CANCELLED` tinted primary/error/warning/warning/muted, "Mon 5 Oct,
-00:45 · 17 h ago", and the failed, refused or stale note), **UPDATES** (the count, checked
+00:45 · 17 h ago", and the failed, refused or stale note), **UPDATES** (the count, then "9 repo · 3 AUR (2 held, <72h) · checked 5 min ago"
 when) and **AUR** (packages audited, up to 5 high findings, "+N more"), numbers in DMS's
 mono font; and two buttons: Run Full Cleanup (primary), Log folder.
 Bar only: no control-center tile.
@@ -48,12 +48,31 @@ in the session environment (for example `~/.config/environment.d/` or the compos
 env), not only in a shell rc. Authentication happens in the app, never in the widget.
 
 **Pending updates**: `archmaid-updates-check.timer` (systemd USER timer, no root, no
-sudo) runs `archmaid-updates-check` 3 min after the session starts and then every hour
-(+ up to 10 min random delay, Nice 19, idle IO). The script runs `checkupdates`
-(pacman-contrib; own temporary db, needs `fakeroot` but no root) and writes
-`updates-cache.json` (`{"v":1,"count":N,"checked":"<RFC3339>"}`, 0600, atomic) **in the
-archmaid state dir**: one directory for the widget and the same name this document
-planned. When `checkupdates` fails (offline) the old file stays.
+sudo) runs `archmaid-updates-check` 3 min after the session starts and then every 30 min
+(+ up to 5 min random delay, Nice 19, idle IO). The timer is monotonic, so `Persistent=`
+does not apply (it needs `OnCalendar=`); a missed run just happens at the next start-up
+or interval. The script runs `checkupdates`
+(pacman-contrib; own temporary db, needs `fakeroot` but no root) for the repos and, when
+yay is installed, `yay -Qua </dev/null` (a query as the user, no sudo, 120 s timeout) for
+the AUR, and writes `updates-cache.json` (0600, atomic) **in the archmaid state dir**:
+
+```json
+{"v":2,"count":12,"repo":9,"aur":3,"aur_held":2,"checked":"2026-10-11T17:55:00+02:00"}
+```
+
+`count` (and the bar pill) = `repo` + `aur`. yay's cooldown hook holds back AUR
+upgrades pushed less than 72 h ago during `yay -Syu`, but `yay -Qua` does not apply it,
+so the script does: each listed update ends in an age tag (`[1d9h]`, `[3d]`, `[6h54m]`;
+yay's `FormatAgeTag`, the time since the AUR package's LastModified, truncated to
+minutes and two units, so never more than the real age). Age >= 72 h counts in `aur`,
+younger ones in `aur_held`, and a line without a tag counts as held. The 72 h is
+`COOLDOWN_HOURS` in the script, kept equal to `audit.Cooldown` by a test. `aur` and
+`aur_held` are `null` when yay is missing or its check failed (exit 1 with a message on
+stderr, any other status, timeout); the repo count is still written. `yay -Qua` exits 1
+with nothing on stderr when there are no updates. When `checkupdates` fails (offline) the
+old file stays. The popout reads "9 repo · 3 AUR (2 held, <72h) · checked 5 min ago"
+(the held part only when there are some, "AUR unknown" when `aur` is null). The widget
+still reads `v:1` files (count only).
 
 **Install** (package): the widget goes to `/etc/xdg/quickshell/dms-plugins/archmaid/`,
 the system plugin directory DMS 1.6.2 reads (`PluginService.systemPluginDirectory`,
@@ -63,7 +82,7 @@ Units go to `/usr/lib/systemd/user/`, the script to `/usr/lib/archmaid/`.
 
 **Enable (owner)**, after installing the package:
 
-1. `systemctl --user enable --now archmaid-updates-check.timer` (for the count).
+1. `systemctl --user enable --now archmaid-updates-check.timer` (for the counts: repo and AUR, every 30 min).
 2. DMS Settings, Plugins: enable "archmaid" (DMS rescans the directory by itself; if it is
    not listed, `dms ipc call plugins reload archmaid`).
 3. DMS Settings, Dank Bar: add the "archmaid" widget to a bar section.
@@ -140,7 +159,7 @@ Found: dms-shell 1.6.2-1, quickshell 0.3.1-1.1. Installed plugins in
 
 **Popout** (340 x ~320):
 - Last run: relative time, outcome, log dir (button "Open log folder" = `xdg-open`).
-- Pending updates: repo count (and AUR count only if cached).
+- Pending updates: repo count and AUR count (held-back AUR updates shown apart, not counted).
 - AUR audit: snapshot present/age, N unacknowledged high findings (names, max 5).
 - Helper: installed or not (hint text only).
 - Button **Run Full Cleanup**: launches `archmaid-gui --confirm fullcleanup` (the

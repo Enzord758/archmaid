@@ -1,33 +1,115 @@
 #!/bin/sh
-# Counts pending pacman updates with checkupdates (pacman-contrib) and writes
-# the result for the archmaid DMS widget. Run by archmaid-updates-check.service
-# (a systemd USER unit) as the logged-in user: no root, no sudo. checkupdates
-# syncs its own temporary database, so the system's pacman db is not touched.
+# Counts pending updates for the archmaid DMS widget: repo updates with
+# checkupdates (pacman-contrib) and AUR updates with `yay -Qua`. Run by
+# archmaid-updates-check.service (a systemd USER unit) as the logged-in user:
+# no root, no sudo. checkupdates syncs its own temporary database and
+# `yay -Qua` only queries, so the system's pacman db is not touched.
 #
 # Output: $XDG_STATE_HOME/archmaid/updates-cache.json (default
 # ~/.local/state/archmaid/), 0600, replaced atomically:
-#   {"v":1,"count":12,"checked":"2026-10-04T17:55:00+02:00"}
-# When checkupdates fails (offline, db locked) the old file is left as it is;
-# the widget treats a count older than 3 days as unknown.
+#   {"v":2,"count":12,"repo":9,"aur":3,"aur_held":2,"checked":"2026-10-04T17:55:00+02:00"}
+# repo      pending repo updates (checkupdates)
+# aur       pending AUR updates yay's cooldown would let through
+# aur_held  pending AUR updates younger than the cooldown (yay would hold them back)
+# count     repo + aur (held ones are not counted)
+# aur and aur_held are null when yay is not installed or its check failed; the
+# repo count is still written. When checkupdates fails (offline, db locked) the
+# old file is left as it is; the widget treats a count older than 3 days as
+# unknown.
+#
+# yay -Qua exit status (Jguer/yay main.go, print.go): 0 = updates listed;
+# 1 = no updates, with nothing on stderr (printUpdateList returns an error with
+# an empty message, which main does not log); 1 with a message on stderr, or
+# any other status (e.g. 124 from timeout) = failure.
+#
+# Each listed AUR update ends in an age tag such as [1d9h], [3d], [6h54m]
+# (yay pkg/text FormatAgeTag/FormatDuration): the time since the AUR package's
+# LastModified, the field yay's cooldown hook compares (pkg.last_modified), cut
+# to minutes and then to its two largest units, so the shown age is never
+# larger than the real one. "3d" is therefore >= 72 h (eligible) and "2d23h" is
+# < 72 h (held). A line without a readable tag (older yay, odd output) cannot be
+# dated and counts as held, never as eligible.
 set -eu
 umask 077
+
+# The cooldown window in hours: one constant, kept equal to Cooldown in
+# internal/audit/audit.go (72 * time.Hour) and the 72 h in the owner's yay hook.
+COOLDOWN_HOURS=72
 
 state="${XDG_STATE_HOME:-$HOME/.local/state}/archmaid"
 mkdir -p "$state"
 chmod 700 "$state"
 
+tmp=""
+errf=""
+trap 'rm -f "$tmp" "$errf"' EXIT
+
 rc=0
 list="$(checkupdates)" || rc=$?
 case "$rc" in
-0) count="$(printf '%s\n' "$list" | grep -c . || true)" ;;
-2) count=0 ;; # checkupdates exits 2 when nothing is pending
+0) repo="$(printf '%s\n' "$list" | grep -c . || true)" ;;
+2) repo=0 ;; # checkupdates exits 2 when nothing is pending
 *)
 	echo "archmaid-updates-check: checkupdates failed (exit $rc), keeping the old file" >&2
 	exit 1
 	;;
 esac
 
+# split_aur reads a `yay -Qua` listing and prints "<eligible> <held>".
+split_aur() {
+	esc="$(printf '\033')"
+	sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | awk -v hours="$COOLDOWN_HOURS" '
+	NF == 0 { next }
+	{
+		ok = 0
+		if (match($0, /\[[0-9]+[dhms]([0-9]+[dhms])*\]$/)) {
+			tag = substr($0, RSTART + 1, RLENGTH - 2)
+			secs = 0
+			while (match(tag, /^[0-9]+[dhms]/)) {
+				n = substr(tag, 1, RLENGTH - 1) + 0
+				u = substr(tag, RLENGTH, 1)
+				secs += n * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1)
+				tag = substr(tag, RLENGTH + 1)
+			}
+			ok = secs >= hours * 3600
+		}
+		if (ok) eligible++; else held++
+	}
+	END { printf "%d %d\n", eligible, held }'
+}
+
+aur=null
+held=null
+if command -v yay >/dev/null 2>&1; then
+	errf="$(mktemp "$state/updates-yay.err.XXXXXX")"
+	# No TTY under systemd: stdin from /dev/null so nothing can prompt, and a
+	# timeout so a hung AUR/network call cannot block the unit.
+	yrc=0
+	if command -v timeout >/dev/null 2>&1; then
+		ylist="$(timeout 120 yay -Qua </dev/null 2>"$errf")" || yrc=$?
+	else
+		ylist="$(yay -Qua </dev/null 2>"$errf")" || yrc=$?
+	fi
+	case "$yrc" in
+	0) set -- $(printf '%s\n' "$ylist" | split_aur) && aur=$1 && held=$2 ;;
+	1)
+		if [ ! -s "$errf" ] && [ -z "$ylist" ]; then
+			aur=0
+			held=0
+		else
+			echo "archmaid-updates-check: yay -Qua failed (exit 1), AUR count unknown" >&2
+		fi
+		;;
+	*) echo "archmaid-updates-check: yay -Qua failed (exit $yrc), AUR count unknown" >&2 ;;
+	esac
+fi
+
+if [ "$aur" = null ]; then
+	count="$repo"
+else
+	count=$((repo + aur))
+fi
+
 tmp="$(mktemp "$state/updates-cache.json.tmp.XXXXXX")"
-trap 'rm -f "$tmp"' EXIT
-printf '{"v":1,"count":%s,"checked":"%s"}\n' "$count" "$(date -Iseconds)" >"$tmp"
+printf '{"v":2,"count":%s,"repo":%s,"aur":%s,"aur_held":%s,"checked":"%s"}\n' "$count" "$repo" "$aur" "$held" "$(date -Iseconds)" >"$tmp"
 mv -f "$tmp" "$state/updates-cache.json"

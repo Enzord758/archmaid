@@ -154,7 +154,7 @@ TestCase {
         verify(ok.lastRun.stamp.endsWith(" · 2 h ago"), ok.lastRun.stamp);
         compare(ok.lastRun.notes.length, 0);
         compare(ok.updates.count, 3);
-        verify(ok.updates.note.startsWith("pending · checked "), ok.updates.note);
+        verify(ok.updates.note.startsWith("3 repo · AUR unknown · checked "), ok.updates.note);
         compare(ok.aur.packages, 27);
         compare(ok.aur.note, "packages · checked 2 h ago");
         compare(ok.aur.high.length, 2);
@@ -204,6 +204,49 @@ TestCase {
         compare(empty.lastRun, null);
         compare(empty.updates.note, "Not checked yet");
         compare(empty.aur.note, "No audit yet");
+    }
+
+    function test_updatesSplit() {
+        // v:2 from the real script: repo 3, AUR 2 eligible + 2 held (count excludes held).
+        const aur = State.parseUpdates(F.fx.updatesAur);
+        compare(aur.count, 5);
+        compare(aur.repo, 3);
+        compare(aur.aur, 2);
+        compare(aur.aurHeld, 2);
+        // yay missing or failed: aur null, the repo count stands.
+        const noAur = State.parseUpdates(F.fx.updatesNoAur);
+        compare(noAur.count, 3);
+        compare(noAur.aur, null);
+        compare(noAur.repo, 3);
+        // v:1 (older installs): count only.
+        const v1 = State.parseUpdates(F.fx.updatesV1);
+        compare(v1.count, 3);
+        compare(v1.repo, null);
+        compare(v1.aur, null);
+        // Malformed optional fields read as unknown, not as a rejected file.
+        const odd = State.parseUpdates('{"v":2,"count":4,"repo":"x","aur":-1,"aur_held":1.5,"checked":"2026-10-04T10:00:00Z"}');
+        compare(odd.count, 4);
+        compare(odd.repo, null);
+        compare(odd.aur, null);
+    }
+
+    function test_updatesNote() {
+        const at = State.parseUpdates(F.fx.updatesAur).checked + 5 * 60000;
+        const note = fx => State.popout(State.summarize(null, null, State.parseUpdates(fx), at), at).updates;
+        // The total (the bar pill) is repo + eligible AUR; held ones are not in it.
+        compare(State.summarize(null, null, State.parseUpdates(F.fx.updatesAur), at).updates, 5);
+        compare(note(F.fx.updatesAur).count, 5);
+        compare(note(F.fx.updatesAur).note, "3 repo · 2 AUR (2 held, <72h) · checked 5 min ago");
+        // Only held: count 0 and the note still says what is held.
+        compare(note(F.fx.updatesAurHeld).count, 0);
+        compare(note(F.fx.updatesAurHeld).note, "0 repo · 0 AUR (1 held, <72h) · checked 5 min ago");
+        compare(note(F.fx.updatesNoAur).note, "3 repo · AUR unknown · checked 5 min ago");
+        compare(note(F.fx.updatesNone).note, "up to date · checked 5 min ago");
+        compare(note(F.fx.updatesNoYay).note, "0 repo · AUR unknown · checked 5 min ago");
+        compare(note(F.fx.updatesV1).note, "pending · checked 5 min ago");
+        // No held part when nothing is held.
+        const clean = '{"v":2,"count":12,"repo":9,"aur":3,"aur_held":0,"checked":"' + new Date(at - 5 * 60000).toISOString() + '"}';
+        compare(note(clean).note, "9 repo · 3 AUR · checked 5 min ago");
     }
 
     function test_launchPlan() {
