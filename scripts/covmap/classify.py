@@ -72,6 +72,7 @@ rule("internal/engine/enginetest/contract.go", r"", "A", "the checker's own fail
 rule("internal/engine/stub/fullcleanup.go", r"builder.index", "E", "the hand-built script only names its own steps", "", rec="keep: programming-error panic")
 rule("internal/engine/stub/stub.go", r"", "A", "Close (or Abort) while the replay waits on a cue or a prompt", "internal/engine/stub/stub_test.go")
 # ---- frontend
+rule("internal/frontend/topgrade.go", r"EnsureTopgradeConfig", "E", "O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's", "", lo=55, hi=56, rec="keep-exempt")
 rule("internal/frontend/topgrade.go", r"", "A", "Lstat error other than not-exist (0000 parent), MkdirAll under a file, the file appearing between Lstat and OpenFile (O_EXCL), a 0500 dir", "internal/frontend/topgrade_test.go")
 # ---- helperclient
 rule("internal/helperclient/plan.go", r"^PlanOrphans$", "C", "runs the installed /usr/lib/archmaid/archmaid-helper plan-orphans, which runs the real pacman -Qdtq/-Rs --print", "VM")
@@ -141,7 +142,6 @@ rule("internal/tui/view.go", r"model.viewOf", "E", "safe fallback: renderScreen/
 rule("internal/tui/tasks.go", r"^<package>$", "B", "the default execProcess hands the terminal to the editor: a pty tape with EDITOR set to a script (the unit tests swap the seam)", "cmd/archmaid/e2e/run.sh")
 rule("internal/tui/tasks.go", r"handedTerminal", "B", "the terminal handover to a real editor: a pty tape with EDITOR set to a script", "cmd/archmaid/e2e/run.sh")
 rule("internal/tui/", r"", "A", "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome", "internal/tui/*_test.go")
-rule("internal/frontend/topgrade.go", r"EnsureTopgradeConfig", "E", "O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's", "", lo=55, hi=56, rec="keep-exempt")
 rule("internal/frontend/", r"", "A","an audit helper edge", "internal/frontend/audit_test.go")
 
 # ---- cover tooling itself

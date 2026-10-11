@@ -1,6 +1,6 @@
 # Coverage exemptions (category E)
 
-Statements no test or run can reach, as measured at `8bf5d3a` (121 statements in 91 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
+Statements no test or run can reach, as measured at `ae00269` (124 statements in 94 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
 
 Refreshing: after a code change that moves a listed block, re-run the measurement (docs/coverage-map.md, "How it was measured") and `scripts/covmap/report.py`; do not edit the tsv by hand.
 
@@ -8,7 +8,7 @@ Refreshing: after a code change that moves a listed block, re-run the measuremen
 
 | Recommendation | Means | Blocks | Statements | of which security code |
 |---|---|---|---|---|
-| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 67 | 87 | 42 |
+| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 70 | 90 | 42 |
 | `make-testable` | a small seam turns it into a unit test (A): the shared atomic-write helper, or a hook between a TOCTOU check and its use | 23 | 33 | 8 |
 | `remove` | dead code: delete the branch (a reviewer confirms it cannot be reached) | 1 | 1 | 0 |
 
@@ -50,7 +50,7 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 |---|---|---|---|---|
 | `internal/audit/result.go:186-186` | `packageNames` | 1 |  | only called with the gating (high) names, never none |
 
-## `keep-exempt` (87 statements)
+## `keep-exempt` (90 statements)
 
 | Where | Function | Stmts | Security | Why it can't run |
 |---|---|---|---|---|
@@ -87,7 +87,9 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/downloads/downloads.go:638-638` | `inode` | 1 | yes | on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail |
 | `internal/driver/driver.go:301-302` | `currentFaillock` | 1 |  | user.Current fails only when the uid has no passwd entry; no seam |
 | `internal/driver/driver.go:511-511` | `Driver.command.func` | 1 |  | the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's |
+| `internal/engine/combine.go:85-85` | `Session.combineNext` | 1 |  | the guard skips a slot that is not Pending or already accepted; every caller advances r.cur past a slot it has settled or accepted, so the loop never meets one |
 | `internal/engine/stub/fullcleanup.go:93-93` | `builder.index` | 1 |  | the hand-built script only names its own steps |
+| `internal/frontend/topgrade.go:55-56` | `EnsureTopgradeConfig` | 1 |  | O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's |
 | `internal/helperclient/helpertest/helpertest.go:16-16` | `testOnly` | 1 | yes | test-helper guards: panic outside a test binary or on an empty path |
 | `internal/helperclient/helpertest/helpertest.go:29-29` | `UseHelperFile` | 1 | yes | test-helper guards: panic outside a test binary or on an empty path |
 | `internal/logstore/lastrun.go:66-67` | `Store.WriteLastRun` | 1 |  | json.Marshal of a RunRecord can't fail |
@@ -118,6 +120,7 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/ttyguard/ttyguard.go:130-131` | `ioctl` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |
 | `internal/ttyguard/ttyguard.go:136-137` | `ioctl` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |
 | `internal/tui/askpass.go:36-37` | `startAskpassServer` | 1 | yes | os.Executable fails only without /proc |
+| `internal/tui/tui.go:63-64` | `Run` | 1 |  | ttyguard.Hold reports an error only when TIOCGEXCL/TIOCEXCL fails on a terminal that just answered TCGETS; a closed or non-terminal stdin is a Guard that does nothing, no error |
 | `internal/tui/tui.go:69-70` | `Run.func` | 1 |  | Release of the guard fails only if the fd was closed concurrently |
 | `internal/tui/tui.go:128-129` | `DisableCoreDumps` | 1 |  | prctl(PR_SET_DUMPABLE) on our own process doesn't fail |
 | `internal/tui/view.go:90-90` | `model.viewOf` | 1 |  | safe fallback: renderScreen/baseScreen name every screen |

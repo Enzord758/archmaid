@@ -53,7 +53,9 @@ internal/downloads/downloads.go	623-624	remover.removeContents	1	make-testable	y
 internal/downloads/downloads.go	638-638	inode	1	keep-exempt	yes	on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail
 internal/driver/driver.go	301-302	currentFaillock	1	keep-exempt	no	user.Current fails only when the uid has no passwd entry; no seam
 internal/driver/driver.go	511-511	Driver.command.func	1	keep-exempt	no	the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's
+internal/engine/combine.go	85-85	Session.combineNext	1	keep-exempt	no	the guard skips a slot that is not Pending or already accepted; every caller advances r.cur past a slot it has settled or accepted, so the loop never meets one
 internal/engine/stub/fullcleanup.go	93-93	builder.index	1	keep-exempt	no	the hand-built script only names its own steps
+internal/frontend/topgrade.go	55-56	EnsureTopgradeConfig	1	keep-exempt	no	O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's
 internal/helperclient/helpertest/helpertest.go	16-16	testOnly	1	keep-exempt	yes	test-helper guards: panic outside a test binary or on an empty path
 internal/helperclient/helpertest/helpertest.go	29-29	UseHelperFile	1	keep-exempt	yes	test-helper guards: panic outside a test binary or on an empty path
 internal/logstore/lastrun.go	66-67	Store.WriteLastRun	1	keep-exempt	no	json.Marshal of a RunRecord can't fail
@@ -88,6 +90,7 @@ internal/ttyguard/ttyguard.go	122-123	Exclusive	1	keep-exempt	yes	TIOCGEXCL/TIOC
 internal/ttyguard/ttyguard.go	130-131	ioctl	1	keep-exempt	yes	TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently
 internal/ttyguard/ttyguard.go	136-137	ioctl	1	keep-exempt	yes	TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently
 internal/tui/askpass.go	36-37	startAskpassServer	1	keep-exempt	yes	os.Executable fails only without /proc
+internal/tui/tui.go	63-64	Run	1	keep-exempt	no	ttyguard.Hold reports an error only when TIOCGEXCL/TIOCEXCL fails on a terminal that just answered TCGETS; a closed or non-terminal stdin is a Guard that does nothing, no error
 internal/tui/tui.go	69-70	Run.func	1	keep-exempt	no	Release of the guard fails only if the fd was closed concurrently
 internal/tui/tui.go	128-129	DisableCoreDumps	1	keep-exempt	no	prctl(PR_SET_DUMPABLE) on our own process doesn't fail
 internal/tui/view.go	90-90	model.viewOf	1	keep-exempt	no	safe fallback: renderScreen/baseScreen name every screen

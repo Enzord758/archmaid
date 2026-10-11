@@ -40,21 +40,28 @@ python3 -I scripts/covmap/report.py classified.json "$COVER_OUT/merged/summary.t
 #   writes docs/coverage-map.json, docs/coverage-exempt.{tsv,md} and the generated regions of this file
 ```
 
-The scopes: **core** is check.sh's set (`cmd/archmaid` + `internal/...`,
-the `MIN_TOTAL` floor), **helper** is `cmd/archmaid-helper/...` (the gate
+The scopes: **core** is check.sh's set (`cmd/archmaid` + `internal/...`
+without the test-only packages, the `MIN_TOTAL` floor), **testonly** is the
+test-only packages (`internal/testenv`, `testtranscript`, `engine/enginetest`,
+`privilege/privtest`, `helperclient/helpertest`: code that exists only for
+tests, reported on its own line and in no floor), **helper** is `cmd/archmaid-helper/...` (the gate
 doesn't measure it), and **gui** is the `gui/` module (the gate doesn't
 measure it either). `gui/cmd/archmaid-gui` (6 statements) is linked by no
 test, so it appears in no run's data; the map counts it in by hand.
 
-What each kind of run adds, for core (statements 5918; the discovery change
-and the new GUI work added about 300 since the first map):
+What each kind of run adds, for core (statements 5425, test-only packages
+excluded; measured at the work-package-3 commit):
 
 | Run | core |
 |---|---|
-| `check.sh` (`go test -coverprofile`, no children) | 92.1 % |
-| `cover-unit.sh` (the same tests, plus the re-executed children: the TTY child running the real `tui.Run`, the askpass relay) | 92.1 % (5455/5918) |
-| + the e2e tapes on the cover binary (`main`, the real startup) | 92.8 % (5496/5918) |
-| + the GUI's tests (they drive `internal/engine`, `driver`, `frontend` and more through the GUI) | 92.9 % (5501/5918) |
+| `check.sh` (`go test -coverprofile`, no children) | 96.3 % (5229/5425) |
+| `cover-unit.sh` (the same tests, plus the re-executed children: the TTY child running the real `tui.Run`, the askpass relay) | 96.3 % (5229/5425) |
+| + the e2e tapes on the cover binary (`main`, the real startup) | 97.0 % (5266/5425) |
+| + the GUI's tests (they drive `internal/engine`, `driver`, `frontend` and more through the GUI) | 97.1 % (5268/5425) |
+
+testonly: 66.0 % (323/489), not part of core. Before work package 3 core was
+95.4 % raw / 96.5 % reachable on this basis (the pass-2 map's 92.9 % /
+94.3 % had these 489 statements in it).
 
 helper: 87.3 % (774/886), unit tests only. gui: 93.0 % (3924/4219) with the
 headless display tests.
@@ -82,19 +89,21 @@ exempt list (`coverage-exempt.md`). Both come out of `scripts/covblocks
 <!-- gen:totals -->
 | Scope | Statements | Covered | Raw | Uncovered | A unit | B e2e | C vm | D owner | E exempt | Reachable (covered / (total - E)) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| core | 5918 | 5501 | 92.9 % | 417 | 323 | 5 | 1 | 0 | 88 | 94.3 % (5501/5830) |
+| core | 5425 | 5268 | 97.1 % | 157 | 87 | 3 | 1 | 0 | 66 | 98.3 % (5268/5359) |
 | helper | 886 | 774 | 87.3 % | 112 | 59 | 52 | 0 | 0 | 1 | 87.4 % (774/885) |
 | gui | 4225 | 3924 | 92.8 % | 301 | 208 | 39 | 22 | 0 | 32 | 93.5 % (3924/4193) |
-| all | 11029 | 10199 | 92.4 % | 830 | 590 | 96 | 23 | 0 | 121 | 93.5 % (10199/10908) |
+| testonly | 489 | 323 | 66.0 % | 166 | 141 | 0 | 0 | 0 | 25 | 69.6 % (323/464) |
+| all | 11025 | 10289 | 93.3 % | 736 | 495 | 94 | 23 | 0 | 124 | 94.3 % (10289/10901) |
 
 Raw / reachable, cumulative:
 
 | Scope | Now (unit + e2e + GUI) | after A | after A+B | after A+B+C | after A+B+C+D (= every reachable statement) |
 |---|---|---|---|---|---|
-| core | 92.9 % / 94.3 % | 98.4 % / 99.8 % | 98.4 % / 99.9 % | 98.5 % / 100.0 % | 98.5 % / 100.0 % |
+| core | 97.1 % / 98.3 % | 98.7 % / 99.9 % | 98.7 % / 99.9 % | 98.7 % / 100.0 % | 98.7 % / 100.0 % |
 | helper | 87.3 % / 87.4 % | 94.0 % / 94.1 % | 99.8 % / 100.0 % | 99.8 % / 100.0 % | 99.8 % / 100.0 % |
 | gui | 92.8 % / 93.5 % | 97.7 % / 98.5 % | 98.7 % / 99.4 % | 99.2 % / 100.0 % | 99.2 % / 100.0 % |
-| all | 92.4 % / 93.5 % | 97.8 % / 98.9 % | 98.6 % / 99.7 % | 98.9 % / 100.0 % | 98.9 % / 100.0 % |
+| testonly | 66.0 % / 69.6 % | 94.8 % / 100.0 % | 94.8 % / 100.0 % | 94.8 % / 100.0 % | 94.8 % / 100.0 % |
+| all | 93.3 % / 94.3 % | 97.8 % / 98.9 % | 98.6 % / 99.7 % | 98.8 % / 100.0 % | 98.8 % / 100.0 % |
 <!-- /gen:totals -->
 
 D is 0 statements: every line the owner's checks exercise is reachable by
@@ -135,14 +144,14 @@ largest single gain.
 | # | Package | Statements | Gain (all) | Role | Security code | Covers |
 |---|---|---|---|---|---|---|
 | 1 | **Test infrastructure** (A) | 141 | +1.2 pts | architecture | no | testenv's post-`m.Run` checks (orphan reaper, trap report, state-guard compare) called directly inside a test, the recorder's fake targets, the contract checker's own failure paths. By package: `testenv` 123, `engine/enginetest` 13, `testtranscript` 5 |
-| 2 | **Helper and privilege edge cases** (A) | 96 | +0.8 pts | security | 96 stmts: Dev 3 reviews | the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures. By package: `cmd/archmaid-helper/helper` 59, `helperclient` 21, `privilege` 16 |
-| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 103 | +0.9 pts | architecture (driver/keep.go and the askpass bits: security) | 10 stmts: Dev 3 reviews | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `tui` 43, `driver` 27, `actions` 15, `engine` 7, `logstore` 6, `frontend` 5 |
-| 4 | **Leaf packages and the polkit agent** (A) | 79 | +0.7 pts | performance-QA (polkitagent, realdriver, downloads: security) | 52 stmts: Dev 3 reviews | audit/downloads write and scan error paths, proc argv forms, sanitize and sysstat edges, polkitagent and realdriver against fake agents. By package: `gui/polkitagent` 23, `downloads` 15, `gui/realdriver` 14, `audit` 13, `proc` 10, `sanitize` 2 |
+| 2 | **Helper and privilege edge cases** (A) | 97 | +0.8 pts | security | 97 stmts: Dev 3 reviews | the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures. By package: `cmd/archmaid-helper/helper` 59, `helperclient` 21, `privilege` 17 |
+| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 10 | +0.0 pts | architecture (driver/keep.go and the askpass bits: security) | 10 stmts: Dev 3 reviews | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `driver` 10 |
+| 4 | **Leaf packages and the polkit agent** (A) | 76 | +0.6 pts | performance-QA (polkitagent, realdriver, downloads: security) | 49 stmts: Dev 3 reviews | audit/downloads write and scan error paths, proc argv forms, sanitize and sysstat edges, polkitagent and realdriver against fake agents. By package: `gui/polkitagent` 23, `gui/realdriver` 14, `audit` 13, `downloads` 12, `proc` 10, `sanitize` 2 |
 | 5 | **GUI logs, timeline and signals pages** (A) | 85 | +0.7 pts | GUI | no | new headless scenarios: log page states (none, unreadable, empty), the timeline, signals mid-run, the failed-step view, logview and overview edges. By package: `gui/ui` 78, `gui/logview` 6, `gui/overview` 1 |
 | 6 | **GUI windows, dialogs, settings, run view** (A) | 86 | +0.7 pts | GUI | no | window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells. By package: `gui/ui` 54, `gui/runview` 25, `gui/settings` 7 |
 | 7 | **E2E: the cover-helper check** (B) | 52 | +0.4 pts | performance-QA with Dev 3's review (helper) | 52 stmts: Dev 3 reviews | main and hardenProcess of the helper binary: the run.sh check of the cover helper as the user and as uid 0 in an unprivileged user namespace (both refused before anything runs). By package: `cmd/archmaid-helper` 50, `cmd/archmaid-helper/coverdir` 1, `cmd/archmaid-helper/helper` 1 |
-| 8 | **E2E: binary entries** (B) | 44 | +0.3 pts | GUI (the TUI tape: architecture) | no | archmaid-gui's main, `--stub` with each script (headless), the TUI's error exit and the editor handover on a pty tape. By package: `gui/ui` 33, `gui/cmd/archmaid-gui` 6, `cmd/archmaid` 3, `tui` 2 |
-| | **A and B together** | 686 | +6.2 pts | | | |
+| 8 | **E2E: binary entries** (B) | 42 | +0.3 pts | GUI (the TUI tape: architecture) | no | archmaid-gui's main, `--stub` with each script (headless), the TUI's error exit and the editor handover on a pty tape. By package: `gui/ui` 33, `gui/cmd/archmaid-gui` 6, `cmd/archmaid` 3 |
+| | **A and B together** | 589 | +5.3 pts | | | |
 <!-- /gen:workpackages -->
 
 ## The 10 most important VM (C) checks
@@ -320,18 +329,17 @@ Statements still uncovered after unit + e2e + GUI, by category.
 | `gui/internal/runview` | 25 |  |  |  |  |
 | `gui/internal/settings` | 7 |  |  |  | 6 |
 | `gui/internal/ui` | 132 | 33 | 22 |  | 8 |
-| `internal/actions` | 15 |  |  |  |  |
 | `internal/audit` | 13 |  |  |  | 17 |
-| `internal/downloads` | 15 |  |  |  | 15 |
-| `internal/driver` | 27 |  |  |  | 2 |
-| `internal/engine` | 7 |  |  |  |  |
+| `internal/downloads` | 12 |  |  |  | 15 |
+| `internal/driver` | 10 |  |  |  | 2 |
+| `internal/engine` |  |  |  |  | 1 |
 | `internal/engine/enginetest` | 13 |  |  |  |  |
 | `internal/engine/stub` |  |  |  |  | 1 |
-| `internal/frontend` | 5 |  |  |  |  |
+| `internal/frontend` |  |  |  |  | 1 |
 | `internal/helperclient` | 21 |  | 1 |  |  |
 | `internal/helperclient/helpertest` |  |  |  |  | 2 |
-| `internal/logstore` | 6 |  |  |  | 8 |
-| `internal/privilege` | 16 |  |  |  | 8 |
+| `internal/logstore` |  |  |  |  | 8 |
+| `internal/privilege` | 17 |  |  |  | 8 |
 | `internal/privilege/privtest` |  |  |  |  | 1 |
 | `internal/proc` | 10 |  |  |  | 1 |
 | `internal/sanitize` | 2 |  |  |  |  |
@@ -339,7 +347,7 @@ Statements still uncovered after unit + e2e + GUI, by category.
 | `internal/testenv` | 123 |  |  |  | 22 |
 | `internal/testtranscript` | 5 |  |  |  |  |
 | `internal/ttyguard` |  |  |  |  | 4 |
-| `internal/tui` | 43 | 2 |  |  | 4 |
+| `internal/tui` |  |  |  |  | 5 |
 <!-- /gen:packages -->
 
 ## Every uncovered block (A, B, C)
@@ -548,16 +556,6 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `window.go:436-437, 460-461` | `Window.statusText` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `window.go:479-480, 491-492, 522-524` | `Window.closeRequest` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 
-#### `internal/actions`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `downloads.go:43-45` | `discoverDownloads` | 2 | A | the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days | internal/actions/downloads_test.go |
-| `downloads.go:108-109, 114-114, 118-118, 128-128` | `downloadsChecked` | 5 | A | the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days | internal/actions/downloads_test.go |
-| `services.go:49-49` | `splitInactiveServices` | 1 | A | a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules | internal/actions/services_test.go |
-| `services.go:81-83, 84-84, 85-86, 88-88` | `enabledServices` | 6 | A | a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules | internal/actions/services_test.go |
-| `services.go:188-189` | `skipRules` | 1 | A | a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules | internal/actions/services_test.go |
-
 #### `internal/audit`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
@@ -581,41 +579,21 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `downloads.go:81-81` | `Options.now` | 1 | A | Delete with Options.Now nil uses the real clock | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:106-107` | `homeDirs.func` | 1 | A | Options.Home an absolute path that doesn't exist (EvalSymlinks fails) | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:213-214, 236-237, 243-244` | `xdgDownloadDir` | 3 | A | user-dirs.dirs with a relative XDG_CONFIG_HOME and no home, $HOME with no home, a relative value | internal/downloads/downloads_test.go (security: Dev 3) |
-| `downloads.go:290-291` | `Scan` | 1 | A | a missing/0000 folder (OpenRoot), the mountinfoPath seam on a missing file, a 0300 folder (ReadDir) | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:299-300, 303-304` | `Scan` | 2 | A | the mountinfoPath seam on a missing file; a 0300 folder (ReadDir fails) | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:328-329` | `oldDownloads` | 1 | A | a folder that opens but can't be listed (0300) | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:359-360` | `entryIsOld.func` | 1 | A | an old directory holding an unreadable (0000) subdirectory counts as new | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:431-432` | `newBoundary` | 1 | A | mountinfoPath seam pointing at a missing file | internal/downloads/downloads_test.go (security: Dev 3) |
-| `downloads.go:492-493, 501-502` | `Delete` | 2 | A | the folder removed after the scan (OpenRoot fails); mountinfoPath seam on a missing file | internal/downloads/downloads_test.go (security: Dev 3) |
+| `downloads.go:501-502` | `Delete` | 1 | A | the folder removed after the scan (OpenRoot fails); mountinfoPath seam on a missing file | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:591-592` | `remover.removeTree` | 1 | A | a file in an old 0500 subdirectory (clock moved past the chmod with Options.Now): Remove fails EACCES | internal/downloads/downloads_test.go (security: Dev 3) |
-| `downloads.go:646-647` | `PathErrCause` | 1 | A | Scan of a missing folder gives a *fs.PathError | internal/downloads/downloads_test.go (security: Dev 3) |
 
 #### `internal/driver`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `driver.go:217-218` | `msg.hangUp` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
-| `driver.go:434-435` | `Driver.readAskpass` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
-| `driver.go:453-455, 475-477` | `Driver.loop` | 4 | A | a Session that panics on the local or inputs path: the Driver tears down | internal/driver/driver_test.go |
-| `driver.go:549-550` | `Driver.handle` | 1 | A | a Session that panics on the local or inputs path: the Driver tears down | internal/driver/driver_test.go |
-| `driver.go:635-637, 639-640, 642-644` | `Driver.teardown` | 5 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
-| `effects.go:51-51, 58-59, 68-69` | `Driver.effect` | 3 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
-| `effects.go:127-127` | `Driver.refresh` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
-| `effects.go:207-208` | `Driver.pump` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
 | `keep.go:108-109` | `Driver.readAgent` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
 | `keep.go:176-178, 181-184, 186-188` | `Driver.agentRequest.func` | 7 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
 | `keep.go:227-227` | `Driver.answerUser` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
 | `keep.go:252-253` | `requesterOf` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go (security: Dev 3) |
-
-#### `internal/engine`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `combine.go:85-85, 102-102` | `Session.combineNext` | 2 | A | a combined queue whose parts are all declined, finish out of order, or exit without having run | internal/engine/combine_test.go |
-| `combine.go:187-188, 191-192` | `Session.partDone` | 2 | A | a combined queue whose parts are all declined, finish out of order, or exit without having run | internal/engine/combine_test.go |
-| `combine.go:215-216` | `Session.combinedExited` | 1 | A | a combined queue whose parts are all declined, finish out of order, or exit without having run | internal/engine/combine_test.go |
-| `events.go:308-309` | `DiscoveryOutcome.String` | 1 | A | String of an out-of-range outcome | internal/engine/events_test.go |
-| `repaircheck.go:95-96` | `nameList` | 1 | A | a combined queue whose parts are all declined, finish out of order, or exit without having run | internal/engine/combine_test.go |
 
 #### `internal/engine/enginetest`
 
@@ -623,12 +601,6 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 |---|---|---|---|---|---|
 | `contract.go:89-90, 91-92, 94-95` | `Checker.Check.func` | 3 | A | the checker's own failure paths: add the missing hand-built breaches | internal/engine/enginetest/contract_test.go |
 | `contract.go:164-165, 179-180, 185-186, 200-201, 217-218, 223-223, 225-225, 227-227, 240-241, 246-247` | `Checker.Check` | 10 | A | the checker's own failure paths: add the missing hand-built breaches | internal/engine/enginetest/contract_test.go |
-
-#### `internal/frontend`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `topgrade.go:51-52, 55-56, 58-59, 61-63` | `EnsureTopgradeConfig` | 5 | A | Lstat error other than not-exist (0000 parent), MkdirAll under a file, the file appearing between Lstat and OpenFile (O_EXCL), a 0500 dir | internal/frontend/topgrade_test.go |
 
 #### `internal/helperclient`
 
@@ -652,19 +624,11 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `run.go:374-374` | `exitText` | 1 | A | a fake helper killed by a signal | internal/helperclient/run_test.go (security: Dev 3) |
 | `run.go:403-404` | `tail.Write` | 1 | A | a fake helper writing >4 KiB to stderr | internal/helperclient/run_test.go (security: Dev 3) |
 
-#### `internal/logstore`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `lastrun.go:72-73, 78-79` | `Store.WriteLastRun` | 2 | A | MkdirAll under a regular file / CreateTemp in a 0500 dir | internal/logstore/lastrun_test.go |
-| `logstore.go:259-260` | `Store.pruneDiscovery` | 1 | A | a store with an error, a run dir under a regular file, a log path that is a directory | internal/logstore/logstore_test.go |
-| `logstore.go:346-347, 352-353` | `Store.Append` | 2 | A | a store with an error, a run dir under a regular file, a log path that is a directory | internal/logstore/logstore_test.go |
-| `logstore.go:379-380` | `Store.Read` | 1 | A | a store with an error, a run dir under a regular file, a log path that is a directory | internal/logstore/logstore_test.go |
-
 #### `internal/privilege`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
+| `askpass.go:193-193` | `Server.serve` | 1 | A | net.Pipe relays that hang up or answer the wrong line; a harden func that fails | internal/privilege/askpass_test.go (security: Dev 3) |
 | `askpass.go:349-350, 354-355` | `Request.deliver` | 2 | A | net.Pipe relays that hang up or answer the wrong line; a harden func that fails | internal/privilege/askpass_test.go (security: Dev 3) |
 | `askpass.go:378-379, 382-383, 386-387` | `ReadAnswer` | 3 | A | net.Pipe relays that hang up or answer the wrong line; a harden func that fails | internal/privilege/askpass_test.go (security: Dev 3) |
 | `faillock.go:110-111` | `faillockStatus` | 1 | A | a tally path that is a directory, an unreadable faillock.conf, a scanner error (an over-long line) | internal/privilege/faillock_test.go (security: Dev 3) |
@@ -723,28 +687,6 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `recorder.go:91-92, 106-107` | `Recorder.Run` | 2 | A | fake targets failing Start/Next/Reply and an odd replace list | internal/testtranscript/recorder_test.go |
 | `recorder.go:198-198` | `Recorder.event` | 1 | A | fake targets failing Start/Next/Reply and an odd replace list | internal/testtranscript/recorder_test.go |
 | `recorder.go:229-230` | `Recorder.reply` | 1 | A | fake targets failing Start/Next/Reply and an odd replace list | internal/testtranscript/recorder_test.go |
-
-#### `internal/tui`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `adapter.go:251-251` | `model.applyEvent` | 1 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `adapter.go:318-319, 346-347` | `model.finished` | 2 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `adapter.go:467-467` | `model.engineKey` | 1 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `glue.go:84-85` | `waitForDownloads` | 2 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `overlay.go:24-25` | `overlay` | 1 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `overlay.go:50-51` | `compositeLine` | 1 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `status.go:47-48` | `plural` | 1 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `tasks.go:82-82` | `<package>` | 1 | B | the default execProcess hands the terminal to the editor: a pty tape with EDITOR set to a script (the unit tests swap the seam) | cmd/archmaid/e2e/run.sh |
-| `tasks.go:99-100` | `handedTerminal.SetStdin` | 1 | B | the terminal handover to a real editor: a pty tape with EDITOR set to a script | cmd/archmaid/e2e/run.sh |
-| `tasks.go:121-122` | `editConfig` | 2 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `tasks.go:123-125` | `editConfig.func` | 2 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `tasks.go:142-143, 147-147` | `editorName` | 2 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `tui.go:63-64` | `Run` | 1 | A | ttyguard.Hold refusing stdin (a closed or non-terminal fd in the TTY child) | internal/tui/tui_test.go |
-| `tui.go:105-106` | `DropSudoTicket` | 1 | A | privilege.DropTicket failing (sudo shim) | internal/tui/tui_test.go |
-| `update.go:69-69, 70-73, 74-74` | `model.Update` | 5 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `update.go:111-111, 112-113, 133-133, 135-135, 175-175, 176-177, 187-187, 189-189, 191-193, 198-200, 204-205, 209-209, 210-211, 218-218, 219-220` | `model.handleKey` | 19 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
-| `update.go:238-238, 243-243` | `model.activate` | 2 | A | key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome | internal/tui/*_test.go |
 
 #### `gui/cmd/archmaid-gui`
 

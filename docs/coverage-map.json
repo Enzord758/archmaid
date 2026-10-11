@@ -1,5 +1,5 @@
 {
- "base": "8bf5d3ab579d9ea8befc877f3fcff53ea013fed2",
+ "base": "ae00269",
  "measured": "scripts/cover-report.sh with COVER_GUI=1: unit (cover-unit.sh) + e2e tapes + GUI headless, merged",
  "categories": {
   "A": "unit",
@@ -10,9 +10,9 @@
  },
  "totals": {
   "core": {
-   "stmts": 5918,
-   "covered": 5501,
-   "exempt": 88
+   "stmts": 5425,
+   "covered": 5268,
+   "exempt": 66
   },
   "helper": {
    "stmts": 886,
@@ -24,10 +24,15 @@
    "covered": 3924,
    "exempt": 32
   },
+  "testonly": {
+   "stmts": 489,
+   "covered": 323,
+   "exempt": 25
+  },
   "all": {
-   "stmts": 11029,
-   "covered": 10199,
-   "exempt": 121
+   "stmts": 11025,
+   "covered": 10289,
+   "exempt": 124
   }
  },
  "work_packages": {
@@ -39,20 +44,20 @@
   },
   "2": {
    "name": "Helper and privilege edge cases",
-   "stmts": 96,
-   "security_stmts": 96,
+   "stmts": 97,
+   "security_stmts": 97,
    "role": "security"
   },
   "3": {
    "name": "Core: TUI keys, driver, engine, actions, logstore",
-   "stmts": 103,
+   "stmts": 10,
    "security_stmts": 10,
    "role": "architecture (driver/keep.go and the askpass bits: security)"
   },
   "4": {
    "name": "Leaf packages and the polkit agent",
-   "stmts": 79,
-   "security_stmts": 52,
+   "stmts": 76,
+   "security_stmts": 49,
    "role": "performance-QA (polkitagent, realdriver, downloads: security)"
   },
   "5": {
@@ -75,7 +80,7 @@
   },
   "8": {
    "name": "E2E: binary entries",
-   "stmts": 44,
+   "stmts": 42,
    "security_stmts": 0,
    "role": "GUI (the TUI tape: architecture)"
   }
@@ -3463,127 +3468,6 @@
    "package": 6
   },
   {
-   "file": "internal/actions/downloads.go",
-   "lines": "43-45",
-   "func": "discoverDownloads",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days",
-   "home": "internal/actions/downloads_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/downloads.go",
-   "lines": "108-109",
-   "func": "downloadsChecked",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days",
-   "home": "internal/actions/downloads_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/downloads.go",
-   "lines": "114-114",
-   "func": "downloadsChecked",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days",
-   "home": "internal/actions/downloads_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/downloads.go",
-   "lines": "118-118",
-   "func": "downloadsChecked",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days",
-   "home": "internal/actions/downloads_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/downloads.go",
-   "lines": "128-128",
-   "func": "downloadsChecked",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the downloads discovery's edge outputs: a Scan error notice, more than the listed items, an age-unknown or recently-changed or other-filesystem entry, nothing older than 30 days",
-   "home": "internal/actions/downloads_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/services.go",
-   "lines": "49-49",
-   "func": "splitInactiveServices",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules",
-   "home": "internal/actions/services_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/services.go",
-   "lines": "81-83",
-   "func": "enabledServices",
-   "stmts": 3,
-   "cat": "A",
-   "reason": "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules",
-   "home": "internal/actions/services_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/services.go",
-   "lines": "84-84",
-   "func": "enabledServices",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules",
-   "home": "internal/actions/services_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/services.go",
-   "lines": "85-86",
-   "func": "enabledServices",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules",
-   "home": "internal/actions/services_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/services.go",
-   "lines": "88-88",
-   "func": "enabledServices",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules",
-   "home": "internal/actions/services_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/actions/services.go",
-   "lines": "188-189",
-   "func": "skipRules",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules",
-   "home": "internal/actions/services_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
    "file": "internal/audit/audit.go",
    "lines": "91-92",
    "func": "Config.deadline",
@@ -3937,17 +3821,6 @@
   },
   {
    "file": "internal/downloads/downloads.go",
-   "lines": "290-291",
-   "func": "Scan",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a missing/0000 folder (OpenRoot), the mountinfoPath seam on a missing file, a 0300 folder (ReadDir)",
-   "home": "internal/downloads/downloads_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "internal/downloads/downloads.go",
    "lines": "295-296",
    "func": "Scan",
    "stmts": 1,
@@ -4069,17 +3942,6 @@
   },
   {
    "file": "internal/downloads/downloads.go",
-   "lines": "492-493",
-   "func": "Delete",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the folder removed after the scan (OpenRoot fails); mountinfoPath seam on a missing file",
-   "home": "internal/downloads/downloads_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "internal/downloads/downloads.go",
    "lines": "501-502",
    "func": "Delete",
    "stmts": 1,
@@ -4178,28 +4040,6 @@
    "security": true
   },
   {
-   "file": "internal/downloads/downloads.go",
-   "lines": "646-647",
-   "func": "PathErrCause",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "Scan of a missing folder gives a *fs.PathError",
-   "home": "internal/downloads/downloads_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "internal/driver/driver.go",
-   "lines": "217-218",
-   "func": "msg.hangUp",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
    "file": "internal/driver/driver.go",
    "lines": "301-302",
    "func": "currentFaillock",
@@ -4212,39 +4052,6 @@
   },
   {
    "file": "internal/driver/driver.go",
-   "lines": "434-435",
-   "func": "Driver.readAskpass",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/driver.go",
-   "lines": "453-455",
-   "func": "Driver.loop",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "a Session that panics on the local or inputs path: the Driver tears down",
-   "home": "internal/driver/driver_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/driver.go",
-   "lines": "475-477",
-   "func": "Driver.loop",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "a Session that panics on the local or inputs path: the Driver tears down",
-   "home": "internal/driver/driver_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/driver.go",
    "lines": "511-511",
    "func": "Driver.command.func",
    "stmts": 1,
@@ -4253,105 +4060,6 @@
    "recommend": "keep-exempt",
    "note": "keep-exempt",
    "security": false
-  },
-  {
-   "file": "internal/driver/driver.go",
-   "lines": "549-550",
-   "func": "Driver.handle",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a Session that panics on the local or inputs path: the Driver tears down",
-   "home": "internal/driver/driver_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/driver.go",
-   "lines": "635-637",
-   "func": "Driver.teardown",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/driver.go",
-   "lines": "639-640",
-   "func": "Driver.teardown",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/driver.go",
-   "lines": "642-644",
-   "func": "Driver.teardown",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/effects.go",
-   "lines": "51-51",
-   "func": "Driver.effect",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/effects.go",
-   "lines": "58-59",
-   "func": "Driver.effect",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/effects.go",
-   "lines": "68-69",
-   "func": "Driver.effect",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/effects.go",
-   "lines": "127-127",
-   "func": "Driver.refresh",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/driver/effects.go",
-   "lines": "207-208",
-   "func": "Driver.pump",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
-   "home": "internal/driver/*_test.go",
-   "security": false,
-   "package": 3
   },
   {
    "file": "internal/driver/keep.go",
@@ -4424,55 +4132,11 @@
    "lines": "85-85",
    "func": "Session.combineNext",
    "stmts": 1,
-   "cat": "A",
-   "reason": "a combined queue whose parts are all declined, finish out of order, or exit without having run",
-   "home": "internal/engine/combine_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/engine/combine.go",
-   "lines": "102-102",
-   "func": "Session.combineNext",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a combined queue whose parts are all declined, finish out of order, or exit without having run",
-   "home": "internal/engine/combine_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/engine/combine.go",
-   "lines": "187-188",
-   "func": "Session.partDone",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a combined queue whose parts are all declined, finish out of order, or exit without having run",
-   "home": "internal/engine/combine_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/engine/combine.go",
-   "lines": "191-192",
-   "func": "Session.partDone",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a combined queue whose parts are all declined, finish out of order, or exit without having run",
-   "home": "internal/engine/combine_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/engine/combine.go",
-   "lines": "215-216",
-   "func": "Session.combinedExited",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a combined queue whose parts are all declined, finish out of order, or exit without having run",
-   "home": "internal/engine/combine_test.go",
-   "security": false,
-   "package": 3
+   "cat": "E",
+   "reason": "the guard skips a slot that is not Pending or already accepted; every caller advances r.cur past a slot it has settled or accepted, so the loop never meets one",
+   "recommend": "keep-exempt",
+   "note": "keep-exempt",
+   "security": false
   },
   {
    "file": "internal/engine/enginetest/contract.go",
@@ -4618,28 +4282,6 @@
    "package": 1
   },
   {
-   "file": "internal/engine/events.go",
-   "lines": "308-309",
-   "func": "DiscoveryOutcome.String",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "String of an out-of-range outcome",
-   "home": "internal/engine/events_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/engine/repaircheck.go",
-   "lines": "95-96",
-   "func": "nameList",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a combined queue whose parts are all declined, finish out of order, or exit without having run",
-   "home": "internal/engine/combine_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
    "file": "internal/engine/stub/fullcleanup.go",
    "lines": "93-93",
    "func": "builder.index",
@@ -4652,47 +4294,14 @@
   },
   {
    "file": "internal/frontend/topgrade.go",
-   "lines": "51-52",
-   "func": "EnsureTopgradeConfig",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "Lstat error other than not-exist (0000 parent), MkdirAll under a file, the file appearing between Lstat and OpenFile (O_EXCL), a 0500 dir",
-   "home": "internal/frontend/topgrade_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/frontend/topgrade.go",
    "lines": "55-56",
    "func": "EnsureTopgradeConfig",
    "stmts": 1,
-   "cat": "A",
-   "reason": "Lstat error other than not-exist (0000 parent), MkdirAll under a file, the file appearing between Lstat and OpenFile (O_EXCL), a 0500 dir",
-   "home": "internal/frontend/topgrade_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/frontend/topgrade.go",
-   "lines": "58-59",
-   "func": "EnsureTopgradeConfig",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "Lstat error other than not-exist (0000 parent), MkdirAll under a file, the file appearing between Lstat and OpenFile (O_EXCL), a 0500 dir",
-   "home": "internal/frontend/topgrade_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/frontend/topgrade.go",
-   "lines": "61-63",
-   "func": "EnsureTopgradeConfig",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "Lstat error other than not-exist (0000 parent), MkdirAll under a file, the file appearing between Lstat and OpenFile (O_EXCL), a 0500 dir",
-   "home": "internal/frontend/topgrade_test.go",
-   "security": false,
-   "package": 3
+   "cat": "E",
+   "reason": "O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's",
+   "recommend": "keep-exempt",
+   "note": "keep-exempt",
+   "security": false
   },
   {
    "file": "internal/helperclient/combined.go",
@@ -4959,28 +4568,6 @@
   },
   {
    "file": "internal/logstore/lastrun.go",
-   "lines": "72-73",
-   "func": "Store.WriteLastRun",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "MkdirAll under a regular file / CreateTemp in a 0500 dir",
-   "home": "internal/logstore/lastrun_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/logstore/lastrun.go",
-   "lines": "78-79",
-   "func": "Store.WriteLastRun",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "MkdirAll under a regular file / CreateTemp in a 0500 dir",
-   "home": "internal/logstore/lastrun_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/logstore/lastrun.go",
    "lines": "82-84",
    "func": "Store.WriteLastRun",
    "stmts": 2,
@@ -5024,50 +4611,6 @@
    "security": false
   },
   {
-   "file": "internal/logstore/logstore.go",
-   "lines": "259-260",
-   "func": "Store.pruneDiscovery",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a store with an error, a run dir under a regular file, a log path that is a directory",
-   "home": "internal/logstore/logstore_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/logstore/logstore.go",
-   "lines": "346-347",
-   "func": "Store.Append",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a store with an error, a run dir under a regular file, a log path that is a directory",
-   "home": "internal/logstore/logstore_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/logstore/logstore.go",
-   "lines": "352-353",
-   "func": "Store.Append",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a store with an error, a run dir under a regular file, a log path that is a directory",
-   "home": "internal/logstore/logstore_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/logstore/logstore.go",
-   "lines": "379-380",
-   "func": "Store.Read",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a store with an error, a run dir under a regular file, a log path that is a directory",
-   "home": "internal/logstore/logstore_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
    "file": "internal/privilege/askpass.go",
    "lines": "119-122",
    "func": "Listen",
@@ -5077,6 +4620,17 @@
    "recommend": "keep-exempt",
    "note": "keep",
    "security": true
+  },
+  {
+   "file": "internal/privilege/askpass.go",
+   "lines": "193-193",
+   "func": "Server.serve",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "net.Pipe relays that hang up or answer the wrong line; a harden func that fails",
+   "home": "internal/privilege/askpass_test.go",
+   "security": true,
+   "package": 2
   },
   {
    "file": "internal/privilege/askpass.go",
@@ -6685,50 +6239,6 @@
    "security": true
   },
   {
-   "file": "internal/tui/adapter.go",
-   "lines": "251-251",
-   "func": "model.applyEvent",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/adapter.go",
-   "lines": "318-319",
-   "func": "model.finished",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/adapter.go",
-   "lines": "346-347",
-   "func": "model.finished",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/adapter.go",
-   "lines": "467-467",
-   "func": "model.engineKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
    "file": "internal/tui/askpass.go",
    "lines": "36-37",
    "func": "startAskpassServer",
@@ -6740,125 +6250,15 @@
    "security": true
   },
   {
-   "file": "internal/tui/glue.go",
-   "lines": "84-85",
-   "func": "waitForDownloads",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/overlay.go",
-   "lines": "24-25",
-   "func": "overlay",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/overlay.go",
-   "lines": "50-51",
-   "func": "compositeLine",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/status.go",
-   "lines": "47-48",
-   "func": "plural",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/tasks.go",
-   "lines": "82-82",
-   "func": "<package>",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "the default execProcess hands the terminal to the editor: a pty tape with EDITOR set to a script (the unit tests swap the seam)",
-   "home": "cmd/archmaid/e2e/run.sh",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "internal/tui/tasks.go",
-   "lines": "99-100",
-   "func": "handedTerminal.SetStdin",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "the terminal handover to a real editor: a pty tape with EDITOR set to a script",
-   "home": "cmd/archmaid/e2e/run.sh",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "internal/tui/tasks.go",
-   "lines": "121-122",
-   "func": "editConfig",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/tasks.go",
-   "lines": "123-125",
-   "func": "editConfig.func",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/tasks.go",
-   "lines": "142-143",
-   "func": "editorName",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/tasks.go",
-   "lines": "147-147",
-   "func": "editorName",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
    "file": "internal/tui/tui.go",
    "lines": "63-64",
    "func": "Run",
    "stmts": 1,
-   "cat": "A",
-   "reason": "ttyguard.Hold refusing stdin (a closed or non-terminal fd in the TTY child)",
-   "home": "internal/tui/tui_test.go",
-   "security": false,
-   "package": 3
+   "cat": "E",
+   "reason": "ttyguard.Hold reports an error only when TIOCGEXCL/TIOCEXCL fails on a terminal that just answered TCGETS; a closed or non-terminal stdin is a Guard that does nothing, no error",
+   "recommend": "keep-exempt",
+   "note": "keep-exempt",
+   "security": false
   },
   {
    "file": "internal/tui/tui.go",
@@ -6873,17 +6273,6 @@
   },
   {
    "file": "internal/tui/tui.go",
-   "lines": "105-106",
-   "func": "DropSudoTicket",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "privilege.DropTicket failing (sudo shim)",
-   "home": "internal/tui/tui_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/tui.go",
    "lines": "128-129",
    "func": "DisableCoreDumps",
    "stmts": 1,
@@ -6892,226 +6281,6 @@
    "recommend": "keep-exempt",
    "note": "keep-exempt",
    "security": false
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "69-69",
-   "func": "model.Update",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "70-73",
-   "func": "model.Update",
-   "stmts": 3,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "74-74",
-   "func": "model.Update",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "111-111",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "112-113",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "133-133",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "135-135",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "175-175",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "176-177",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "187-187",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "189-189",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "191-193",
-   "func": "model.handleKey",
-   "stmts": 3,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "198-200",
-   "func": "model.handleKey",
-   "stmts": 3,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "204-205",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "209-209",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "210-211",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "218-218",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "219-220",
-   "func": "model.handleKey",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "238-238",
-   "func": "model.activate",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
-  },
-  {
-   "file": "internal/tui/update.go",
-   "lines": "243-243",
-   "func": "model.activate",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome",
-   "home": "internal/tui/*_test.go",
-   "security": false,
-   "package": 3
   },
   {
    "file": "internal/tui/view.go",
