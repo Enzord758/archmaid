@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/frontend"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -527,9 +529,8 @@ func menuAuditRun(t *testing.T, k string) *Driver {
 }
 
 func TestAuditLogIsInTheViewLogPicker(t *testing.T) {
-	last := logCategoryLabels[len(logCategoryLabels)-1]
-	if last.ID != logCategoryAudit {
-		t.Fatalf("last picker entry = %+v, want the audit category", last)
+	if !slices.ContainsFunc(logCategoryLabels, func(c logstore.CategoryInfo) bool { return c.ID == logCategoryAudit }) {
+		t.Fatalf("picker %+v lacks the audit category", logCategoryLabels)
 	}
 	if categoryLabel(logCategoryAudit) != "AUR audit" {
 		t.Fatalf("label = %q", categoryLabel(logCategoryAudit))

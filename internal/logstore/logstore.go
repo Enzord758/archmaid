@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -29,6 +31,20 @@ const (
 	Audit    Category = "audit"   // AUR audit results
 )
 
+// The discovery categories: one per menu action that looks before it acts,
+// holding the record of what its discovery checked (the commands run, what
+// they listed, what was skipped and why, errors). A run directory that holds
+// nothing but these is a discovery-only run: the action ended at its
+// discovery (nothing found, or the look failed). Such runs never count
+// towards KeepRuns; only the newest record of each action is kept (see
+// Append).
+const (
+	Services  Category = "services"  // Disable unused services
+	Repair    Category = "repair"    // Repair broken packages: the scan
+	Downloads Category = "downloads" // Delete old downloads
+	AURAudit  Category = "auraudit"  // Audit AUR packages, from the menu
+)
+
 // CategoryInfo is a category with its display label.
 type CategoryInfo struct {
 	ID    Category
@@ -41,6 +57,10 @@ var Categories = []CategoryInfo{
 	{Orphans, "Orphan removal"},
 	{Cleanup, "Cleanup"},
 	{Audit, "AUR audit"},
+	{Services, "Services check"},
+	{Repair, "Package check"},
+	{Downloads, "Downloads check"},
+	{AURAudit, "AUR audit check"},
 }
 
 // Label is c's display name, falling back to the raw value for any category
@@ -54,12 +74,22 @@ func (c Category) Label() string {
 	return string(c)
 }
 
-// Valid reports whether c is one of the four categories. The set is fixed
+// Valid reports whether c is one of the eight categories. The set is fixed
 // here, not read from Categories (an exported var a caller could append to):
 // a category names a file, so "../x" must never become one.
 func (c Category) Valid() bool {
 	switch c {
 	case Topgrade, Orphans, Cleanup, Audit:
+		return true
+	}
+	return c.Discovery()
+}
+
+// Discovery reports whether c is a discovery category (Services, Repair,
+// Downloads, AURAudit).
+func (c Category) Discovery() bool {
+	switch c {
+	case Services, Repair, Downloads, AURAudit:
 		return true
 	}
 	return false
@@ -76,7 +106,9 @@ var ErrNoStateDir = errors.New("logstore: no absolute state directory (home fold
 
 // KeepRuns is how many run directories a real run keeps (Options.KeepRuns);
 // older ones are removed entirely. The dryrun directory is exempt: it is a single reused
-// slot, not a growing history.
+// slot, not a growing history. So are discovery-only run directories (only
+// discovery logs in them): they don't count towards KeepRuns, and each is
+// kept only while it holds the newest record of one of its actions.
 const KeepRuns = 5
 
 // runDirPattern matches a run directory name (the run stamp's own format), so
@@ -104,10 +136,14 @@ type Options struct {
 	// (YYYYMMDD-HHMM, read once by New) and stamps each entry.
 	Now func() time.Time
 	// KeepRuns, when positive, rotates the run history: the Append that
-	// creates this run's directory then prunes to the KeepRuns newest (this
-	// run included). Zero never prunes. A dry-run store never prunes: its
-	// entries go to the dryrun slot, and a dry run must leave the real
-	// history exactly as it found it.
+	// makes this run's directory a real run (its first entry in a
+	// non-discovery category, whether it creates the directory or finds it
+	// holding only discovery records) then prunes to the KeepRuns newest
+	// real runs (this run included); an Append to a discovery category
+	// prunes the discovery-only directories a newer record supersedes.
+	// Zero never prunes. A dry-run store never prunes: its entries go to the
+	// dryrun slot, and a dry run must leave the real history exactly as it
+	// found it.
 	KeepRuns int
 }
 
@@ -183,10 +219,12 @@ func (s *Store) check(cat Category) error {
 	return nil
 }
 
-// Prune deletes all but the keep most recent run directories. A no-op if the
-// root doesn't exist yet. The dryrun directory, this store's own run directory
-// (even if a clock set back makes it sort oldest) and anything that isn't a
-// run directory (stray files, a user's own subdirectories) are left alone.
+// Prune deletes all but the keep most recent real run directories. A no-op
+// if the root doesn't exist yet. Discovery-only run directories (see
+// KeepRuns) neither count nor go; the dryrun directory, this store's own run
+// directory (even if a clock set back makes it sort oldest) and anything
+// that isn't a run directory (stray files, a user's own subdirectories) are
+// left alone.
 //
 // Nothing in archmaid calls Prune at startup: deleting history is a real
 // run's business, so it happens from Append (see Options.KeepRuns).
@@ -194,9 +232,53 @@ func (s *Store) Prune(keep int) {
 	if s.err != nil {
 		return
 	}
+	var runs []string
+	for _, name := range s.runDirs() {
+		if _, only := discoveryLogs(filepath.Join(s.root, name)); !only {
+			runs = append(runs, name)
+		}
+	}
+	if len(runs) <= keep {
+		return
+	}
+	for _, name := range runs[:len(runs)-keep] {
+		if name == s.run {
+			continue
+		}
+		os.RemoveAll(filepath.Join(s.root, name))
+	}
+}
+
+// pruneDiscovery deletes every discovery-only run directory whose records
+// are all superseded: for each discovery log it holds, a newer run directory
+// (real or discovery-only) holds that action's log too. So the newest record
+// of each action survives, and at most one discovery-only directory per
+// action. This store's own run directory is never deleted.
+func (s *Store) pruneDiscovery() {
+	if s.err != nil {
+		return
+	}
+	runs := s.runDirs()
+	seen := map[Category]bool{}
+	for i := len(runs) - 1; i >= 0; i-- { // newest first
+		dir := filepath.Join(s.root, runs[i])
+		cats, only := discoveryLogs(dir)
+		if only && runs[i] != s.run && !slices.ContainsFunc(cats, func(c Category) bool { return !seen[c] }) {
+			os.RemoveAll(dir)
+			continue
+		}
+		for _, c := range cats {
+			seen[c] = true
+		}
+	}
+}
+
+// runDirs lists the run directories under the root, oldest first (the stamp
+// format sorts lexicographically = chronologically).
+func (s *Store) runDirs() []string {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
-		return
+		return nil
 	}
 	var runs []string
 	for _, e := range entries {
@@ -204,16 +286,31 @@ func (s *Store) Prune(keep int) {
 			runs = append(runs, e.Name())
 		}
 	}
-	if len(runs) <= keep {
-		return
+	sort.Strings(runs)
+	return runs
+}
+
+// discoveryLogs reads the run directory dir: the discovery categories whose
+// log it holds, and whether it is discovery-only — at least one discovery
+// log and nothing else at all. Anything it can't read or doesn't know (a
+// real category's log, a stray file, a subdirectory) makes it a real run,
+// so a doubt never exposes a real run to the discovery pruning; an empty
+// directory is real too.
+func discoveryLogs(dir string) (cats []Category, only bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, false
 	}
-	sort.Strings(runs) // the stamp format sorts lexicographically = chronologically
-	for _, name := range runs[:len(runs)-keep] {
-		if name == s.run {
+	only = len(entries) > 0
+	for _, e := range entries {
+		c := Category(strings.TrimSuffix(e.Name(), ".log"))
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".log") && c.Discovery() {
+			cats = append(cats, c)
 			continue
 		}
-		os.RemoveAll(filepath.Join(s.root, name))
+		only = false
 	}
+	return cats, only
 }
 
 // Append writes a timestamped entry to cat's log. kind is a short tag (FAIL,
@@ -228,11 +325,25 @@ func (s *Store) Append(cat Category, kind, label, body string) error {
 	path := s.Path(cat)
 	run := filepath.Dir(path)
 	_, statErr := os.Stat(run)
+	// The history rotates once the entry is in (see Options.KeepRuns): a
+	// real entry in a new directory, or in one that held only discovery
+	// records, makes this a real run; a discovery entry may supersede an
+	// older discovery-only run.
+	becomesReal := false
+	if s.keep > 0 && !cat.Discovery() {
+		_, only := discoveryLogs(run)
+		becomesReal = errors.Is(statErr, os.ErrNotExist) || only
+	}
+	defer func() {
+		switch {
+		case s.keep > 0 && cat.Discovery():
+			s.pruneDiscovery()
+		case becomesReal:
+			s.Prune(s.keep)
+		}
+	}()
 	if err := os.MkdirAll(run, dirMode); err != nil {
 		return err
-	}
-	if s.keep > 0 && errors.Is(statErr, os.ErrNotExist) {
-		s.Prune(s.keep) // this run has started writing: rotate the history
 	}
 	os.Chmod(s.root, dirMode) // MkdirAll leaves existing dirs as they were
 	os.Chmod(run, dirMode)

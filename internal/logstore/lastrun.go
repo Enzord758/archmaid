@@ -20,6 +20,10 @@ const (
 	OutcomeIncomplete = "incomplete"
 	OutcomeAborted    = "aborted"   // stopped part-way (abort, or a declined required step)
 	OutcomeCancelled  = "cancelled" // nothing ran: declined gate, cancelled password, auth gave up
+	// OutcomeNothingFound: the action ended at its discovery, which looked
+	// and found nothing to do ("Checked 23 stopped services: none are
+	// enabled."). A failed look is OutcomeFailed with StepsFailed 1.
+	OutcomeNothingFound = "nothing-found"
 )
 
 // RunRecord summarises one finished queue, for readers that only want "how did
@@ -29,7 +33,7 @@ type RunRecord struct {
 	Action       string    `json:"action"` // the menu action's id
 	Started      time.Time `json:"started"`
 	Finished     time.Time `json:"finished"`
-	Outcome      string    `json:"outcome"` // ok | failed | incomplete | aborted | cancelled
+	Outcome      string    `json:"outcome"` // ok | failed | incomplete | aborted | cancelled | nothing-found
 	StepsFailed  int       `json:"steps_failed"`
 	StepsSkipped int       `json:"steps_skipped"` // every step that didn't run, refused ones included
 	// StepsRefused is the part of StepsSkipped that didn't run because
