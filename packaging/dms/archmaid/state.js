@@ -16,7 +16,9 @@ var UPDATES_MAX_AGE_DAYS = 3; // a count older than this is "unknown"
 var MAX_HIGH = 10;            // findings kept for the popout
 var DAY_MS = 86400000;
 
-var KNOWN_OUTCOMES = ["ok", "failed", "aborted", "cancelled", "incomplete"];
+// "nothing-found": an action that ended at its discovery, which looked and
+// found nothing to do (a failed look is "failed"). Not an issue.
+var KNOWN_OUTCOMES = ["ok", "failed", "aborted", "cancelled", "incomplete", "nothing-found"];
 
 function _obj(text, maxV) {
     if (typeof text !== "string" || text.length === 0 || text.length > 1048576)
@@ -182,8 +184,8 @@ function _own(map, key) {
     return typeof key === "string" && Object.prototype.hasOwnProperty.call(map, key);
 }
 
-var OUTCOME_TAGS = { ok: "OK", failed: "FAILED", incomplete: "INCOMPLETE", aborted: "ABORTED", cancelled: "CANCELLED" };
-var OUTCOME_TINTS = { ok: "primary", failed: "error", incomplete: "warning", aborted: "warning", cancelled: "muted" };
+var OUTCOME_TAGS = { ok: "OK", failed: "FAILED", incomplete: "INCOMPLETE", aborted: "ABORTED", cancelled: "CANCELLED", "nothing-found": "NOTHING FOUND" };
+var OUTCOME_TINTS = { ok: "primary", failed: "error", incomplete: "warning", aborted: "warning", cancelled: "muted", "nothing-found": "primary" };
 
 // outcomeTag(outcome): the LAST RUN chip's text, as the GUI's tag.
 function outcomeTag(outcome) {

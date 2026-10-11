@@ -78,6 +78,14 @@ TestCase {
         verify(inc.issues[0].text.indexOf("(2)") >= 0);
         compare(sum(F.fx.lastAborted, null, null, t0).level, "warn");
         compare(sum(F.fx.lastCancelled, null, null, t0).level, "warn");
+        // a discovery that found nothing to do is a clean run
+        const nf = sum(F.fx.lastNothing, null, null, t0);
+        compare(State.parseLastRun(F.fx.lastNothing).outcome, "nothing-found");
+        compare(nf.level, "ok");
+        compare(kinds(nf), "");
+        const nfp = State.popout(nf, t0);
+        compare(nfp.lastRun.tag, "NOTHING FOUND");
+        compare(nfp.lastRun.tint, "primary");
         // audit-only (never ran a cleanup) is not an alarm
         compare(sum(undefined, F.fx.auditClean, undefined, t0).level, "ok");
     }

@@ -300,6 +300,7 @@ func TestStateJS(t *testing.T) {
 		"lastFailed1":      lastRun(t, logstore.OutcomeFailed, 1),
 		"lastAborted":      lastRun(t, logstore.OutcomeAborted, 0),
 		"lastCancelled":    lastRun(t, logstore.OutcomeCancelled, 0),
+		"lastNothing":      lastRun(t, logstore.OutcomeNothingFound, 0),
 		"lastIncomplete":   withRefused(t, okRaw, 2),
 		"lastUnknownField": strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),
 		"lastV2":           strings.Replace(okRaw, `"v":1`, `"v":2`, 1),
