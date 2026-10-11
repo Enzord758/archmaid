@@ -97,7 +97,7 @@ func TestTerminalSignalsDontReachChildren(t *testing.T) {
 	}
 	dir := t.TempDir()
 	cmd := exec.Command(exe, "-test.run=^$")
-	cmd.Env = []string{sessionChildEnv + "=1", sessionDirEnv + "=" + dir}
+	cmd.Env = childEnv(sessionChildEnv+"=1", sessionDirEnv+"="+dir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var out bytes.Buffer
 	cmd.Stdout = &out

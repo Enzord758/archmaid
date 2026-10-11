@@ -156,6 +156,7 @@ func Run(m interface{ Run() int }) int {
 		os.Setenv(k, v)
 	}
 
+	coverChildren()
 	code := m.Run()
 
 	// Kill what the tests left running first, while the traps are still on

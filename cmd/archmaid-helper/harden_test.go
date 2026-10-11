@@ -88,6 +88,18 @@ func TestMain(m *testing.M) {
 	os.Exit(testenv.Run(m))
 }
 
+// childEnv is env for a re-executed test binary, plus GOCOVERDIR when the
+// tests run with coverage: the child's counters then count too, and a cover
+// build doesn't print "GOCOVERDIR not set" on a stderr the test reads. The
+// helper scrubs it like everything else (hardenProcess); the runtime read it
+// at startup already.
+func childEnv(env ...string) []string {
+	if d := os.Getenv("GOCOVERDIR"); d != "" {
+		env = append(env, "GOCOVERDIR="+d)
+	}
+	return env
+}
+
 // signalChild is the re-exec'd half of the signal tests.
 const signalChildEnv = "ARCHMAID_HELPER_SIGNAL_CHILD"
 
@@ -101,7 +113,7 @@ func TestCatchSignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(exe, "-test.run=^$")
-	cmd.Env = []string{signalChildEnv + "=mask"}
+	cmd.Env = childEnv(signalChildEnv + "=mask")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("child did not survive its own signals: %v", err)
@@ -132,7 +144,7 @@ func TestCatchSignalsSurvivesClosedStdout(t *testing.T) {
 	r.Close()
 	defer w.Close()
 	cmd := exec.Command(exe, "-test.run=^$")
-	cmd.Env = []string{signalChildEnv + "=epipe"}
+	cmd.Env = childEnv(signalChildEnv + "=epipe")
 	cmd.Stdout = w
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
@@ -159,10 +171,10 @@ func TestHardenProcess(t *testing.T) {
 
 	cmd := exec.Command(exe, "-test.run=^$")
 	cmd.Dir = t.TempDir()
-	cmd.Env = []string{
-		hardenChildEnv + "=1", "LD_PRELOAD=/tmp/evil.so", "PATH=/tmp/evil:/usr/bin",
+	cmd.Env = childEnv(
+		hardenChildEnv+"=1", "LD_PRELOAD=/tmp/evil.so", "PATH=/tmp/evil:/usr/bin",
 		"IFS=x", "PKEXEC_UID=1000", "GCONV_PATH=/tmp", "HOME=/root",
-	}
+	)
 	cmd.ExtraFiles = []*os.File{f3, f4} // inherited as fd 3 and 4, not CLOEXEC
 	out, err := cmd.Output()
 	if err != nil {
