@@ -81,8 +81,10 @@ func TestNoFDChild(t *testing.T) {
 	if err == nil || exit != -1 {
 		t.Fatalf("Stream with %d free fds = %d, %v; want exit -1 and an error", free, exit, err)
 	}
-	if !errors.Is(err, syscall.EMFILE) {
-		t.Fatalf("err = %v, want EMFILE", err)
+	// The pipe's own failure, not a later one (Start's /dev/null).
+	var se *os.SyscallError
+	if !errors.Is(err, syscall.EMFILE) || !errors.As(err, &se) || se.Syscall != "pipe2" {
+		t.Fatalf("err = %v, want pipe2's EMFILE", err)
 	}
 }
 

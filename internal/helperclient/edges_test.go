@@ -215,16 +215,25 @@ func TestHelperclientNoFDChild(t *testing.T) {
 			o = Run(context.Background(), seq, repairCheck, func(in engine.Input) { inputs = append(inputs, in) })
 		})
 		ex, ok := inputs[len(inputs)-1].(engine.StepExited)
-		if len(inputs) != 1 || !ok || ex.NotGranted || !errors.Is(ex.Err, syscall.EMFILE) || o.Granted {
+		// "helper: …" is Run's own pipe; without it Start fails on its
+		// stderr pipe instead ("can't start pkexec: pipe2: …").
+		if len(inputs) != 1 || !ok || ex.NotGranted || !pipeFailed(ex.Err) || !strings.HasPrefix(ex.Err.Error(), "helper: ") || o.Granted {
 			t.Fatalf("inputs %#v, outcome %+v", inputs, o)
 		}
 	case "plan":
 		var err error
 		withOneFreeFD(t, func() { _, err = planOrphans(context.Background(), helper) })
-		if !errors.Is(err, syscall.EMFILE) {
-			t.Fatalf("planOrphans = %v, want EMFILE", err)
+		if !pipeFailed(err) {
+			t.Fatalf("planOrphans = %v, want pipe2's EMFILE", err)
 		}
 	}
+}
+
+// pipeFailed: err is the pipe's own EMFILE, not a later step's (Start's
+// open of /dev/null fails the same way when the guard is gone).
+func pipeFailed(err error) bool {
+	var se *os.SyscallError
+	return errors.Is(err, syscall.EMFILE) && errors.As(err, &se) && se.Syscall == "pipe2"
 }
 
 // withOneFreeFD runs f with one file descriptor left under a lowered
