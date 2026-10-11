@@ -868,7 +868,7 @@ to:
   the safe assumption. The owner's step-by-step check, with a throwaway
   action and a results table: `docs/polkit-keep-session-check.md`.
 
-  *Residual for the owner to decide (Dev 3, from polkit 127's source,
+  *Accepted residual (owner, 2026-10-11; Dev 3, from polkit 127's source,
   `polkitbackendinteractiveauthority.c`):* a kept authorization is stored
   for the subject process, but `subject_equal_for_authz` also lets a
   *different* process use it when all of these hold: both processes have
@@ -884,10 +884,10 @@ to:
   registered for its own process, these kept authorizations are
   process-scoped: `pkcheck --list-temp` doesn't show them and
   `pkcheck --revoke-temp` doesn't remove them (both only cover the caller's
-  session scope); they only expire. Lead's recommendation: accept, since
+  session scope); they only expire. The owner accepted this on 2026-10-11, since
   reuse needs the same user in the same shell on the same terminal, and
-  the helper's verbs are fixed and validate their own input. Owner: accept,
-  or ask for a sibling check (a G6) in the keep-check guide.
+  the helper's verbs are fixed and validate their own input. No sibling
+  check (G6) was added to the keep-check guide.
 
 - **The GUI on the real Driver has been run live** (the owner's run and the
   VM runs: one polkit dialog per Full Cleanup, topgrade's askpass). The
