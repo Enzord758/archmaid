@@ -17,8 +17,13 @@ import (
 // cancel (or the overall deadline) ends the audit at once and leaves nothing
 // running behind it.
 
-// cancelSlack is how soon after a cancel the audit must have returned.
-const cancelSlack = 100 * time.Millisecond
+// cancelSlack is how soon after a cancel the audit must have returned. It is
+// a hang detector, not a latency target: the fake AUR never answers, so a
+// step that ignored the cancel would wait for its deadline (seconds, minutes
+// by default) or forever. A cancel that works takes well under a millisecond,
+// but a loaded -race runner stalled one for 165 ms, so the bound sits far
+// above scheduler noise and still far below any real wait.
+const cancelSlack = 2 * time.Second
 
 // hangingAUR is an AUR that takes every request and never answers it. Each
 // arrival is signalled on the returned channel; a handler returns only once

@@ -23,8 +23,13 @@ import (
 // behind it. The deadline and the cancel inside the audit itself are tested
 // in internal/audit; the helpers here are shared with the prefetch tests.
 
-// cancelSlack is how soon after a cancel the audit must have returned.
-const cancelSlack = 100 * time.Millisecond
+// cancelSlack is how soon after a cancel the audit must have returned. It is
+// a hang detector, not a latency target: the fake AUR never answers, so a
+// step that ignored the cancel would wait for its deadline (seconds, minutes
+// by default) or forever. A cancel that works takes well under a millisecond,
+// but a loaded -race runner stalled one for 165 ms, so the bound sits far
+// above scheduler noise and still far below any real wait.
+const cancelSlack = 2 * time.Second
 
 // hangingAUR points aurRPCURL at a server that takes every request and never
 // answers it. Each arrival is signalled on the returned channel; a handler
@@ -116,7 +121,13 @@ func TestAbortCancelsAuditStep(t *testing.T) {
 		if fin.Outcome != engine.OutcomeAborted || fin.Errs != 0 {
 			t.Fatalf("finished %+v, want aborted with no failure", fin)
 		}
+		// Finished can come before the step's goroutine has: Close waits for
+		// every in-process step, so it is what shows a step still waiting on
+		// the AUR.
 		d.Close()
+		if el := time.Since(start); el > cancelSlack {
+			t.Fatalf("the audit step was still running %s after the abort, want it gone within %s", el, cancelSlack)
+		}
 	}
 	settleGoroutines(t, base, "3 aborted audits")
 }
@@ -131,7 +142,7 @@ func TestCloseStopsMenuAudit(t *testing.T) {
 	shimPacmanForeign(t, "victim\n")
 	arrived := hangingAUR(t)
 	old := auditDeadline
-	auditDeadline = 3 * time.Second // the old code's wait, kept short
+	auditDeadline = 10 * time.Second // the old code's wait, kept short
 	t.Cleanup(func() { auditDeadline = old })
 	base := runtime.NumGoroutine()
 
