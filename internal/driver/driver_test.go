@@ -99,7 +99,7 @@ func TestSudoPasswordFlow(t *testing.T) {
 
 // A discovery runs on a worker; its Notice ends the action.
 func TestDiscoveryNotice(t *testing.T) {
-	a := actions.Action{ID: "d", Label: "d", Busy: "Looking…",
+	a := actions.Action{ID: "d", Label: "d", Busy: "Looking…", Record: logstore.Services,
 		Discover: func(context.Context, actions.Env) actions.Discovery { return actions.Notice{Text: "Nothing found."} }}
 	r := newRig(t, engine.Options{}, Deps{}, a)
 	evs := r.run("d", nil)

@@ -207,7 +207,7 @@ func needsRootAction() (actions.Action, actions.NeedsRoot) {
 		Items: []string{"foo"}, Busy: "Rechecking…", AuthFailed: "Sudo authentication failed — can't scan.",
 		Rescan: func(context.Context, actions.Env) actions.Discovery { panic("the Session never discovers") },
 	}
-	return actions.Action{ID: "r", Busy: "Scanning…",
+	return actions.Action{ID: "r", Busy: "Scanning…", Record: logstore.Repair,
 		Discover: func(context.Context, actions.Env) actions.Discovery { panic("the Session never discovers") }}, nr
 }
 

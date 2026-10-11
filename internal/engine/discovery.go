@@ -106,13 +106,23 @@ func (s *Session) endDiscovery(o *Output, n actions.Notice) {
 		r.rec = nil
 	}
 	cat := r.recordCat
-	if !cat.Valid() {
-		cat = logstore.Cleanup // an action without a Record (none in the menu, TestEveryDiscoveryHasARecord)
+	noticeText := n.Text
+	if !cat.Discovery() {
+		// An action without a discovery Record (none in the menu,
+		// TestEveryDiscoveryHasARecord). Its record must not go into any
+		// other category: it would count as a real run and could rotate a
+		// real one out. So nothing is written, and the failure is said.
+		outcome = DiscoveryFailed
+		errText = "internal error: " + string(r.action) + " has no discovery log category; its record was not written"
+		noticeText = n.Text + " (" + errText + ")"
+		cat = ""
 	}
 	r.ended = &outcome
 	s.emitResult(o, outcome, text, errText, cat)
-	s.log(o, cat, kind, text, body)
-	o.event(Notice{Text: sanitize.String(n.Text, sanitize.Plain)})
+	if cat != "" {
+		s.log(o, cat, kind, text, body)
+	}
+	o.event(Notice{Text: sanitize.String(noticeText, sanitize.Plain)})
 	s.finish(o, OutcomeNotice)
 }
 

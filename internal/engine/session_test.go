@@ -585,7 +585,7 @@ func TestSessionNotGrantedIsAuthRefused(t *testing.T) {
 
 func TestSessionDiscovery(t *testing.T) {
 	disc := func(context.Context, actions.Env) actions.Discovery { panic("the Session never discovers") }
-	a := actions.Action{ID: "d", Busy: "Looking…", Discover: disc}
+	a := actions.Action{ID: "d", Busy: "Looking…", Record: logstore.Services, Discover: disc}
 	envSeen := actions.Env{RepairWorkers: 3}
 
 	t.Run("notice", func(t *testing.T) {
