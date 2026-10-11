@@ -75,19 +75,6 @@ func excludedBy(unit string) string {
 	return ""
 }
 
-// enabledServices keeps the units `systemctl is-enabled` reports as exactly
-// "enabled" (not enabled-runtime, static, masked, …).
-func enabledServices(ctx context.Context, units []string) []string {
-	states, _ := unitStates(ctx, units)
-	var enabled []string
-	for i, u := range units {
-		if states[i] == "enabled" {
-			enabled = append(enabled, u)
-		}
-	}
-	return enabled
-}
-
 // unitStates is each unit's `systemctl is-enabled` state, in order, and
 // the commands with their raw output, for the record. One batched call
 // prints one state per unit; if the line count doesn't match (a unit
