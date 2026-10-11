@@ -457,11 +457,9 @@ func runChild(scenario, path string) int {
 		if scenario == "toast-half" {
 			wd, _ := strconv.Atoi(os.Getenv("ARCHMAID_GUI_TOAST_W"))
 			w.win.SetDefaultSize(wd, 372)
-			if os.Getenv("ARCHMAID_GUI_TOAST_CONTROL") != "" {
-				// A positive control for the test's stderr capture: broken
-				// markup makes GTK log a g_warning.
-				gtk.NewLabel("").SetMarkup("<b>never closed")
-			}
+			// A positive control for the test's stderr capture: broken
+			// markup makes GTK log a g_warning naming toastControl.
+			gtk.NewLabel("").SetMarkup("<b>" + toastControl)
 		}
 		if scenario == "real-small" || scenario == "narrow-nav" || strings.HasPrefix(scenario, "small-") {
 			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
@@ -1201,31 +1199,28 @@ func TestGUIToastHalfScreen(t *testing.T) {
 		t.Run(wd, func(t *testing.T) {
 			var buf bytes.Buffer
 			childCmd(t, "toast-half", func(c *exec.Cmd) { c.Stderr = io.MultiWriter(os.Stderr, &buf) }, "ARCHMAID_GUI_TOAST_W="+wd)
+			controls := 0
 			for _, l := range strings.Split(buf.String(), "\n") {
-				if glibWarned(l) {
+				switch {
+				case !glibWarned(l):
+				case strings.Contains(l, toastControl):
+					controls++
+				default:
 					t.Errorf("GTK logged: %s", l)
 				}
 			}
+			// The child provoked one warning on purpose. Were its stderr not
+			// captured (a log writer that goes to the journal, a CI container
+			// with another stderr), this test would pass whatever GTK logs.
+			if controls == 0 {
+				t.Errorf("the provoked GTK warning never reached the captured stderr (%d bytes)", buf.Len())
+			}
 		})
 	}
-	// The control: the same capture sees a warning the child provokes on
-	// purpose. Were the child's stderr not captured (a log writer that
-	// goes to the journal, a CI container with another stderr), the test
-	// above would pass vacuously; this one then fails.
-	t.Run("control", func(t *testing.T) {
-		var buf bytes.Buffer
-		childCmd(t, "toast-half", func(c *exec.Cmd) { c.Stderr = &buf }, "ARCHMAID_GUI_TOAST_W=960", "ARCHMAID_GUI_TOAST_CONTROL=1")
-		n := 0
-		for _, l := range strings.Split(buf.String(), "\n") {
-			if glibWarned(l) {
-				n++
-			}
-		}
-		if n == 0 {
-			t.Errorf("the provoked GTK warning never reached the captured stderr (%d bytes): TestGUIToastHalfScreen would pass whatever GTK logs", buf.Len())
-		}
-	})
 }
+
+// toastControl is the text of the warning toast-half provokes on purpose.
+const toastControl = "toast-control-never-closed"
 
 // glibWarned: a stderr line that is a GLib warning, critical or error (the
 // log writer prints them as slog lines: "WARN ...", "ERROR ...").
