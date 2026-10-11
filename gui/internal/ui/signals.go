@@ -28,25 +28,38 @@ type aborter interface{ Aborted() <-chan struct{} }
 // started (driver.Driver.KillNow).
 type killer interface{ KillNow() }
 
+// cleanupWait bounds how long the second signal's exit waits for
+// atExit: the forced exit must not hang on it.
+const cleanupWait = time.Second
+
 // signals carries quitSignals for one Run: the first is Stop and Quit
 // without asking (quitOnSignal); a second, while the window is still
 // closing, exits at once: as soon as the first's aborted record is written
-// (or after recordWait) it SIGKILLs what the run started and exits. stop
-// ends it; code is 128 + the first signal's number once one came, else 0.
+// (or after recordWait) it SIGKILLs what the run started, runs atExit and
+// exits. stop ends it; code is 128 + the first signal's number once one
+// came, else 0.
 type signals struct {
 	ch      chan os.Signal
 	closing chan engine.Driver // the Driver the first signal closes; nil: none
 	done    chan struct{}
 	code    atomic.Int32
+	// atExit is what the forced exit must still undo, since no deferred
+	// cleanup runs past os.Exit (Options.AtForcedExit: the askpass
+	// Server's directory); nil for nothing.
+	atExit func()
+	exit   func(int) // os.Exit; a test's stand-in
 }
 
 // catchSignals starts catching quitSignals for app's window *w (nil until
-// activated). Call stop once app.Run has returned.
-func catchSignals(app *adw.Application, w **Window) *signals {
+// activated). atExit runs on the second signal's forced exit. Call stop
+// once app.Run has returned.
+func catchSignals(app *adw.Application, w **Window, atExit func()) *signals {
 	s := &signals{
 		ch:      make(chan os.Signal, 2),
 		closing: make(chan engine.Driver, 1),
 		done:    make(chan struct{}),
+		atExit:  atExit,
+		exit:    os.Exit,
 	}
 	signal.Notify(s.ch, quitSignals...)
 	go s.run(app, w)
@@ -84,7 +97,8 @@ func (s *signals) run(app *adw.Application, w **Window) {
 
 // exitNow is the second signal: once the first's record is written, it
 // SIGKILLs everything the run started, without Stop's grace, so nothing is
-// left running, and exits with the second signal's status.
+// left running (KillNow also wipes the kept password), runs atExit (for at
+// most cleanupWait) and exits with the second signal's status.
 func (s *signals) exitNow(sig os.Signal) {
 	t := time.NewTimer(recordWait)
 	defer t.Stop()
@@ -99,11 +113,22 @@ func (s *signals) exitNow(sig os.Signal) {
 		}
 	case <-t.C:
 	}
+	if s.atExit != nil {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			s.atExit()
+		}()
+		select {
+		case <-done:
+		case <-time.After(cleanupWait):
+		}
+	}
 	code := 1
 	if n, ok := sig.(syscall.Signal); ok {
 		code = 128 + int(n)
 	}
-	os.Exit(code)
+	s.exit(code)
 }
 
 // stop stops catching signals and returns 128 + the first one's number,

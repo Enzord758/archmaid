@@ -159,6 +159,12 @@ func (w *Wiring) Close() {
 	w.srv.Close()
 }
 
+// CloseAskpass closes the askpass Server at once (its socket and wrapper
+// go with its private directory), without waiting for anything: for a
+// forced exit, which skips Close. Close may still follow; it is a no-op
+// for the Server then.
+func (w *Wiring) CloseAskpass() { w.srv.Close() }
+
 // Options is the base of every run's engine.Options: the polkit flow and a
 // complete actions.Env (Validate passes). The Settings page applies dry
 // run and the downloads folder on top (settings.Apply); New fills in what

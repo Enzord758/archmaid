@@ -65,6 +65,11 @@ type Options struct {
 	// Launcher opens files and folders and asks for a folder; nil is the
 	// desktop's (gtk.FileLauncher, gtk.FileDialog). The harness records.
 	Launcher Launcher
+	// AtForcedExit, when set, runs on a second quit signal's forced exit
+	// (signals.go), where no deferred cleanup runs: it must undo what
+	// would otherwise outlive the process (realdriver's CloseAskpass: the
+	// askpass Server's socket and wrapper). It gets at most a second.
+	AtForcedExit func()
 	// hook, when set, sees the window once it is built (the headless
 	// harness drives it from there).
 	hook func(*Window)
@@ -183,7 +188,8 @@ func mainReal(args []string, confirm string) int {
 		fmt.Fprintln(os.Stderr, "archmaid-gui:", err)
 		return 1
 	}
-	return Run(args, Options{NewDriver: wr.New, Engine: base, KeepsPassword: true, Notices: wr.SetNotice, Confirm: confirm})
+	return Run(args, Options{NewDriver: wr.New, Engine: base, KeepsPassword: true, Notices: wr.SetNotice, Confirm: confirm,
+		AtForcedExit: wr.CloseAskpass})
 }
 
 // stubDriver is the stub's NewDriver for an ARCHMAID_GUI_SCRIPT value
@@ -242,7 +248,7 @@ func Run(args []string, opts Options) int {
 	// SIGINT, SIGTERM and SIGHUP are Stop and Quit (signals.go): the run is
 	// aborted and recorded, its children stopped, then Run returns 128 +
 	// the signal's number.
-	sigs := catchSignals(app, &w)
+	sigs := catchSignals(app, &w, opts.AtForcedExit)
 	code := app.Run(args)
 	if w != nil {
 		// app.Quit can end the loop with the window still up.
