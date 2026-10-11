@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -67,6 +68,14 @@ func TestGUILogsPage(t *testing.T) {
 	}
 	if err := st.Append(logstore.Audit, "OK", "AUR audit", "3 foreign packages checked\n"); err != nil {
 		t.Fatal(err)
+	}
+	// The fake clock stamped the folder an hour back; the files' own
+	// times say when they were written, which the last run cell matches
+	// against the record.
+	for _, c := range []logstore.Category{logstore.Topgrade, logstore.Audit} {
+		if err := os.Chtimes(st.Path(c), at, at); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := st.WriteLastRun(logstore.RunRecord{Action: "topgrade", Outcome: logstore.OutcomeOK, Started: at, Finished: at}); err != nil {
 		t.Fatal(err)

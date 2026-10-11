@@ -297,7 +297,7 @@ func (w *Window) lastRunFolder() (logview.Run, bool) {
 	if err != nil {
 		return logview.Run{}, false
 	}
-	return runFolder(runs, r.Started, r.DryRun)
+	return recordFolder(runs, *r)
 }
 
 // nothingRan is the last run cell's line, in place of the log files, for

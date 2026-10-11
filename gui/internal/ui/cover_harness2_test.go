@@ -157,6 +157,11 @@ func covLogsFixture(t *testing.T) string {
 	must(os.MkdirAll(c.RunDir(), 0o700))
 	must(os.WriteFile(c.Path(logstore.Cleanup), nil, 0o600))
 	when := now.Add(-3 * time.Hour)
+	// The fake clock only stamped the folder; the logs' own times say when
+	// they were written, which the last run cell matches to the record.
+	for _, cat := range []logstore.Category{logstore.Topgrade, logstore.Audit, logstore.Orphans} {
+		must(os.Chtimes(a.Path(cat), when, when))
+	}
 	must(a.WriteLastRun(logstore.RunRecord{Action: actions.IDTopgrade, Outcome: logstore.OutcomeOK, Started: when, Finished: when.Add(time.Minute)}))
 	return dir
 }

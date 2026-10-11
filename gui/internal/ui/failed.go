@@ -155,6 +155,43 @@ func runFolder(runs []logview.Run, started time.Time, dry bool) (logview.Run, bo
 	return logview.Run{}, false
 }
 
+// recordSlack is how far a run's logs may lie outside its record's start
+// and end (clock granularity, the stamp's store made just before the queue).
+const recordSlack = 2 * time.Second
+
+// recordFolder is the run directory last-run.json's record describes. Of
+// the runs stamped with the record's minute (or the minute before) it takes
+// the newest whose logs were written between the record's start and end: a
+// later run of the same minute (<stamp>-02, an audit, which writes no
+// record) is not the record's. With folders of that minute but none of
+// them its, there is no folder, not another run's. A dry run, a record
+// without a start time, or no folder of its minute at all: runFolder's
+// choice.
+func recordFolder(runs []logview.Run, r logstore.RunRecord) (logview.Run, bool) {
+	if r.DryRun || r.Started.IsZero() {
+		return runFolder(runs, r.Started, r.DryRun)
+	}
+	t := r.Started.Local()
+	stamped := false
+	for _, at := range []time.Time{t, t.Add(-time.Minute)} {
+		stamp := at.Format("20060102-1504")
+		for _, run := range runs {
+			if run.DryRun || (run.Name != stamp && !strings.HasPrefix(run.Name, stamp+"-")) {
+				continue
+			}
+			stamped = true
+			m := run.Modified
+			if m.IsZero() || (!m.Before(r.Started.Add(-recordSlack)) && (r.Finished.IsZero() || !m.After(r.Finished.Add(recordSlack)))) {
+				return run, true
+			}
+		}
+	}
+	if stamped {
+		return logview.Run{}, false
+	}
+	return runFolder(runs, r.Started, false)
+}
+
 // copyError puts the step's error and its last lines on the clipboard,
 // with URL credentials removed (runview.Model.CopyError): the desktop's
 // clipboard history keeps what is copied.

@@ -31,7 +31,9 @@ type Run struct {
 	DryRun bool
 	// Categories are the logs this run has, in logstore.Categories' order.
 	Categories []logstore.Category
-	store      *logstore.Store
+	// Modified is the newest modification time of its logs (zero: none).
+	Modified time.Time
+	store    *logstore.Store
 }
 
 // Title is the run's row title: its time, or "Dry runs".
@@ -94,6 +96,9 @@ func Runs(stateDir string) ([]Run, error) {
 		for _, c := range logstore.Categories {
 			if fi, err := os.Stat(r.store.Path(c.ID)); err == nil && fi.Mode().IsRegular() && fi.Size() > 0 {
 				r.Categories = append(r.Categories, c.ID)
+				if fi.ModTime().After(r.Modified) {
+					r.Modified = fi.ModTime()
+				}
 			}
 		}
 		if r.DryRun {
