@@ -62,49 +62,65 @@ optional and adds about 5. The steps are numbered 1–14, Part C's C1–C4.
    **It must be 0.** If it isn't, wait until the rows are older than 15
    minutes, or find out where they came from first.
 
-2. **Write the policy** to a scratch directory (no root needed):
+2. **Write the policy** to a scratch directory (no root needed). Paste the
+   block **exactly as it is, flush left**. polkit silently ignores a policy
+   file that doesn't parse, and any space before `<?xml` makes it
+   unparseable ("XML declaration allowed only at the start of the
+   document"). `pkaction` then says "No action with action id". The fenced
+   blocks in steps 2-4 are deliberately not indented, so a copy from the
+   raw Markdown file needs no stripping.
 
-   ```sh
-   d=$(mktemp -d) && cat > "$d/org.archmaid.keepcheck.k7q2.policy" <<'EOF'
-   <?xml version="1.0" encoding="UTF-8"?>
-   <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
-    "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
-   <policyconfig>
-     <vendor>archmaid live check (throwaway)</vendor>
-     <action id="org.archmaid.keepcheck.k7q2">
-       <description>archmaid keep check k7q2 (throwaway)</description>
-       <message>archmaid keep check k7q2: throwaway test, runs /usr/bin/true</message>
-       <defaults>
-         <allow_any>auth_admin_keep</allow_any>
-         <allow_inactive>auth_admin_keep</allow_inactive>
-         <allow_active>auth_admin_keep</allow_active>
-       </defaults>
-       <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/true</annotate>
-       <annotate key="org.freedesktop.policykit.exec.argv1">archmaid-keepcheck-k7q2</annotate>
-     </action>
-   </policyconfig>
-   EOF
-   echo "$d"
-   ```
+```sh
+d=$(mktemp -d) && cat > "$d/org.archmaid.keepcheck.k7q2.policy" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>archmaid live check (throwaway)</vendor>
+  <action id="org.archmaid.keepcheck.k7q2">
+    <description>archmaid keep check k7q2 (throwaway)</description>
+    <message>archmaid keep check k7q2: throwaway test, runs /usr/bin/true</message>
+    <defaults>
+      <allow_any>auth_admin_keep</allow_any>
+      <allow_inactive>auth_admin_keep</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/true</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">archmaid-keepcheck-k7q2</annotate>
+  </action>
+</policyconfig>
+EOF
+echo "$d" && head -c 5 "$d/org.archmaid.keepcheck.k7q2.policy" && echo && xmllint --noout --nonet "$d/org.archmaid.keepcheck.k7q2.policy" && echo XML-OK
+```
 
-   Keep the printed directory for the cleanup.
+   Keep the printed directory for the cleanup. The `head` line must print
+   `<?xml` with nothing before it, and `XML-OK` must appear. If either is
+   wrong, don't install: `rm -r "$d"` and paste the block again. (No
+   `xmllint`? It is in `libxml2`; without it the `head` check alone must
+   pass.) Run steps 2-4 in the same terminal, so `$d` stays set.
 
-3. **Install it** (one `sudo` password, so type it carefully):
+3. **Install it** (one `sudo` password, so type it carefully). The target
+   is the directory `/usr/share/polkit-1/actions/`, the file must end in
+   `.policy`, and `install` makes it `root:root 0644`:
 
-   ```sh
-   sudo install -o root -g root -m 0644 "$d/org.archmaid.keepcheck.k7q2.policy" /usr/share/polkit-1/actions/
-   ```
+```sh
+sudo install -o root -g root -m 0644 "$d/org.archmaid.keepcheck.k7q2.policy" /usr/share/polkit-1/actions/ && ls -l /usr/share/polkit-1/actions/org.archmaid.keepcheck.k7q2.policy
+```
 
 4. **Check that polkit sees it** (no root needed). polkitd picks up new
-   action files by itself:
+   action files by itself, normally within a second:
 
-   ```sh
-   pkaction --action-id org.archmaid.keepcheck.k7q2 --verbose
-   ```
+```sh
+sleep 3 && pkaction --action-id org.archmaid.keepcheck.k7q2 --verbose
+```
 
    It must list `implicit any/inactive/active: auth_admin_keep` (three
-   times). If it says "No action with action id", wait 10 s and try again.
-   If it still isn't there, stop and clean up. Don't restart polkit.
+   times). If it says "No action with action id", wait 10 s and run it
+   again. If it still isn't there, the file didn't parse (or the paste was
+   indented): run `head -c 5` and `xmllint --noout --nonet` on the
+   installed file, and read
+   `journalctl -b -u polkit --no-pager | tail -20` for a parse error
+   (read-only). Then stop and clean up (step 13). Don't restart polkit.
 
 ## Part A: the graphical session (required)
 
