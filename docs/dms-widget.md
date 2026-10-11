@@ -239,7 +239,7 @@ db and needs no root; ~1-3 s, so the widget never passes it; the TUI/GUI or a fu
 user timer does and writes the cache).
 
 **Where the data comes from (gaps in today's code):**
-- last run: newest run dir `YYYYMMDD-HHMM` under the log dir (name pattern
+- last run: newest run dir `YYYYMMDD-HHMM` (or `YYYYMMDD-HHMM-NN`, a later run of the same minute) under the log dir (name pattern
   `runDirPattern`), `dryrun` separate. The outcome comes from `last-run.json`
   (written by `logstore.WriteLastRun` at the end of every queue: temp + fsync + rename,
   0600, state dir 0700), one record, overwritten each run:

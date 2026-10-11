@@ -138,8 +138,10 @@ func runFolder(runs []logview.Run, started time.Time, dry bool) (logview.Run, bo
 	if !started.IsZero() {
 		t := started.Local()
 		for _, at := range []time.Time{t, t.Add(-time.Minute)} {
+			// Newest first: of several runs in one minute (<stamp>-02, ...)
+			// the latest.
 			for _, r := range runs {
-				if !r.DryRun && r.Name == at.Format("20060102-1504") {
+				if stamp := at.Format("20060102-1504"); !r.DryRun && (r.Name == stamp || strings.HasPrefix(r.Name, stamp+"-")) {
 					return r, true
 				}
 			}

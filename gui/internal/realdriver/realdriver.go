@@ -240,7 +240,7 @@ func (w *Wiring) store(dry bool) *logstore.Store {
 	if now == nil {
 		now = time.Now
 	}
-	return logstore.New(logstore.Options{Dir: w.cfg.StateDir, DryRun: dry, Now: runClock(now()), KeepRuns: logstore.KeepRuns})
+	return logstore.New(logstore.Options{Dir: w.cfg.StateDir, DryRun: dry, Fresh: true, Now: runClock(now()), KeepRuns: logstore.KeepRuns})
 }
 
 // runClock is time.Now, except for its first call, which names the run

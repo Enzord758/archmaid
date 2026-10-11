@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -111,9 +112,11 @@ var ErrNoStateDir = errors.New("logstore: no absolute state directory (home fold
 // kept only while it holds the newest record of one of its actions.
 const KeepRuns = 5
 
-// runDirPattern matches a run directory name (the run stamp's own format), so
-// Prune only ever touches directories the store created itself.
-var runDirPattern = regexp.MustCompile(`^\d{8}-\d{4}$`)
+// runDirPattern matches a run directory name (the run stamp's own format,
+// with the two-digit "-02".."-99" a run gets when its minute's directory is
+// taken, see Options.Fresh; zero-padded so the names still sort in order),
+// so Prune only ever touches directories the store created itself.
+var runDirPattern = regexp.MustCompile(`^\d{8}-\d{4}(-\d{2})?$`)
 
 // Logs hold full command output (package lists, paths, AUR maintainers), so
 // they're private to the user. Directories and files created before this was
@@ -135,6 +138,18 @@ type Options struct {
 	// Now is the clock; nil means time.Now. It names the run directory
 	// (YYYYMMDD-HHMM, read once by New) and stamps each entry.
 	Now func() time.Time
+	// Fresh makes this store a new run even when another run started in
+	// the same minute: if the minute's directory exists, the run is
+	// <stamp>-02 (then -03, ...), so two actions started within one minute
+	// don't share a folder. Without it, the name is the stamp alone, which
+	// is what a reader of an existing run (and a store re-made for one
+	// run) wants. A dry-run store ignores it. New only looks; it creates
+	// nothing.
+	Fresh bool
+	// Run names an existing run directory (a reader's handle for one that
+	// has a "-02" suffix); it overrides the stamp when it is a run
+	// directory's name.
+	Run string
 	// KeepRuns, when positive, rotates the run history: the Append that
 	// makes this run's directory a real run (its first entry in a
 	// non-discovery category, whether it creates the directory or finds it
@@ -176,11 +191,46 @@ func New(o Options) *Store {
 		root, err = "", ErrNoStateDir
 	}
 	run := now().Format("20060102-1504")
+	switch {
+	case runDirPattern.MatchString(o.Run):
+		run = o.Run
+	case o.Fresh && !o.DryRun && err == nil:
+		run = freeRun(root, run)
+	}
 	keep := max(o.KeepRuns, 0)
 	if o.DryRun {
 		run, keep = "dryrun", 0
 	}
 	return &Store{root: root, run: run, now: now, keep: keep, err: err}
+}
+
+// freeRun is stamp when no directory of that name exists under root, else
+// <stamp>-NN, one past the highest NN taken (02 for the first repeat; names
+// pruned from the bottom are not reused, so the names still sort as the runs
+// came). Past 99 it is the stamp: a hundred runs in a minute share.
+func freeRun(root, stamp string) string {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return stamp
+	}
+	next := 0 // the highest NN taken; 1 stands for the bare stamp
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), stamp) || !runDirPattern.MatchString(e.Name()) {
+			continue
+		}
+		n := 1
+		if rest := strings.TrimPrefix(e.Name(), stamp); rest != "" {
+			n, _ = strconv.Atoi(strings.TrimPrefix(rest, "-"))
+		}
+		next = max(next, n)
+	}
+	if next == 0 {
+		return stamp
+	}
+	if next >= 99 {
+		return stamp
+	}
+	return fmt.Sprintf("%s-%02d", stamp, next+1)
 }
 
 // Root is the state directory ("" for a store without one).

@@ -21,7 +21,7 @@ import (
 const DryRunName = "dryrun"
 
 // runName is a run directory's name: logstore's stamp, YYYYMMDD-HHMM.
-var runName = regexp.MustCompile(`^\d{8}-\d{4}$`)
+var runName = regexp.MustCompile(`^\d{8}-\d{4}(-\d{2})?$`)
 
 const stamp = "20060102-1504"
 
@@ -81,13 +81,14 @@ func Runs(stateDir string) ([]Run, error) {
 		case name == DryRunName:
 			r = Run{Name: name, DryRun: true, store: logstore.New(logstore.Options{Dir: root, DryRun: true})}
 		case runName.MatchString(name):
-			t, err := time.ParseInLocation(stamp, name, time.Local)
+			// <stamp>, or <stamp>-NN for the NNth run of that minute.
+			t, err := time.ParseInLocation(stamp, name[:len(stamp)], time.Local)
 			if err != nil {
 				continue
 			}
 			// A store whose clock reads the stamp is that run's store:
 			// its RunDir is this directory, and Read reads its logs.
-			r = Run{Name: name, Time: t, store: logstore.New(logstore.Options{Dir: root, Now: func() time.Time { return t }})}
+			r = Run{Name: name, Time: t, store: logstore.New(logstore.Options{Dir: root, Run: name, Now: func() time.Time { return t }})}
 		default:
 			continue
 		}
