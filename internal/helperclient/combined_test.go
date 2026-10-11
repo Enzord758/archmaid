@@ -247,3 +247,13 @@ func TestRunFullCleanupRefused(t *testing.T) {
 		t.Fatalf("StepExited.Err = %v", e.Err)
 	}
 }
+
+// TestRunFullCleanupNoAgent: the combined call carries the no-agent reason
+// too (the engine settles every part it covered with it).
+func TestRunFullCleanupNoAgent(t *testing.T) {
+	shim(t, "echo 'Error executing command as another user: No authentication agent found.' >&2\nexit 127")
+	ex := runStep(t, fullCleanupCall(true, true, true)).exited(t)
+	if !ex.NotGranted || !errors.Is(ex.Err, ErrNotGranted) || !errors.Is(ex.Err, engine.ErrNoAuthAgent) {
+		t.Fatalf("StepExited %+v, want NotGranted with ErrNoAuthAgent", ex)
+	}
+}

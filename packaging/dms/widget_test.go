@@ -150,7 +150,10 @@ func TestWidgetFilesSurviveAtomicReplace(t *testing.T) {
 // a FileView cannot watch a missing directory, and the old budget (two tries,
 // each of the three failing views counting one) was spent within ~4 s. The
 // retry must count one try per round, keep going at <= 4 s steps for most of
-// the 60 s cycle, and stay bounded.
+// the 60 s cycle, and stay bounded. (Source check only. Worst case: 12 tries,
+// the first two 2 s apart and the rest 4 s, cover ~44 s after a tick; a file
+// created 45-60 s after it shows at the next tick, <= ~16 s later. Not "always
+// within 4 s": that holds only while tries remain.)
 func TestWidgetRetriesUntilFileAppears(t *testing.T) {
 	b, err := os.ReadFile("archmaid/ArchmaidWidget.qml")
 	if err != nil {
@@ -177,7 +180,7 @@ func TestWidgetRetriesUntilFileAppears(t *testing.T) {
 		}
 	}
 	if maxIv == 0 || maxIv > 4000 {
-		t.Errorf("retry step %d ms: a created file must show within ~4 s", maxIv)
+		t.Errorf("retry step %d ms: a created file must show at the next try, <= 4 s while tries remain", maxIv)
 	}
 	if n*maxIv < 40000 {
 		t.Errorf("%d retries of <= %d ms cover under 40 s of the 60 s cycle; a file created later is missed", n, maxIv)

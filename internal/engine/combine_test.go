@@ -134,8 +134,8 @@ func TestCombinedRunRefused(t *testing.T) {
 	}
 	done := doneOf(o)
 	for _, id := range []string{"o", "p", "t", "j"} {
-		if done[id].Status != steps.AuthRefused {
-			t.Errorf("%s: %+v, want AuthRefused", id, done[id])
+		if done[id].Status != steps.AuthRefused || done[id].Err != "" {
+			t.Errorf("%s: %+v, want AuthRefused with no text (a plain refusal is not \"no agent\")", id, done[id])
 		}
 	}
 	if _, ok := done["w"]; ok {
@@ -164,7 +164,11 @@ func TestCombinedRunNoAgent(t *testing.T) {
 	h.confirm(false)
 	effect[StartStep](t, h.handle(FaillockRead{Deny: 3}))
 	err := fmt.Errorf("privilege not granted: %w (pkexec exited 127)", ErrNoAuthAgent)
-	done := doneOf(h.handle(StepExited{Seq: h.seq(), Err: err, NotGranted: true}))
+	o := h.handle(StepExited{Seq: h.seq(), Err: err, NotGranted: true})
+	if !hasLog(o, "SKIP: j done (privilege not granted: no polkit agent)") {
+		t.Errorf("logs = %+v", all[LogWritten](o.Events))
+	}
+	done := doneOf(o)
 	for _, id := range []string{"o", "p", "t", "j"} {
 		if d := done[id]; d.Status != steps.AuthRefused || d.Err != ErrNoAuthAgent.Error() {
 			t.Errorf("%s: %+v, want AuthRefused with %q", id, d, ErrNoAuthAgent.Error())

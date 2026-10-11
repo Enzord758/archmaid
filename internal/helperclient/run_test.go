@@ -600,3 +600,32 @@ func TestRunArgvRefused(t *testing.T) {
 		t.Error("pkexec ran")
 	}
 }
+
+// TestRunNoAgentOnlyWhenNothingRan: the "No authentication agent found"
+// text makes ErrNoAuthAgent only for pkexec's own 127 before the helper ran.
+// A 126 (dismissed dialog) with that text, a 127 without it ("command not
+// found" style, or silent) and a 127 after the helper started are not "no
+// agent".
+func TestRunNoAgentOnlyWhenNothingRan(t *testing.T) {
+	const text = "echo 'Error executing command as another user: No authentication agent found.' >&2\n"
+	for _, c := range []struct {
+		name, body string
+		notGranted bool
+	}{
+		{"126 with the text", text + "exit 126", true},
+		{"127 command not found", "echo 'pkexec: command not found' >&2\nexit 127", true},
+		{"127 silent", "exit 127", true},
+		{"127 after the helper started", "cat <<'EOF'\n" + startCheck + "\nEOF\n" + text + "exit 127", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			shim(t, c.body)
+			ex := runStep(t, repairCheck).exited(t)
+			if ex.NotGranted != c.notGranted {
+				t.Errorf("NotGranted = %v, want %v (%+v)", ex.NotGranted, c.notGranted, ex)
+			}
+			if errors.Is(ex.Err, engine.ErrNoAuthAgent) {
+				t.Errorf("Err %v wraps ErrNoAuthAgent", ex.Err)
+			}
+		})
+	}
+}
