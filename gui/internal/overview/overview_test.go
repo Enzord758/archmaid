@@ -94,6 +94,14 @@ func TestSummarize(t *testing.T) {
 	}
 }
 
+// A dry run's record says so in its title.
+func TestSummarizeDryRun(t *testing.T) {
+	r := logstore.RunRecord{V: 1, Action: actions.IDFullCleanup, Outcome: logstore.OutcomeOK, Finished: now.Add(-3 * time.Hour), DryRun: true}
+	if got := Summarize(r, now).Title; got != "Full Cleanup (Recommended) · 3 h ago · dry run" {
+		t.Errorf("title %q", got)
+	}
+}
+
 // TestReadLastRunOnlyReads: the record a real run wrote is read back, and
 // reading leaves the state dir exactly as it was (nothing created, even
 // when the dir doesn't exist).
