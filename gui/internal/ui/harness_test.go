@@ -346,7 +346,7 @@ func runChild(scenario, path string) int {
 		action = actions.IDRepair
 	case "settings-bad": // gui.json holds the home folder: refused on load
 		action = actions.IDRepair
-	case "idle", "logs", "fullcleanup", "stop", "close-midrun":
+	case "idle", "logs", "logs-newer", "fullcleanup", "stop", "close-midrun":
 	case "narrow-nav": // 630x372: the sidebar overlay (shell_harness_test.go)
 	case "toast-markup": // a toast whose message looks like markup
 	case "dry-first": // Full Cleanup from the hero's Dry run first
@@ -491,6 +491,10 @@ func runChild(scenario, path string) int {
 						}
 						if scenario == "logs" {
 							browseLogs(w, rep, fail)
+							return
+						}
+						if scenario == "logs-newer" {
+							logsNewer(w, rep)
 							return
 						}
 						if scenario == "narrow-nav" {

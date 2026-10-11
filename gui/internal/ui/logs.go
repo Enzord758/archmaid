@@ -58,6 +58,11 @@ type logsPage struct {
 	// that key (the harness's handles).
 	shown string
 	open  map[string]func()
+
+	// newest is the newest run the last refresh saw; picked: the user
+	// chose a run since then (refreshLogs).
+	newest string
+	picked bool
 }
 
 func (w *Window) newLogs() gtk.Widgetter {
@@ -70,6 +75,7 @@ func (w *Window) newLogs() gtk.Widgetter {
 	p.runs.SetSelectionMode(gtk.SelectionSingle)
 	p.runs.ConnectRowActivated(func(row *gtk.ListBoxRow) {
 		if i := row.Index(); i >= 0 && i < len(p.runList) {
+			p.picked = true
 			w.showRun(p.runList[i], p.cat)
 			p.split.SetShowContent(true)
 		}
@@ -259,7 +265,9 @@ func (w *Window) showLogs() {
 }
 
 // refreshLogs rereads the run history and shows the run that was shown, if
-// it is still there, else the newest.
+// it is still there, else the newest. When a newer run has appeared since
+// the last refresh, the newest is shown instead, unless the user picked a
+// run in the meantime.
 func (w *Window) refreshLogs() {
 	p := w.logs
 	p.runs.RemoveAll()
@@ -277,6 +285,8 @@ func (w *Window) refreshLogs() {
 		return
 	}
 	p.runList = runs
+	newer := p.newest != "" && runs[0].Name != p.newest && !p.picked
+	p.newest, p.picked = runs[0].Name, false
 	pick := 0
 	for i, r := range runs {
 		row := adw.NewActionRow()
@@ -285,7 +295,7 @@ func (w *Window) refreshLogs() {
 		row.SetSubtitle(r.Subtitle())
 		row.SetActivatable(true)
 		p.runs.Append(row)
-		if p.run != nil && r.Name == p.run.Name {
+		if p.run != nil && !newer && r.Name == p.run.Name {
 			pick = i
 		}
 		for _, c := range r.Categories {
