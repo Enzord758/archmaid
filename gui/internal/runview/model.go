@@ -567,6 +567,19 @@ func (m *Model) discover(d engine.DiscoveryResult) {
 	}
 }
 
+// ShowReport makes the page the action's own when its result is a report
+// (the AUR audit: a dialog, no queue): an empty page for action, not the
+// last run's steps and line count. Returns the Change to redraw.
+func (m *Model) ShowReport(action string) Change {
+	m.Action, m.DryRun, m.Running, m.Finished, m.Stopped = action, m.StartDry, true, nil, ""
+	m.Auth, m.pendingLock, m.Started = nil, nil, time.Time{}
+	m.Lines, m.Dropped = 0, 0
+	m.Discovery = nil
+	c := m.Clear()
+	c.Status = true
+	return c
+}
+
 func newRow(s engine.PlanStep) Row {
 	return Row{ID: s.ID, Title: s.Title, LogLabel: s.LogLabel, NeedsPriv: s.NeedsPriv, Optional: s.Optional, Category: s.Category}
 }

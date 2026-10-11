@@ -173,6 +173,8 @@ type report struct {
 	// status line shown, once.
 	EndStatus string
 	Statuses  []string
+	// EndStatuses: the status line at each run's end (audit-rerun).
+	EndStatuses []string
 	// Geometry is real-small's orphan dialog as shown (headingGeometry).
 	Geometry string
 	// Nav is narrow-nav's record of the sidebar overlay (shell_harness_test.go).
@@ -352,6 +354,7 @@ func runChild(scenario, path string) int {
 	case "narrow-nav": // 630x372: the sidebar overlay (shell_harness_test.go)
 	case "toast-markup": // a toast whose message looks like markup
 	case "dry-first": // Full Cleanup from the hero's Dry run first
+	case "audit-rerun": // Full Cleanup, then the AUR audit (a report, no queue): the audit's page
 	case "clear-rerun": // Full Cleanup, then Repair (a notice), then Clear user cache: when the page clears
 	case "confirm-flag": // --confirm fullcleanup: the window opens into the gate; "no"
 		answerNo = true
@@ -807,11 +810,18 @@ func runChild(scenario, path string) int {
 					fail("the run finished before the window closed")
 				}
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
-				if scenario == "clear-rerun" || scenario == "real-failed-decline" {
+				if scenario == "audit-rerun" {
+					rep.EndStatuses = append(rep.EndStatuses, w.status.Text())
+				}
+				if scenario == "clear-rerun" || scenario == "audit-rerun" || scenario == "real-failed-decline" {
 					rep.Pages = append(rep.Pages, runPage(w))
 					rep.Heads = append(rep.Heads, fmt.Sprintf("prev=%v title=%q", w.tl.prev.IsVisible(), w.shell.title.Label()))
 				}
 				if scenario == "disc-scroll" && discScroll(w, rep, len(rep.Outcomes)) {
+					return
+				}
+				if scenario == "audit-rerun" && len(rep.Outcomes) == 1 {
+					glib.TimeoutAdd(50, func() { w.menu[actions.IDAURAudit].start() })
 					return
 				}
 				if scenario == "clear-rerun" && len(rep.Outcomes) < 3 {
@@ -1600,6 +1610,27 @@ func TestGUIClearRerun(t *testing.T) {
 	// No page is tagged "previous run"; each is titled for its own action.
 	if want := []string{`prev=false title="Full Cleanup (Recommended)"`, `prev=false title="Repair broken packages"`, `prev=false title="Clear user cache"`}; !slices.Equal(rep.Heads, want) {
 		t.Errorf("the page's tag and title %q, want %q", rep.Heads, want)
+	}
+}
+
+// TestGUIAuditRerun: the AUR audit ends in a report, not a queue; after a
+// Full Cleanup its Run page is the audit's own (no steps of the earlier
+// run, no "previous run" tag), titled for the audit, and the status line
+// doesn't carry the earlier run's line count.
+func TestGUIAuditRerun(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "audit-rerun")
+	if !slices.Equal(rep.Outcomes, []string{"completed", "report"}) || len(rep.Pages) != 2 {
+		t.Fatalf("outcomes %q pages %q", rep.Outcomes, rep.Pages)
+	}
+	if strings.Contains(rep.Pages[1], steps.IDTopgrade) {
+		t.Errorf("the audit's page holds Full Cleanup's steps: %s", rep.Pages[1])
+	}
+	if want := `prev=false title="Audit AUR packages"`; rep.Heads[1] != want {
+		t.Errorf("the audit page's tag and title %q, want %q", rep.Heads[1], want)
+	}
+	if !strings.Contains(rep.EndStatuses[0], " lines") || strings.Contains(rep.EndStatuses[1], " line") {
+		t.Errorf("status lines %q: the audit's carries the earlier run's count", rep.EndStatuses)
 	}
 }
 

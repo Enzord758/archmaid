@@ -54,3 +54,23 @@ func TestEndToast(t *testing.T) {
 		t.Errorf("a notice without text: toast %q", got)
 	}
 }
+
+// TestShowReport: a report's page is the action's own and empty, not the
+// last run's steps and line count.
+func TestShowReport(t *testing.T) {
+	m := NewModel()
+	m.Apply([]engine.Event{
+		engine.QueueStarted{Action: "a", Steps: []engine.PlanStep{{ID: "s1", Title: "S1"}}},
+		engine.StepStarted{ID: "s1"},
+		engine.OutputChunk{ID: "s1", Lines: []string{"x", "y"}},
+		engine.StepDone{ID: "s1"},
+		engine.Finished{Action: "a", Outcome: engine.OutcomeCompleted},
+	})
+	c := m.ShowReport("auraudit")
+	if !c.Reset || !c.Status || c.OutRemove == 0 {
+		t.Errorf("change %+v: want a reset that removes the old lines", c)
+	}
+	if m.Action != "auraudit" || len(m.Rows) != 0 || m.Lines != 0 || m.Finished != nil || len(m.Output()) != 0 {
+		t.Errorf("page: action %q rows %d lines %d finished %v", m.Action, len(m.Rows), m.Lines, m.Finished)
+	}
+}

@@ -344,6 +344,13 @@ func (w *Window) apply(evs []engine.Event) {
 
 // redraw redraws exactly what c says changed.
 func (w *Window) redraw(c runview.Change) {
+	if c.Opened != nil && c.Opened.Report != nil && !w.queued && w.current != "" {
+		// A report (the AUR audit) is the action's own result, with no
+		// queue: its page is its own, not the last run's tagged "previous".
+		r := w.model.ShowReport(w.current)
+		c.Reset, c.Inserted, c.Status = r.Reset, nil, true
+		c.Steps, c.OutRemove, c.OutAppend = r.Steps, r.OutRemove, r.OutAppend
+	}
 	if c.Reset {
 		// Only QueueStarted resets the model: the run's queue started.
 		w.queued, w.pagePrev = true, false
