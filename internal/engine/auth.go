@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -141,8 +142,9 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 	if nr := r.root; nr != nil {
 		// No queue to skip through: the scan itself needs root.
 		r.root = nil
-		o.event(Notice{Text: sanitize.String(nr.AuthFailed, sanitize.Plain)})
-		s.finish(o, OutcomeNotice)
+		s.endDiscovery(o, actions.Notice{Text: nr.AuthFailed, Err: "sudo authentication failed after " +
+			strconv.Itoa(maxAttempts) + " attempts",
+			Details: []string{"Tried: the root recheck of " + strconv.Itoa(len(nr.Items)) + " flagged item(s), which needs sudo"}})
 		return
 	}
 	// The queue runs anyway; its NeedsPriv steps are refused (advance).

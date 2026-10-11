@@ -12,6 +12,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -94,14 +95,20 @@ func ForeignPackages(ctx context.Context) ([]string, error) {
 // writes no snapshot (no one will see its report).
 func MenuAudit(ctx context.Context, cfg audit.Config, now time.Time, render func(audit.Result) string) actions.Discovery {
 	res, err := audit.Run(ctx, cfg, now)
+	// The record of a notice says what was attempted (internal/actions,
+	// Notice): the foreign-package list, then the AUR's RPC.
+	tried := []string{"Tried: the foreign packages (pacman -Qqm), then their maintainers from the AUR (" +
+		sanitize.OneLine(cfg.RPCURL) + ")"}
 	if ctx.Err() != nil {
-		return actions.Notice{Text: "The AUR audit was stopped."}
+		return actions.Notice{Text: "The AUR audit was stopped.", Err: "stopped", Details: tried}
 	}
 	switch {
 	case errors.Is(err, audit.ErrNoForeign):
-		return actions.Notice{Text: "No foreign (AUR or locally built) packages installed."}
+		return actions.Notice{Text: "No foreign (AUR or locally built) packages installed: nothing to audit.",
+			Details: []string{"pacman -Qqm listed no foreign packages"}}
 	case err != nil:
-		return actions.Notice{Text: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline)}
+		short := audit.ShortErr(err, cfg.Deadline)
+		return actions.Notice{Text: "Couldn't reach the AUR: " + short, Err: sanitize.OneLine(short), Details: tried}
 	}
 	res.LogSummary()
 	if render == nil {

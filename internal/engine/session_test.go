@@ -613,8 +613,8 @@ func TestSessionDiscovery(t *testing.T) {
 		if fin := event[Finished](t, o); fin.Outcome != OutcomeNotice {
 			t.Errorf("Finished = %+v", fin)
 		}
-		if _, ok := find[WriteLastRun](o.Effects); ok {
-			t.Error("a notice wrote a last-run record (the TUI's doesn't)")
+		if rec := effect[WriteLastRun](t, o).Record; rec.Action != "d" || rec.Outcome != logstore.OutcomeNothingFound || !rec.DryRun {
+			t.Errorf("record = %+v, want a dry-run nothing-found", rec)
 		}
 		enginetest.CheckContract(t, h.evs)
 	})

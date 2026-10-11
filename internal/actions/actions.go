@@ -14,6 +14,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/downloads"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -29,6 +30,11 @@ type Action struct {
 	Gate string
 	// Busy is what the front end says while Discover runs.
 	Busy string
+	// Record is the log a Discover action's record goes to when the action
+	// ends at its discovery (nothing found, or the look failed): a
+	// discovery category (logstore.Category.Discovery), so such a run
+	// never takes a real run's place in the history. "" for a Steps action.
+	Record logstore.Category
 
 	Steps    func(Env) []steps.Step
 	Discover func(ctx context.Context, env Env) Discovery
@@ -128,17 +134,46 @@ func (e Env) repairWorkers() int {
 // NeedsSelection, Report or NeedsRoot.
 type Discovery interface{ discovery() }
 
-// Notice is a one-line result with nothing to do ("No broken packages found.").
-type Notice struct{ Text string }
+// Notice ends the action at its discovery: nothing to do, or the look
+// itself failed. Text is the one-line summary of what was checked ("Checked
+// 23 stopped services: none are enabled. Skipped 6 (systemd-*, …)."), or of
+// what failed ("Couldn't list services: …").
+type Notice struct {
+	Text string
+	// Err is set when the look failed (a listing or scan that couldn't
+	// run): the failure alone, one line. "" when the look worked.
+	Err string
+	// Details and Log say what was checked, as Checked's do.
+	Details []string
+	Log     string
+}
+
+// Checked is what a discovery looked at, for its record: the run's log
+// and a front end's details. Summary is one line ("Checked 23 stopped
+// services: 3 are enabled."); Details the full lists, one entry per line
+// (each unit with its is-enabled state, each skipped unit with the rule
+// that skipped it); Log what only the log gets on top: the commands run
+// and their raw output. All of it is untrusted text, sanitized by the
+// engine and the log store; none of it may carry a secret.
+type Checked struct {
+	Summary string
+	Details []string
+	Log     string
+}
 
 // Pending is a queue to run, authenticated first if any step needs root.
-type Pending struct{ Steps []steps.Step }
+// Checked, if set, is what the discovery that built it found.
+type Pending struct {
+	Steps   []steps.Step
+	Checked Checked
+}
 
 // NeedsSelection asks the user to pick from Items; Steps builds the queue
 // for what was picked (nothing picked: nothing to run).
 type NeedsSelection struct {
-	Items []string
-	Steps func(selected []string) []steps.Step
+	Items   []string
+	Steps   func(selected []string) []steps.Step
+	Checked Checked
 }
 
 // Report is a read-only report to show (the AUR audit). Accept, if set,
@@ -163,6 +198,7 @@ type NeedsRoot struct {
 	Busy       string
 	AuthFailed string
 	Rescan     func(ctx context.Context, env Env) Discovery
+	Checked    Checked
 }
 
 func (Notice) discovery()         {}
@@ -190,11 +226,11 @@ const (
 var Menu = []Action{
 	{ID: IDFullCleanup, Icon: "󰓦", Label: "Full Cleanup (Recommended)", Steps: fullCleanupSteps, Gate: "Proceed with full cleanup?"},
 	{ID: IDUserCache, Icon: "󰃨", Label: "Clear user cache", Steps: userCacheSteps},
-	{ID: IDRepair, Icon: "󰚰", Label: "Repair broken packages", Discover: discoverRepair, Busy: "Scanning for broken packages…"},
-	{ID: IDDownloads, Icon: "󰋊", Label: "Delete old downloads", Discover: discoverDownloads, Busy: "Checking Downloads…"},
+	{ID: IDRepair, Icon: "󰚰", Label: "Repair broken packages", Discover: discoverRepair, Busy: "Scanning for broken packages…", Record: logstore.Repair},
+	{ID: IDDownloads, Icon: "󰋊", Label: "Delete old downloads", Discover: discoverDownloads, Busy: "Checking Downloads…", Record: logstore.Downloads},
 	{ID: IDTopgrade, Icon: "󰏗", Label: "Run topgrade (system update)", Steps: topgradeSteps, Gate: "Run a system update with topgrade?"},
-	{ID: IDServices, Icon: "󰒔", Label: "Disable unused services", Discover: discoverServices, Busy: "Finding unused services…"},
-	{ID: IDAURAudit, Icon: "󰶚", Label: "Audit AUR packages", Discover: discoverAURAudit, Busy: "Checking foreign packages against the AUR…"},
+	{ID: IDServices, Icon: "󰒔", Label: "Disable unused services", Discover: discoverServices, Busy: "Finding unused services…", Record: logstore.Services},
+	{ID: IDAURAudit, Icon: "󰶚", Label: "Audit AUR packages", Discover: discoverAURAudit, Busy: "Checking foreign packages against the AUR…", Record: logstore.AURAudit},
 	{ID: IDEditConfig, Icon: "󰙪", Label: "Edit topgrade config"},
 	{ID: IDViewLog, Icon: "󰑇", Label: "View log"},
 	{ID: IDExit, Icon: "󰗼", Label: "Exit"},

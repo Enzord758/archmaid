@@ -2,7 +2,9 @@ package engine
 
 import (
 	"errors"
+	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -15,16 +17,18 @@ import (
 // what follows, as the sudo rescan's discovery would have:
 //
 //   - some broken: the reinstall (actions.RepairStep) goes in behind the
-//     check (StepInserted) and runs with its own confirm;
-//   - none broken: the action ends in "No broken packages found.";
+//     check (StepInserted), headed by a Found DiscoveryResult whose
+//     record goes into the reinstall's log, and runs with its own confirm;
+//   - none broken: the action ends in "No broken packages: …";
 //   - a failed check, one with no check event, or one naming a package it
 //     wasn't asked about (fail closed: nothing it names is reinstalled):
 //     the action ends in "Couldn't scan for broken packages: …".
 //
-// The notices end the action as a discovery's would (OutcomeNotice, no
-// last-run record). A dry run runs nothing, so its recheck decides
-// nothing; a recheck that never got privilege is AuthRefused as any helper
-// step.
+// The notices end the action as a discovery's would (endDiscovery: a
+// DiscoveryResult, its record in the repair log, OutcomeNotice and a
+// "nothing-found" or "failed" last-run record). A dry run runs nothing,
+// so its recheck decides nothing; a recheck that never got privilege is
+// AuthRefused as any helper step.
 
 var (
 	errNoCheck     = errors.New("the root helper reported no result")
@@ -56,18 +60,39 @@ func (s *Session) repairChecked(o *Output, err error) bool {
 	case err == nil && slices.ContainsFunc(check.Broken, func(n string) bool { return !slices.Contains(st.Items, n) }):
 		err = errUnaskedName
 	}
+	tried := "Rechecked as root through the root helper (check-files): " + nameList(shown(st.Items))
 	switch {
 	case err != nil:
-		o.event(Notice{Text: "Couldn't scan for broken packages: " + sanitize.Clip(sanitize.OneLine(err.Error()), 120)})
+		why := sanitize.Clip(sanitize.OneLine(err.Error()), 120)
+		s.endDiscovery(o, actions.Notice{Text: "Couldn't scan for broken packages: " + why, Err: why,
+			Details: []string{tried + ": failed"}})
 	case len(check.Broken) == 0:
-		o.event(Notice{Text: "No broken packages found."})
+		s.endDiscovery(o, actions.Notice{
+			Text: fmt.Sprintf("No broken packages: the %d flagged as the user (%s) are complete as root.",
+				len(st.Items), nameList(shown(st.Items))),
+			Details: []string{tried + ": nothing missing"}})
 	default:
 		next := actions.RepairStep(check.Broken)
 		r.plan = slices.Insert(r.plan, r.cur+1, slot{step: next})
 		o.event(StepInserted{Index: r.cur + 1, Step: planStep(next)})
+		// What the recheck found heads the reinstall's log (a real run from
+		// here on, whatever happens to the reinstall).
+		s.found(o, actions.Checked{
+			Summary: fmt.Sprintf("%d broken (%s), confirmed as root by the root helper.",
+				len(check.Broken), nameList(shown(check.Broken))),
+			Details: []string{tried + ": " + strings.Join(shown(check.Broken), " ") + " broken"},
+		})
+		s.writeFound(o, next.LogCategory())
 		s.advance(o)
 		return true
 	}
-	s.finish(o, OutcomeNotice)
 	return true
+}
+
+// nameList is names for a summary: the first three, then "…".
+func nameList(names []string) string {
+	if len(names) > 3 {
+		return strings.Join(names[:3], ", ") + ", …"
+	}
+	return strings.Join(names, ", ")
 }

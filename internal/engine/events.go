@@ -279,8 +279,83 @@ type StatusUpdated struct {
 }
 
 // Notice: the action ended in a one-line message ("No broken packages
-// found."); Finished{OutcomeNotice} follows at once.
+// found."); Finished{OutcomeNotice} follows at once. Since the discovery
+// record, a DiscoveryResult (Nothing or Failed) with the same text as its
+// Summary comes before it, with the record's LogWritten between them.
 type Notice struct{ Text string }
+
+// DiscoveryOutcome is how an action's discovery (actions.Action.Discover,
+// and Repair's root recheck) came out.
+type DiscoveryOutcome int
+
+const (
+	// DiscoveryFound: it found something to act on; a pick list, a
+	// password prompt, a confirm or the queue follows.
+	DiscoveryFound DiscoveryOutcome = iota
+	// DiscoveryNothing: it looked and found nothing to do. The action ends
+	// at it: LogWritten (its record), Notice, Finished{OutcomeNotice}, and
+	// last-run.json says "nothing-found".
+	DiscoveryNothing
+	// DiscoveryFailed: the look itself failed (a listing that couldn't
+	// run, sudo given up on for Repair's recheck). The action ends as for
+	// DiscoveryNothing; last-run.json says "failed" with one failed step.
+	DiscoveryFailed
+)
+
+// String is the outcome as a word: "found", "nothing-found", "failed".
+func (o DiscoveryOutcome) String() string {
+	if o < DiscoveryFound || o > DiscoveryFailed {
+		return "discovery?"
+	}
+	return [...]string{"found", "nothing-found", "failed"}[o]
+}
+
+// DiscoveryResult: an action's discovery ended, and this is what it
+// checked — the action's own result when it ends there (Nothing, Failed),
+// the run's first stage when it goes on (Found). A front end shows it as
+// the run of one "Discovery" step: Summary as its line, Details under it.
+//
+// Order: a DiscoveryResult comes as the discovery's result arrives (or,
+// for Repair under polkit, as its recheck step ends), before anything the
+// discovery leads to. An
+// action may have more than one (Repair: the user scan's Found, then the
+// root recheck's Found, Nothing or Failed); each later one stands for the
+// whole discovery so far (its Details include the earlier ones'), so a
+// front end shows the latest. Nothing and Failed are followed by the
+// record's LogWritten, then Notice and Finished{OutcomeNotice}, and
+// nothing else. A Found record is written when the queue it leads to
+// starts, after QueueStarted (a LogWritten in the first step's log), so
+// the run's log holds what was found; a discovery that leads to nothing
+// run (no pick, an Abort) writes no record, as before.
+type DiscoveryResult struct {
+	Action  string // the menu action's ID (actions.ID*)
+	Outcome DiscoveryOutcome
+	// Summary is one line on what was checked and what came of it
+	// ("Checked 23 stopped services: none are enabled. Skipped 6 (…)."),
+	// or of what failed ("Couldn't list services: …"). Plain, sanitized.
+	Summary string
+	// Details are the full lists, one entry per line, plain and sanitized:
+	// each unit with its is-enabled state and each skipped one with the
+	// rule that skipped it, the packages pacman flagged, each download with
+	// its age. May be empty.
+	Details []string
+	// Err is the failure alone, one line ("" unless Failed).
+	Err string
+	// Category is the log the record went to in the same Output (a
+	// discovery category, logstore.Category.Discovery, for Nothing and
+	// Failed: a discovery-only run never takes a real run's place in the
+	// history); "" for Found.
+	Category logstore.Category
+	// LogPath is that log file's path. The Session leaves it "" (it does
+	// no IO); internal/driver fills it in from its store once the record
+	// is written, and leaves it "" if the write failed. The stub never sets
+	// it.
+	LogPath string
+	// Started is when the action started (Options.Now); Elapsed is the
+	// discovery's time so far.
+	Started time.Time
+	Elapsed time.Duration
+}
 
 // OutputReport opens a report (the AUR audit). Text is the report as plain
 // lines; Audit is the same as data. Answer with Confirm(ID, true) to accept
@@ -355,24 +430,25 @@ type ReportAccepted struct {
 	Text  string
 }
 
-func (QueueStarted) isEvent()   {}
-func (StepInserted) isEvent()   {}
-func (PlanChanged) isEvent()    {}
-func (StepStarted) isEvent()    {}
-func (StepDone) isEvent()       {}
-func (OutputChunk) isEvent()    {}
-func (Aborted) isEvent()        {}
-func (LogWritten) isEvent()     {}
-func (NeedsConfirm) isEvent()   {}
-func (NeedsPassword) isEvent()  {}
-func (NeedsSelection) isEvent() {}
-func (PromptClosed) isEvent()   {}
-func (AuthWaiting) isEvent()    {}
-func (AuthResolved) isEvent()   {}
-func (FaillockState) isEvent()  {}
-func (PhaseChanged) isEvent()   {}
-func (StatusUpdated) isEvent()  {}
-func (Notice) isEvent()         {}
-func (OutputReport) isEvent()   {}
-func (Finished) isEvent()       {}
-func (ReportAccepted) isEvent() {}
+func (QueueStarted) isEvent()    {}
+func (StepInserted) isEvent()    {}
+func (PlanChanged) isEvent()     {}
+func (StepStarted) isEvent()     {}
+func (StepDone) isEvent()        {}
+func (OutputChunk) isEvent()     {}
+func (Aborted) isEvent()         {}
+func (LogWritten) isEvent()      {}
+func (NeedsConfirm) isEvent()    {}
+func (NeedsPassword) isEvent()   {}
+func (NeedsSelection) isEvent()  {}
+func (PromptClosed) isEvent()    {}
+func (AuthWaiting) isEvent()     {}
+func (AuthResolved) isEvent()    {}
+func (FaillockState) isEvent()   {}
+func (PhaseChanged) isEvent()    {}
+func (StatusUpdated) isEvent()   {}
+func (Notice) isEvent()          {}
+func (OutputReport) isEvent()    {}
+func (Finished) isEvent()        {}
+func (ReportAccepted) isEvent()  {}
+func (DiscoveryResult) isEvent() {}

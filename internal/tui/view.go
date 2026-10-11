@@ -6,6 +6,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/steps"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ── view ─────────────────────────────────────────────────────────────────────
@@ -269,8 +270,25 @@ func (m model) viewNotice() string {
 	if m.eng != nil && m.eng.stopped {
 		hint = "any key to quit; the details follow on the terminal"
 	}
-	body := itemStyle.Render(m.notice) + "\n\n" + hintStyle.Render(hint)
-	return popupBox.Render(body)
+	text := itemStyle.Render(m.notice)
+	if w := m.noticeWidth(); lipgloss.Width(m.notice) > w {
+		text = itemStyle.Width(w).Render(m.notice) // a discovery's summary is long: wrap it
+	}
+	body := text + "\n\n"
+	if m.noticeLog != "" {
+		body += hintStyle.Render("Details: View log → "+m.noticeLog) + "\n"
+	}
+	return popupBox.Render(body + hintStyle.Render(hint))
+}
+
+// noticeWidth is how wide a notice's text may be: 64 columns, less on a
+// narrow terminal (the popup's border and padding take 8).
+func (m model) noticeWidth() int {
+	w := 64
+	if m.termWidth > 0 {
+		w = min(w, m.termWidth-12)
+	}
+	return max(w, 20)
 }
 
 func (m model) viewDiscovering() string {

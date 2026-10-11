@@ -235,14 +235,17 @@ func TestUnknownAction(t *testing.T) {
 	defer closeDrained(t, d)
 	send(t, d, engine.Start{Action: "nope"})
 	var got []engine.Event
-	for range 3 {
+	for range 4 {
 		got = append(got, next(t, d))
 	}
-	if n, ok := got[0].(engine.Notice); !ok || !strings.Contains(n.Text, "nope") {
-		t.Errorf("first event %#v, want a Notice naming the action", got[0])
+	if r, ok := got[0].(engine.DiscoveryResult); !ok || r.Outcome != engine.DiscoveryFailed || !strings.Contains(r.Summary, "nope") {
+		t.Errorf("first event %#v, want a failed DiscoveryResult naming the action", got[0])
 	}
-	if got[1] != (engine.Finished{Action: "nope", Outcome: engine.OutcomeNotice}) {
-		t.Errorf("second event %#v", got[1])
+	if n, ok := got[1].(engine.Notice); !ok || !strings.Contains(n.Text, "nope") {
+		t.Errorf("second event %#v, want a Notice naming the action", got[1])
+	}
+	if got[2] != (engine.Finished{Action: "nope", Outcome: engine.OutcomeNotice}) {
+		t.Errorf("third event %#v", got[2])
 	}
 	enginetest.CheckContract(t, got)
 	// The Driver is idle again and takes the next Start.

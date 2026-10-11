@@ -1,3 +1,4 @@
 action "Delete old downloads"
-note  "Nothing older than 30 days in ~/Downloads."
+log   downloads CHECK: Checked 1 item in ~/Downloads: none older than 30 days (newest 29 days, oldest 29 days).
+note  "Checked 1 item in ~/Downloads: none older than 30 days (newest 29 days, oldest 29 days)."
 end   outcome=notice errs=0 skipped=0

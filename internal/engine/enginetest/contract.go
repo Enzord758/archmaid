@@ -25,7 +25,9 @@ import (
 // result changes comes after that step's StepDone and before the next
 // step's events — and only at steps that haven't run; an AuthWaiting is
 // resolved (AuthResolved) before anything starts, asks or finishes, and
-// nothing resolves what isn't waiting; prompt IDs are never reused; Finished ends every action (only PhaseChanged and StatusUpdated
+// nothing resolves what isn't waiting; a DiscoveryResult that ends the
+// action is followed only by LogWritten, Notice and Finished{OutcomeNotice},
+// and every Finished{OutcomeNotice} has one; prompt IDs are never reused; Finished ends every action (only PhaseChanged and StatusUpdated
 // may follow before the next one starts), and a completed one has every
 // step settled.
 func CheckContract(t testing.TB, evs []engine.Event) {
@@ -51,6 +53,10 @@ type Checker struct {
 	started  map[string]bool
 	prompts  map[engine.PromptID]bool
 	finished bool
+	// ending: a DiscoveryResult Nothing or Failed came: only its LogWritten,
+	// the Notice and Finished{OutcomeNotice} may follow. ended: the
+	// action had one (a Finished{OutcomeNotice} needs it).
+	ending, ended bool
 }
 
 // NewChecker starts a Checker that reports on t.
@@ -132,13 +138,25 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 			case engine.PhaseChanged, engine.StatusUpdated:
 				continue
 			case engine.QueueStarted, engine.Notice, engine.NeedsConfirm, engine.NeedsPassword,
-				engine.NeedsSelection, engine.OutputReport:
+				engine.NeedsSelection, engine.OutputReport, engine.DiscoveryResult:
 				// the next action
 				c.plan, c.queued, c.running, c.asking, c.waiting, c.finished = nil, false, "", "", false, false
+				c.ending, c.ended = false, false
 				c.settled, c.started, c.asked = map[string]bool{}, map[string]bool{}, map[string]bool{}
 			default:
 				errorf("event %d (%T) after Finished", i, ev)
 				continue
+			}
+		}
+		if c.ending {
+			switch ev := ev.(type) {
+			case engine.LogWritten, engine.Notice, engine.PhaseChanged, engine.StatusUpdated:
+			case engine.Finished:
+				if ev.Outcome != engine.OutcomeNotice {
+					errorf("event %d: the discovery ended the action, but Finished is %s", i, ev.Outcome)
+				}
+			default:
+				errorf("event %d (%T) after the DiscoveryResult that ended the action", i, ev)
 			}
 		}
 		if id := promptID(ev); id != 0 {
@@ -222,8 +240,18 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 				errorf("event %d: aborted %s, which isn't running", i, ev.ID)
 			}
 			c.settled[ev.ID], c.running = true, ""
+		case engine.DiscoveryResult:
+			if ev.Outcome != engine.DiscoveryFound {
+				if c.running != "" {
+					errorf("event %d: the discovery ended the action while %s runs", i, c.running)
+				}
+				c.ending, c.ended = true, true
+			}
 		case engine.Finished:
-			c.finished, c.asking = true, ""
+			if ev.Outcome == engine.OutcomeNotice && !c.ended {
+				errorf("event %d: Finished{OutcomeNotice} with no DiscoveryResult saying what was checked", i)
+			}
+			c.finished, c.asking, c.ending = true, "", false
 			clear(c.asked)
 			if ev.Outcome == engine.OutcomeCompleted {
 				for _, id := range c.plan {

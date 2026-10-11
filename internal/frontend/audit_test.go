@@ -143,6 +143,15 @@ func TestMenuAuditNotices(t *testing.T) {
 	if n := notice(MenuAudit(context.Background(), down, now, nil)); !strings.HasPrefix(n, "Couldn't reach the AUR: ") {
 		t.Errorf("unreachable: %q", n)
 	}
+	// The record: a failed look carries its error and what was tried; no
+	// foreign packages is not a failure.
+	if n := MenuAudit(context.Background(), down, now, nil).(actions.Notice); n.Err == "" || len(n.Details) != 1 ||
+		!strings.Contains(n.Details[0], "http://127.0.0.1:1/rpc") {
+		t.Errorf("unreachable record: %#v", n)
+	}
+	if n := MenuAudit(context.Background(), none, now, nil).(actions.Notice); n.Err != "" || len(n.Details) != 1 {
+		t.Errorf("no packages record: %#v", n)
+	}
 
 	url, _ := fakeAUR(t, map[string]audit.Info{"a": {Name: "a", Maintainer: strp("bob")}})
 	ok := AuditConfig(store, AuditOptions{RPCURL: url, Foreign: foreign("a")})

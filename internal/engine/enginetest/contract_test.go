@@ -135,3 +135,32 @@ func TestContractAuthWaiting(t *testing.T) {
 		}
 	}
 }
+
+// A discovery that ends the action (Nothing, Failed) is followed only by
+// its record's LogWritten, the Notice and Finished{OutcomeNotice}; a
+// Finished{OutcomeNotice} needs such a DiscoveryResult. A Found one may be
+// followed by anything.
+func TestContractDiscoveryResult(t *testing.T) {
+	nothing := engine.DiscoveryResult{Outcome: engine.DiscoveryNothing}
+	notice := engine.Finished{Outcome: engine.OutcomeNotice}
+	ok := map[string][]engine.Event{
+		"nothing":     seq(nothing, engine.LogWritten{}, engine.Notice{}, notice),
+		"found":       seq(engine.DiscoveryResult{}, engine.NeedsSelection{ID: 1}, plan2, run("a", 0), run("b", 1), done),
+		"two actions": seq(nothing, engine.Notice{}, notice, engine.DiscoveryResult{Outcome: engine.DiscoveryFailed}, engine.Notice{}, notice),
+	}
+	for name, evs := range ok {
+		if errs := (&spy{TB: t}).check(evs).errs; len(errs) > 0 {
+			t.Errorf("%s: %v", name, errs)
+		}
+	}
+	bad := map[string][]engine.Event{
+		"notice without a result": seq(engine.Notice{}, notice),
+		"queue after the end":     seq(nothing, plan2, run("a", 0), run("b", 1), done),
+		"completed after the end": seq(nothing, engine.Notice{}, done),
+	}
+	for name, evs := range bad {
+		if errs := (&spy{TB: t}).check(evs).errs; len(errs) == 0 {
+			t.Errorf("%s: no breach reported", name)
+		}
+	}
+}

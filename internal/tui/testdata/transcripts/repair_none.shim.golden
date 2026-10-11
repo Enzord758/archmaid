@@ -2,5 +2,6 @@ action "Repair broken packages"
 exec  pacman -Qq
 exec  pacman -Qkq -- amd-ucode baz
 exec  pacman -Qkq -- foo glibc
-note  "No broken packages found."
+log   repair CHECK: No broken packages: checked 4 installed packages for missing files (pacman -Qk, as the user).
+note  "No broken packages: checked 4 installed packages for missing files (pacman -Qk, as the user)."
 end   outcome=notice errs=0 skipped=0

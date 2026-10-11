@@ -68,6 +68,11 @@
 //     comes after that step's StepDone and before the next step's events.
 //   - AuthWaiting is followed by AuthResolved before the step or queue it
 //     waited for goes on.
+//   - A discovery that ends the action (DiscoveryResult with
+//     DiscoveryNothing or DiscoveryFailed) is followed only by its
+//     record's LogWritten, Notice and Finished{OutcomeNotice}; every
+//     Finished{OutcomeNotice} has one. A DiscoveryFound result comes before
+//     whatever it leads to (a prompt, QueueStarted).
 //   - Finished is the last event of every action, exactly once; nothing
 //     about that action follows it.
 //

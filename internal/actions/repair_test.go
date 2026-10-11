@@ -77,7 +77,7 @@ func TestChunkStrings(t *testing.T) {
 func TestRescanRepairPolkit(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	cands := []string{"amd-ucode", "nfs-utils", "big"}
-	d := rescanRepair(cands)(context.Background(), Env{Polkit: true})
+	d := rescanRepair(cands, 1422)(context.Background(), Env{Polkit: true})
 	p, ok := d.(Pending)
 	if !ok || len(p.Steps) != 1 {
 		t.Fatalf("got %#v, want one pending step", d)
@@ -107,11 +107,11 @@ func TestRescanRepairPolkitTooMany(t *testing.T) {
 	for i := range cands {
 		cands[i] = fmt.Sprintf("p%d", i)
 	}
-	d := rescanRepair(cands)(context.Background(), Env{Polkit: true})
+	d := rescanRepair(cands, 1422)(context.Background(), Env{Polkit: true})
 	if n, ok := d.(Notice); !ok || !strings.Contains(n.Text, "Too many flagged packages (257)") {
 		t.Fatalf("got %#v, want the too-many notice", d)
 	}
-	if d := rescanRepair(cands[:HelperMaxNames])(context.Background(), Env{Polkit: true}); d.(Pending).Steps[0].Verb != steps.VerbCheckFiles {
+	if d := rescanRepair(cands[:HelperMaxNames], 1422)(context.Background(), Env{Polkit: true}); d.(Pending).Steps[0].Verb != steps.VerbCheckFiles {
 		t.Fatalf("exactly %d candidates must still be one check step, got %#v", HelperMaxNames, d)
 	}
 }
@@ -127,7 +127,7 @@ func TestRescanRepairSudoUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	d := rescanRepair([]string{"amd-ucode", "big"})(context.Background(), Env{})
+	d := rescanRepair([]string{"amd-ucode", "big"}, 1422)(context.Background(), Env{})
 	p, ok := d.(Pending)
 	if !ok || len(p.Steps) != 1 {
 		t.Fatalf("got %#v, want one pending step", d)

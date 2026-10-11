@@ -9,6 +9,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine/enginetest"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -17,7 +18,9 @@ import (
 // Seq.
 func repairCheck(t *testing.T) (*harness, uint64) {
 	t.Helper()
-	h := newHarness(t, Options{Auth: AuthPolkit}, queue(actions.IDRepair, actions.RepairCheckStep([]string{"foo", "bar"})))
+	a := queue(actions.IDRepair, actions.RepairCheckStep([]string{"foo", "bar"}))
+	a.Record = logstore.Repair // as the menu's Repair
+	h := newHarness(t, Options{Auth: AuthPolkit}, a)
 	h.start(actions.IDRepair)
 	h.handle(FaillockRead{Deny: 3})
 	seq := h.seq()
@@ -63,7 +66,7 @@ func TestSessionRepairCheckNotices(t *testing.T) {
 		status steps.Status
 		notice string
 	}{
-		{"none broken", &HelperCheck{}, nil, steps.OK, "No broken packages found."},
+		{"none broken", &HelperCheck{}, nil, steps.OK, "No broken packages: the 2 flagged as the user (foo, bar) are complete as root."},
 		{"failed", &HelperCheck{Broken: []string{"foo"}}, errors.New("exit status 1"), steps.Failed,
 			"Couldn't scan for broken packages: exit status 1"},
 		{"no check event", nil, nil, steps.OK,
@@ -93,8 +96,19 @@ func TestSessionRepairCheckNotices(t *testing.T) {
 				errs = 1
 			}
 			finished(t, o, Finished{Action: actions.IDRepair, Outcome: OutcomeNotice, Errs: errs})
-			if _, ok := find[WriteLastRun](o.Effects); ok {
-				t.Error("a notice wrote a last-run record")
+			want, outcome := logstore.OutcomeFailed, DiscoveryFailed
+			if c.name == "none broken" {
+				want, outcome = logstore.OutcomeNothingFound, DiscoveryNothing
+			}
+			if rec := effect[WriteLastRun](t, o).Record; rec.Outcome != want {
+				t.Errorf("record = %+v, want %s", rec, want)
+			}
+			dr := event[DiscoveryResult](t, o)
+			if dr.Outcome != outcome || dr.Summary != c.notice || dr.Category != logstore.Repair {
+				t.Errorf("DiscoveryResult = %+v", dr)
+			}
+			if lw := event[LogWritten](t, o); lw.Category != logstore.Repair {
+				t.Errorf("the record went to %q, want the discovery log", lw.Category)
 			}
 			enginetest.CheckContract(t, h.evs)
 		})

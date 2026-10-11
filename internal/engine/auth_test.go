@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -255,9 +256,10 @@ func TestSessionNeedsRootFalsePositive(t *testing.T) {
 	if fin := event[Finished](t, o); fin.Outcome != OutcomeNotice {
 		t.Errorf("Finished = %+v", fin)
 	}
-	if _, ok := find[WriteLastRun](o.Effects); ok {
-		t.Error("a notice wrote a last-run record")
+	if rec := effect[WriteLastRun](t, o).Record; rec.Action != "r" || rec.Outcome != logstore.OutcomeNothingFound || rec.StepsFailed != 0 {
+		t.Errorf("record = %+v, want nothing-found", rec)
 	}
+	enginetest.CheckContract(t, h.evs)
 }
 
 func TestSessionNeedsRootPassword(t *testing.T) {
@@ -292,8 +294,13 @@ func TestSessionNeedsRootPassword(t *testing.T) {
 		if fin := event[Finished](t, o); fin.Outcome != OutcomeNotice {
 			t.Errorf("Finished = %+v", fin)
 		}
-		if _, ok := find[WriteLastRun](o.Effects); ok {
-			t.Error("the give-up wrote a last-run record (the TUI's doesn't)")
+		// A failed look: its record says so, with what was tried.
+		if rec := effect[WriteLastRun](t, o).Record; rec.Outcome != logstore.OutcomeFailed || rec.StepsFailed != 1 {
+			t.Errorf("record = %+v, want failed", rec)
+		}
+		if dr := event[DiscoveryResult](t, o); dr.Outcome != DiscoveryFailed || dr.Summary != nr.AuthFailed ||
+			!strings.Contains(dr.Err, "sudo authentication failed") || len(dr.Details) == 0 {
+			t.Errorf("DiscoveryResult = %+v", dr)
 		}
 		enginetest.CheckContract(t, h.evs)
 	})

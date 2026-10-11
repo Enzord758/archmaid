@@ -225,6 +225,8 @@ func (d *Driver) scriptFor(action string) Script {
 		return s
 	}
 	return Script{
+		{Event: engine.DiscoveryResult{Action: action, Outcome: engine.DiscoveryFailed,
+			Summary: "The stub has no script for " + action + ".", Err: "no script"}},
 		{Event: engine.Notice{Text: "The stub has no script for " + action + "."}},
 		{Event: engine.Finished{Action: action, Outcome: engine.OutcomeNotice}},
 		{Event: engine.PhaseChanged{Phase: engine.PhaseIdle}},

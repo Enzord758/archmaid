@@ -5,6 +5,7 @@ pick  [bluetooth.service cups.service docker.service] -> [bluetooth.service dock
 exec  sudo -n -v
 plan  1 steps
 plan  1 "Disabling services…" argv=sudo systemctl disable --now -- bluetooth.service docker.service sudo alwayslog cat=cleanup
+log   cleanup CHECK: Checked 3 stopped services: 3 are enabled. Skipped 3 (instances, not loaded, systemd-*).
 step  1 running
 exec  sudo -A systemctl disable --now -- bluetooth.service docker.service
 step  1 ok

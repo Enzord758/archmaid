@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/exp/teatest"
 
 	"github.com/Enzord758/archmaid/internal/audit"
+	"github.com/Enzord758/archmaid/internal/logstore"
 )
 
 // Frame goldens for the screens and popups the headless-program goldens in
@@ -176,6 +177,26 @@ func TestNoticeGolden(t *testing.T) {
 		t.Fatalf("screen=%d bg=%d, want the notice over the menu", m.screen, m.bg)
 	}
 	viewGolden(t, m)
+}
+
+// TestDiscoveryNoticeGolden: a discovery that ends the action shows its
+// summary, wrapped to fit, and where its record is (the log's name in the
+// View log picker).
+func TestDiscoveryNoticeGolden(t *testing.T) {
+	const summary = "Checked 23 stopped services: none are enabled. Skipped 6 (systemd-*, instances, not loaded)."
+	m := feed(sizedModel(),
+		engine.DiscoveryResult{Action: actions.IDServices, Outcome: engine.DiscoveryNothing, Summary: summary,
+			Category: logstore.Services},
+		engine.LogWritten{Category: logstore.Services, Header: "CHECK: " + summary},
+		engine.Notice{Text: summary})
+	if m.screen != screenNotice || m.noticeLog != "Services check" {
+		t.Fatalf("screen=%d noticeLog=%q", m.screen, m.noticeLog)
+	}
+	viewGolden(t, m)
+	// The next notice without a record has no such line.
+	if m = feed(m, engine.ReportAccepted{Text: "x"}); m.noticeLog != "" {
+		t.Fatalf("noticeLog %q stayed", m.noticeLog)
+	}
 }
 
 // TestDiscoveringGolden: the spinner screen while a discovery runs, as the

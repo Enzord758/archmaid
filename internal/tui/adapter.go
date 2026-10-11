@@ -256,6 +256,13 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		m.serviceOn = make([]bool, len(ev.Items))
 		m.serviceCursor = 0
 		m.screen = screenServices
+	case engine.DiscoveryResult:
+		// The record of a discovery that ends the action: its Notice follows
+		// and says where to read the details.
+		m.noticeLog = ""
+		if ev.Outcome != engine.DiscoveryFound && ev.Category != "" {
+			m.noticeLog = categoryLabel(ev.Category)
+		}
 	case engine.Notice:
 		m.notice = ev.Text
 		m.bg, m.screen = screenMenu, screenNotice
@@ -267,7 +274,7 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		m.output.GotoTop()
 	case engine.ReportAccepted:
 		e.accept = false
-		m.notice = ev.Text
+		m.notice, m.noticeLog = ev.Text, ""
 		m.bg, m.screen = screenAudit, screenNotice
 	case engine.StatusUpdated:
 		m.status = ev.Status.Line()
@@ -297,7 +304,7 @@ func (m model) engineStopped(why string) (tea.Model, tea.Cmd) {
 	m.pwErr = ""
 	m.gateActive, m.authInFlight = false, false
 	m.bg = m.baseScreen(m.screen)
-	m.notice = "archmaid's engine stopped unexpectedly: " + why
+	m.notice, m.noticeLog = "archmaid's engine stopped unexpectedly: "+why, ""
 	m.screen = screenNotice
 	return m, nil
 }

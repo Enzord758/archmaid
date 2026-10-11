@@ -111,6 +111,46 @@ func TestDiscoveryNotice(t *testing.T) {
 	}
 }
 
+// A discovery that ends the action leaves its record: the Driver writes it
+// to the action's discovery log and says where (DiscoveryResult.LogPath,
+// only once written), and last-run.json says how it came out. A dry run's
+// goes to the dryrun slot.
+func TestDiscoveryRecord(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		a := actions.Action{ID: "services", Label: "s", Busy: "Looking…", Record: logstore.Services,
+			Discover: func(context.Context, actions.Env) actions.Discovery {
+				return actions.Notice{Text: "Checked 1 stopped service: none are enabled.",
+					Details: []string{"a.service: disabled"}, Log: "$ systemctl list-units\nraw\n"}
+			}}
+		r := newRig(t, engine.Options{DryRun: dry}, Deps{}, a)
+		evs := r.run("services", nil)
+		dr := find[engine.DiscoveryResult](t, evs)
+		if want := r.log.Path(logstore.Services); dr.LogPath != want || dr.Outcome != engine.DiscoveryNothing {
+			t.Fatalf("dry=%v: DiscoveryResult = %+v, want LogPath %s", dry, dr, want)
+		}
+		if dry != strings.Contains(dr.LogPath, "/dryrun/") {
+			t.Errorf("dry=%v: record at %s", dry, dr.LogPath)
+		}
+		b, err := os.ReadFile(dr.LogPath)
+		if err != nil || !strings.Contains(string(b), "CHECK: Checked 1 stopped service: none are enabled.") ||
+			!strings.Contains(string(b), "a.service: disabled\n\n$ systemctl list-units\nraw\n") {
+			t.Errorf("dry=%v: log %q (%v)", dry, b, err)
+		}
+		rec, err := r.log.ReadLastRun()
+		if err != nil || rec.Outcome != logstore.OutcomeNothingFound || rec.Action != "services" || rec.DryRun != dry {
+			t.Errorf("dry=%v: last run %+v (%v)", dry, rec, err)
+		}
+	}
+
+	// A record that can't be written has no LogPath.
+	a := actions.Action{ID: "services", Label: "s", Record: logstore.Services,
+		Discover: func(context.Context, actions.Env) actions.Discovery { return actions.Notice{Text: "x"} }}
+	r := newRig(t, engine.Options{}, Deps{Log: logstore.New(logstore.Options{Dir: "relative"})}, a)
+	if dr := find[engine.DiscoveryResult](t, r.run("services", nil)); dr.LogPath != "" {
+		t.Errorf("unwritten record has LogPath %q", dr.LogPath)
+	}
+}
+
 // A dry run starts no child: the step reports what it would run.
 func TestDryRunStartsNothing(t *testing.T) {
 	r := newRig(t, engine.Options{DryRun: true}, Deps{}, action("dry", shStep("x", "exit 1")))

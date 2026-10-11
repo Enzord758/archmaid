@@ -273,6 +273,14 @@ func (tg *realDriverTarget) take(ev engine.Event) {
 		tg.push(tt.StepStarted{Index: ev.Index})
 	case engine.LogWritten:
 		tg.engineLogs = append(tg.engineLogs, tt.LogWritten{Category: string(ev.Category), Header: ev.Header})
+	case engine.DiscoveryResult:
+		// No transcript line (its record is the log line). The real Driver
+		// says where the record of a discovery that ends the action went.
+		if ev.Outcome != engine.DiscoveryFound {
+			if _, err := os.Stat(ev.LogPath); ev.LogPath == "" || err != nil {
+				tg.fail("DiscoveryResult LogPath %q: %v", ev.LogPath, err)
+			}
+		}
 	case engine.Notice:
 		tg.push(tt.Notice{Text: ev.Text})
 	case engine.OutputReport:

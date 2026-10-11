@@ -1,6 +1,7 @@
 action "Delete old downloads"
 plan  1 steps
 plan  1 "Deleting old downloads…" inproc confirm optional alwayslog cat=cleanup
+log   cleanup CHECK: Checked 3 items in ~/Downloads: 2 older than 30 days (oldest 30 days).
 ask   "Delete 2 item(s) older than 30 days in ~/Downloads?\n\n  old.iso\n  old.zip" -> yes
 step  1 running
 out   1 [dry-run] would delete: old.iso

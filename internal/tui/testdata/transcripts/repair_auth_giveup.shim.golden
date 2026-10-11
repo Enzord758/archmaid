@@ -9,5 +9,6 @@ auth  password -> <wrong>
 exec  su -s /usr/bin/true $USER
 auth  password -> <wrong>
 exec  su -s /usr/bin/true $USER
+log   repair FAIL: Sudo authentication failed — can't scan for broken packages.
 note  "Sudo authentication failed — can't scan for broken packages."
 end   outcome=notice errs=0 skipped=0

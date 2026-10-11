@@ -53,7 +53,10 @@ type model struct {
 	askpassFrom  askpassRequester // who the open askpass prompt is for, for the popup
 
 	// dynamic-action state
-	notice      string // screenNotice message
+	notice string // screenNotice message
+	// noticeLog names the log a discovery's record went to ("Services
+	// check"), shown under its notice; "" for any other notice.
+	noticeLog   string
 	discovering string // screenDiscovering label
 
 	// services multi-select state

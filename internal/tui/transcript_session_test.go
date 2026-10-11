@@ -412,6 +412,7 @@ func (tg *sessionTarget) apply(o engine.Output) {
 			tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items)})
 		case engine.Finished:
 			tg.fin = &ev
+		case engine.DiscoveryResult: // no transcript line: its record is the log line
 		case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting, engine.AuthResolved,
 			engine.FaillockState: // no transcript line
 		default:

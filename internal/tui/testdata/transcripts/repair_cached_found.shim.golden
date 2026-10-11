@@ -6,6 +6,7 @@ exec  sudo -n -v
 exec  sudo -n pacman -Qkq -- amd-ucode baz foo
 plan  1 steps
 plan  1 "Reinstalling packages…" argv=sudo pacman -S --noconfirm -- baz foo sudo confirm optional alwayslog cat=cleanup
+log   cleanup CHECK: Checked 4 installed packages: 2 broken (baz, foo), confirmed as root.
 ask   "Reinstall 2 broken package(s)?" -> yes
 step  1 running
 exec  sudo -A pacman -S --noconfirm -- baz foo

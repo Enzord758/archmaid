@@ -589,12 +589,25 @@ func (d *Driver) verify(r *privilege.Request) (in engine.Input, from privilege.R
 // apply starts o's Effects in order, then publishes its Events. A Finished
 // ends the run, and with it the kept password (keep.go).
 func (d *Driver) apply(o engine.Output) {
+	written := map[logstore.Category]bool{} // logs this Output's WriteLogs wrote
 	for _, e := range o.Effects {
+		if w, ok := e.(engine.WriteLog); ok {
+			written[w.Category] = d.writeLog(w)
+			continue
+		}
 		d.effect(e)
 	}
-	for _, ev := range o.Events {
-		if _, ok := ev.(engine.Finished); ok {
+	for i, ev := range o.Events {
+		switch ev := ev.(type) {
+		case engine.Finished:
 			d.keep.Wipe()
+		case engine.DiscoveryResult:
+			// The record went out with this Output (engine.DiscoveryResult):
+			// say where, once it is on disk.
+			if ev.Category != "" && written[ev.Category] {
+				ev.LogPath = d.cfg.Log.Path(ev.Category)
+				o.Events[i] = ev
+			}
 		}
 	}
 	d.out.push(o.Events)

@@ -169,8 +169,8 @@ func TestDisableUnits(t *testing.T) {
 // TestAuditReportIsHandedIn: the AUR-audit action is the front end's report.
 func TestAuditReportIsHandedIn(t *testing.T) {
 	a, _ := ByID(IDAURAudit)
-	env := Env{AuditReport: func(context.Context) Discovery { return Notice{"from the front end"} }}
-	if d := a.Discover(context.Background(), env); d != (Notice{"from the front end"}) {
+	env := Env{AuditReport: func(context.Context) Discovery { return Notice{Text: "from the front end"} }}
+	if d := a.Discover(context.Background(), env); d.(Notice).Text != "from the front end" {
 		t.Fatalf("got %#v", d)
 	}
 }

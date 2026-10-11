@@ -1,4 +1,5 @@
 action "Disable unused services"
 exec  systemctl list-units --type=service --all --state=inactive --plain --no-legend
-note  "No enabled-but-inactive services found."
+log   services CHECK: No stopped services to check.
+note  "No stopped services to check."
 end   outcome=notice errs=0 skipped=0

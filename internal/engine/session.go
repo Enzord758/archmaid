@@ -134,7 +134,7 @@ func (s *Session) Start(action string) Output {
 	if !ok || (a.Steps == nil && a.Discover == nil) {
 		return Output{} // the front end's own entries (view log, …)
 	}
-	s.run = &run{action: a.ID, started: s.now(), cur: -1}
+	s.run = &run{action: a.ID, started: s.now(), cur: -1, recordCat: a.Record}
 	var o Output
 	if a.Discover != nil {
 		s.run.discoverSeq = s.seq()

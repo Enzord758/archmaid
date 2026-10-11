@@ -56,6 +56,14 @@ type run struct {
 	check    *HelperCheck // the running repair-check's check event, or nil (repaircheck.go)
 	comb     *combined    // the combined run in progress (combine.go), or nil
 
+	// The discovery record (discovery.go): the log the action's record goes
+	// to, every stage's details so far, a Found record waiting for its
+	// queue, and how the discovery ended when the action ends at it.
+	recordCat logstore.Category
+	details   []string
+	rec       *discoveryRecord
+	ended     *DiscoveryOutcome
+
 	errs, skipped, refused int
 }
 
@@ -170,6 +178,9 @@ func (s *Session) startQueue(o *Output) {
 	r.queued = true
 	s.setPhase(o, PhaseRunning, "")
 	o.event(QueueStarted{Action: r.action, Steps: planSteps(queue), DryRun: s.opts.DryRun, Started: s.now()})
+	if len(queue) > 0 {
+		s.writeFound(o, queue[0].LogCategory()) // what the discovery found heads the run's log
+	}
 	if !s.opts.DryRun && s.opts.Auth == AuthSudo && !r.sudoGone && needsPriv(queue) {
 		r.keepAlive = true
 		o.effect(KeepAlive{On: true})
@@ -584,13 +595,15 @@ func (s *Session) discovered(o *Output, in Discovered) {
 	r.discoverSeq = 0
 	switch d := in.Discovery.(type) {
 	case actions.Notice:
-		o.event(Notice{Text: sanitize.String(d.Text, sanitize.Plain)})
-		s.finish(o, OutcomeNotice)
+		s.endDiscovery(o, d)
 	case actions.Pending:
+		s.found(o, d.Checked)
 		s.plan(o, d.Steps, "")
 	case actions.NeedsRoot:
+		s.found(o, d.Checked)
 		s.needsRoot(o, d)
 	case actions.NeedsSelection:
+		s.found(o, d.Checked)
 		s.askSelection(o, d)
 	case actions.Report:
 		s.openReport(o, d)
@@ -601,8 +614,9 @@ func (s *Session) discovered(o *Output, in Discovered) {
 }
 
 // finish ends the action: the keep-alive off, prefetches dropped, the
-// last-run record for an action that reached its queue or its auth (never
-// for a notice, as in the TUI), then Finished.
+// last-run record for an action that reached its queue or its auth, or that
+// ended at its discovery (endDiscovery: "nothing-found" or "failed"), then
+// Finished.
 func (s *Session) finish(o *Output, outcome Outcome) {
 	r := s.run
 	s.dropAskpass(o)
@@ -613,7 +627,13 @@ func (s *Session) finish(o *Output, outcome Outcome) {
 		o.effect(CancelPrefetch{Name: p})
 	}
 	now := s.now()
-	if r.planned && outcome != OutcomeNotice {
+	switch {
+	case r.ended != nil:
+		// The action ended at its discovery (endDiscovery): recorded like any run.
+		rec := s.record(outcome, now)
+		discoveryRunRecord(&rec, *r.ended)
+		o.effect(WriteLastRun{Record: rec})
+	case r.planned && outcome != OutcomeNotice:
 		o.effect(WriteLastRun{Record: s.record(outcome, now)})
 	}
 	notRun := 0

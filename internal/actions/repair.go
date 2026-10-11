@@ -10,7 +10,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -18,47 +20,87 @@ import (
 // every package with a file the user can't stat (brokenCandidates). Nothing
 // flagged means nothing is broken, which ends Repair without a password
 // prompt; otherwise the candidates need the root recheck (rescanRepair).
+//
+// Each outcome says what was checked: how many packages, what the scan
+// flagged (pacman's "package /missing/file" lines), and the commands.
 func discoverRepair(ctx context.Context, env Env) Discovery {
-	cands, err := brokenCandidates(ctx, env.repairWorkers())
+	scan, err := brokenCandidates(ctx, env.repairWorkers())
+	tried := "Tried: pacman -Qq, then pacman -Qkq over the installed packages, as the user"
 	if err != nil {
-		return Notice{"Couldn't scan for broken packages: " + clipErr(err)}
+		return Notice{Text: "Couldn't scan for broken packages: " + clipErr(err), Err: sanitize.OneLine(err.Error()),
+			Details: []string{tried}, Log: scan.log + "error: " + err.Error() + "\n"}
 	}
-	if len(cands) == 0 {
-		return Notice{"No broken packages found."}
+	if len(scan.cands) == 0 {
+		return Notice{
+			Text: fmt.Sprintf("No broken packages: checked %d installed %s for missing files (pacman -Qk, as the user).",
+				scan.installed, plural(scan.installed, "package", "packages")),
+			Details: []string{fmt.Sprintf("%d installed (pacman -Qq), checked with pacman -Qkq in %d parallel %s: nothing flagged",
+				scan.installed, scan.chunks, plural(scan.chunks, "chunk", "chunks"))},
+			Log: scan.log,
+		}
 	}
 	return NeedsRoot{
-		Items:      cands,
+		Items:      scan.cands,
 		Busy:       "Rechecking flagged packages as root…",
 		AuthFailed: "Sudo authentication failed — can't scan for broken packages.",
-		Rescan:     rescanRepair(cands),
+		Rescan:     rescanRepair(scan.cands, scan.installed),
+		Checked: Checked{
+			Summary: fmt.Sprintf("Checked %d installed %s as the user: %d flagged (%s), to recheck as root.",
+				scan.installed, plural(scan.installed, "package", "packages"), len(scan.cands), nameList(scan.cands)),
+			Details: scan.flagged,
+			Log:     scan.log,
+		},
 	}
 }
 
 // rescanRepair runs once the sudo ticket is primed: it rechecks the user
 // scan's candidates as root, and only the packages it confirms are offered
-// for reinstalling.
+// for reinstalling. installed is how many packages the user scan checked,
+// for the summary.
 //
 // Under polkit there is no ticket for its `sudo -n`, so it runs nothing
 // and returns the recheck as a helper step instead (RepairCheckStep); the
 // front end reads the helper's broken list and goes on with RepairStep.
-func rescanRepair(candidates []string) func(context.Context, Env) Discovery {
+func rescanRepair(candidates []string, installed int) func(context.Context, Env) Discovery {
 	return func(ctx context.Context, env Env) Discovery {
 		if env.Polkit {
 			if len(candidates) > HelperMaxNames {
-				return Notice{fmt.Sprintf("Too many flagged packages (%d) to recheck through the root helper "+
-					"(at most %d); run Repair from the terminal.", len(candidates), HelperMaxNames)}
+				return Notice{Text: fmt.Sprintf("Too many flagged packages (%d) to recheck through the root helper "+
+					"(at most %d); run Repair from the terminal.", len(candidates), HelperMaxNames),
+					Err: "too many flagged packages for the root helper"}
 			}
-			return Pending{[]steps.Step{RepairCheckStep(candidates)}}
+			return Pending{Steps: []steps.Step{RepairCheckStep(candidates)}}
 		}
-		pkgs, err := brokenPackages(ctx, candidates)
+		cmd := "sudo -n pacman -Qkq -- " + strings.Join(candidates, " ")
+		pkgs, out, err := brokenPackages(ctx, candidates)
+		log := "$ " + cmd + "\n" + out
 		if err != nil {
-			return Notice{"Couldn't scan for broken packages: " + clipErr(err)}
+			return Notice{Text: "Couldn't scan for broken packages: " + clipErr(err), Err: sanitize.OneLine(err.Error()),
+				Details: []string{"Tried: " + cmd}, Log: log + "error: " + err.Error() + "\n"}
 		}
 		if len(pkgs) == 0 {
-			return Notice{"No broken packages found."}
+			return Notice{
+				Text: fmt.Sprintf("No broken packages: checked %d installed %s; the %d flagged as the user (%s) are complete as root.",
+					installed, plural(installed, "package", "packages"), len(candidates), nameList(candidates)),
+				Details: []string{"Rechecked as root (" + cmd + "): nothing missing"},
+				Log:     log,
+			}
 		}
-		return Pending{[]steps.Step{RepairStep(pkgs)}}
+		return Pending{Steps: []steps.Step{RepairStep(pkgs)}, Checked: Checked{
+			Summary: fmt.Sprintf("Checked %d installed %s: %d broken (%s), confirmed as root.",
+				installed, plural(installed, "package", "packages"), len(pkgs), nameList(pkgs)),
+			Details: nonEmptyLines(out),
+			Log:     log,
+		}}
 	}
+}
+
+// nameList is names for a summary: the first three, then "…".
+func nameList(names []string) string {
+	if len(names) > 3 {
+		return strings.Join(names[:3], ", ") + ", …"
+	}
+	return strings.Join(names, ", ")
 }
 
 // HelperMaxNames is the most package names the root helper takes in one
@@ -69,7 +111,10 @@ const HelperMaxNames = 256
 // `check-files` over exactly the user scan's candidates, which are its
 // Items and its Argv after "--". The helper runs `pacman -Qk -- …` and
 // reports the broken ones in its check event. It changes nothing, so it has
-// no confirm. Argv names what the helper runs, without sudo.
+// no confirm. Argv names what the helper runs, without sudo. It is still
+// Repair's discovery, so it logs to the discovery's log (logstore.Repair):
+// a recheck that finds nothing (or fails) leaves a discovery-only run,
+// which never takes a real run's place in the history.
 func RepairCheckStep(candidates []string) steps.Step {
 	return steps.Step{
 		ID: steps.IDRepairCheck, Verb: steps.VerbCheckFiles,
@@ -77,6 +122,7 @@ func RepairCheckStep(candidates []string) steps.Step {
 		Argv:      append([]string{"pacman", "-Qk", "--"}, candidates...),
 		Items:     slices.Clone(candidates),
 		NeedsPriv: true,
+		Category:  logstore.Repair,
 	}
 }
 
@@ -116,26 +162,46 @@ func clipErr(err error) string {
 // rpcuser's): amd-ucode and nfs-utils are flagged on every run. So the result
 // is only a candidate list for brokenPackages. Chunks are merged in order, so
 // it is what a single `pacman -Qkq` over everything would report.
-func brokenCandidates(ctx context.Context, workers int) ([]string, error) {
+func brokenCandidates(ctx context.Context, workers int) (repairScan, error) {
+	scan := repairScan{log: "$ pacman -Qq\n"}
 	installed, err := qkqOutput(ctx, "pacman", "-Qq")
 	if err != nil {
-		return nil, err
+		return scan, err
 	}
-	chunks := chunkStrings(nonEmptyLines(installed), workers)
+	names := nonEmptyLines(installed)
+	scan.installed = len(names)
+	scan.log += fmt.Sprintf("(%d packages)\n", len(names))
+	chunks := chunkStrings(names, workers)
+	scan.chunks = len(chunks)
 	found := make([][]string, len(chunks))
+	outs := make([]string, len(chunks))
 	errs := make([]error, len(chunks))
 	var wg sync.WaitGroup
 	for i, chunk := range chunks {
 		wg.Go(func() {
 			out, err := qkqOutput(ctx, "pacman", append([]string{"-Qkq", "--"}, chunk...)...)
-			found[i], errs[i] = parseBrokenPackages(out), err
+			found[i], outs[i], errs[i] = parseBrokenPackages(out), out, err
 		})
 	}
 	wg.Wait()
-	if err := errors.Join(errs...); err != nil {
-		return nil, err
+	for i, chunk := range chunks {
+		scan.log += fmt.Sprintf("$ pacman -Qkq -- <%d packages, %s … %s>\n", len(chunk), chunk[0], chunk[len(chunk)-1]) + outs[i]
+		scan.flagged = append(scan.flagged, nonEmptyLines(outs[i])...)
 	}
-	return slices.Concat(found...), nil
+	if err := errors.Join(errs...); err != nil {
+		return scan, err
+	}
+	scan.cands = slices.Concat(found...)
+	return scan, nil
+}
+
+// repairScan is what brokenCandidates saw, for the record: how many
+// packages are installed, in how many chunks they were checked, pacman's
+// report lines, the candidates, and the commands with their output.
+type repairScan struct {
+	installed, chunks int
+	flagged, cands    []string
+	log               string
 }
 
 // chunkStrings splits s into at most n contiguous chunks of near-equal size.
@@ -156,12 +222,12 @@ func chunkStrings(s []string, n int) [][]string {
 // false positives drop out. Only the candidates are checked, which takes ~50 ms
 // where a full scan as root took ~850. -n: the ticket is already primed, and
 // nothing may prompt on the raw tty.
-func brokenPackages(ctx context.Context, candidates []string) ([]string, error) {
-	out, err := qkqOutput(ctx, "sudo", append([]string{"-n", "pacman", "-Qkq", "--"}, candidates...)...)
+func brokenPackages(ctx context.Context, candidates []string) (pkgs []string, out string, err error) {
+	out, err = qkqOutput(ctx, "sudo", append([]string{"-n", "pacman", "-Qkq", "--"}, candidates...)...)
 	if err != nil {
-		return nil, err
+		return nil, out, err
 	}
-	return parseBrokenPackages(out), nil
+	return parseBrokenPackages(out), out, nil
 }
 
 // qkqOutput runs a pacman query (proc.Query) and returns its stdout. pacman

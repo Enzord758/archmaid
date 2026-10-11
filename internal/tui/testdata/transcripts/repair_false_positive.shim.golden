@@ -4,5 +4,6 @@ exec  pacman -Qkq -- amd-ucode baz
 exec  pacman -Qkq -- foo glibc
 exec  sudo -n -v
 exec  sudo -n pacman -Qkq -- amd-ucode
-note  "No broken packages found."
+log   repair CHECK: No broken packages: checked 4 installed packages; the 1 flagged as the user (amd-ucode) are complete as root.
+note  "No broken packages: checked 4 installed packages; the 1 flagged as the user (amd-ucode) are complete as root."
 end   outcome=notice errs=0 skipped=0

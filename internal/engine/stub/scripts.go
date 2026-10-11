@@ -145,12 +145,19 @@ func AURAudit(start time.Time) Script {
 }
 
 // RepairNone is "Repair broken packages" finding nothing, shaped like
-// repair_none: a Notice and Finished{OutcomeNotice}. It has no prompt.
+// repair_none: its DiscoveryResult (what was checked), the record's
+// LogWritten, a Notice and Finished{OutcomeNotice}. It has no prompt. The
+// stub writes nothing, so LogPath stays "".
 func RepairNone(start time.Time) Script {
 	b := &builder{now: start, started: start, at: map[string]time.Time{}}
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Scanning for broken packages…"})
 	b.wait(900 * time.Millisecond)
-	b.emit(engine.Notice{Text: "No broken packages found."})
+	const summary = "No broken packages: checked 1422 installed packages for missing files (pacman -Qk, as the user)."
+	b.emit(engine.DiscoveryResult{Action: actions.IDRepair, Outcome: engine.DiscoveryNothing, Summary: summary,
+		Details:  []string{"1422 installed (pacman -Qq), checked with pacman -Qkq in 16 parallel chunks: nothing flagged"},
+		Category: logstore.Repair, Started: start, Elapsed: 900 * time.Millisecond})
+	b.emit(engine.LogWritten{Category: logstore.Repair, Header: "CHECK: " + summary})
+	b.emit(engine.Notice{Text: summary})
 	b.finish(actions.IDRepair, engine.OutcomeNotice)
 	return b.script
 }

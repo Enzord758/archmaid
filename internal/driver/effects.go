@@ -48,9 +48,7 @@ func (d *Driver) effect(e engine.Effect) {
 		}
 		d.local = append(d.local, msg{in: engine.HookDone{Seq: e.Seq, Err: err}})
 	case engine.WriteLog:
-		if err := d.cfg.Log.Append(e.Category, e.Kind, e.Label, e.Body); err != nil {
-			d.report(fmt.Errorf("driver: writing the %s log: %w", e.Category, err))
-		}
+		d.writeLog(e)
 	case engine.WriteLastRun:
 		if err := d.cfg.Log.WriteLastRun(e.Record); err != nil {
 			d.report(fmt.Errorf("driver: writing the last run: %w", err))
@@ -80,6 +78,15 @@ func (d *Driver) effect(e engine.Effect) {
 			delete(d.asks, e.Req)
 		}
 	}
+}
+
+// writeLog carries out a WriteLog and reports whether the entry is written.
+func (d *Driver) writeLog(e engine.WriteLog) bool {
+	if err := d.cfg.Log.Append(e.Category, e.Kind, e.Label, e.Body); err != nil {
+		d.report(fmt.Errorf("driver: writing the %s log: %w", e.Category, err))
+		return false
+	}
+	return true
 }
 
 // cancelPrefetch drops a running prefetch and reaps it.

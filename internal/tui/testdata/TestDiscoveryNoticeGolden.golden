@@ -1,0 +1,15 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM avail: 8G   Cache: 512M
+
+╭──────────────────────────────────────────────────────────────────────╮
+│                                                                      │
+│   Checked 23 stopped services: none are enabled. Skipped 6           │
+│   (systemd-*, instances, not loaded).                                │
+│                                                                      │
+│   Details: View log → Services check                                 │
+│   any key to return                                                  │
+│                                                                      │
+╰──────────────────────────────────────────────────────────────────────╯
+  󰗼  Exit
+
+↑/↓ move · enter select · q quit
