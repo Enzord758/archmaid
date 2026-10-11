@@ -244,7 +244,8 @@ type Model struct {
 	// step doesn't repeat the same warning.
 	warned engine.FaillockState
 
-	// Lines counts every output line received; Dropped those the Driver or
+	// Lines counts the output lines of the current run (a new queue or a
+	// discovery result starts from zero); Dropped those the Driver or
 	// the pump dropped before they reached the view.
 	Lines, Dropped int
 	// Started is when the current queue was planned (QueueStarted.Started).
@@ -353,6 +354,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.QueueStarted:
 			m.Action, m.DryRun, m.Running, m.Finished, m.Notice, m.Stopped = ev.Action, ev.DryRun, true, nil, "", ""
 			m.Discovery = nil
+			m.Lines, m.Dropped = 0, 0
 			m.Rows, m.Auth, m.pendingLock, m.Started = m.Rows[:0], nil, nil, ev.Started
 			// A new run starts with an empty page (Q12); one action
 			// plans one queue (Repair's reinstall is inserted).
@@ -548,6 +550,7 @@ const DiscoveryStepID = "discovery"
 func (m *Model) discover(d engine.DiscoveryResult) {
 	m.Action, m.DryRun, m.Running, m.Finished, m.Stopped = d.Action, m.StartDry, true, nil, ""
 	m.Auth, m.pendingLock, m.Started = nil, nil, d.Started
+	m.Lines, m.Dropped = 0, 0
 	m.base = m.out.total
 	r := Row{ID: DiscoveryStepID, Title: "Discovery", LogLabel: "Discovery", Category: d.Category,
 		State: RowOK, Elapsed: d.Elapsed, Last: d.Summary}
