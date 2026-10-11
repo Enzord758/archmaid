@@ -395,6 +395,7 @@ func (w *Window) refreshLastRun() {
 // calls.
 type overviewState struct {
 	current, busyText string
+	cache             string
 	busy              bool
 	phase             engine.Phase
 }
@@ -402,7 +403,7 @@ type overviewState struct {
 // updateOverview redraws the cells' running lines and sensitivity, when
 // what they show changed.
 func (w *Window) updateOverview() {
-	st := overviewState{w.current, w.model.Busy, w.busy, w.model.Phase}
+	st := overviewState{w.current, w.model.Busy, w.cacheLine, w.busy, w.model.Phase}
 	if w.shownOverview != nil && *w.shownOverview == st {
 		return
 	}
@@ -418,6 +419,8 @@ func (w *Window) updateOverview() {
 			}
 		} else if running {
 			sub = "Running"
+		} else if id == actions.IDUserCache {
+			sub = w.cacheLine
 		}
 		r.sub.SetText(sub)
 		r.sub.SetVisible(sub != "")

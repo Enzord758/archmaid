@@ -117,6 +117,12 @@ type Window struct {
 	logs       *logsPage
 	// shownOverview is what the Overview's widgets show (nil: not drawn).
 	shownOverview *overviewState
+	// The Clear user cache cell's size line (usercache.go): what was
+	// measured, whether a measurement goes, whether another was asked for
+	// meanwhile, and the run count that tells a stale result.
+	cacheLine             string
+	cacheBusy, cacheAgain bool
+	cacheGen              int
 
 	// onApply, when set, sees every applied batch's Change (the harness).
 	onApply func(runview.Change)
@@ -171,6 +177,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 		})
 	}
 	w.newDriver(false)
+	w.measureUserCache()
 	return w
 }
 
@@ -381,6 +388,7 @@ func (w *Window) redraw(c runview.Change) {
 		}
 		w.setBusy(false)
 		w.refreshLastRun()
+		w.invalidateUserCache()
 		if f != nil {
 			w.toast(w.model.EndToast(*f))
 		}

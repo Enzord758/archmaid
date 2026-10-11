@@ -105,8 +105,12 @@ type report struct {
 	ToastLabels []string
 	Menu        []string // the Overview's rows
 	MenuSub     string   // the started row's subtitle right after the click
-	Page        string   // the page up after starting an action
-	LastRun     []string // the Overview's last run: title, then issues
+	// usercache-size: the Clear user cache cell's sub line (text, or
+	// "<hidden>") before the run, while it waits at its gate, and once
+	// the run has ended and the cell re-measured.
+	CacheStart, CacheRunning, CacheEnd string
+	Page                               string   // the page up after starting an action
+	LastRun                            []string // the Overview's last run: title, then issues
 	// Follow is fullcleanup's follow-the-bottom flag: at the end, after a
 	// scrollbar drag, after reaching the bottom.
 	Follow string
@@ -327,6 +331,8 @@ func runChild(scenario, path string) int {
 		action = actions.IDAURAudit
 	case "usercache-no": // a declined required step
 		action, answerNo = actions.IDUserCache, true
+	case "usercache-size", "usercache-none": // the cell's size line, before and after a run
+		action = actions.IDUserCache
 	case "repair": // a discovery that ends in a notice
 		action = actions.IDRepair
 	case "settings": // home refused, a folder and dry run kept, then a run
@@ -468,6 +474,7 @@ func runChild(scenario, path string) int {
 							}
 						}
 						rep.LastRun = append([]string{w.lastRun.Title}, w.lastRun.Issues...)
+						rep.CacheStart = cacheCell(w)
 						if files, open := w.lastRunExtras(); files != nil && open != nil {
 							rep.LastCell = fmt.Sprintf("files=%q open=%v", map[bool]string{true: files.Text()}[files.Visible()], open.Visible())
 						}
@@ -522,6 +529,19 @@ func runChild(scenario, path string) int {
 			if c.Opened != nil {
 				id := c.Opened.ID
 				rep.Prompts = append(rep.Prompts, id)
+				if scenario == "usercache-size" {
+					// The run is up (at its gate): the cell says so. The stub
+					// deletes nothing, so the fixture is emptied here, as the
+					// real step would.
+					rep.CacheRunning = cacheCell(w)
+					dir := filepath.Join(os.Getenv("HOME"), ".cache")
+					ents, _ := os.ReadDir(dir)
+					for _, e := range ents {
+						if !strings.HasPrefix(e.Name(), ".") {
+							_ = os.RemoveAll(filepath.Join(dir, e.Name()))
+						}
+					}
+				}
 				p := *c.Opened
 				delay := uint(30)
 				small := scenario == "real-small" && p.Confirm != nil && len(p.Confirm.Direct) > 0
@@ -738,6 +758,23 @@ func runChild(scenario, path string) int {
 					}
 					shoot(w, scenario, fmt.Sprintf("end-%d", len(rep.Outcomes)))
 				})
+				if scenario == "usercache-size" || scenario == "usercache-none" {
+					// The re-measure is off the main thread: wait for the
+					// line to settle.
+					polls := 0
+					var poll func()
+					poll = func() {
+						polls++
+						rep.CacheEnd = cacheCell(w)
+						if rep.CacheEnd == "Empty" || (scenario == "usercache-none" && polls > 10) || polls > 60 {
+							w.win.Close()
+							return
+						}
+						glib.TimeoutAdd(50, poll)
+					}
+					glib.TimeoutAdd(50, poll)
+					return
+				}
 				switch scenario {
 				case "close-midrun", "real-close", "real-close-topgrade", "real-sigint", "real-sighup", "real-sigint-twice":
 					fail("the run finished before the window closed")
@@ -1354,6 +1391,54 @@ func TestGUIOverviewStarts(t *testing.T) {
 	}
 	if len(rep.LastRun) != 1 || rep.LastRun[0] != "No run recorded yet" {
 		t.Errorf("last run %q with an empty state dir", rep.LastRun)
+	}
+}
+
+// cacheCell is the Clear user cache cell's sub line as shown, or "<hidden>".
+func cacheCell(w *Window) string {
+	r := w.menu[actions.IDUserCache]
+	if !r.sub.Visible() {
+		return "<hidden>"
+	}
+	return r.sub.Label()
+}
+
+// TestGUIUserCacheSize: the Clear user cache cell shows how much is in
+// ~/.cache while idle, "Running" while its action goes, and re-measures when
+// the run ends ("Empty" once the step emptied it). XDG_CACHE_HOME points at
+// a folder elsewhere: the action deletes $HOME/.cache, so that is what is
+// measured. A dot entry stays after rm -rf .cache/*, so it isn't counted.
+func TestGUIUserCacheSize(t *testing.T) {
+	needDisplay(t)
+	home, xdg := t.TempDir(), t.TempDir()
+	cache := filepath.Join(home, ".cache", "app")
+	if err := os.MkdirAll(cache, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{filepath.Join(cache, "blob"), filepath.Join(home, ".cache", ".hidden"), filepath.Join(xdg, "other")} {
+		if err := os.WriteFile(f, make([]byte, 3<<20), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, _ := child(t, "usercache-size", "HOME="+home, "XDG_CACHE_HOME="+xdg)
+	if rep.CacheStart != "3.1M in ~/.cache" && rep.CacheStart != "3.0M in ~/.cache" {
+		t.Errorf("idle line %q, want the 3 MiB fixture", rep.CacheStart)
+	}
+	if rep.CacheRunning != "Running" {
+		t.Errorf("line while running %q", rep.CacheRunning)
+	}
+	if rep.CacheEnd != "Empty" {
+		t.Errorf("line after the run %q, want Empty", rep.CacheEnd)
+	}
+}
+
+// TestGUIUserCacheUnreadable: no ~/.cache, nothing is shown (never a wrong
+// number), before the run and after it.
+func TestGUIUserCacheUnreadable(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "usercache-none", "HOME="+t.TempDir())
+	if rep.CacheStart != "<hidden>" || rep.CacheEnd != "<hidden>" {
+		t.Errorf("lines %q / %q with no ~/.cache, want hidden", rep.CacheStart, rep.CacheEnd)
 	}
 }
 
