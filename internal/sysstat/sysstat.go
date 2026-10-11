@@ -4,6 +4,7 @@
 package sysstat
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"math"
@@ -125,17 +126,56 @@ func cacheSize(dir string) (string, uint64) {
 			}
 			return nil
 		}
-		if info, err := d.Info(); err == nil {
-			if st, ok := info.Sys().(*syscall.Stat_t); ok {
-				total += uint64(st.Blocks) * 512
-			}
-		}
+		total += diskBytes(d)
 		return nil
 	})
 	if missing {
 		return "N/A", 0
 	}
 	return humanCeil(total), total
+}
+
+// diskBytes is the disk usage of one walked entry (blocks * 512), 0 when it
+// can't be statted.
+func diskBytes(d fs.DirEntry) uint64 {
+	if info, err := d.Info(); err == nil {
+		if st, ok := info.Sys().(*syscall.Stat_t); ok {
+			return uint64(st.Blocks) * 512
+		}
+	}
+	return 0
+}
+
+// EntriesUsage is the disk usage `rm -rf dir/*` would free: everything under
+// dir except dir itself and the entries whose names start with a dot (the
+// shell glob skips them). It formats like cacheSize (du -h, rounded up) and
+// returns the bytes too. Unreadable subdirectories are skipped; an error
+// when dir itself can't be read, or when ctx ends first (a walk of a huge
+// tree can be abandoned). Read doesn't call it.
+func EntriesUsage(ctx context.Context, dir string) (string, uint64, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return "", 0, err
+	}
+	var total uint64
+	for _, e := range ents {
+		if strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		err := filepath.WalkDir(filepath.Join(dir, e.Name()), func(_ string, d fs.DirEntry, err error) error {
+			if cerr := ctx.Err(); cerr != nil {
+				return cerr
+			}
+			if err == nil {
+				total += diskBytes(d)
+			}
+			return nil
+		})
+		if err != nil {
+			return "", 0, err
+		}
+	}
+	return humanCeil(total), total, ctx.Err()
 }
 
 var sizeUnits = []string{"", "K", "M", "G", "T", "P"}
