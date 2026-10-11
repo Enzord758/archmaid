@@ -13,7 +13,8 @@ import (
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
-// effect starts one Effect, on the loop (see the package doc).
+// effect starts one Effect, on the loop (see the package doc). WriteLog is
+// not here: apply carries it out itself (writeLog), to know what was written.
 func (d *Driver) effect(e engine.Effect) {
 	switch e := e.(type) {
 	case engine.Probe:
@@ -47,8 +48,6 @@ func (d *Driver) effect(e engine.Effect) {
 			d.report(fmt.Errorf("driver: hook of step %q: %w", e.Step, err))
 		}
 		d.local = append(d.local, msg{in: engine.HookDone{Seq: e.Seq, Err: err}})
-	case engine.WriteLog:
-		d.writeLog(e)
 	case engine.WriteLastRun:
 		if err := d.cfg.Log.WriteLastRun(e.Record); err != nil {
 			d.report(fmt.Errorf("driver: writing the last run: %w", err))
@@ -202,10 +201,7 @@ func runStep(run func(context.Context, steps.Env) steps.Result, ctx context.Cont
 // the child is known to be reaped.
 func (d *Driver) pump(seq uint64, ch <-chan proc.Msg) {
 	for {
-		b, ok := proc.Next(ch, nil, proc.BatchMax)
-		if !ok {
-			return
-		}
+		b, _ := proc.Next(ch, nil, proc.BatchMax) // no quit channel: Next waits for the done
 		if len(b.Lines) > 0 {
 			d.post(msg{in: engine.StepOutput{Seq: seq, Lines: clean(b.Lines)}})
 		}
