@@ -337,15 +337,19 @@ func lastTone(lr overview.LastRun) (icon, text, class string) {
 	case overview.LevelWarn:
 		t := "WARN"
 		if lr.Record != nil {
-			t = strings.ToUpper(lr.Record.Outcome)
+			t = strings.ReplaceAll(strings.ToUpper(lr.Record.Outcome), "-", " ")
 		}
 		return "dialog-warning-symbolic", t, "am-tag-warn"
 	case overview.LevelError:
 		t := "FAILED"
 		if lr.Record != nil {
-			t = strings.ToUpper(lr.Record.Outcome)
+			t = strings.ReplaceAll(strings.ToUpper(lr.Record.Outcome), "-", " ")
 		}
 		return "dialog-error-symbolic", t, "am-tag-danger"
+	}
+	if lr.Record != nil && lr.Record.Outcome == logstore.OutcomeNothingFound {
+		// The action looked and found nothing to do: fine, and said so.
+		return "emblem-ok-symbolic", "NOTHING FOUND", "am-tag-ok"
 	}
 	return "emblem-ok-symbolic", "OK", "am-tag-ok"
 }

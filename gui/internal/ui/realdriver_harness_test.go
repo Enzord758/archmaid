@@ -36,6 +36,7 @@ import (
 
 	"github.com/Enzord758/archmaid/gui/internal/polkitagent/agenttest"
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
+	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -1014,15 +1015,37 @@ func TestGUIRealServices(t *testing.T) {
 		}
 	})
 
-	for _, tc := range []struct{ name, systemctl, scenario, says string }{
-		{"none", "none", "real-services-none", "No enabled-but-inactive services found."},
-		{"error", "fail", "real-services-error", "Couldn't list services: Failed to connect to bus: No such file or directory"},
+	// The discovery is the action's own result (owner's decision): the Run
+	// page switches to this action and shows one Discovery step, the engine's
+	// summary as its line and the details under it, ok for nothing found,
+	// failed for a look that failed; no "previous run"; the record's log is
+	// on the Logs page and the Overview's last run cell reads it.
+	for _, tc := range []struct{ name, systemctl, scenario, says, state, kicker, tag, tone string }{
+		{"none", "none", "real-services-none", "No stopped services to check.", "am-state-ok", "Nothing found", "NOTHING FOUND", "am-tag-ok"},
+		{"error", "fail", "real-services-error", "Couldn't list services: Failed to connect to bus: No such file or directory", "am-state-failed", "Failed: the check didn't finish", "FAILED", "am-tag-danger"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir, env := installShims(t, shimOpts{systemctl: tc.systemctl})
 			rep, _ := child(t, tc.scenario, append(env, "ARCHMAID_GUI_STATE="+t.TempDir())...)
-			if rep.Page != "run" || rep.Outcome != "notice" || rep.Picks != nil || rep.Rows != nil {
-				t.Errorf("page %q outcome %q picks %q rows %q", rep.Page, rep.Outcome, rep.Picks, rep.Rows)
+			if rep.Page != "run" || rep.Outcome != "notice" || rep.Picks != nil || rep.Disc == nil {
+				t.Fatalf("page %q outcome %q picks %q disc %+v", rep.Page, rep.Outcome, rep.Picks, rep.Disc)
+			}
+			d := rep.Disc
+			wantRows := []string{runview.DiscoveryStepID + "=" + map[string]string{"am-state-ok": "ok", "am-state-failed": "failed"}[tc.state]}
+			if !slices.Equal(rep.Rows, wantRows) || !slices.Equal(d.Steps, []string{runview.DiscoveryStepID}) || d.State != tc.state {
+				t.Errorf("rows %q steps %q state %q, want %q, the Discovery step alone, %s", rep.Rows, d.Steps, d.State, wantRows, tc.state)
+			}
+			if d.Title != "Disable unused services" || d.Prev || d.Kicker != tc.kicker || !slices.Equal(d.Headers, []string{"Discovery"}) {
+				t.Errorf("title %q prev %v kicker %q headers %q: the page isn't this action's own result", d.Title, d.Prev, d.Kicker, d.Headers)
+			}
+			if !strings.HasPrefix(d.Summary, tc.says) {
+				t.Errorf("the step's line %q, want it to start with %q", d.Summary, tc.says)
+			}
+			if len(d.LogRows) != 1 || !strings.HasSuffix(d.LogRows[0], "/services") {
+				t.Errorf("Logs page rows %q, want the services check's log", d.LogRows)
+			}
+			if d.LastTag != tc.tag || d.LastTone != tc.tone || !strings.HasPrefix(d.LastTitle[0], "Disable unused services · ") {
+				t.Errorf("last run cell %q tag %q tone %q, want %q %q", d.LastTitle, d.LastTag, d.LastTone, tc.tag, tc.tone)
 			}
 			if !slices.ContainsFunc(rep.Toasts, func(s string) bool { return strings.HasPrefix(s, tc.says) }) {
 				t.Errorf("toasts %q: the discovery's result %q isn't shown", rep.Toasts, tc.says)

@@ -136,6 +136,9 @@ type report struct {
 	LogShown          string   // the log opened, and its lines
 	LogLines          []string
 	Notice            string
+	// Disc is a discovery-only action's Run page at its end, and what the
+	// Overview's last run cell and the Logs page show after it (discPage).
+	Disc *discPage
 
 	// The Logs page's list while searching for ARCHMAID_GUI_LOGSEARCH,
 	// and with its first section folded (logs_harness_test.go).
@@ -747,6 +750,9 @@ func runChild(scenario, path string) int {
 						}
 					}
 					rep.Headers = labelsWith(&w.outView.Widget, "am-step-title")
+					if scenario == "repair" || strings.HasPrefix(scenario, "real-services-") {
+						rep.Disc = discOf(w)
+					}
 					// Every drawn step header's marker carries its state's
 					// class (style.css).
 					for _, s := range w.tl.sections {
@@ -1370,6 +1376,9 @@ func TestGUIAudit(t *testing.T) {
 	}
 }
 
+// repairNone is the stub Repair's summary (engine/stub.RepairNone).
+const repairNone = "No broken packages: checked 1422 installed packages for missing files (pacman -Qk, as the user)."
+
 // TestGUIOverviewStarts: an action started from its Overview row (the
 // menu is actions.Menu without Exit and Edit config) shows the Run page.
 func TestGUIOverviewStarts(t *testing.T) {
@@ -1379,11 +1388,11 @@ func TestGUIOverviewStarts(t *testing.T) {
 	if !slices.Equal(rep.Menu, want) {
 		t.Errorf("menu %q, want %q", rep.Menu, want)
 	}
-	if rep.Page != "run" || rep.Outcome != "notice" || rep.Notice != "No broken packages found." {
+	if rep.Page != "run" || rep.Outcome != "notice" || rep.Notice != repairNone {
 		t.Errorf("page %q outcome %q notice %q", rep.Page, rep.Outcome, rep.Notice)
 	}
 	// The notice is shown: in the toast and on the status line.
-	if !slices.Contains(rep.Toasts, "No broken packages found.") || !strings.HasPrefix(rep.EndStatus, "STUB · No broken packages found.") {
+	if !slices.Contains(rep.Toasts, repairNone) || !strings.HasPrefix(rep.EndStatus, "STUB · "+repairNone) {
 		t.Errorf("toasts %q status %q: the notice isn't shown", rep.Toasts, rep.EndStatus)
 	}
 	if rep.MenuSub == "" {
@@ -1442,6 +1451,55 @@ func TestGUIUserCacheUnreadable(t *testing.T) {
 	}
 }
 
+// discPage is the Run page of an action that ended at its discovery, as
+// the window shows it, and the Overview's last run cell and the Logs page
+// after it.
+type discPage struct {
+	Title, Kicker string
+	Prev          bool
+	Steps         []string // the timeline's step IDs
+	State         string   // the Discovery header's state class
+	Summary       string   // the step's line (its row's summary)
+	Lines         []string // the step's output
+	Headers       []string
+	LastTitle     []string // the last run cell: title, then issues
+	LastTag       string
+	LastTone      string
+	LogRows       []string
+}
+
+func discOf(w *Window) *discPage {
+	d := &discPage{Title: w.shell.title.Label(), Kicker: w.tl.kicker.Text(), Prev: w.tl.prev.IsVisible()}
+	for _, s := range w.tl.sections {
+		d.Steps = append(d.Steps, s.step)
+		if h := s.header; h != nil && s.step == runview.DiscoveryStepID {
+			for _, c := range h.icon.CSSClasses() {
+				if strings.HasPrefix(c, "am-state-") {
+					d.State = c
+				}
+			}
+		}
+	}
+	if r, i := w.rowOf(runview.DiscoveryStepID); i >= 0 {
+		d.Summary = r.Summary()
+	}
+	d.Lines = w.model.StepText(runview.DiscoveryStepID)
+	d.Headers = labelsWith(&w.outView.Widget, "am-step-title")
+	d.LastTitle = append([]string{w.lastRun.Title}, w.lastRun.Issues...)
+	d.LastTag = w.lastTag.Text()
+	for _, c := range []string{"am-tag-ok", "am-tag-warn", "am-tag-danger", "am-tag-neutral"} {
+		if w.lastTag.HasCSSClass(c) {
+			d.LastTone = c
+		}
+	}
+	w.showLogs()
+	for k := range w.logs.open {
+		d.LogRows = append(d.LogRows, k)
+	}
+	slices.Sort(d.LogRows)
+	return d
+}
+
 // runPage is the Run page as shown: the header's kicker and elapsed time,
 // the timeline's steps, and the output lines it holds.
 func runPage(w *Window) string {
@@ -1453,26 +1511,54 @@ func runPage(w *Window) string {
 }
 
 // TestGUIClearRerun: Q12, as P8 row 13 has it. The Run page clears when a
-// new run's queue starts, not when the action starts: after Full Cleanup,
-// Repair (which ends in a notice before any queue) leaves Full Cleanup's
-// page as it was, header and all; Clear user cache (a queue) then shows
-// only its own steps.
+// new run's queue starts, not when the action starts. Repair, which ends at
+// its discovery (nothing found), is its own result, not Full Cleanup's page
+// tagged "previous run" (owner's decision): the page switches to it with the
+// discovery's result; Clear user cache (a queue) then shows only its own
+// steps.
 func TestGUIClearRerun(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "clear-rerun")
 	if !slices.Equal(rep.Outcomes, []string{"completed", "notice", "completed"}) || len(rep.Pages) != 3 {
 		t.Fatalf("outcomes %q pages %q", rep.Outcomes, rep.Pages)
 	}
-	if rep.Pages[1] != rep.Pages[0] || !strings.Contains(rep.Pages[0], steps.IDTopgrade) || strings.Contains(rep.Pages[0], " lines=0") {
-		t.Errorf("Repair's notice changed the Run page:\n%s\n%s", rep.Pages[0], rep.Pages[1])
+	if !strings.Contains(rep.Pages[0], steps.IDTopgrade) || strings.Contains(rep.Pages[0], " lines=0") {
+		t.Errorf("Full Cleanup's page: %s", rep.Pages[0])
+	}
+	if !strings.Contains(rep.Pages[1], "steps="+runview.DiscoveryStepID+" ") || strings.Contains(rep.Pages[1], steps.IDTopgrade) {
+		t.Errorf("Repair's page isn't its own Discovery result: %s", rep.Pages[1])
 	}
 	if strings.Contains(rep.Pages[2], steps.IDTopgrade) || !strings.Contains(rep.Pages[2], "steps="+steps.IDUserCache) {
 		t.Errorf("Clear user cache's page still holds Full Cleanup's steps: %s", rep.Pages[2])
 	}
-	// After Repair's notice the page is tagged "previous run", under Full
-	// Cleanup's title; Clear user cache's own run isn't.
-	if want := []string{`prev=false title="Full Cleanup (Recommended)"`, `prev=true title="Full Cleanup (Recommended)"`, `prev=false title="Clear user cache"`}; !slices.Equal(rep.Heads, want) {
+	// No page is tagged "previous run"; each is titled for its own action.
+	if want := []string{`prev=false title="Full Cleanup (Recommended)"`, `prev=false title="Repair broken packages"`, `prev=false title="Clear user cache"`}; !slices.Equal(rep.Heads, want) {
 		t.Errorf("the page's tag and title %q, want %q", rep.Heads, want)
+	}
+}
+
+// TestGUIRepairNothingFound: Repair finding nothing (the stub's repair_none)
+// shows as its own result on the Run page: the action's title, one Discovery
+// step in the ok state with the summary as its line and the details under
+// it, the kicker "Nothing found", no "previous run"; the toast and the
+// status line say the summary.
+func TestGUIRepairNothingFound(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "repair")
+	d := rep.Disc
+	if d == nil || rep.Outcome != "notice" {
+		t.Fatalf("outcome %q disc %+v", rep.Outcome, d)
+	}
+	const summary = "No broken packages: checked 1422 installed packages for missing files (pacman -Qk, as the user)."
+	if d.Title != "Repair broken packages" || d.Prev || d.Kicker != "Nothing found" || d.State != "am-state-ok" ||
+		!slices.Equal(d.Steps, []string{runview.DiscoveryStepID}) || d.Summary != summary {
+		t.Errorf("page %+v", d)
+	}
+	if len(d.Lines) != 1 || !strings.HasPrefix(d.Lines[0], "1422 installed") {
+		t.Errorf("details %q", d.Lines)
+	}
+	if !slices.Contains(rep.Toasts, summary) || !strings.Contains(rep.EndStatus, summary) {
+		t.Errorf("toasts %q status %q: the summary isn't shown", rep.Toasts, rep.EndStatus)
 	}
 }
 
@@ -1534,6 +1620,7 @@ func TestGUILastRunTones(t *testing.T) {
 		{logstore.OutcomeFailed, "FAILED", "am-tag-danger", `files="topgrade.log" open=true`},
 		{logstore.OutcomeCancelled, "CANCELLED", "am-tag-neutral", fmt.Sprintf("files=%q open=false", nothingRan)},
 		{logstore.OutcomeOK, "OK", "am-tag-ok", `files="topgrade.log" open=true`},
+		{logstore.OutcomeNothingFound, "NOTHING FOUND", "am-tag-ok", `files="topgrade.log" open=true`},
 	} {
 		dir := t.TempDir()
 		now := time.Now()

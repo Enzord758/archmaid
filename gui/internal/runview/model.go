@@ -222,9 +222,16 @@ type Model struct {
 	// Finished (Stop); "" otherwise.
 	Stopped string
 	Notice  string
-	Prompt  *Prompt // the open prompt, or nil
-	Stat    engine.StatusUpdated
-	Logs    []engine.LogWritten
+	// Discovery is the action's own discovery result when it ended there
+	// (nothing found, or the look failed): the page shows it as the run of
+	// one "Discovery" step. nil for any other run.
+	Discovery *engine.DiscoveryResult
+	// StartDry: the action being started is a dry run (the window knows;
+	// a DiscoveryResult doesn't say).
+	StartDry bool
+	Prompt   *Prompt // the open prompt, or nil
+	Stat     engine.StatusUpdated
+	Logs     []engine.LogWritten
 	// Auth is the open AuthWaiting, or nil. A WaitPolkit one also marks
 	// its step's row Waiting until AuthResolved.
 	Auth *engine.AuthWaiting
@@ -345,6 +352,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		switch ev := ev.(type) {
 		case engine.QueueStarted:
 			m.Action, m.DryRun, m.Running, m.Finished, m.Notice, m.Stopped = ev.Action, ev.DryRun, true, nil, "", ""
+			m.Discovery = nil
 			m.Rows, m.Auth, m.pendingLock, m.Started = m.Rows[:0], nil, nil, ev.Started
 			// A new run starts with an empty page (Q12); one action
 			// plans one queue (Repair's reinstall is inserted).
@@ -355,6 +363,14 @@ func (m *Model) Apply(evs []engine.Event) Change {
 			c.Reset, c.Inserted = true, nil
 			clear(touched)
 			c.Status = true
+		case engine.DiscoveryResult:
+			if ev.Outcome == engine.DiscoveryFound {
+				// The queue it leads to is the run.
+				continue
+			}
+			m.discover(ev)
+			c.Reset, c.Inserted, c.Status = true, nil, true
+			clear(touched)
 		case engine.StepInserted:
 			i := min(max(ev.Index, 0), len(m.Rows))
 			m.Rows = append(m.Rows[:i], append([]Row{newRow(ev.Step)}, m.Rows[i:]...)...)
@@ -520,6 +536,32 @@ func (m *Model) lastText(n int) string {
 		}
 	}
 	return ""
+}
+
+// DiscoveryStepID is the ID of the one step a discovery result shows as.
+const DiscoveryStepID = "discovery"
+
+// discover makes the page this action's own: an action that ended at its
+// discovery is a run of one "Discovery" step, the Summary its line, the
+// Details its output. The state is ok for nothing found, failed for a look
+// that failed.
+func (m *Model) discover(d engine.DiscoveryResult) {
+	m.Action, m.DryRun, m.Running, m.Finished, m.Stopped = d.Action, m.StartDry, true, nil, ""
+	m.Auth, m.pendingLock, m.Started = nil, nil, d.Started
+	m.base = m.out.total
+	r := Row{ID: DiscoveryStepID, Title: "Discovery", LogLabel: "Discovery", Category: d.Category,
+		State: RowOK, Elapsed: d.Elapsed, Last: d.Summary}
+	if d.Outcome == engine.DiscoveryFailed {
+		r.State = RowFailed
+	}
+	m.Rows = append(m.Rows[:0], r)
+	m.Discovery = &d
+	head := "── " + r.Title
+	m.out.push(entry{raw: head, text: head, step: r.ID, head: true})
+	for _, l := range d.Details {
+		m.out.push(entry{raw: l, text: l, step: r.ID})
+		m.Lines++
+	}
 }
 
 func newRow(s engine.PlanStep) Row {

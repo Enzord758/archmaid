@@ -257,6 +257,7 @@ func (w *Window) start(id string, dry bool) {
 	w.queued, w.lastFinished, w.ended = false, w.model.Finished, nil
 	w.pagePrev = len(w.model.Rows) > 0
 	w.current, w.dry, w.model.Stopped, w.agentNotice = id, dry, "", ""
+	w.model.StartDry = dry || w.drvDry
 	w.model.Notice = "" // the last action's; this one's comes with its end
 	w.updateRunHeader()
 	w.setBusy(true)
@@ -429,7 +430,7 @@ func (w *Window) statusText() string {
 		// look). A discovery's ends it before any queue, so the page and
 		// m.Finished are still the last run's: the notice is what this
 		// action said, and it stays until the next one starts.
-		parts = append(parts, m.Notice)
+		parts = append(parts, runview.Shorten(m.Notice, runview.ShortMax))
 	case m.Finished != nil:
 		status, _ := runview.FinishedText(*m.Finished)
 		parts = append(parts, status)

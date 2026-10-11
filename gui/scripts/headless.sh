@@ -31,7 +31,7 @@ if [[ $# -eq 0 ]]; then
 	long='^TestGUI(Prompts|FullCleanup)$'
 	real='^TestGUI(RealDriver|StopAndQuit|OnePassword|RealServices)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow|ToastPlain|NarrowNav)$'
-	starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
+	starts='^TestGUI(DryFirst|ConfirmFlag|LastRunTones|RepairNothingFound|OverviewStarts|LogsPage|SettingsCards|ClearRerun)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when
 	# ARCHMAID_GUI_SHOTS asks for screenshots.

@@ -56,6 +56,8 @@ func (m *Model) Header() Header {
 	switch {
 	case m.Stopped != "":
 		h.Kicker = m.Stopped
+	case m.Finished != nil && m.Discovery != nil:
+		h.Kicker, h.Badge = DiscoveryText(*m.Discovery), "done"
 	case m.Finished != nil:
 		h.Kicker, _ = FinishedText(*m.Finished)
 		h.Badge = "done"

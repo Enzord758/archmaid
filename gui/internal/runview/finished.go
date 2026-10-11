@@ -43,8 +43,30 @@ func FinishedText(f engine.Finished) (status, toast string) {
 // other end is FinishedText's toast.
 func (m *Model) EndToast(f engine.Finished) string {
 	if f.Outcome == engine.OutcomeNotice && m.Notice != "" {
-		return m.Notice
+		return Shorten(m.Notice, ShortMax)
 	}
 	_, toast := FinishedText(f)
 	return toast
+}
+
+// ShortMax is how long a toast or the status line lets a notice run.
+const ShortMax = 120
+
+// Shorten cuts s to at most n runes, ending in "…" when it cut; the whole
+// text stays on the Run page.
+func Shorten(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
+
+// DiscoveryText is the header's word for an action that ended at its
+// discovery.
+func DiscoveryText(d engine.DiscoveryResult) string {
+	if d.Outcome == engine.DiscoveryFailed {
+		return "Failed: the check didn't finish"
+	}
+	return "Nothing found"
 }
