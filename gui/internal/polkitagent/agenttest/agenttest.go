@@ -39,6 +39,11 @@ echo $$ > "$d/agent.pid"
 # rd reads a line from the terminal as the listener's getc does on its one
 # stdio stream: an end of file is sticky (glibc's EOF flag, never cleared),
 # so every read after one fails too.
+# SIGTERM (Agent.Stop) ends it as it ends pkttyagent, but only once the
+# loop's sleep has exited, so no sleep outlives it; and it ends by itself
+# once the process that started it is gone.
+p=$PPID
+trap 'exit 0' TERM
 eof=
 rd() {
 	[ -z "$eof" ] || return 1
@@ -116,5 +121,6 @@ while :; do
 		fi
 	fi
 	sleep 0.02
+	kill -0 "$p" 2>/dev/null || exit 0
 done
 `
