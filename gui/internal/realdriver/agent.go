@@ -18,12 +18,14 @@ import (
 // polkit's text agent registered for archmaid-gui around it, its prompts
 // passed to the Driver on agents (Deps.Agent), so the run's one password
 // answers polkit too. Without an agent of ours (pkttyagent missing, or
-// it can't register) polkit asks through the desktop's agent, as before:
-// the status line says so (SetNotice), and the step's output.
+// it can't register) polkit asks through the desktop's agent, as before,
+// or refuses when there is none: the status line says why archmaid has no
+// dialog of its own (SetNotice), and the step's output; it can't know yet
+// whether a desktop agent exists, so it promises no dialog.
 func (w *Wiring) helper(agents chan<- driver.AgentPrompt) driver.Helper {
 	return func(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)) helperclient.Outcome {
 		fallback := func(err error) {
-			why := "polkit's own dialog asks: " + err.Error()
+			why := err.Error() + ", so the desktop's polkit agent has to ask"
 			w.notice(why)
 			emit(engine.StepOutput{Seq: seq, Lines: []string{"archmaid: " + why}})
 		}
@@ -105,8 +107,8 @@ func (w *Wiring) startAgent() (*polkitagent.Agent, error) {
 	return polkitagent.Start(polkitagent.Options{Path: w.cfg.TTYAgent, Pid: os.Getpid(), Start: self.Start, User: u.Username})
 }
 
-// SetNotice sets what the window is told when polkit's own dialog has to
-// ask (no agent of archmaid's): f gets the reason, or "" once an agent of
+// SetNotice sets what the window is told when archmaid has no polkit agent
+// of its own: f gets the reason, or "" once an agent of
 // ours runs. It may be called from any goroutine.
 func (w *Wiring) SetNotice(f func(string)) {
 	w.mu.Lock()

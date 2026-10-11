@@ -11,7 +11,35 @@ import (
 // says only how the queue ended: a queue that ran to its end is
 // OutcomeCompleted even with a failed step (Errs) or steps polkit refused
 // (Refused), which last-run.json records as failed and incomplete.
-func FinishedText(f engine.Finished) (status, toast string) {
+//
+// A queue whose every step was refused ran nothing, so last-run.json
+// records it cancelled with steps_refused > 0; the Model knows no step ran
+// and tells it as the Overview and the DMS widget do: "not authorised ·
+// nothing ran (N steps not authorised)".
+func (m *Model) FinishedText(f engine.Finished) (status, toast string) {
+	if f.Refused > 0 && f.Errs == 0 && f.Outcome != engine.OutcomeAborted && m.nothingRan() {
+		n := plural.N(f.Refused, "step", "steps") + " not authorised"
+		return "Finished: not authorised · nothing ran (" + n + ")",
+			"Run not authorised · nothing ran (" + n + ")"
+	}
+	return finishedText(f)
+}
+
+// nothingRan: no row started, so the engine recorded the run as cancelled.
+func (m *Model) nothingRan() bool {
+	if len(m.Rows) == 0 {
+		return false
+	}
+	for _, r := range m.Rows {
+		switch r.State {
+		case RowRunning, RowOK, RowFailed, RowAborted:
+			return false
+		}
+	}
+	return true
+}
+
+func finishedText(f engine.Finished) (status, toast string) {
 	switch f.Outcome {
 	case engine.OutcomeCompleted:
 		switch {
@@ -45,7 +73,7 @@ func (m *Model) EndToast(f engine.Finished) string {
 	if f.Outcome == engine.OutcomeNotice && m.Notice != "" {
 		return Shorten(m.Notice, ShortMax)
 	}
-	_, toast := FinishedText(f)
+	_, toast := m.FinishedText(f)
 	return toast
 }
 

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // TestFinishedText: the end of a run reads as last-run.json judges it, not
@@ -25,7 +26,7 @@ func TestFinishedText(t *testing.T) {
 		{engine.Finished{Outcome: engine.OutcomeNotice}, "Finished", "Run finished"},
 		{engine.Finished{Outcome: engine.OutcomeReport}, "Finished", "Run finished"},
 	} {
-		if s, toast := FinishedText(c.f); s != c.status || toast != c.toast {
+		if s, toast := NewModel().FinishedText(c.f); s != c.status || toast != c.toast {
 			t.Errorf("%+v: %q / %q, want %q / %q", c.f, s, toast, c.status, c.toast)
 		}
 	}
@@ -72,5 +73,44 @@ func TestShowReport(t *testing.T) {
 	}
 	if m.Action != "auraudit" || len(m.Rows) != 0 || m.Lines != 0 || m.Finished != nil || len(m.Output()) != 0 {
 		t.Errorf("page: action %q rows %d lines %d finished %v", m.Action, len(m.Rows), m.Lines, m.Finished)
+	}
+}
+
+// TestFinishedTextNotAuthorised: a queue whose every step was refused ran
+// nothing, which last-run.json records as cancelled with steps_refused N;
+// the Run page and the toast say what the Overview and the DMS widget say.
+// A queue where any step ran is still incomplete.
+func TestFinishedTextNotAuthorised(t *testing.T) {
+	plan := []engine.PlanStep{{ID: "a", NeedsPriv: true}, {ID: "b", NeedsPriv: true}}
+	run := func(evs ...engine.Event) *Model {
+		m := NewModel()
+		m.Apply(append([]engine.Event{engine.QueueStarted{Steps: plan}}, evs...))
+		return m
+	}
+	m := run(engine.StepDone{ID: "a", Index: 0, Status: steps.AuthRefused}, engine.StepDone{ID: "b", Index: 1, Status: steps.AuthRefused})
+	f := engine.Finished{Outcome: engine.OutcomeCompleted, Refused: 2, Skipped: 2}
+	s, toast := m.FinishedText(f)
+	if s != "Finished: not authorised · nothing ran (2 steps not authorised)" || toast != "Run not authorised · nothing ran (2 steps not authorised)" {
+		t.Errorf("all refused: %q / %q", s, toast)
+	}
+	if got := m.EndToast(f); got != toast {
+		t.Errorf("EndToast %q, want %q", got, toast)
+	}
+	m.Apply([]engine.Event{f})
+	if h := m.Header(); h.Kicker != s {
+		t.Errorf("header kicker %q, want %q", h.Kicker, s)
+	}
+	one := run(engine.StepDone{ID: "a", Index: 0, Status: steps.AuthRefused})
+	if s, _ := one.FinishedText(engine.Finished{Outcome: engine.OutcomeCancelled, Refused: 1}); s != "Finished: not authorised · nothing ran (1 step not authorised)" {
+		t.Errorf("one refused, cancelled: %q", s)
+	}
+	// One step ran: incomplete, as before.
+	ran := run(engine.StepStarted{ID: "a", Index: 0}, engine.StepDone{ID: "a", Index: 0, Status: steps.OK}, engine.StepDone{ID: "b", Index: 1, Status: steps.AuthRefused})
+	if s, _ := ran.FinishedText(engine.Finished{Outcome: engine.OutcomeCompleted, Refused: 1, Skipped: 1}); s != "Finished: incomplete (1 step not authorised)" {
+		t.Errorf("one ran: %q", s)
+	}
+	// A plain cancel stays cancelled.
+	if s, _ := one.FinishedText(engine.Finished{Outcome: engine.OutcomeCancelled}); s != "Finished: cancelled" {
+		t.Errorf("plain cancel: %q", s)
 	}
 }

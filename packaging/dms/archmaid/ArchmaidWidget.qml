@@ -299,7 +299,7 @@ PluginComponent {
                             color: Theme.surfaceText
                             anchors.verticalCenter: parent.verticalCenter
                         }
-                        // The outcome tag: OK, FAILED, INCOMPLETE, ABORTED, CANCELLED.
+                        // The outcome tag: OK, FAILED, INCOMPLETE, ABORTED, CANCELLED, NOT AUTHORISED.
                         Rectangle {
                             id: chip
                             readonly property color ink: root.tone(root.view.lastRun ? root.view.lastRun.tint : "muted")

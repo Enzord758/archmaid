@@ -155,7 +155,12 @@ function summarize(lastRun, audit, updates, now) {
             warns.push({ kind: "aborted", text: "Last run aborted" });
             break;
         case "cancelled":
-            warns.push({ kind: "cancelled", text: "Last run cancelled, nothing ran" });
+            // Every step refused: the engine records it cancelled (nothing
+            // ran) with steps_refused; the GUI says "not authorised".
+            if (lastRun.stepsRefused > 0)
+                warns.push({ kind: "notauthorised", text: "Last run not authorised \u00b7 nothing ran (" + plural(lastRun.stepsRefused, "step", "steps") + " not authorised)" });
+            else
+                warns.push({ kind: "cancelled", text: "Last run cancelled, nothing ran" });
             break;
         }
         var age = _ageDays(lastRun.finished, now);
@@ -187,8 +192,11 @@ function _own(map, key) {
 var OUTCOME_TAGS = { ok: "OK", failed: "FAILED", incomplete: "INCOMPLETE", aborted: "ABORTED", cancelled: "CANCELLED", "nothing-found": "NOTHING FOUND" };
 var OUTCOME_TINTS = { ok: "primary", failed: "error", incomplete: "warning", aborted: "warning", cancelled: "muted", "nothing-found": "primary" };
 
-// outcomeTag(outcome): the LAST RUN chip's text, as the GUI's tag.
-function outcomeTag(outcome) {
+// outcomeTag(outcome, refused): the LAST RUN chip's text, as the GUI's tag.
+// A cancelled run with refused steps is "NOT AUTHORISED".
+function outcomeTag(outcome, refused) {
+    if (outcome === "cancelled" && refused > 0)
+        return "NOT AUTHORISED";
     return _own(OUTCOME_TAGS, outcome) ? OUTCOME_TAGS[outcome] : "UNKNOWN";
 }
 
@@ -196,7 +204,9 @@ function outcomeTag(outcome) {
 // "warning" or "muted"; the widget maps it to Theme.primary, Theme.error,
 // Theme.warning and Theme.surfaceVariantText. A cancelled run ran nothing,
 // so it is muted, not a warning colour.
-function outcomeTint(outcome) {
+function outcomeTint(outcome, refused) {
+    if (outcome === "cancelled" && refused > 0)
+        return "warning";
     return _own(OUTCOME_TINTS, outcome) ? OUTCOME_TINTS[outcome] : "muted";
 }
 
@@ -275,13 +285,13 @@ function popout(s, now) {
         var notes = [];
         for (var i = 0; i < s.issues.length; i++) {
             var k = s.issues[i].kind;
-            if (k === "failed" || k === "incomplete" || k === "stale")
+            if (k === "failed" || k === "incomplete" || k === "notauthorised" || k === "stale")
                 notes.push({ text: s.issues[i].text, tint: k === "failed" ? "error" : "warning" });
         }
         p.lastRun = {
             action: actionLabel(r.action),
-            tag: outcomeTag(r.outcome),
-            tint: outcomeTint(r.outcome),
+            tag: outcomeTag(r.outcome, r.stepsRefused),
+            tint: outcomeTint(r.outcome, r.stepsRefused),
             stamp: stamp(r.finished, now),
             notes: notes
         };

@@ -129,6 +129,14 @@ func ReadLastRun(stateDir string, now time.Time) LastRun {
 	return Summarize(r, now)
 }
 
+// NotAuthorised: the run ended cancelled because every step was refused
+// (the engine records OutcomeCancelled whenever no step started). The
+// Overview, the Run page and the DMS widget call it "not authorised", not
+// "cancelled".
+func NotAuthorised(r logstore.RunRecord) bool {
+	return r.Outcome == logstore.OutcomeCancelled && r.StepsRefused > 0
+}
+
 // Summarize is the DMS widget's summarize for the last run alone: the
 // outcome's issue, then the staleness warning past StaleDays.
 func Summarize(r logstore.RunRecord, now time.Time) LastRun {
@@ -153,7 +161,11 @@ func Summarize(r logstore.RunRecord, now time.Time) LastRun {
 	case logstore.OutcomeAborted:
 		warns = append(warns, "Last run aborted")
 	case logstore.OutcomeCancelled:
-		warns = append(warns, "Last run cancelled, nothing ran")
+		if NotAuthorised(r) {
+			warns = append(warns, "Last run not authorised · nothing ran ("+plural.N(r.StepsRefused, "step", "steps")+" not authorised)")
+		} else {
+			warns = append(warns, "Last run cancelled, nothing ran")
+		}
 	}
 	if age := ageDays(r.Finished, now); age > StaleDays {
 		warns = append(warns, "No cleanup for "+plural.N(int(math.Floor(age)), "day", "days"))

@@ -19,8 +19,8 @@ import (
 // Window is the main window: a view stack of the Overview, Run, Logs and
 // Settings pages. Every method runs on the GTK main thread.
 type Window struct {
-	// agentNotice says why polkit's own dialog asks this run (no agent of
-	// archmaid's; Options.Notices), shown with the polkit wait.
+	// agentNotice says why archmaid has no polkit agent of its own this run
+	// (Options.Notices), shown with the polkit wait.
 	agentNotice string
 
 	app  *adw.Application
@@ -443,7 +443,7 @@ func (w *Window) statusText() string {
 		// action said, and it stays until the next one starts.
 		parts = append(parts, runview.Shorten(m.Notice, runview.ShortMax))
 	case m.Finished != nil:
-		status, _ := runview.FinishedText(*m.Finished)
+		status, _ := m.FinishedText(*m.Finished)
 		parts = append(parts, status)
 		if n := m.Finished.NotRun; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d not run", n))

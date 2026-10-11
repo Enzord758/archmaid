@@ -59,7 +59,7 @@ func (m *Model) Header() Header {
 	case m.Finished != nil && m.Discovery != nil:
 		h.Kicker, h.Badge = DiscoveryText(*m.Discovery), "done"
 	case m.Finished != nil:
-		h.Kicker, _ = FinishedText(*m.Finished)
+		h.Kicker, _ = m.FinishedText(*m.Finished)
 		h.Badge = "done"
 	case m.Running:
 		h.Badge = fmt.Sprintf("%02d/%02d", h.Step, h.Of)

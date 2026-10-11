@@ -68,6 +68,7 @@ func TestSummarize(t *testing.T) {
 	rec := func(outcome string, age time.Duration) logstore.RunRecord {
 		return logstore.RunRecord{V: 1, Action: actions.IDFullCleanup, Outcome: outcome, Finished: now.Add(-age), StepsFailed: 2, StepsRefused: 1}
 	}
+	noRefused := func(r logstore.RunRecord) logstore.RunRecord { r.StepsRefused = 0; return r }
 	one := func(r logstore.RunRecord) logstore.RunRecord { r.StepsFailed = 1; return r }
 	for _, tc := range []struct {
 		r      logstore.RunRecord
@@ -82,7 +83,9 @@ func TestSummarize(t *testing.T) {
 		{one(rec(logstore.OutcomeFailed, day)), LevelError, []string{"Last run failed (1 step)"}},
 		{rec(logstore.OutcomeIncomplete, day), LevelWarn, []string{"Last run incomplete: root steps refused (1)"}},
 		{rec(logstore.OutcomeAborted, day), LevelWarn, []string{"Last run aborted"}},
-		{rec(logstore.OutcomeCancelled, day), LevelWarn, []string{"Last run cancelled, nothing ran"}},
+		{noRefused(rec(logstore.OutcomeCancelled, day)), LevelWarn, []string{"Last run cancelled, nothing ran"}},
+		{rec(logstore.OutcomeCancelled, day), LevelWarn, []string{"Last run not authorised · nothing ran (1 step not authorised)"}},
+		{func() logstore.RunRecord { r := rec(logstore.OutcomeCancelled, day); r.StepsRefused = 3; return r }(), LevelWarn, []string{"Last run not authorised · nothing ran (3 steps not authorised)"}},
 	} {
 		got := Summarize(tc.r, now)
 		if got.Level != tc.level || !slices.Equal(got.Issues, tc.issues) {

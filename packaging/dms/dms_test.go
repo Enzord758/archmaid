@@ -49,13 +49,16 @@ func lastRun(t *testing.T, outcome string, failed int) string {
 // "incomplete" plus steps_refused) that the engine is gaining; the Go
 // RunRecord does not carry those yet, so the two fields are set on the
 // writer's own JSON.
-func withRefused(t *testing.T, raw string, refused int) string {
+func withRefused(t *testing.T, raw string, refused int, outcome ...string) string {
 	t.Helper()
 	m := map[string]any{}
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		t.Fatal(err)
 	}
 	m["outcome"] = "incomplete"
+	if len(outcome) > 0 {
+		m["outcome"] = outcome[0]
+	}
 	m["steps_refused"] = refused
 	b, _ := json.Marshal(m)
 	return string(b) + "\n"
@@ -294,19 +297,20 @@ func TestStateJS(t *testing.T) {
 	}
 	okRaw := lastRun(t, logstore.OutcomeOK, 0)
 	fx := map[string]string{
-		"t0":               t0.Format(time.RFC3339),
-		"lastOK":           okRaw,
-		"lastFailed":       lastRun(t, logstore.OutcomeFailed, 2),
-		"lastFailed1":      lastRun(t, logstore.OutcomeFailed, 1),
-		"lastAborted":      lastRun(t, logstore.OutcomeAborted, 0),
-		"lastCancelled":    lastRun(t, logstore.OutcomeCancelled, 0),
-		"lastNothing":      lastRun(t, logstore.OutcomeNothingFound, 0),
-		"lastIncomplete":   withRefused(t, okRaw, 2),
-		"lastUnknownField": strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),
-		"lastV2":           strings.Replace(okRaw, `"v":1`, `"v":2`, 1),
-		"lastTorn":         okRaw[:len(okRaw)/2],
-		"lastDry":          strings.Replace(okRaw, `"dry_run":false`, `"dry_run":true`, 1),
-		"auditClean":       auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true}),
+		"t0":                t0.Format(time.RFC3339),
+		"lastOK":            okRaw,
+		"lastFailed":        lastRun(t, logstore.OutcomeFailed, 2),
+		"lastFailed1":       lastRun(t, logstore.OutcomeFailed, 1),
+		"lastAborted":       lastRun(t, logstore.OutcomeAborted, 0),
+		"lastCancelled":     lastRun(t, logstore.OutcomeCancelled, 0),
+		"lastNotAuthorised": withRefused(t, lastRun(t, logstore.OutcomeCancelled, 0), 1, logstore.OutcomeCancelled),
+		"lastNothing":       lastRun(t, logstore.OutcomeNothingFound, 0),
+		"lastIncomplete":    withRefused(t, okRaw, 2),
+		"lastUnknownField":  strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),
+		"lastV2":            strings.Replace(okRaw, `"v":1`, `"v":2`, 1),
+		"lastTorn":          okRaw[:len(okRaw)/2],
+		"lastDry":           strings.Replace(okRaw, `"dry_run":false`, `"dry_run":true`, 1),
+		"auditClean":        auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true}),
 		"auditHigh": auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true,
 			High: []audit.StateFinding{{Pkg: "foo", Reason: "maintainer alice → mallory"}, {Pkg: "bar", Reason: "adopted by x"}}}),
 		"updates3":     updatesFile(t, "a\nb\nc\n", 0),

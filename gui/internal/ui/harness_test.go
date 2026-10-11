@@ -1741,11 +1741,16 @@ func TestGUIConfirmFlag(t *testing.T) {
 // cell lists no log files (not an earlier run's) and has no Open in Logs.
 func TestGUILastRunTones(t *testing.T) {
 	needDisplay(t)
-	for _, tc := range []struct{ outcome, tag, tone, cell string }{
-		{logstore.OutcomeFailed, "FAILED", "am-tag-danger", `files="topgrade.log" open=true`},
-		{logstore.OutcomeCancelled, "CANCELLED", "am-tag-neutral", fmt.Sprintf("files=%q open=false", nothingRan)},
-		{logstore.OutcomeOK, "OK", "am-tag-ok", `files="topgrade.log" open=true`},
-		{logstore.OutcomeNothingFound, "NOTHING FOUND", "am-tag-ok", `files="topgrade.log" open=true`},
+	for _, tc := range []struct {
+		outcome, tag, tone, cell string
+		refused                  int
+	}{
+		{logstore.OutcomeFailed, "FAILED", "am-tag-danger", `files="topgrade.log" open=true`, 0},
+		{logstore.OutcomeCancelled, "CANCELLED", "am-tag-neutral", fmt.Sprintf("files=%q open=false", nothingRan), 0},
+		// Every step refused: the engine records it cancelled, steps_refused 1.
+		{logstore.OutcomeCancelled, "NOT AUTHORISED", "am-tag-warn", fmt.Sprintf("files=%q open=false", nothingRan), 1},
+		{logstore.OutcomeOK, "OK", "am-tag-ok", `files="topgrade.log" open=true`, 0},
+		{logstore.OutcomeNothingFound, "NOTHING FOUND", "am-tag-ok", `files="topgrade.log" open=true`, 0},
 	} {
 		dir := t.TempDir()
 		now := time.Now()
@@ -1754,7 +1759,7 @@ func TestGUILastRunTones(t *testing.T) {
 		if err := logstore.New(logstore.Options{Dir: dir, Now: earlier}).Append(logstore.Topgrade, "OK", "Topgrade completed", "done\n"); err != nil {
 			t.Fatal(err)
 		}
-		if err := logstore.New(logstore.Options{Dir: dir}).WriteLastRun(logstore.RunRecord{Action: actions.IDFullCleanup, Outcome: tc.outcome, Started: now, Finished: now}); err != nil {
+		if err := logstore.New(logstore.Options{Dir: dir}).WriteLastRun(logstore.RunRecord{Action: actions.IDFullCleanup, Outcome: tc.outcome, StepsRefused: tc.refused, Started: now, Finished: now}); err != nil {
 			t.Fatal(err)
 		}
 		rep, _ := child(t, "repair", "ARCHMAID_GUI_STATE="+dir)

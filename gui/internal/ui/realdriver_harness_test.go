@@ -967,8 +967,11 @@ func TestGUIOnePassword(t *testing.T) {
 		if g := readLines(t, filepath.Join(dir, "gnome.log")); len(g) != 1 {
 			t.Errorf("the desktop's agent asked for %q, want the one call", g)
 		}
-		if !hasRow(rep.Statuses, "Waiting for authorisation (polkit's own dialog asks: ") {
-			t.Errorf("the status line never said polkit's own dialog asks: %q", rep.Statuses)
+		if !hasRow(rep.Statuses, "Waiting for authorisation (") {
+			t.Errorf("the status line never said why archmaid has no agent: %q", rep.Statuses)
+		}
+		if hasRow(rep.Statuses, "own dialog asks") || !hasRow(rep.Statuses, "so the desktop's polkit agent has to ask)") {
+			t.Errorf("the status line promised a dialog, or never named the desktop agent: %q", rep.Statuses)
 		}
 		if g := readLines(t, filepath.Join(dir, "agent.got")); g != nil {
 			t.Errorf("an agent was answered: %q", g)

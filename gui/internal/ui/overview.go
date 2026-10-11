@@ -329,6 +329,9 @@ func (w *Window) openLastRunLogs() {
 // it: nothing ran, nothing to warn about.
 func lastTone(lr overview.LastRun) (icon, text, class string) {
 	if lr.Record != nil && lr.Record.Outcome == logstore.OutcomeCancelled {
+		if overview.NotAuthorised(*lr.Record) {
+			return "dialog-warning-symbolic", "NOT AUTHORISED", "am-tag-warn"
+		}
 		return "content-loading-symbolic", "CANCELLED", "am-tag-neutral"
 	}
 	switch lr.Level {

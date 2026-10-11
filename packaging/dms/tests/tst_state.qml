@@ -78,6 +78,12 @@ TestCase {
         verify(inc.issues[0].text.indexOf("(2)") >= 0);
         compare(sum(F.fx.lastAborted, null, null, t0).level, "warn");
         compare(sum(F.fx.lastCancelled, null, null, t0).level, "warn");
+        compare(sum(F.fx.lastCancelled, null, null, t0).issues[0].text, "Last run cancelled, nothing ran");
+        // every step refused: cancelled with steps_refused, said as the GUI says it
+        const na = sum(F.fx.lastNotAuthorised, null, null, t0);
+        compare(na.level, "warn");
+        compare(kinds(na), "notauthorised");
+        compare(na.issues[0].text, "Last run not authorised \u00b7 nothing ran (1 step not authorised)");
         // a discovery that found nothing to do is a clean run
         const nf = sum(F.fx.lastNothing, null, null, t0);
         compare(State.parseLastRun(F.fx.lastNothing).outcome, "nothing-found");
@@ -183,6 +189,10 @@ TestCase {
         compare(c.lastRun.tag, "CANCELLED");
         compare(c.lastRun.tint, "muted");
         compare(c.lastRun.notes.length, 0);
+        const na = State.popout(sum(F.fx.lastNotAuthorised, null, null, t0), t0);
+        compare(na.lastRun.tag, "NOT AUTHORISED");
+        compare(na.lastRun.tint, "warning");
+        compare(na.lastRun.notes.map(n => n.text), ["Last run not authorised \u00b7 nothing ran (1 step not authorised)"]);
         compare(c.aur.packages, null);
         compare(c.aur.note, "No audit yet");
 
