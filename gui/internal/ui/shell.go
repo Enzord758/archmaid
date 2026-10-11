@@ -104,7 +104,11 @@ func (w *Window) buildShell() {
 	// banner, the page, and the narrow form's status bar.
 	sh.title = gtk.NewLabel("")
 	sh.title.AddCSSClass("title")
-	sh.title.SetEllipsize(0) // a title is short; never cut it
+	// Ellipsized, with the whole title as its tooltip: the header centres
+	// its title between Stop and the window's buttons, and an uncut "Full
+	// Cleanup (Recommended)" made the window 479 px wide at least mid-run
+	// (Dev 5's VM round b5, in a 360 px window).
+	sh.title.SetEllipsize(3) // pango.EllipsizeEnd
 	sh.toggle = gtk.NewToggleButton()
 	sh.toggle.SetIconName("sidebar-show-symbolic")
 	sh.toggle.SetTooltipText("Show the pages")
@@ -162,6 +166,10 @@ func (w *Window) buildShell() {
 		bp.AddSetter(sh.split, "collapsed", true)
 		bp.AddSetter(sh.toggle, "visible", true)
 		bp.AddSetter(sh.statusBar, "visible", true)
+		// The hero's plan is one column here, and a title that wraps or
+		// tags moved under it make that line taller: homogeneous, every
+		// line would be as tall as the tallest.
+		bp.AddSetter(w.heroSteps, "homogeneous", false)
 	}
 	shortSetters := func(bp *adw.Breakpoint) {
 		bp.AddSetter(sh.meters.box, "visible", false)
@@ -252,6 +260,7 @@ func (w *Window) updateTitle() {
 		title = overview.Label(w.current)
 	}
 	w.shell.title.SetLabel(title)
+	w.shell.title.SetTooltipText(title)
 }
 
 // setStatus shows the status line in the sidebar's footer and, in the

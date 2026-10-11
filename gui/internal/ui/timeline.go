@@ -61,6 +61,7 @@ type stepHeader struct {
 	title *gtk.Label
 	root  *gtk.Label
 	sub   *gtk.Label
+	tags  *gtk.Box       // root and sub
 	acts  *failedActions // a failed step's actions (failed.go)
 	sec   *section
 }
@@ -209,11 +210,19 @@ func (w *Window) newRunPage() gtk.Widgetter {
 // the counts, and the segment bar (one segment per step).
 func (w *Window) newRunHeader() gtk.Widgetter {
 	tl := w.tl
+	// The kicker and the meta line wrap: the dry run's meta line alone
+	// made the Run page 470 px wide at least (Dev 5's VM round b5). The
+	// kicker expands: given just its natural width, a label with the
+	// kicker's letter-spacing wraps its last word anyway (and overlaps the
+	// line under it), as "Finished:" over "completed".
 	tl.kicker = gtk.NewLabel("")
 	tl.kicker.SetXAlign(0)
+	tl.kicker.SetHExpand(true)
+	wrapNatural(tl.kicker)
 	tl.kicker.AddCSSClass("am-kicker")
 	tl.meta = gtk.NewLabel("")
 	tl.meta.SetXAlign(0)
+	wrapNatural(tl.meta)
 	tl.meta.AddCSSClass("am-run-meta")
 	tl.counts = gtk.NewFlowBox()
 	tl.counts.SetSelectionMode(gtk.SelectionNone)
@@ -263,8 +272,7 @@ func (w *Window) newStepHeader() (*stepHeader, *gtk.Box) {
 	h.num.AddCSSClass("am-step-num")
 	h.title = gtk.NewLabel("")
 	h.title.SetXAlign(0)
-	h.title.SetHExpand(true)
-	h.title.SetWrap(true)
+	wrapNatural(h.title)
 	h.title.AddCSSClass("am-step-title")
 	h.root = tag("root", "am-tag-root")
 	h.sub = gtk.NewLabel("")
@@ -272,13 +280,15 @@ func (w *Window) newStepHeader() (*stepHeader, *gtk.Box) {
 	h.sub.SetWrap(true)
 	h.sub.SetUseMarkup(false)
 	h.sub.AddCSSClass("am-step-sub")
+	// The title, then the root tag and the state line: at the end of the
+	// line, or under the title when the line is too narrow (tagLine).
+	var title *adw.WrapBox
+	title, h.tags = tagLine(h.title, 10, h.root, h.sub)
 	row := gtk.NewBox(gtk.OrientationHorizontal, 10)
 	row.Append(h.icon)
 	row.Append(h.spin)
 	row.Append(h.num)
-	row.Append(h.title)
-	row.Append(h.root)
-	row.Append(h.sub)
+	row.Append(title)
 	h.box = gtk.NewBox(gtk.OrientationVertical, 6)
 	h.box.AddCSSClass("am-step-header")
 	h.box.Append(row)
@@ -311,6 +321,7 @@ func (w *Window) drawHeader(h *stepHeader) {
 	h.title.SetText(r.Title)
 	h.root.SetVisible(r.NeedsPriv)
 	h.sub.SetText(r.Subtitle())
+	h.tags.SetVisible(r.NeedsPriv || h.sub.Text() != "")
 	icon := r.State.Icon()
 	setStateClass(&h.icon.Widget, r)
 	setStateClass(&h.spin.Widget, r)

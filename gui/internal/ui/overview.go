@@ -82,6 +82,9 @@ func (w *Window) newHero() gtk.Widgetter {
 	preview, ok := w.planPreview(actions.IDFullCleanup)
 	kicker := gtk.NewLabel(heroKicker(preview, ok))
 	kicker.SetXAlign(0)
+	// It wraps: on one line it alone made the Overview 529 px wide at least
+	// (Dev 5's VM round b5, in a 360 px window).
+	wrapNatural(kicker)
 	kicker.AddCSSClass("am-kicker")
 	title := gtk.NewLabel("Full Cleanup")
 	title.SetXAlign(0)
@@ -102,21 +105,29 @@ func (w *Window) newHero() gtk.Widgetter {
 	w.heroSteps.SetFocusable(false)
 	if ok {
 		for i, s := range preview.Steps {
-			line := gtk.NewBox(gtk.OrientationHorizontal, 8)
+			// The number and the title, on their first line's baseline:
+			// the title wraps rather than being cut, and the tags move
+			// under the two when the line is too narrow (tagLine).
+			head := gtk.NewBox(gtk.OrientationHorizontal, 8)
+			head.SetVAlign(gtk.AlignCenter)
 			n := gtk.NewLabel(fmt.Sprintf("%02d", i+1))
 			n.AddCSSClass("am-step-num")
+			n.SetVAlign(gtk.AlignBaselineFill)
 			t := gtk.NewLabel(s.Title)
 			t.SetXAlign(0)
-			t.SetEllipsize(3) // pango.EllipsizeEnd: a step title in a narrow column
-			t.SetHExpand(true)
-			line.Append(n)
-			line.Append(t)
+			t.SetVAlign(gtk.AlignBaselineFill)
+			wrapNatural(t)
+			head.Append(n)
+			head.Append(t)
+			var tags []gtk.Widgetter
 			if s.Asks {
-				line.Append(tag("asks", "am-tag-asks"))
+				tags = append(tags, tag("asks", "am-tag-asks"))
 			}
 			if s.Root {
-				line.Append(tag("root", "am-tag-root"))
+				tags = append(tags, tag("root", "am-tag-root"))
 			}
+			line, tagBox := tagLine(head, 8, tags...)
+			tagBox.SetVisible(len(tags) > 0)
 			w.heroSteps.Append(line)
 		}
 	}

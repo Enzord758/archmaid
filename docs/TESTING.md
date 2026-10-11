@@ -270,6 +270,21 @@ archmaid's own polkit dialog ends cancelled with nothing refused in
 text, while three wrong passwords and a cancel at the desktop's dialog stay
 "not authorised".
 
+`TestGUIMinWidth` (`minwidth_harness_test.go`, scenario `real-narrow`)
+runs the real Driver's content at 360, 480 and 960 px wide (720 high):
+the Overview with the real Full Cleanup plan, its gate declined (and that
+toast), Dry run first through to its end (the Run page with the plan's
+rows and root tags), the longest toasts, then the Logs and Settings pages.
+At each moment the window's content (the toast overlay) must measure no
+wider than the window, no mapped widget (a dialog's, a breakpoint bin's
+content) may either, and the child's stderr must hold no GLib warning
+(but the one it provokes on purpose, so a lost stderr can't pass it). A
+failure names the widest widgets (`tooWide`). Libadwaita lets a window
+shrink to 360 px whatever its content asks; content wider than that is
+cut off on the right and logged as "AdwToastOverlay … exceeds
+AdwApplicationWindow width". Stub content can't stand in: the stub has no
+plan, so the hero has no kicker or step list.
+
 The stub is only ever `--stub`: `TestParseLaunch` (plain Go) checks that
 `ARCHMAID_GUI_STUB` and any `ARCHMAID_GUI_SCRIPT` leave a launch without it
 on the real Driver and that an unknown script is refused; the stub

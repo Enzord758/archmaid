@@ -457,6 +457,19 @@ comments and `git log`; this is the "read before you touch it" list.
   covers ours, so the question would open under it, and nothing of that
   step runs as root yet; it is Stop and Quit at once (pkexec killed, the
   run recorded aborted).
+- **GUI: nothing may be wider than 360 px at its minimum.** Libadwaita
+  lets the window go down to 360 px whatever its content asks; wider
+  content is cut off on the right (the header title, chips, Stop, the
+  toast) and logged as "AdwToastOverlay … exceeds AdwApplicationWindow
+  width". A label that can be long wraps or ellipsizes (with the whole
+  text as its tooltip); a title with tags is a `tagLine` (an `AdwWrapBox`:
+  the tags at the line's end, or under the title when narrow). A wrapping
+  label needs `wrapNatural`: by default its natural width is its longest
+  word, so a box that gives it its natural width wraps it at every word.
+  A label with the kicker's letter-spacing wraps its last word even at its
+  natural width (and overlaps the line under it), so the Run page's kicker
+  expands. `TestGUIMinWidth` measures the real content at 360/480/960 px
+  and names the widest widget when something is too wide.
 - **The GUI password's last copy (accepted risk).** `engine.Secret` is a Go
   string (E0 is frozen), so the password typed into the GUI ends in one
   immutable string that can't be zeroed and stays in the heap until the GC

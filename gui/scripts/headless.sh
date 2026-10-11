@@ -34,7 +34,7 @@ if [[ $# -eq 0 ]]; then
 	real='^TestGUI(RealDriver|StopAndQuit)$'
 	svc='^TestGUI(FullCleanup|OnePassword|RealServices)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
-	narrow='^TestGUI(NarrowNav|ToastPlain|ToastHalfScreen|LogsPage|SettingsCards)$'
+	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards)$'
 	tones='^TestGUI(LastRunTones|AuditRerun)$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
