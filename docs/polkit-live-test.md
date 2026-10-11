@@ -11,7 +11,7 @@ both runs: no user, files, actions or `/root/amtest-live` left.
 |---|---|
 | 1. Failures per wrong polkit password | **1**. pkttyagent doesn't re-prompt: one dialog = one attempt |
 | 2. Does cancelling count as a failure? | **Yes**. EOF and Ctrl-C each add 1 faillock row |
-| 3. `auth_admin_keep` scope | **The requesting process** (pkexec's parent), when that process has no session. Must be re-checked in a real session (tty3) |
+| 3. `auth_admin_keep` scope | **The requesting process** (pkexec's parent), when that process has no session. In a real session: the scope of the agent that asked (session scope in the owner's graphical session, 2026-10-12; see the caveat below) |
 | 4. pkexec honours `exec.argv1` | **Yes**, but an action **without** argv1 for the same `exec.path` can take calls meant for an argv1-specific one (see trap below) |
 
 Other findings:
@@ -95,7 +95,10 @@ session    include      system-auth
 
 Caveat: the test subjects ran outside any logind session. My understanding is
 that polkit ties keep to the session when there is one, so the GUI (active
-session) may share keep across processes. Re-check on tty3.
+session) may share keep across processes. Answered on 2026-10-12: in the
+owner's graphical session keep is session-scoped (G3 rc=0, G5
+`unix-session`); polkitd keeps it for the scope of the agent that asked
+(HANDOVER, "auth_admin_keep is kept for the scope of the agent that asked").
 
 ## Deviations
 

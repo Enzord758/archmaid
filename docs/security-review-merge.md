@@ -108,7 +108,8 @@ ends; HANDOVER's askpass landmine records it.
 may run that same verb again for about five minutes without a prompt. The
 effects are bounded and documented in the policy. The GUI itself only uses
 `check-files`' keep (Repair's recheck). The scope inside a real login
-session is still an open item (HANDOVER, `docs/polkit-keep-session-check.md`).
+session was an open item; the owner answered it on 2026-10-12: session scope in
+the graphical session, i.e. the scope of the agent that asked (HANDOVER).
 
 **L2. Widget text rendering.** The widget shows strings from its state
 files (audit findings, last-run fields) in `StyledText`, which may treat

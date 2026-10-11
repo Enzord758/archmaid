@@ -205,7 +205,11 @@ factual correction only.
 ### Still unverified live
 
 - `auth_admin_keep` scope inside a real session (`docs/polkit-keep-session-check.md`).
+  Answered on 2026-10-12: session scope in the owner's graphical session
+  (G3 rc=0, G5 `unix-session`); HANDOVER has the scope rule.
 - Whether a pkexec killed while its dialog is up costs a faillock failure.
+  Answered: yes, one row (VM check Part C, K2), and so does any cancel at a
+  polkit dialog once PAM is asking (HANDOVER).
 - One-password (not merged yet). HANDOVER (0c4c15d) records that the VM
   runs have confirmed one polkit dialog per Full Cleanup and topgrade's
   askpass. The `archmaid-gui-git` package itself has never been installed on
