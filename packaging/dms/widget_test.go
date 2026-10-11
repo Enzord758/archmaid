@@ -71,3 +71,43 @@ func TestWidgetTextIsPlain(t *testing.T) {
 		}
 	}
 }
+
+// TestWidgetFilesSurviveAtomicReplace: the writers replace the state files by
+// rename (archmaid-updates-check: mktemp + mv), so a FileView that failed once
+// or watches the old inode kept the popout on "Not checked yet" though a fresh
+// updates-cache.json was there (owner's checklist, 2026-10-11). Every state
+// file's view must re-resolve its path on each reload, follow changes, and
+// retry a failed read. Like the tests above this reads the source: the widget
+// can't be loaded outside DMS.
+func TestWidgetFilesSurviveAtomicReplace(t *testing.T) {
+	b, err := os.ReadFile("archmaid/ArchmaidWidget.qml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, id := range []string{"lastRunFile", "auditFile", "updatesFile"} {
+		i := strings.Index(src, "id: "+id+"\n")
+		if i < 0 {
+			t.Fatalf("no FileView %s", id)
+		}
+		blk := src[i:]
+		if end := strings.Index(blk, "\n    }\n"); end > 0 {
+			blk = blk[:end]
+		}
+		for _, want := range []string{"path: root.filesOn ?", "watchChanges: true", "onFileChanged: reload()", "root.loadFailedRetry()"} {
+			if !strings.Contains(blk, want) {
+				t.Errorf("%s lacks %q:\n%s", id, want, blk)
+			}
+		}
+	}
+	rl := src[strings.Index(src, "function reloadFiles()"):]
+	rl = rl[:strings.Index(rl, "\n    }\n")]
+	for _, want := range []string{"filesOn = false", "filesOn = true", "updatesFile.reload()"} {
+		if !strings.Contains(rl, want) {
+			t.Errorf("reloadFiles lacks %q", want)
+		}
+	}
+	if !strings.Contains(src, "id: retryTimer") {
+		t.Error("no retry timer for a failed read")
+	}
+}

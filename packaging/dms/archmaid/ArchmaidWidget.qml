@@ -78,11 +78,41 @@ PluginComponent {
     popoutWidth: 340
     popoutHeight: 0
 
-    function reloadAll() {
-        now = Date.now();
+    // Every read starts from the path: the files are replaced by rename
+    // (mktemp + mv), and a FileView that failed once (the file was missing at
+    // login, or caught in the rename window) must not stay failed. Dropping the
+    // path and setting it again makes each view open the file afresh, whatever
+    // inode it had; reload() then reads it.
+    property bool filesOn: true
+    property int retries: 0
+
+    function reloadFiles() {
+        filesOn = false;
+        filesOn = true;
         lastRunFile.reload();
         auditFile.reload();
         updatesFile.reload();
+    }
+
+    function reloadAll() {
+        now = Date.now();
+        retries = 0;
+        reloadFiles();
+    }
+
+    // A failed read gets two more tries a couple of seconds apart, then waits
+    // for the 60 s timer or the next open: a file that is really absent
+    // is not polled hard.
+    function loadFailedRetry() {
+        if (retries < 2) {
+            retries++;
+            retryTimer.restart();
+        }
+    }
+    Timer {
+        id: retryTimer
+        interval: 2000
+        onTriggered: root.reloadFiles()
     }
 
     function probeTools() {
@@ -111,24 +141,45 @@ PluginComponent {
     // A missing or unreadable file is "no data", never an error.
     FileView {
         id: lastRunFile
-        path: root.stateDir + "/last-run.json"
+        path: root.filesOn ? root.stateDir + "/last-run.json" : ""
         printErrors: false
         onLoaded: root.lastRun = State.parseLastRun(text())
-        onLoadFailed: root.lastRun = null
+        onLoadFailed: {
+            if (path === "")
+                return;
+            root.lastRun = null;
+            root.loadFailedRetry();
+        }
+        watchChanges: true
+        onFileChanged: reload()
     }
     FileView {
         id: auditFile
-        path: root.stateDir + "/audit-state.json"
+        path: root.filesOn ? root.stateDir + "/audit-state.json" : ""
         printErrors: false
         onLoaded: root.audit = State.parseAudit(text())
-        onLoadFailed: root.audit = null
+        onLoadFailed: {
+            if (path === "")
+                return;
+            root.audit = null;
+            root.loadFailedRetry();
+        }
+        watchChanges: true
+        onFileChanged: reload()
     }
     FileView {
         id: updatesFile
-        path: root.stateDir + "/updates-cache.json"
+        path: root.filesOn ? root.stateDir + "/updates-cache.json" : ""
         printErrors: false
         onLoaded: root.updates = State.parseUpdates(text())
-        onLoadFailed: root.updates = null
+        onLoadFailed: {
+            if (path === "")
+                return;
+            root.updates = null;
+            root.loadFailedRetry();
+        }
+        watchChanges: true
+        onFileChanged: reload()
     }
 
     // The writers replace files by rename, so re-reading on a timer is
