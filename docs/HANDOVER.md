@@ -358,7 +358,14 @@ comments and `git log`; this is the "read before you touch it" list.
     agent and registering the next, a request goes to the desktop's dialog
     without the status-line notice; it fails safe. Without pkttyagent, or if
     it can't register, polkit asks through the desktop's agent as before,
-    and the status line says so. With no agent at all, pkexec (started
+    and the status line says so. Which desktop agent that is depends on
+    who registered first: DMS (DankMaterialShell) has its own polkit
+    agent and registers whenever polkit-gnome isn't registered when DMS
+    (re)starts. On a normal login polkit-gnome wins (`dms run` starts
+    first, but polkit-gnome registers first); a `dms restart` after
+    polkit-gnome died makes DMS the agent, and its "Authentication
+    Required" dialog (window class `com.danklinux.dms`) then asks for the
+    fallback path (evidence: VM check b4c-noagent-B). With no agent at all, pkexec (started
     with `--disable-internal-agent`, `helperclient.DisableInternalAgent`)
     asks nobody and exits 127 with "No authentication agent found": the
     step is AuthRefused with `engine.ErrNoAuthAgent` as its text, so its

@@ -164,10 +164,16 @@ echo "$d" && head -c 5 "$d/org.archmaid.keepcheck.k7q2.policy" && echo && xmllin
    `libxml2`; without it the `head` check alone must pass, and
    `grep -c '\\' "$d/org.archmaid.keepcheck.k7q2.policy"` must print `0`.)
 
-   2c. Leave bash, back to terminal 1's zsh, and check `$d` is still set:
+   2c. Leave bash: type `exit` on its own and press Enter. Don't paste it
+   together with the next line: bash would run `exit` and drop the rest.
 
 ```sh
 exit
+```
+
+   Back in terminal 1's zsh, check `$d` is still set:
+
+```sh
 echo "$d"
 ```
 
@@ -221,7 +227,11 @@ otherwise.
 
    Case **G1**. A polkit-gnome dialog appears. Before typing, check the
    message and, under Details, the action id (see "What you are looking
-   for"). Type your password once. Expected: `rc=0`.
+   for"). Type your password once. Expected: `rc=0`. (The dialog normally
+   comes from polkit-gnome. If DankMaterialShell was restarted after
+   polkit-gnome died, DMS's own "Authentication Required" dialog, window
+   class `com.danklinux.dms`, is the agent instead; the check works the
+   same with either.)
 
 7. **Same process** (no prompt): the shell that ran pkexec.
 
