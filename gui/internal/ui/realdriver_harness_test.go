@@ -222,8 +222,8 @@ func installShims(t *testing.T, o shimOpts) (string, []string) {
 	q := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 	pkexec := `#!/bin/sh
 printf '%s\n' "$*" >> ` + q(dir+"/pkexec.log") + `
-[ "$1" = ` + helperclient.HelperPath + ` ] || exit 126
-verb=$2
+[ "$1" = ` + helperclient.DisableInternalAgent + ` ] && [ "$2" = ` + helperclient.HelperPath + ` ] || exit 126
+verb=$3
 case " ` + strings.Join(o.refuse, " ") + ` " in *" $verb "*) exit 127;; esac
 ` + map[bool]string{true: "echo $$ > " + q(dir+"/pkexec.pid") + "\nexec sleep 30\n"}[o.pkexecWait] + `
 # polkit: the agent registered for archmaid-gui (the pkttyagent shim) asks
@@ -495,8 +495,8 @@ func TestGUIRealDriver(t *testing.T) {
 		calls := readLines(t, filepath.Join(dir, "pkexec.log"))
 		var verbs []string
 		for _, c := range calls {
-			if f := strings.Fields(c); len(f) >= 2 {
-				verbs = append(verbs, f[1])
+			if f := strings.Fields(c); len(f) >= 3 {
+				verbs = append(verbs, f[2])
 			}
 		}
 		if wantVerbs := []string{steps.VerbFullCleanup}; !slices.Equal(verbs, wantVerbs) {

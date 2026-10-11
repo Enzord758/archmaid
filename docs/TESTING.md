@@ -223,8 +223,8 @@ re-measure and a signal before the window exists.
 The `real-*` scenarios (`TestGUIRealDriver`, its own part of the default
 `headless.sh` run) drive the **real Driver** through `gui/internal/realdriver`
 on the polkit path. Every privileged binary is a shim first on PATH, ahead
-of testenv's traps: `pkexec` checks it got the helper's install path and
-speaks the helper's JSON lines (start, a line, check-files' check event,
+of testenv's traps: `pkexec` checks it got `--disable-internal-agent` then
+the helper's install path (else it exits 126) and speaks the helper's JSON lines (start, a line, check-files' check event,
 result) after 0.3 s (the dialog), or exits 127 for the verbs it refuses;
 `sudo` runs `$SUDO_ASKPASS` — archmaid's wrapper, which execs the test binary
 in `--askpass` mode (`TestMain` calls `realdriver.Relay` first, as main

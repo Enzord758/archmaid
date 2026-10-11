@@ -9,7 +9,7 @@
 //
 // The command is always exactly
 //
-//	pkexec /usr/lib/archmaid/archmaid-helper <verb> <args…>
+//	pkexec --disable-internal-agent /usr/lib/archmaid/archmaid-helper <verb> <args…>
 //
 // started directly (never through a shell), with the args built from the
 // step's typed fields (Verb, Items, Plan) and fixed constants, never from
@@ -40,6 +40,15 @@ import (
 const (
 	// Pkexec is the program Run starts, looked up on PATH.
 	Pkexec = "pkexec"
+	// DisableInternalAgent is pkexec's first argument: with no polkit agent
+	// for archmaid-gui (its pkttyagent, else the desktop's), pkexec exits
+	// 127 ("No authentication agent found") instead of starting its own
+	// text agent on the terminal the GUI was started from. That agent can't
+	// work with polkit 126+ anyway: its socket-activated helper replies as
+	// uid 0 (setuid pkexec), polkitd wants the user's uid, and a correct
+	// password ends in "No session for cookie"
+	// (docs/polkit-keep-session-check.md).
+	DisableInternalAgent = "--disable-internal-agent"
 	// HelperPath is the root helper's install path: polkit's exec.path for
 	// every action, and the only path the helper runs as root from.
 	HelperPath = "/usr/lib/archmaid/archmaid-helper"
@@ -90,8 +99,9 @@ var (
 	unitPattern = regexp.MustCompile(`^[A-Za-z0-9:_@][A-Za-z0-9:_.@-]{0,249}\.service$`)
 )
 
-// Argv is the command line Run starts for st: Pkexec, HelperPath, st.Verb,
-// then the verb's arguments:
+// Argv is the command line Run starts for st: Pkexec, DisableInternalAgent,
+// HelperPath, st.Verb, then the verb's arguments (pkexec's own flag never
+// reaches the helper, whose argv starts at the verb):
 //
 //	check-files     Items (package names, 0–256; none = every package)
 //	repair          Items (package names, 1–256)
@@ -113,7 +123,7 @@ func Argv(st steps.Step) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append([]string{Pkexec, HelperPath, st.Verb}, args...), nil
+	return append([]string{Pkexec, DisableInternalAgent, HelperPath, st.Verb}, args...), nil
 }
 
 func verbArgs(st steps.Step) ([]string, error) {

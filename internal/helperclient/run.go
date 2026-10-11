@@ -29,6 +29,11 @@ var ErrProtocol = errors.New("helper protocol error")
 // ErrNotGranted is Err when pkexec never ran the helper (Outcome.NotGranted).
 var ErrNotGranted = errors.New("privilege not granted")
 
+// noAgentText is what pkexec (polkit 127, src/programs/pkexec.c) prints
+// when DisableInternalAgent is set and no agent is registered for its
+// subject; Err then wraps engine.ErrNoAuthAgent too.
+const noAgentText = "No authentication agent found"
+
 // batchMax caps the lines in one StepOutput.
 const batchMax = 256
 
@@ -340,6 +345,10 @@ func (d *decoder) outcome(exit int, waitErr error, stderr string) Outcome {
 		// without pkexec, so for it these are just exits.)
 		o.NotGranted = true
 		o.Err = fmt.Errorf("%w: %s exited %d", ErrNotGranted, Pkexec, exit)
+		if exit == exitNotAuthorized && strings.Contains(stderr, noAgentText) {
+			// DisableInternalAgent: nobody could ask for the password.
+			o.Err = fmt.Errorf("%w: %w (%s exited %d)", ErrNotGranted, engine.ErrNoAuthAgent, Pkexec, exit)
+		}
 	case !d.granted:
 		o.Err = fmt.Errorf("the root helper never started (%s)%s", exitText(exit, waitErr), stderrText(stderr))
 	case d.res == nil:

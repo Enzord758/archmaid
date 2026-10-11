@@ -12,8 +12,8 @@ import (
 // pkexec, no polkit dialog, no root helper. It emits the Inputs Run would,
 // in the same order, so a dry run previews the real route:
 //
-//   - "[dry-run] would run: pkexec /usr/lib/archmaid/archmaid-helper <verb>
-//     <args…>" (proc.DryRunPrefix) as the step's output: the very command
+//   - "[dry-run] would run: pkexec --disable-internal-agent
+//     /usr/lib/archmaid/archmaid-helper <verb> <args…>" (proc.DryRunPrefix) as the step's output: the very command
 //     line Argv builds, so a step Argv refuses fails here as it would there;
 //   - for a combined call (Parts), the call's line once, on its first part,
 //     then one line per part naming it, each part started (PartStarted) and

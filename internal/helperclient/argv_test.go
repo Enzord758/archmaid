@@ -31,26 +31,26 @@ func TestArgv(t *testing.T) {
 		want []string
 	}{
 		{"full check", steps.Step{Verb: steps.VerbCheckFiles, Argv: junk},
-			[]string{"pkexec", HelperPath, "check-files"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "check-files"}},
 		{"named check", actions.RepairCheckStep([]string{"amd-ucode", "nfs-utils"}),
-			[]string{"pkexec", HelperPath, "check-files", "amd-ucode", "nfs-utils"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "check-files", "amd-ucode", "nfs-utils"}},
 		{"repair", actions.RepairStep([]string{"a", "b"}),
-			[]string{"pkexec", HelperPath, "repair", "a", "b"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "repair", "a", "b"}},
 		{"disable-unit", actions.DisableUnits([]string{"cups.service"})[0],
-			[]string{"pkexec", HelperPath, "disable-unit", "cups.service"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "disable-unit", "cups.service"}},
 		{"paccache", steps.Step{Verb: steps.VerbPaccache, Argv: junk},
-			[]string{"pkexec", HelperPath, "paccache", "3"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "paccache", "3"}},
 		{"vacuum-journal", steps.Step{Verb: steps.VerbVacuumJournal, Argv: junk},
-			[]string{"pkexec", HelperPath, "vacuum-journal", "2weeks"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "vacuum-journal", "2weeks"}},
 		{"paccache-wipe", steps.Step{Verb: steps.VerbPaccacheWipe, Argv: junk},
-			[]string{"pkexec", HelperPath, "paccache-wipe"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "paccache-wipe"}},
 		{"clean-tmp", steps.Step{Verb: steps.VerbCleanTmp, Argv: junk},
-			[]string{"pkexec", HelperPath, "clean-tmp"}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "clean-tmp"}},
 		{"remove-orphans", steps.Step{Verb: steps.VerbRemoveOrphans, Argv: junk, Items: goodDirect, Cascade: goodCascade,
 			Plan: &steps.OrphanPlan{Hash: PlanHash(goodDirect, goodCascade), Direct: goodDirect, Cascade: goodCascade}},
-			[]string{"pkexec", HelperPath, "remove-orphans", PlanHash(goodDirect, goodCascade)}},
+			[]string{"pkexec", DisableInternalAgent, HelperPath, "remove-orphans", PlanHash(goodDirect, goodCascade)}},
 		{"256 names", steps.Step{Verb: steps.VerbRepair, Items: manyNames(256)},
-			append([]string{"pkexec", HelperPath, "repair"}, manyNames(256)...)},
+			append([]string{"pkexec", DisableInternalAgent, HelperPath, "repair"}, manyNames(256)...)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -171,8 +171,12 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			t.Errorf("%s: Argv: %v", a.ID, err)
 			continue
 		}
-		if got[0] != Pkexec || got[1] != path || got[2] != argv1 {
-			t.Errorf("%s: Argv %q, want pkexec %s %s …", a.ID, got, path, argv1)
+		// pkexec takes its own options first (DisableInternalAgent) and
+		// matches the action on what follows: the program (exec.path) and
+		// that program's argv[1] (exec.argv1). The helper's argv starts at
+		// the program, so it never sees the flag.
+		if got[0] != Pkexec || got[1] != DisableInternalAgent || got[2] != path || got[3] != argv1 {
+			t.Errorf("%s: Argv %q, want pkexec %s %s %s …", a.ID, got, DisableInternalAgent, path, argv1)
 		}
 	}
 	for _, v := range []string{steps.VerbCheckFiles, steps.VerbRepair, steps.VerbDisableUnit, steps.VerbPaccache,

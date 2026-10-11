@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -150,6 +151,26 @@ func TestCombinedRunRefused(t *testing.T) {
 	if fin := event[Finished](t, h.out); fin.Refused != 4 || fin.Outcome != OutcomeCompleted {
 		t.Errorf("Finished = %+v", fin)
 	}
+	enginetest.CheckContract(t, h.evs)
+}
+
+// TestCombinedRunNoAgent: no polkit agent for the one call: every part it
+// covered is AuthRefused and says why.
+func TestCombinedRunNoAgent(t *testing.T) {
+	h := newHarness(t, Options{Auth: AuthPolkit}, queue("q", combinedQueue()...))
+	h.start("q")
+	h.ok()
+	h.confirm(true)
+	h.confirm(false)
+	effect[StartStep](t, h.handle(FaillockRead{Deny: 3}))
+	err := fmt.Errorf("privilege not granted: %w (pkexec exited 127)", ErrNoAuthAgent)
+	done := doneOf(h.handle(StepExited{Seq: h.seq(), Err: err, NotGranted: true}))
+	for _, id := range []string{"o", "p", "t", "j"} {
+		if d := done[id]; d.Status != steps.AuthRefused || d.Err != ErrNoAuthAgent.Error() {
+			t.Errorf("%s: %+v, want AuthRefused with %q", id, d, ErrNoAuthAgent.Error())
+		}
+	}
+	h.ok()
 	enginetest.CheckContract(t, h.evs)
 }
 

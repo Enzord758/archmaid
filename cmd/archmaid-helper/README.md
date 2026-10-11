@@ -6,8 +6,14 @@ because a GUI has no tty, so it can't share a sudo ticket. The TUI keeps
 `sudo -A`; over SSH it is always sudo.
 
 ```
-pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
+pkexec --disable-internal-agent /usr/lib/archmaid/archmaid-helper <verb> [args]
 ```
+
+`--disable-internal-agent` is pkexec's own option (the helper never sees
+it): with no polkit agent for the GUI, pkexec exits 127 ("No authentication
+agent found") instead of starting its built-in text agent on the terminal
+the GUI was started from, which fails anyway on polkit 126+ (see
+`docs/polkit-keep-session-check.md`).
 
 - Installed at `/usr/lib/archmaid/archmaid-helper`, `0755 root:root`, **never
   setuid**. The path is a constant: polkit's `exec.path` names it, and the

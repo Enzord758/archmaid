@@ -2,7 +2,9 @@
 // /usr/lib/archmaid/archmaid-helper (0755 root:root, never setuid) and run
 // through pkexec, one polkit action per verb:
 //
-//	pkexec /usr/lib/archmaid/archmaid-helper <verb> [args]
+//	pkexec --disable-internal-agent /usr/lib/archmaid/archmaid-helper <verb> [args]
+//
+// (pkexec takes its own option; the helper's arguments start at the verb.)
 //
 // It runs a fixed set of maintenance commands by absolute path (never a
 // shell), validates and recomputes its own input, and reports progress as

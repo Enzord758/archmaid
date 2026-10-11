@@ -358,7 +358,17 @@ comments and `git log`; this is the "read before you touch it" list.
     agent and registering the next, a request goes to the desktop's dialog
     without the status-line notice; it fails safe. Without pkttyagent, or if
     it can't register, polkit asks through the desktop's agent as before,
-    and the status line says so. pkttyagent dying mid-authentication drops
+    and the status line says so. With no agent at all, pkexec (started
+    with `--disable-internal-agent`, `helperclient.DisableInternalAgent`)
+    asks nobody and exits 127 with "No authentication agent found": the
+    step is AuthRefused with `engine.ErrNoAuthAgent` as its text, so its
+    row reads "Not authorised · no polkit agent is running, so the password
+    can't be asked", not as a refused password. Without the flag pkexec
+    would start its built-in text agent on the terminal the GUI was
+    started from, which on polkit 126+ can't work: its socket-activated
+    `polkit-agent-helper-1` replies as uid 0 (setuid pkexec), polkitd
+    expects the user's uid, and a correct password ends in "No session for
+    cookie" (`docs/polkit-keep-session-check.md`). pkttyagent dying mid-authentication drops
     the kept password (fail-safe). pkttyagent runs in a session of its own
     on our pty (`Setsid`, `Setctty`): it lives in the GUI module, outside
     TestNoSetsid's scan, and is never a step's child. The TUI keeps none
@@ -436,8 +446,8 @@ comments and `git log`; this is the "read before you touch it" list.
   engine (`combine.go`) runs such a run as ONE helper call: it asks every
   confirm among them first (the orphan list, bound by its plan hash, and
   the cache wipe), reads faillock once, then one `StartStep` whose Step has
-  `Parts`; `helperclient` builds `pkexec archmaid-helper full-cleanup
-  --keep 3 --journal 2weeks [--orphans H] [--wipe] [--uninstalled]` from the parts and
+  `Parts`; `helperclient` builds `pkexec --disable-internal-agent
+  archmaid-helper full-cleanup --keep 3 --journal 2weeks [--orphans H] [--wipe] [--uninstalled]` from the parts and
   maps the helper's per-part `progress`/`done` events back to
   `PartStarted`/`PartDone`, so every row still starts and ends on its own.
   A refused dialog marks exactly the steps it covered AuthRefused; the run

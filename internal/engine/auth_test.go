@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -415,6 +416,25 @@ func TestSessionPolkitNotGranted(t *testing.T) {
 	}
 	if got := event[StepDone](t, o); got.Status != steps.AuthRefused {
 		t.Errorf("StepDone = %+v", got)
+	}
+	h.ok()
+	enginetest.CheckContract(t, h.evs)
+}
+
+// TestSessionPolkitNoAgent: a helper step pkexec refused because no polkit
+// agent could ask (ErrNoAuthAgent) is AuthRefused like any refusal, but
+// its StepDone says why, and so does its log entry.
+func TestSessionPolkitNoAgent(t *testing.T) {
+	h := newHarness(t, Options{Auth: AuthPolkit}, queue("q", helper("h", "v"), child("b", "true")))
+	h.start("q")
+	h.handle(FaillockRead{Deny: 3})
+	err := fmt.Errorf("privilege not granted: %w (pkexec exited 127)", ErrNoAuthAgent)
+	o := h.handle(StepExited{Seq: h.seq(), Err: err, NotGranted: true})
+	if got := event[StepDone](t, o); got.Status != steps.AuthRefused || got.Err != ErrNoAuthAgent.Error() {
+		t.Errorf("StepDone = %+v, want AuthRefused with %q", got, ErrNoAuthAgent.Error())
+	}
+	if !slices.ContainsFunc(all[LogWritten](o.Events), func(l LogWritten) bool { return strings.Contains(l.Header, "no polkit agent") }) {
+		t.Errorf("logs = %+v", all[LogWritten](o.Events))
 	}
 	h.ok()
 	enginetest.CheckContract(t, h.evs)

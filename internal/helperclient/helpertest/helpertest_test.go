@@ -71,15 +71,15 @@ func TestUseHelperFileKeepsArgv(t *testing.T) {
 		t.Fatalf("pkexec never ran: %v", err)
 	}
 	args := strings.Split(strings.TrimSuffix(string(got), "\n"), "\n")
-	if len(args) < 2 || args[0] != helperclient.HelperPath || args[1] != steps.VerbPaccache {
-		t.Errorf("pkexec got %q, want %s paccache …", args, helperclient.HelperPath)
+	if len(args) < 3 || args[0] != helperclient.DisableInternalAgent || args[1] != helperclient.HelperPath || args[2] != steps.VerbPaccache {
+		t.Errorf("pkexec got %q, want %s %s paccache …", args, helperclient.DisableInternalAgent, helperclient.HelperPath)
 	}
 	if strings.Contains(string(got), p) {
 		t.Errorf("pkexec got the stand-in %s: %q", p, args)
 	}
 	argv, err := helperclient.Argv(paccache)
-	if err != nil || len(argv) < 2 || argv[1] != helperclient.HelperPath {
-		t.Errorf("Argv = %q, %v; want argv[1] %s", argv, err, helperclient.HelperPath)
+	if err != nil || len(argv) < 3 || argv[2] != helperclient.HelperPath {
+		t.Errorf("Argv = %q, %v; want argv[2] %s", argv, err, helperclient.HelperPath)
 	}
 }
 

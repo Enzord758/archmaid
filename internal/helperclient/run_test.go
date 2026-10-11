@@ -152,7 +152,7 @@ func TestRunGranted(t *testing.T) {
 	))
 	r := runStep(t, repairCheck)
 	got, _ := os.ReadFile(argvFile)
-	if want := HelperPath + "\ncheck-files\namd-ucode\nbig\nnfs-utils\n"; string(got) != want {
+	if want := DisableInternalAgent + "\n" + HelperPath + "\ncheck-files\namd-ucode\nbig\nnfs-utils\n"; string(got) != want {
 		t.Errorf("pkexec got argv %q, want %q", got, want)
 	}
 	if _, ok := r.inputs[0].(engine.PrivilegeGranted); !ok || r.granted() != 1 {
@@ -234,6 +234,23 @@ func TestRunRefused(t *testing.T) {
 				t.Errorf("inputs %#v, outcome %+v: want just StepExited", r.inputs, r.out)
 			}
 		})
+	}
+}
+
+// TestRunNoAgent: with --disable-internal-agent and no polkit agent for
+// the GUI (no pkttyagent, no desktop agent), pkexec asks nobody, says "No
+// authentication agent found" and exits 127. It is still NotGranted (the
+// helper never ran), but the error says why (engine.ErrNoAuthAgent), so the
+// row doesn't read as a refused password. A plain 127 stays without it.
+func TestRunNoAgent(t *testing.T) {
+	shim(t, "echo 'Error executing command as another user: No authentication agent found.' >&2\nexit 127")
+	ex := runStep(t, repairCheck).exited(t)
+	if !ex.NotGranted || !errors.Is(ex.Err, ErrNotGranted) || !errors.Is(ex.Err, engine.ErrNoAuthAgent) {
+		t.Fatalf("StepExited %+v, want NotGranted with ErrNoAuthAgent", ex)
+	}
+	shim(t, "echo 'Error executing command as another user: Not authorized' >&2\nexit 127")
+	if ex := runStep(t, repairCheck).exited(t); !ex.NotGranted || errors.Is(ex.Err, engine.ErrNoAuthAgent) {
+		t.Fatalf("StepExited %+v, want NotGranted without ErrNoAuthAgent", ex)
 	}
 }
 

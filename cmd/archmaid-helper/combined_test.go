@@ -39,7 +39,7 @@ func TestFullCleanupTiesToClient(t *testing.T) {
 	}
 	var out, errOut bytes.Buffer
 	dir := t.TempDir()
-	if code := helper.Run(argv[2:], helper.Options{
+	if code := helper.Run(helperArgs(t, argv), helper.Options{
 		Runner: anyRunner{}, Stdout: &out, Stderr: &errOut, Euid: 1000, Dev: true,
 		LockPath: filepath.Join(dir, "lock"), PacmanDBLock: filepath.Join(dir, "db.lck"),
 	}); code != helper.ExitOK {

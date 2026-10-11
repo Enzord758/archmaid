@@ -15,6 +15,18 @@ import (
 // internal/helperclient builds the pkexec command line the GUI's Driver
 // runs; it can't see the helper's internals, so it is tied to them here.
 
+// helperArgs is what the helper gets from a client command line: pkexec
+// takes its own option (DisableInternalAgent) and execs the helper with
+// the rest, starting at the program, so the helper's argv (os.Args[1:])
+// starts at the verb.
+func helperArgs(t *testing.T, argv []string) []string {
+	t.Helper()
+	if len(argv) < 4 || argv[0] != helperclient.Pkexec || argv[1] != helperclient.DisableInternalAgent || argv[2] != helper.InstallPath {
+		t.Fatalf("client argv %q, want pkexec %s %s <verb> …", argv, helperclient.DisableInternalAgent, helper.InstallPath)
+	}
+	return argv[3:]
+}
+
 // TestClientConstantsAreTheHelpers: the client's helper path and name cap
 // are the helper's.
 func TestClientConstantsAreTheHelpers(t *testing.T) {
@@ -106,17 +118,15 @@ func TestClientArgvsPassTheHelpersValidation(t *testing.T) {
 			t.Errorf("%s: Argv: %v", s.ID, err)
 			continue
 		}
-		if argv[0] != helperclient.Pkexec || argv[1] != helper.InstallPath {
-			t.Fatalf("%s: argv %q", s.ID, argv)
-		}
+		args := helperArgs(t, argv)
 		var out, errOut bytes.Buffer
 		dir := t.TempDir()
-		code := helper.Run(argv[2:], helper.Options{
+		code := helper.Run(args, helper.Options{
 			Runner: anyRunner{installed: s.Items}, Stdout: &out, Stderr: &errOut, Euid: 1000, Dev: true,
 			LockPath: filepath.Join(dir, "lock"), PacmanDBLock: filepath.Join(dir, "db.lck"),
 		})
 		if code == helper.ExitUsage {
-			t.Errorf("%s: the helper refused %q as usage: %s", s.ID, argv[2:], errOut.String())
+			t.Errorf("%s: the helper refused %q as usage: %s", s.ID, args, errOut.String())
 		}
 		ran[s.Verb] = true
 	}

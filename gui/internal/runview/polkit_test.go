@@ -55,3 +55,21 @@ func TestPolkitProgress(t *testing.T) {
 		t.Errorf("toasts %q", c.Toasts)
 	}
 }
+
+// TestPolkitNoAgent: a step refused because no polkit agent could ask says
+// so after "Not authorised" (StepDone.Err), instead of reading as a
+// refused password.
+func TestPolkitNoAgent(t *testing.T) {
+	m := NewModel()
+	m.Apply([]engine.Event{engine.QueueStarted{Action: "a", Steps: []engine.PlanStep{{ID: "p", NeedsPriv: true}}}})
+	m.Apply([]engine.Event{
+		engine.StepStarted{ID: "p", Index: 0},
+		engine.AuthWaiting{Kind: engine.WaitPolkit, Step: "p"},
+		engine.AuthResolved{},
+		engine.StepDone{ID: "p", Index: 0, Status: steps.AuthRefused, Err: engine.ErrNoAuthAgent.Error()},
+	})
+	want := "Not authorised · " + engine.ErrNoAuthAgent.Error()
+	if r := m.Rows[0]; r.Subtitle() != want || r.Summary() != want {
+		t.Errorf("row %q / summary %q, want %q", r.Subtitle(), r.Summary(), want)
+	}
+}

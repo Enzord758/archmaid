@@ -201,12 +201,10 @@ func (s *Session) combinedExited(o *Output, in StepExited) {
 	r.stepSeq = 0
 	s.endPolkitWait(o, in.NotGranted)
 	for _, i := range s.parts() {
-		st := r.plan[i].step
 		switch {
 		case in.NotGranted:
 			r.cur = i
-			s.settle(o, steps.AuthRefused, "")
-			s.log(o, st.LogCategory(), "SKIP", st.LogLabel+" (privilege not granted)", "")
+			s.settleNotGranted(o, in.Err)
 			continue
 		case r.plan[i].status == steps.Pending:
 			s.startPart(o, i)

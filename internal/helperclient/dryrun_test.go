@@ -23,7 +23,7 @@ func TestDryRun(t *testing.T) {
 	var lone []engine.Input
 	DryRun(seq, steps.Step{Verb: steps.VerbPaccache}, func(in engine.Input) { lone = append(lone, in) })
 	want := []engine.Input{
-		engine.StepOutput{Seq: seq, Lines: []string{"[dry-run] would run: pkexec " + HelperPath + " paccache " + PaccacheKeep}},
+		engine.StepOutput{Seq: seq, Lines: []string{"[dry-run] would run: pkexec " + DisableInternalAgent + " " + HelperPath + " paccache " + PaccacheKeep}},
 		engine.StepExited{Seq: seq},
 	}
 	if !slices.EqualFunc(lone, want, func(a, b engine.Input) bool { return equalInput(a, b) }) {

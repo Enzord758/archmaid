@@ -159,8 +159,13 @@ func (r Row) Subtitle() string {
 		// A refused or cancelled polkit dialog, a locked account, three
 		// wrong passwords: the user's call or the account's state, not an
 		// error.
+		// Err is set only when no polkit agent could ask
+		// (engine.ErrNoAuthAgent): then no dialog was shown at all.
 		if r.Faillock != nil && r.Faillock.Locked {
 			return "Not authorised · " + lockText(*r.Faillock)
+		}
+		if r.Err != "" {
+			return "Not authorised · " + r.Err
 		}
 		return "Not authorised"
 	case RowAborted:

@@ -104,8 +104,9 @@ func TestOrphanRemovalEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, out := runHelper(t, sys, argv[2:]); code != helper.ExitOK {
-		t.Fatalf("remove-orphans %q exited %d: %s", argv[2:], code, out)
+	args := helperArgs(t, argv)
+	if code, out := runHelper(t, sys, args); code != helper.ExitOK {
+		t.Fatalf("remove-orphans %q exited %d: %s", args, code, out)
 	}
 	want := [][]string{{helper.Pacman, "-Rns", "--noconfirm", "--", "libfoo", "python-bar"}}
 	if !slices.EqualFunc(sys.streamed, want, slices.Equal) {
@@ -116,7 +117,7 @@ func TestOrphanRemovalEndToEnd(t *testing.T) {
 	sys.streamed = nil
 	sys.orphans = append(sys.orphans, "glibc")
 	sys.cascade = append(sys.cascade, "glibc 2.40-1")
-	code, out = runHelper(t, sys, argv[2:])
+	code, out = runHelper(t, sys, args)
 	if code != helper.ExitStale || len(sys.streamed) != 0 {
 		t.Fatalf("stale plan: exit %d, root commands %q: %s", code, sys.streamed, out)
 	}

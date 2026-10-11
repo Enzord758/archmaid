@@ -138,7 +138,7 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("%d pkexec calls, want exactly one: %q", len(got), got)
 	}
-	want := "/usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " + fcPlan.Hash + " --wipe --uninstalled"
+	want := "--disable-internal-agent /usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " + fcPlan.Hash + " --wipe --uninstalled"
 	if got[0] != want {
 		t.Errorf("pkexec %q\nwant    %q", got[0], want)
 	}
@@ -263,7 +263,7 @@ func TestFullCleanupPolkitDryRun(t *testing.T) {
 			byRow[c.ID] = append(byRow[c.ID], c.Lines...)
 		}
 	}
-	call := "[dry-run] would run: pkexec /usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " +
+	call := "[dry-run] would run: pkexec --disable-internal-agent /usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " +
 		fcPlan.Hash + " --wipe --uninstalled"
 	if got := byRow[steps.IDOrphansRemove]; len(got) == 0 || got[0] != call {
 		t.Errorf("the orphan row's output %q, want the call first:\n%s", got, call)

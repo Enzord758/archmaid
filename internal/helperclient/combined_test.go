@@ -39,13 +39,13 @@ func fullCleanupCall(orphans, wipe, uninstalled bool) steps.Step {
 
 func TestArgvFullCleanup(t *testing.T) {
 	got, err := Argv(fullCleanupCall(true, true, true))
-	want := []string{Pkexec, HelperPath, "full-cleanup", "--keep", PaccacheKeep, "--journal", JournalSpan,
+	want := []string{Pkexec, DisableInternalAgent, HelperPath, "full-cleanup", "--keep", PaccacheKeep, "--journal", JournalSpan,
 		"--orphans", goodPlan().Hash, "--wipe", "--uninstalled"}
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("Argv = %q, %v\nwant %q", got, err, want)
 	}
 	got, err = Argv(fullCleanupCall(false, false, false))
-	if want := want[:7]; err != nil || !slices.Equal(got, want) {
+	if want := want[:8]; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("Argv = %q, %v\nwant %q", got, err, want)
 	}
 
@@ -142,7 +142,7 @@ func TestRunFullCleanup(t *testing.T) {
 	code, ls := fullCleanupStream("", false)
 	argvFile := shim(t, lines(code, ls...))
 	r := runStep(t, fullCleanupCall(true, true, true))
-	if got := readArgv(t, argvFile); got[1] != "full-cleanup" {
+	if got := readArgv(t, argvFile); got[0] != DisableInternalAgent || got[2] != "full-cleanup" {
 		t.Errorf("pkexec argv %q", got)
 	}
 	want := []string{"granted",

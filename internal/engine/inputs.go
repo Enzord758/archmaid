@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"errors"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
@@ -63,6 +64,13 @@ type StepExited struct {
 	Err        error
 	NotGranted bool
 }
+
+// ErrNoAuthAgent is a NotGranted StepExited's Err (wrapped) when no polkit
+// agent was there to ask for the password: pkexec runs with
+// --disable-internal-agent and said "No authentication agent found". The
+// step still ends steps.AuthRefused, but its StepDone carries this text as
+// Err, so a front end doesn't present it as a refused password.
+var ErrNoAuthAgent = errors.New("no polkit agent is running, so the password can't be asked")
 
 // StepResult is the Result of in-process step Seq.
 type StepResult struct {

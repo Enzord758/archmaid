@@ -427,9 +427,7 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 	s.dropAskpass(o)
 	s.endPolkitWait(o, in.NotGranted)
 	if in.NotGranted {
-		st := s.run.plan[s.run.cur].step
-		s.settle(o, steps.AuthRefused, "")
-		s.log(o, st.LogCategory(), "SKIP", st.LogLabel+" (privilege not granted)", "")
+		s.settleNotGranted(o, in.Err)
 		s.advance(o)
 		return
 	}
@@ -530,6 +528,19 @@ func outcome(err error) steps.Status {
 }
 
 // errText is a step's failure as StepDone carries it: sanitized, one line.
+// settleNotGranted settles the current step AuthRefused for a NotGranted
+// exit, with err's reason only when no polkit agent could ask
+// (ErrNoAuthAgent); any other refusal carries no text.
+func (s *Session) settleNotGranted(o *Output, err error) {
+	st := s.run.plan[s.run.cur].step
+	why, detail := "privilege not granted", ""
+	if errors.Is(err, ErrNoAuthAgent) {
+		why, detail = "privilege not granted: no polkit agent", ErrNoAuthAgent.Error()
+	}
+	s.settle(o, steps.AuthRefused, detail)
+	s.log(o, st.LogCategory(), "SKIP", st.LogLabel+" ("+why+")", "")
+}
+
 func errText(err error) string {
 	if err == nil {
 		return ""

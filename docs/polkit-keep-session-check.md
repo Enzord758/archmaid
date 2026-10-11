@@ -86,6 +86,10 @@ subject (your uid), and only accepts a reply from the uid the agent was
 registered under, so the reply is refused. polkit-gnome and `pkttyagent`
 run as you, so their replies match. Part B therefore runs `pkttyagent` for
 the tty3 shell and calls pkexec with `--disable-internal-agent`.
+archmaid-gui does the same: it runs `pkexec --disable-internal-agent
+/usr/lib/archmaid/archmaid-helper …` (`helperclient.Argv`), so with no
+agent at all it fails at once as "no polkit agent" instead of prompting on
+the terminal it was started from.
 
 ## Setup
 
@@ -303,7 +307,9 @@ Do steps 11 and 12 within 5 minutes.
 ## Part C: a pkexec killed in the dialog (optional)
 
 **The question:** archmaid's Stop, while the polkit dialog is up, SIGKILLs
-pkexec (`helperclient.Run`; the helper never runs). A dismissed dialog
+pkexec (`helperclient.Run`; the helper never runs; archmaid also passes
+`--disable-internal-agent`, which changes nothing while polkit-gnome is
+there to ask, so C2's plain pkexec is the same request). A dismissed dialog
 costs one faillock failure. Does a pkexec killed mid-prompt cost one too?
 Then a Stop at the dialog would need the same "last attempt" warning as a
 cancel. This part types **no password**; it has its own faillock check

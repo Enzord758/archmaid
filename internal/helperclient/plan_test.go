@@ -126,7 +126,7 @@ func TestOrphanHashFlows(t *testing.T) {
 	if ex := r.exited(t); ex.Err != nil {
 		t.Fatalf("removal: %v", ex.Err)
 	}
-	want := []string{HelperPath, steps.VerbRemoveOrphans, hash}
+	want := []string{DisableInternalAgent, HelperPath, steps.VerbRemoveOrphans, hash}
 	if got := readArgv(t, pkexecArgv); !slices.Equal(got, want) {
 		t.Fatalf("pkexec argv %q, want %q", got, want)
 	}
@@ -206,7 +206,7 @@ func TestPlanOrphansMissingHelper(t *testing.T) {
 func TestArgvRemoveOrphans(t *testing.T) {
 	good := removal(t, func(context.Context) (steps.OrphanPlan, error) { return goodPlan(), nil })
 	got, err := Argv(good)
-	if want := []string{Pkexec, HelperPath, steps.VerbRemoveOrphans, PlanHash(goodDirect, goodCascade)}; err != nil || !slices.Equal(got, want) {
+	if want := []string{Pkexec, DisableInternalAgent, HelperPath, steps.VerbRemoveOrphans, PlanHash(goodDirect, goodCascade)}; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("Argv = %q, %v; want %q", got, err, want)
 	}
 
