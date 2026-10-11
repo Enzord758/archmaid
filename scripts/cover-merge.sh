@@ -15,7 +15,9 @@
 #   coverage.html `go tool cover -html` of the profile (needs the GUI module
 #                 to resolve gui/ files; skipped with a note if it can't)
 # and prints the totals:
-#   core    cmd/archmaid + internal/... (check.sh's MIN_TOTAL set)
+#   core    cmd/archmaid + internal/... without the test-only packages
+#           (check.sh's MIN_TOTAL set)
+#   testonly internal/testenv, testtranscript, enginetest, privtest, helpertest
 #   helper  cmd/archmaid-helper/...
 #   gui     gui/...
 #   all     everything in the data
@@ -54,15 +56,15 @@ cd "$root"
 go run ./scripts/covblocks -summary "$out/profile.txt" >"$out/summary.txt"
 go run ./scripts/covblocks "$out/profile.txt" >"$out/uncovered.txt"
 
-# total PREFIX-REGEX prints "covered/stmts pct" over the profile's blocks
+# total REGEX [EXCLUDE-REGEX] prints "pct (covered/stmts)" over the profile's blocks
 # whose file matches, with check.sh's rule (a block is covered if any line
 # for it has a count; truncated to one decimal).
 total() {
-	awk -v re="$1" '
+	awk -v re="$1" -v not="${2:-}" '
 		NR == 1 { next }
 		{
 			split($1, loc, ":")
-			if (loc[1] !~ re) next
+			if (loc[1] !~ re || (not != "" && loc[1] ~ not)) next
 			stmts[$1] = $2
 			if ($3 > 0) hit[$1] = 1
 		}
@@ -73,11 +75,14 @@ total() {
 		}' "$out/profile.txt"
 }
 m=github.com/Enzord758/archmaid
+# Test-only packages: their own line, out of core (same list as check.sh)
+testonly="/internal/(testenv|testtranscript|engine/enginetest|privilege/privtest|helperclient/helpertest)/"
 {
 	echo
-	echo "core    $(total "^$m/(cmd/archmaid/|internal/)")"
+	echo "core    $(total "^$m/(cmd/archmaid/|internal/)" "$testonly")"
 	echo "helper  $(total "^$m/cmd/archmaid-helper/")"
 	echo "gui     $(total "^$m/gui/")"
+	echo "testonly $(total "$testonly")"
 	echo "all     $(total ".")"
 	echo
 	echo "reachable = covered / (total - exempt); the exempt list is docs/coverage-exempt.tsv:"

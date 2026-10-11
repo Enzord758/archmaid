@@ -60,9 +60,27 @@ func ReadExempt(r io.Reader) ([]Exempt, error) {
 	return out, sc.Err()
 }
 
+// TestOnlyDirs are the packages that exist only for tests (internal/testenv
+// and the per-area fakes): they are reported as their own scope, "testonly",
+// and are in no other scope's figures but "all". scripts/check.sh,
+// cover-merge.sh and scripts/covmap/report.py hold the same list.
+var TestOnlyDirs = []string{
+	"internal/testenv/",
+	"internal/testtranscript/",
+	"internal/engine/enginetest/",
+	"internal/privilege/privtest/",
+	"internal/helperclient/helpertest/",
+}
+
 // Scope names the report scope of a repo-relative file, as cover-merge.sh
-// does: helper is cmd/archmaid-helper/, gui is gui/, core is the rest.
+// does: testonly is the test-only packages (TestOnlyDirs), helper is
+// cmd/archmaid-helper/, gui is gui/, core is the rest.
 func Scope(rel string) string {
+	for _, d := range TestOnlyDirs {
+		if strings.HasPrefix(rel, d) {
+			return "testonly"
+		}
+	}
 	switch {
 	case strings.HasPrefix(rel, "gui/"):
 		return "gui"
@@ -91,7 +109,7 @@ func (s ScopeStats) Raw() string { return Pct(s.Total, s.Covered) }
 // gui and all. rel maps a block's profile file name to its repo-relative
 // path ("" for files outside the repo, which are skipped).
 func Report(blocks []Block, ex []Exempt, rel func(string) string) (stats map[string]*ScopeStats, stale []Exempt) {
-	stats = map[string]*ScopeStats{"core": {}, "helper": {}, "gui": {}, "all": {}}
+	stats = map[string]*ScopeStats{"core": {}, "helper": {}, "gui": {}, "testonly": {}, "all": {}}
 	type key struct {
 		file       string
 		start, end int
@@ -135,7 +153,7 @@ func Report(blocks []Block, ex []Exempt, rel func(string) string) (stats map[str
 
 // WriteReachable prints the raw and reachable figures per scope.
 func WriteReachable(w io.Writer, stats map[string]*ScopeStats) {
-	for _, s := range []string{"core", "helper", "gui", "all"} {
+	for _, s := range []string{"core", "helper", "gui", "testonly", "all"} {
 		st := stats[s]
 		fmt.Fprintf(w, "%-7s raw %s (%d/%d)   reachable %s (%d/%d, %d exempt)\n",
 			s, pctStr(st.Raw()), st.Covered, st.Total, pctStr(st.Reachable()), st.Covered, st.Total-st.Exempt, st.Exempt)

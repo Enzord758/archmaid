@@ -14,7 +14,7 @@ d = json.load(open(sys.argv[1]))
 summary, base, docs = sys.argv[2], sys.argv[3], sys.argv[4]
 tot = {}
 for line in open(summary):
-    m = re.match(r"^(core|helper|gui)\s+[\d.]+% \((\d+)/(\d+)\)", line)
+    m = re.match(r"^(core|helper|gui|testonly)\s+[\d.]+% \((\d+)/(\d+)\)", line)
     if m:
         tot[m.group(1)] = (int(m.group(3)), int(m.group(2)))
 # gui/cmd/archmaid-gui is linked by no test, so it is in no run's data.
@@ -25,7 +25,10 @@ EXTRA = [{"file": "gui/cmd/archmaid-gui/main.go", "lines": "all", "func": "main"
 d = d + EXTRA
 CATS = ['A', 'B', 'C', 'D', 'E']
 
+TESTONLY = ("internal/testenv/", "internal/testtranscript/", "internal/engine/enginetest/", "internal/privilege/privtest/", "internal/helperclient/helpertest/")
+
 def scope(f):
+    if f.startswith(TESTONLY): return "testonly"
     if f.startswith('gui/'): return 'gui'
     if f.startswith('cmd/archmaid-helper/'): return 'helper'
     return 'core'
@@ -45,9 +48,9 @@ md = []
 md.append("| Scope | Statements | Covered | Raw | Uncovered | A unit | B e2e | C vm | D owner | E exempt | Reachable (covered / (total - E)) |")
 md.append("|---|---|---|---|---|---|---|---|---|---|---|")
 after = []
-for s in ['core', 'helper', 'gui', 'all']:
+for s in ["core", "helper", "gui", "testonly", "all"]:
     T, C = tot[s]
-    scopes = ['core', 'helper', 'gui'] if s == 'all' else [s]
+    scopes = ["core", "helper", "gui", "testonly"] if s == "all" else [s]
     g = {k: sum(c[(x, k)] for x in scopes) for k in CATS}
     md.append(f"| {s} | {T} | {C} | {pct(C, T)} | {T-C} | {g['A']} | {g['B']} | {g['C']} | {g['D']} | {g['E']} | {pct(C, T - g['E'])} ({C}/{T - g['E']}) |")
     R = T - g['E']
@@ -212,7 +215,7 @@ meta = {
     "base": base,
     "measured": "scripts/cover-report.sh with COVER_GUI=1: unit (cover-unit.sh) + e2e tapes + GUI headless, merged",
     "categories": {"A": "unit", "B": "e2e", "C": "vm", "D": "owner", "E": "unreachable (docs/coverage-exempt.md)"},
-    "totals": {s: {"stmts": tot[s][0], "covered": tot[s][1], "exempt": sum(c[(x, 'E')] for x in (['core', 'helper', 'gui'] if s == 'all' else [s]))} for s in tot},
+    "totals": {s: {"stmts": tot[s][0], "covered": tot[s][1], "exempt": sum(c[(x, 'E')] for x in (["core", "helper", "gui", "testonly"] if s == "all" else [s]))} for s in tot},
     "work_packages": {str(i): {"name": WP[i][0], "stmts": agg[i][0], "security_stmts": agg[i][1], "role": WP[i][2]} for i in WP},
     "blocks": d,
 }

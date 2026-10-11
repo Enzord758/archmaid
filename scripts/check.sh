@@ -15,8 +15,8 @@ set -euo pipefail
 # measures, rounded down to one decimal; never lowered to make a change pass.
 # The goal is 100 % of reachable statements (docs/coverage-exempt.md): the
 # gate also prints the reachable figure, so the floor and the goal stay in view.
-MIN_TOTAL=92.1   # cmd/archmaid + internal/... (the TUI is internal/tui since P5); 92.1 measured at 8bf5d3a (5454/5918)
-MIN_ASKPASS=93   # internal/privilege/askpass.go: it carries the sudo password (93.3 % at 8bf5d3a)
+MIN_TOTAL=94.3   # core = cmd/archmaid + internal/... WITHOUT the test-only packages (testenv, testtranscript, enginetest, privtest, helpertest: reported on their own "testonly" line, not floored); 94.5 measured at ca61d78 (5138/5434), so the floor keeps 0.2+ points (11+ statements) of margin against flakes
+MIN_ASKPASS=93   # internal/privilege/askpass.go: it carries the sudo password (93.4 % = 183/196 at ca61d78; 0.4 points of margin)
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -146,23 +146,33 @@ if ! out="$(go test -count=1 -coverpkg="$COVERPKG" -coverprofile="$PROFILE" "${C
 	exit 1
 fi
 
+# Test-only packages (the same list as scripts/covblocks TestOnlyDirs) are no
+# product code: the total floor and the core figures leave them out, and they
+# are reported on their own line.
+TESTONLY='/internal/(testenv|testtranscript|engine/enginetest|privilege/privtest|helperclient/helpertest)/'
+
 # coverage FILE prints the statement coverage of FILE (a path suffix such as
-# "/internal/privilege/askpass.go"), or of everything when FILE is empty.
-# Profile lines are `path/file.go:a.b,c.d numStmts count`; a block is
-# covered if any line for it has a non-zero count.
+# "/internal/privilege/askpass.go"), or of everything but the test-only
+# packages when FILE is empty (just those when FILE is "testonly"). Profile
+# lines are `path/file.go:a.b,c.d numStmts count`; a block is covered if any
+# line for it has a non-zero count. With "counts" as second argument the
+# (covered/total) statements follow the figure.
 coverage() {
-	awk -v file="$1" '
+	awk -v file="$1" -v testonly="$TESTONLY" -v counts="${2:-}" '
 		NR == 1 { next } # mode: line
 		{
 			split($1, loc, ":")
-			if (file != "" && substr(loc[1], length(loc[1]) - length(file) + 1) != file) next
+			if (file == "testonly") { if (loc[1] !~ testonly) next }
+			else if (file != "") { if (substr(loc[1], length(loc[1]) - length(file) + 1) != file) next }
+			else if (loc[1] ~ testonly) next
 			stmts[$1] = $2
 			if ($3 > 0) hit[$1] = 1
 		}
 		END {
 			for (b in stmts) { total += stmts[b]; if (b in hit) covered += stmts[b] }
 			if (total == 0) { print "none"; exit }
-			printf "%.1f\n", int(1000 * covered / total) / 10
+			if (counts == "counts") printf "%.1f%% (%d/%d)\n", int(1000 * covered / total) / 10, covered, total
+			else printf "%.1f\n", int(1000 * covered / total) / 10
 		}' "$PROFILE"
 }
 
@@ -185,7 +195,8 @@ floor total "" "$MIN_TOTAL"
 # The same profile against the exempt list (docs/coverage-exempt.md): raw and
 # reachable side by side. Informational; the floor above is the raw figure.
 # A stale entry (code moved) is named on stderr: refresh the list.
-echo "info: $(go run ./scripts/covblocks -reachable -exempt docs/coverage-exempt.tsv "$PROFILE" | grep '^core')"
+echo "info: $(go run ./scripts/covblocks -reachable -exempt docs/coverage-exempt.tsv "$PROFILE" | grep -E '^(core|testonly)')"
+echo "info: core $(coverage "" counts); test-only packages $(coverage testonly counts) (not in the floor)"
 floor internal/privilege/askpass.go /internal/privilege/askpass.go "$MIN_ASKPASS"
 
 if ((failed)); then
