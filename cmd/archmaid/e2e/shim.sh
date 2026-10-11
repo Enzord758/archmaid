@@ -18,7 +18,7 @@ systemctl)
 	case "$1" in
 	list-unit-files) printf 'fake-alpha.service enabled disabled\nfake-beta.service  enabled disabled\n' ;;
 	list-units) printf 'fake-alpha.service loaded inactive dead Fake Alpha\nfake-beta.service  loaded inactive dead Fake Beta\n' ;;
-	is-enabled) shift; [[ "${1:-}" == -- ]] && shift; for _ in "$@"; do echo enabled; done ;;
+	is-enabled) shift; [[ "${1:-}" == -- ]] && shift; for _ in "$@"; do echo "${SHIM_UNIT_STATE:-enabled}"; done ;;
 	esac
 	;;
 sudo)

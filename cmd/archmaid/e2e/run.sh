@@ -112,12 +112,41 @@ if want services; then
 	need "$CLEANUP_LOG" "DRYRUN: Services disabled" "services: DRYRUN entry missing"
 	need "$CLEANUP_LOG" "would run: sudo systemctl disable --now -- fake-beta.service$" \
 		"services: the log must name exactly the toggled unit"
-	refuse "$CLEANUP_LOG" "fake-alpha" "services: the untoggled unit leaked into the log"
+	refuse "$CLEANUP_LOG" "would run: .*fake-alpha" "services: the untoggled unit was disabled"
+	# What the discovery found heads the run's log (both units, with their state).
+	need "$CLEANUP_LOG" "CHECK: Checked 2 stopped services: 2 are enabled" "services: the discovery record is missing"
+	need "$CLEANUP_LOG" "^fake-alpha.service: enabled$" "services: the record lacks a unit's state"
 	if grep '^systemctl ' "$SHIM_LOG" | grep -qvE '^systemctl (list-|is-enabled )'; then
 		cat "$SHIM_LOG"; fail "services: systemctl was used for more than listing and is-enabled"
 	fi
 	grep -q '^systemctl list-' "$SHIM_LOG" || fail "services: the shim was never asked to list"
 	echo "PASS: services disabled exactly the toggled unit, dry-run only"
+fi
+
+if want services-none; then
+	run_tape services-none SHIM_UNIT_STATE=disabled
+	need "$TXT" "Checked 2 stopped services: none are enabled" "services-none: the notice did not say what was checked"
+	need "$TXT" "Details: View log → Services check" "services-none: the notice did not say where the record is"
+	SVC_LOG="$STATE_DIR/dryrun/services.log"
+	[[ -f "$SVC_LOG" ]] || fail "services-none: no record at $SVC_LOG"
+	need "$SVC_LOG" "CHECK: Checked 2 stopped services: none are enabled" "services-none: the record's entry is missing"
+	need "$SVC_LOG" "^fake-beta.service: disabled$" "services-none: the record lacks a unit's state"
+	need "$SVC_LOG" '^\$ systemctl list-units --type=service' "services-none: the record lacks the command"
+	need "$SVC_LOG" "Fake Alpha" "services-none: the record lacks the raw listing"
+	LR="$STATE_DIR/dryrun/last-run.json"
+	[[ -f "$LR" ]] || fail "services-none: no last-run record in the dry-run slot"
+	need "$LR" '"outcome": *"nothing-found"' "services-none: the last-run record is not 'nothing-found'"
+	need "$LR" '"action": *"services"' "services-none: the last-run record names another action"
+	[[ ! -e "$STATE_DIR/last-run.json" ]] || fail "services-none: a dry run wrote the real last-run slot"
+	refuse "$CLEANUP_LOG" "." "services-none: nothing found, yet the cleanup log was written"
+	if ls "$STATE_DIR" | grep -qE '^[0-9]{8}-[0-9]{4}$'; then
+		ls -la "$STATE_DIR"; fail "services-none: a dry run made a real run directory"
+	fi
+	if grep '^systemctl ' "$SHIM_LOG" | grep -qvE '^systemctl (list-units|is-enabled) '; then
+		cat "$SHIM_LOG"; fail "services-none: systemctl was used for more than listing and is-enabled"
+	fi
+	echo "PASS: services found nothing, said what it checked, and recorded it in the dry-run slot"
+	echo "--- $SVC_LOG ---"; cat "$SVC_LOG"
 fi
 
 if want orphans; then
@@ -147,10 +176,12 @@ fi
 
 if want repair-none; then
 	run_tape repair-none
-	need "$TXT" "No broken packages found" "repair-none: the notice was not shown"
+	need "$TXT" "No broken packages: checked 2 installed packages" "repair-none: the notice was not shown"
 	need "$SHIM_LOG" "^pacman -Qkq -- " "repair-none: the user scan never ran"
 	refuse "$SHIM_LOG" "^sudo " "repair-none: nothing flagged, yet sudo was used"
 	refuse "$CLEANUP_LOG" "." "repair-none: a notice-only run wrote to the cleanup log"
+	need "$STATE_DIR/dryrun/repair.log" "CHECK: No broken packages" "repair-none: no discovery record"
+	need "$STATE_DIR/dryrun/last-run.json" '"outcome": *"nothing-found"' "repair-none: last-run is not 'nothing-found'"
 	echo "PASS: repair found nothing, showed the notice and never touched sudo"
 fi
 
@@ -178,7 +209,9 @@ if want downloads; then
 	done
 	: >"$DL_DIR/new.txt"
 	run_tape downloads DL_DIR="$DL_DIR"
-	need "$TXT" "Nothing older than 30 days" "downloads: the nothing-old notice was not shown"
+	need "$TXT" "Checked 3 items in" "downloads: the nothing-old notice was not shown"
+	need "$STATE_DIR/dryrun/downloads.log" "CHECK: Checked 3 items in .*: none older than 30 days" "downloads: no discovery record"
+	need "$STATE_DIR/dryrun/downloads.log" "^new.txt: " "downloads: the record does not list the folder's items"
 	for f in old-mtime-a.iso old-mtime-b.zip new.txt; do
 		[[ -e "$DL_DIR/$f" ]] || fail "downloads: $f was deleted"
 	done
