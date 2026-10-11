@@ -119,7 +119,8 @@ rule("internal/actions/downloads.go", r"", "A", "the downloads discovery's edge 
 rule("internal/actions/services.go", r"", "A", "a unit listing with a blank line, systemctl failing on is-enabled, more than three skip rules", "internal/actions/services_test.go")
 # ---- internal/engine
 rule("internal/engine/events.go", r"DiscoveryOutcome.String", "A", "String of an out-of-range outcome", "internal/engine/events_test.go")
-rule("internal/engine/", r"", "A", "a combined queue whose parts are all declined, finish out of order, or exit without having run", "internal/engine/combine_test.go")
+rule("internal/engine/combine.go", r"Session.combineNext", "E", "the guard skips a slot that is not Pending or already accepted; every caller advances r.cur past a slot it has settled or accepted, so the loop never meets one", "", lo=85, hi=85, rec="keep-exempt")
+rule("internal/engine/", r"", "A","a combined queue whose parts are all declined, finish out of order, or exit without having run", "internal/engine/combine_test.go")
 # ---- internal/logstore
 rule("internal/logstore/lastrun.go", r"Store.WriteLastRun", "E", "json.Marshal of a RunRecord can't fail", "", lo=66, hi=67, rec="keep-exempt")
 rule("internal/logstore/lastrun.go", r"Store.WriteLastRun", "A", "MkdirAll under a regular file / CreateTemp in a 0500 dir", "internal/logstore/lastrun_test.go", lo=71, hi=79)
@@ -132,7 +133,7 @@ rule("internal/driver/driver.go", r"Driver.handle|Driver.loop", "A", "a Session 
 rule("internal/driver/", r"", "A", "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe", "internal/driver/*_test.go")
 # ---- internal/tui
 rule("internal/tui/askpass.go", r"startAskpassServer", "E", "os.Executable fails only without /proc", "", rec="keep-exempt")
-rule("internal/tui/tui.go", r"^Run", "A", "ttyguard.Hold refusing stdin (a closed or non-terminal fd in the TTY child)", "internal/tui/tui_test.go", lo=60, hi=66)
+rule("internal/tui/tui.go", r"^Run", "E", "ttyguard.Hold reports an error only when TIOCGEXCL/TIOCEXCL fails on a terminal that just answered TCGETS; a closed or non-terminal stdin is a Guard that does nothing, no error", "", lo=60, hi=66, rec="keep-exempt")
 rule("internal/tui/tui.go", r"^Run", "E", "Release of the guard fails only if the fd was closed concurrently", "", rec="keep-exempt")
 rule("internal/tui/tui.go", r"DisableCoreDumps", "E", "prctl(PR_SET_DUMPABLE) on our own process doesn't fail", "", rec="keep-exempt")
 rule("internal/tui/tui.go", r"DropSudoTicket", "A", "privilege.DropTicket failing (sudo shim)", "internal/tui/tui_test.go")
@@ -140,7 +141,8 @@ rule("internal/tui/view.go", r"model.viewOf", "E", "safe fallback: renderScreen/
 rule("internal/tui/tasks.go", r"^<package>$", "B", "the default execProcess hands the terminal to the editor: a pty tape with EDITOR set to a script (the unit tests swap the seam)", "cmd/archmaid/e2e/run.sh")
 rule("internal/tui/tasks.go", r"handedTerminal", "B", "the terminal handover to a real editor: a pty tape with EDITOR set to a script", "cmd/archmaid/e2e/run.sh")
 rule("internal/tui/", r"", "A", "key handling per screen (menu quit, log picker, log, audit, notice, discovering, services, confirm), the editor name from VISUAL/EDITOR, overlay padding, a PromptClosed for the askpass, a Finished with an open askpass or a cancelled outcome", "internal/tui/*_test.go")
-rule("internal/frontend/", r"", "A", "an audit helper edge", "internal/frontend/audit_test.go")
+rule("internal/frontend/topgrade.go", r"EnsureTopgradeConfig", "E", "O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's", "", lo=55, hi=56, rec="keep-exempt")
+rule("internal/frontend/", r"", "A","an audit helper edge", "internal/frontend/audit_test.go")
 
 # ---- cover tooling itself
 rule("cmd/archmaid-helper/internal/coverdir/coverdir.go", r"init", "B", "only a cover helper running as root sets it: verified under unshare -r with a scratch HOME (coverage-map.md, helper check); in the VM every pkexec run does", "e2e (new helper check)")
