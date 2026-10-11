@@ -64,7 +64,7 @@ func TestReport(t *testing.T) {
 	}
 	var sb strings.Builder
 	WriteReachable(&sb, st)
-	if !strings.Contains(sb.String(), "core    raw 40.0% (4/10)   reachable 50.0% (4/8, 2 exempt)") {
+	if !strings.Contains(sb.String(), "core    raw 40.0% (4/10)   reachable 50.0% (4/8, 2 exempt)") || !strings.Contains(sb.String(), "gui     raw none (0/0)   reachable none (0/0, 0 exempt)") {
 		t.Errorf("report:\n%s", sb.String())
 	}
 }

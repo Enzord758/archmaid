@@ -137,8 +137,8 @@ func Report(blocks []Block, ex []Exempt, rel func(string) string) (stats map[str
 func WriteReachable(w io.Writer, stats map[string]*ScopeStats) {
 	for _, s := range []string{"core", "helper", "gui", "all"} {
 		st := stats[s]
-		fmt.Fprintf(w, "%-7s raw %s%% (%d/%d)   reachable %s%% (%d/%d, %d exempt)\n",
-			s, st.Raw(), st.Covered, st.Total, st.Reachable(), st.Covered, st.Total-st.Exempt, st.Exempt)
+		fmt.Fprintf(w, "%-7s raw %s (%d/%d)   reachable %s (%d/%d, %d exempt)\n",
+			s, pctStr(st.Raw()), st.Covered, st.Total, pctStr(st.Reachable()), st.Covered, st.Total-st.Exempt, st.Exempt)
 	}
 }
 
@@ -149,10 +149,22 @@ func relFunc(root string, mods []Module) func(string) string {
 		if p == "" {
 			return ""
 		}
+		p, err := filepath.Abs(p)
+		if err != nil {
+			return ""
+		}
 		r, err := filepath.Rel(root, p)
 		if err != nil {
 			return ""
 		}
 		return filepath.ToSlash(r)
 	}
+}
+
+// pctStr adds the percent sign to a Pct figure, but not to "none".
+func pctStr(p string) string {
+	if p == "none" {
+		return p
+	}
+	return p + "%"
 }

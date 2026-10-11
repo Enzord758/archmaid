@@ -19,6 +19,9 @@
 #   helper  cmd/archmaid-helper/...
 #   gui     gui/...
 #   all     everything in the data
+# followed by the same four scopes as raw and reachable coverage, "reachable"
+# being covered / (total - exempt) with docs/coverage-exempt.tsv as the
+# exempt list (scripts/covblocks -reachable); stale entries are named on stderr.
 # A block counts as covered if any run counted it (check.sh's rule). A
 # package only shows up once some run linked it: a merge of e2e data alone
 # has no internal/testenv, so its "core" isn't check.sh's denominator.
@@ -76,6 +79,9 @@ m=github.com/Enzord758/archmaid
 	echo "helper  $(total "^$m/cmd/archmaid-helper/")"
 	echo "gui     $(total "^$m/gui/")"
 	echo "all     $(total ".")"
+	echo
+	echo "reachable = covered / (total - exempt); the exempt list is docs/coverage-exempt.tsv:"
+	go run ./scripts/covblocks -reachable -exempt docs/coverage-exempt.tsv "$out/profile.txt"
 } | tee -a "$out/summary.txt"
 
 # The HTML report: go tool cover finds each file through its package, so it
