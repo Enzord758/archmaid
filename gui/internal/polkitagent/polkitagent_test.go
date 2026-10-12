@@ -363,29 +363,37 @@ func TestAgentTerminalIsExclusive(t *testing.T) {
 
 // A process that opened the terminal before the lock and still holds it
 // could read the password: nothing is written, and polkit's request fails.
+// It holds it by name in a session of its own (snoop), or as /dev/tty from
+// inside pkttyagent's session (snoopctty): the real /proc and statx, the
+// pty told apart by its device numbers.
 func TestAgentRefusesASharedTerminal(t *testing.T) {
-	path, dir := shim(t, "AGENT_MODE=snoop")
-	a := start(t, path)
-	t.Cleanup(func() {
-		if n, err := strconv.Atoi(read(t, dir, "snoop.pid")); err == nil {
-			_ = syscall.Kill(n, syscall.SIGKILL)
-		}
-	})
-	request(t, dir, "org.archmaid.helper.full-cleanup")
-	p := next(t, a)
-	if err := p.Answer([]byte("hunter2")); !errors.Is(err, ErrTTYShared) {
-		t.Fatalf("Answer = %v, want ErrTTYShared (the snooper, pid %s, holds the terminal)", err, read(t, dir, "snoop.pid"))
-	}
-	// Promptly: Stop doesn't wait for the snooper to let go of the terminal.
-	t0 := time.Now()
-	if err := waitDone(t, p); err == nil {
-		t.Fatal("polkit's request went on")
-	}
-	if d := time.Since(t0); d > 3*time.Second {
-		t.Errorf("the refusal took %v", d)
-	}
-	if got := read(t, dir, "agent.got"); got != "" {
-		t.Fatalf("pkttyagent was answered %q", got)
+	for _, mode := range []string{"snoop", "snoopctty"} {
+		t.Run(mode, func(t *testing.T) {
+			path, dir := shim(t, "AGENT_MODE="+mode)
+			a := start(t, path)
+			t.Cleanup(func() {
+				if n, err := strconv.Atoi(read(t, dir, "snoop.pid")); err == nil {
+					_ = syscall.Kill(n, syscall.SIGKILL)
+				}
+			})
+			request(t, dir, "org.archmaid.helper.full-cleanup")
+			p := next(t, a)
+			err := p.Answer([]byte("hunter2"))
+			if !errors.Is(err, ErrTTYShared) || !strings.Contains(err.Error(), "pid ["+read(t, dir, "snoop.pid")+"]") {
+				t.Fatalf("Answer = %v, want ErrTTYShared naming the snooper, pid %s, alone", err, read(t, dir, "snoop.pid"))
+			}
+			// Promptly: Stop doesn't wait for the snooper to let go of the terminal.
+			t0 := time.Now()
+			if err := waitDone(t, p); err == nil {
+				t.Fatal("polkit's request went on")
+			}
+			if d := time.Since(t0); d > 3*time.Second {
+				t.Errorf("the refusal took %v", d)
+			}
+			if got := read(t, dir, "agent.got"); got != "" {
+				t.Fatalf("pkttyagent was answered %q", got)
+			}
+		})
 	}
 }
 

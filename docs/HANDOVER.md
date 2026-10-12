@@ -343,7 +343,26 @@ comments and `git log`; this is the "read before you touch it" list.
     the agent's pty is made exclusive (TIOCEXCL): nobody can open it any
     more; before a password is written, `/proc` is checked for any other
     process still holding it (opened before the lock), and if one does
-    nothing is written (`ErrTTYShared`). The password is written only once
+    nothing is written (`ErrTTYShared`). The check (`procView.holders`,
+    a seam for a fake `/proc`) tells the pty apart by its device numbers,
+    never by the name its fd link shows: `statx` of each fd's link gives
+    the devpts instance (`st_dev`) and the index (`st_rdev`), compared with
+    the pty's own; another devpts instance's `/dev/pts/N` (a flatpak
+    sandbox's) is not ours, our pty under another name (a bind mount in
+    another mount namespace) is. Any `/dev/tty` node (5:0) counts only for
+    a process in pkttyagent's session (its controlling terminal). The
+    statx reads cached attributes only (`AT_STATX_DONT_SYNC`, empty mask),
+    so a hung FUSE or network server can't hang it. A process or fd that is
+    gone by the time it is read (ENOENT, ESRCH: reaped, closed) holds
+    nothing; a link the kernel won't let us follow (EACCES/EPERM: the
+    user's `systemd --user` has CAP_WAKE_ALARM, so its fds are listed but
+    unreadable) is trusted like an fd table we may not list (root's,
+    another uid's), as before (failing closed there refused every prompt);
+    any other error counts as a holder. What `/proc` can't show isn't
+    checked: a process of our uid that made itself non-dumpable, or a
+    thread with an fd table of its own (or a process whose main thread
+    has exited), that opened the pty in the registration window before
+    the lock (open, Dev 3 #91, for the lead). The password is written only once
     the listener has turned echo off (it flushes earlier input). A request
     that isn't ours to answer (another action, another identity) and a
     second hidden prompt in one request are cancelled at the listener

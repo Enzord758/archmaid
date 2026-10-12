@@ -19,7 +19,9 @@ package agenttest
 // when the answer is $AGENT_WANT). AGENT_MODE=noreg fails to register as
 // pkttyagent does; AGENT_MODE=snoop has another process (its pid in
 // snoop.pid) open the terminal by name and hold it before registering, as
-// a same-uid snooper could; AGENT_IDENTS=multi offers root and the user,
+// a same-uid snooper could; AGENT_MODE=snoopctty has a child in its own
+// session hold it as /dev/tty instead (its pid in snoop.pid), which is
+// the terminal under another name; AGENT_IDENTS=multi offers root and the user,
 // other authenticates as someone else; AGENT_MODE=twoprompts asks a
 // second hidden question after the password; AGENT_MODE=slowstop ends
 // only 0.6 s after SIGTERM, as a stopped agent may on a loaded machine.
@@ -40,6 +42,18 @@ exec 4<>/dev/tty
 if [ "${AGENT_MODE:-}" = snoop ]; then
 	setsid sleep 30 <"$(tty)" >/dev/null 2>&1 3>&- 4>&- &
 	echo $! > "$d/snoop.pid"
+fi
+if [ "${AGENT_MODE:-}" = snoopctty ]; then
+	sleep 30 </dev/tty >/dev/null 2>&1 3>&- 4>&- &
+	s=$!
+	echo $s > "$d/snoop.pid"
+	# Registered only once it holds the terminal (its fd 0 is the
+	# inherited /dev/pts/N until the redirect).
+	i=0
+	while [ "$(readlink "/proc/$s/fd/0")" != /dev/tty ] && [ $i -lt 300 ]; do
+		sleep 0.01
+		i=$((i+1))
+	done
 fi
 exec 3>&-
 echo $$ > "$d/agent.pid"

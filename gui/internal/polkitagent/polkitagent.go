@@ -43,6 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"regexp"
@@ -52,6 +53,8 @@ import (
 	"syscall"
 	"time"
 	"unsafe"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/proc"
@@ -94,7 +97,7 @@ type Agent struct {
 	once    sync.Once
 	read    chan struct{} // closed once the reader has ended
 
-	tty string // the terminal's path (/dev/pts/N)
+	tty fileID // the terminal: its devpts instance and index
 
 	mu sync.Mutex
 	// gen numbers the listener's requests (one per banner); pending is
@@ -111,45 +114,122 @@ type Agent struct {
 // /dev/pts/N and race pkttyagent for the password line written to it.
 func lockTTY(slave *os.File) error { return ioctl(slave, syscall.TIOCEXCL, nil) }
 
-// inAgentSession reports whether pid is in pkttyagent's session, whose
-// controlling terminal is the agent's (pkttyagent leads it: Setsid).
-func (a *Agent) inAgentSession(pid int) bool {
-	info, err := proc.Read(pid)
-	return err != nil || info.Session == a.cmd.Process.Pid // unreadable: assume so
-}
-
 // ErrTTYShared: a process other than pkttyagent holds the agent's
 // terminal, so a password written to it could be read by that process.
 var ErrTTYShared = errors.New("polkit agent: another process holds its terminal")
 
-// otherHolders lists the processes, besides pkttyagent, that hold the
-// agent's terminal open, as far as /proc shows (our uid's processes; root's
-// fd tables are unreadable, and root is trusted). After lockTTY nobody can
-// open it any more, so one that holds it now opened it before the lock and
-// still does.
-func (a *Agent) otherHolders() []int {
-	ents, err := os.ReadDir("/proc")
+// fileID is an open file as the terminal check tells files apart: the
+// device numbers (major, minor) of the filesystem it is on (dev; for a
+// pty, its devpts instance: every devpts mount but a bind mount is an
+// instance of its own) and of the device it is (rdev; a pty's index
+// within its instance). The kernel opens a pty only through a node on its
+// own instance, so dev and rdev together name it exactly, under whatever
+// path. Its path doesn't: two instances (a flatpak sandbox's own devpts,
+// say) each have a /dev/pts/3, and a bind mount in another mount
+// namespace shows our pty under another name.
+type fileID struct {
+	dev, rdev [2]uint32
+}
+
+// ctty is /dev/tty's device (5:0): opening it opens the opener's
+// controlling terminal, whatever the node is called.
+var ctty = [2]uint32{5, 0}
+
+func statxID(st *unix.Statx_t) fileID {
+	return fileID{dev: [2]uint32{st.Dev_major, st.Dev_minor}, rdev: [2]uint32{st.Rdev_major, st.Rdev_minor}}
+}
+
+// statxFlags read only cached attributes (AT_STATX_DONT_SYNC), so that a
+// file on a FUSE or network filesystem whose server hangs can't hang the
+// check. The mask is empty: statx always fills dev and rdev, and a FUSE
+// mount that won't serve us (another user namespace's) then still gives
+// its dev instead of EACCES.
+const statxFlags = unix.AT_STATX_DONT_SYNC
+
+// statFD is the open file behind a /proc/<pid>/fd/<n> link: statx
+// follows the link to the file itself, never re-resolving its path.
+func statFD(link string) (fileID, error) {
+	var st unix.Statx_t
+	if err := unix.Statx(unix.AT_FDCWD, link, statxFlags, 0, &st); err != nil {
+		return fileID{}, err
+	}
+	return statxID(&st), nil
+}
+
+// fileIDOf is f's fileID, without f.Fd() (see ioctl).
+func fileIDOf(f *os.File) (fileID, error) {
+	rc, err := f.SyscallConn()
+	if err != nil {
+		return fileID{}, err
+	}
+	var st unix.Statx_t
+	var serr error
+	if err := rc.Control(func(fd uintptr) {
+		serr = unix.Statx(int(fd), "", unix.AT_EMPTY_PATH|statxFlags, 0, &st)
+	}); err != nil {
+		return fileID{}, err
+	}
+	if serr != nil {
+		return fileID{}, serr
+	}
+	return statxID(&st), nil
+}
+
+// procView is what the terminal check reads of the system: the /proc
+// tree, the open file behind an fd link, and a process's session. The
+// real one (sys) unless a test swaps it.
+type procView struct {
+	root    string
+	stat    func(link string) (fileID, error)
+	session func(pid int) (int, error)
+}
+
+var sys = procView{
+	root: "/proc",
+	stat: statFD,
+	session: func(pid int) (int, error) {
+		info, err := proc.Read(pid)
+		return info.Session, err
+	},
+}
+
+// gone reports whether err says the fd or its process no longer exists:
+// the fd was closed, or the process reaped, after /proc listed it. Either
+// way it holds nothing. On any other error the check fails closed.
+func gone(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH)
+}
+
+// holders lists the processes, besides the agent (pkttyagent's pid,
+// which leads its session), that hold the terminal tty open, as far as
+// /proc shows: the processes whose fds we may read (ptrace's read check),
+// our uid's dumpable ones without capabilities we lack. root's, another
+// uid's, a privileged one's are unreadable, and are trusted. After
+// lockTTY nobody can open it any more, so one that holds it now opened it
+// before the lock and still does. A process holds it when one of its fds
+// is that pty (by device numbers, under any name), or is /dev/tty (any
+// node of 5:0) while the process is in the agent's session, whose
+// controlling terminal it is. An fd or process gone since /proc listed it
+// holds nothing, a link we may not follow is trusted like an fd table we
+// may not list, and anything else that can't be read counts as a holder.
+func (v procView) holders(agent int, tty fileID) []int {
+	ents, err := os.ReadDir(v.root)
 	if err != nil {
 		return []int{-1} // can't tell: assume the worst
 	}
 	var pids []int
 	for _, e := range ents {
 		pid, err := strconv.Atoi(e.Name())
-		if err != nil || pid == a.cmd.Process.Pid {
+		if err != nil || pid == agent {
 			continue
 		}
-		fds, err := os.ReadDir("/proc/" + e.Name() + "/fd")
+		dir := v.root + "/" + e.Name() + "/fd"
+		fds, err := os.ReadDir(dir)
 		if err != nil {
-			continue
+			continue // gone, or not ours to read
 		}
 		for _, fd := range fds {
-			l, err := os.Readlink("/proc/" + e.Name() + "/fd/" + fd.Name())
-			if err != nil {
-				continue
-			}
-			// By name, or as /dev/tty from inside pkttyagent's session
-			// (the terminal is that session's controlling terminal).
-			if l == a.tty || l == "/dev/tty" && a.inAgentSession(pid) {
+			if v.holds(dir+"/"+fd.Name(), pid, agent, tty) {
 				pids = append(pids, pid)
 				break
 			}
@@ -157,6 +237,38 @@ func (a *Agent) otherHolders() []int {
 	}
 	return pids
 }
+
+// holds reports whether pid's fd behind link holds the terminal.
+func (v procView) holds(link string, pid, agent int, tty fileID) bool {
+	id, err := v.stat(link)
+	switch {
+	case err == nil:
+	case gone(err):
+		return false // closed or reaped since: holds nothing
+	case errors.Is(err, fs.ErrPermission):
+		// Not ours to read, like a whole fd table: the kernel lists the
+		// fds of a process of our uid that has capabilities we lack (the
+		// user's systemd, CAP_WAKE_ALARM) but denies their links.
+		return false
+	default:
+		return true // can't tell: assume so
+	}
+	if id == tty {
+		return true
+	}
+	if id.rdev != ctty {
+		return false
+	}
+	sid, err := v.session(pid)
+	if err != nil {
+		return !gone(err) // reaped since: nothing; else can't tell
+	}
+	return sid == agent
+}
+
+// otherHolders lists the processes, besides pkttyagent, that hold the
+// agent's terminal (procView.holders).
+func (a *Agent) otherHolders() []int { return sys.holders(a.cmd.Process.Pid, a.tty) }
 
 // Start registers pkttyagent for opts' process and returns once it is
 // registered. An error means there is no agent of ours (pkttyagent is
@@ -179,6 +291,12 @@ func Start(opts Options) (*Agent, error) {
 	master, slave, err := openPTY()
 	if err != nil {
 		return nil, err
+	}
+	tty, err := fileIDOf(slave)
+	if err != nil {
+		master.Close()
+		slave.Close()
+		return nil, fmt.Errorf("polkit agent: can't stat its terminal: %w", err)
 	}
 	notifyR, notifyW, err := os.Pipe()
 	if err != nil {
@@ -205,7 +323,7 @@ func Start(opts Options) (*Agent, error) {
 	}
 	// Our copy of the terminal stays open until the registration: then it
 	// is made exclusive and closed (lockTTY).
-	a := &Agent{opts: opts, cmd: cmd, master: master, tty: slave.Name(), prompts: make(chan driver.AgentPrompt),
+	a := &Agent{opts: opts, cmd: cmd, master: master, tty: tty, prompts: make(chan driver.AgentPrompt),
 		exited: make(chan struct{}), stop: make(chan struct{}), read: make(chan struct{})}
 	go func() {
 		_ = cmd.Wait()
