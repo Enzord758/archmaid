@@ -246,7 +246,12 @@ reads "Not authorised · account locked until …", the rest "Not
 authorised"), `real-askpass` and
 `real-askpass-cancel` (the right password reaches the sudo shim; a cancel
 doesn't, topgrade fails), `real-close` (the window closed mid-topgrade: the
-topgrade shim's pid is gone and goleak is clean), `real-runs` (one window,
+topgrade shim's pid is gone and goleak is clean), `real-failed-decline`
+(a Full Cleanup whose topgrade fails, then its Run topgrade again with
+the gate declined: the failed run stays on the page, tagged "previous
+run", and the status line says "Run cancelled, nothing ran", not the
+failed run's end and line count; `TestStatusTextGateDeclined` is the
+plain-Go half), `real-runs` (one window,
 `KeepRuns`+1 real Run topgrade runs then a dry one, from the Overview row
 each time, in a scratch state dir with a clock stepping a minute per
 Driver: a fresh Driver per Start, one run directory per real run, the
@@ -285,7 +290,11 @@ row's, step header's and action cell's tags on their own line under the
 title, starting at the title's x; above it at the line's end, the same
 distance from it on every row; no tag drawn taller than its own height;
 the hero's Run and Dry run first stacked at its full width when narrow
-(nothing under them but its padding), side by side when wide.
+(nothing under them but its padding), side by side when wide. The gate's
+rail gets the same check by the dialog's own breakpoint
+(`checkRailTags`: under the titles when its sheet is under 640 px, at
+the line's end above), in `TestGUIMinWidth`, `TestGUIMinWidthStates` and
+`TestGUIWideDialogs` (at least the real plan's 7 tagged steps).
 `TestGUIMinWidthToggle` (`narrowtoggle_harness_test.go`, scenario
 `narrow-toggle`) crosses the breakpoint both ways (960, 500, 960, 500 px, the
 window resized live) with Run pages of 6, 12 and 18 steps started at each
@@ -344,7 +353,9 @@ each dialog's sheet (`dialogGeometry`: size, whether the gate's steps and
 notes are side by side, how many scrolled windows have something to
 scroll, the yes button in the window, nothing too wide). At 1460 the gate
 must be at least 800 px wide, shorter than before (372x567 on d3b2b94),
-side by side, nothing scrolling; every other dialog wider than before
+side by side, nothing scrolling, its note's root count the rail's `root`
+tags (`gateRootCounts`: topgrade is tagged `sudo`), the orphans' lists
+with no line broken (`wrappedLists`, the VM's cascade); every other dialog wider than before
 (`*WBefore`), the passwords wider than 372 px. At 380 everything fits
 with its buttons in view and the gate stacked. With `ARCHMAID_GUI_SHOTS`
 it writes `real-wide-<width>-<dialog>.png`. `TestGUICovDialogClose`
@@ -375,7 +386,10 @@ step confirm naming a long path, 80 services, a 40-finding report and an
 askpass named by a long path at 1460x930, 1460x500, 620x500 and 380x500:
 each sheet inside the window, its heading and buttons drawn inside it
 and (a wide dialog's) in no scrolled window, something in its middle
-scrolling in the short windows, nothing too wide, no GTK warning
+scrolling in the short windows and only the middle (no list scrolling
+inside it: a capped list shrank there instead, task #101), the 20-step
+rail whole at 1460x930 and at least 6 of its steps shown in each low
+window, the orphans' lines unbroken at 1460x930, nothing too wide, no GTK warning
 (`wide-long-<w>x<h>-<dialog>.png` with `ARCHMAID_GUI_SHOTS`).
 `TestGUISmallWindow` accepts a heading in no
 scrolled window at all (`scrolled=-1`: the wide orphans dialog's heading

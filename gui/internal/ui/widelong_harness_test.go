@@ -63,6 +63,9 @@ func longPrompts() []struct {
 	for i := range 20 {
 		s := engine.PlanStep{ID: fmt.Sprintf("s%02d", i), Title: fmt.Sprintf("Step %d: clean what step %d cleans", i+1, i+1),
 			NeedsPriv: i%3 == 0, Confirm: i%4 == 1, Optional: i%5 == 2, Argv: []string{"true"}}
+		if s.NeedsPriv && i > 0 {
+			s.Verb = "full-cleanup" // root through the helper; the first gets it through its own sudo
+		}
 		if i == 7 {
 			s.Title = "Remove " + strings.Repeat("very-long-package-name-", 6) + "git and what depends on it"
 		}
@@ -233,26 +236,38 @@ func wideLong(c *covEnv) {
 			c.ok(inner == 0, "%s at %dx%d: %d lists scroll inside the middle (heights %v), want only the middle to scroll", name, wd, ht, inner, innerH)
 		}
 		if name == "gate" {
-			// How many of the rail's steps the middle shows whole.
+			// How many of the rail's steps are shown whole: inside every
+			// scrolled window they sit in (the middle, and the rail's own
+			// scroller where it had one).
 			shown, total := 0, 0
-			if mb, ok := boundsIn(d.parts[1], w.win); ok {
-				eachWidget(d, func(x gtk.Widgetter) {
-					if !gtk.BaseWidget(x).HasCSSClass("am-rail-step") {
-						return
+			eachWidget(d, func(x gtk.Widgetter) {
+				if !gtk.BaseWidget(x).HasCSSClass("am-rail-step") {
+					return
+				}
+				total++
+				rb, ok := boundsIn(x, w.win)
+				if !ok || !gtk.BaseWidget(x).IsDrawable() {
+					return
+				}
+				stop := coreglib.InternObject(d).Native()
+				for p := gtk.BaseWidget(x).Parent(); p != nil && coreglib.InternObject(p).Native() != stop; p = gtk.BaseWidget(p).Parent() {
+					if _, isSc := p.(*gtk.ScrolledWindow); isSc {
+						if pb, ok := boundsIn(p, w.win); !ok || !within(rb, pb) {
+							return
+						}
 					}
-					total++
-					if rb, ok := boundsIn(x, w.win); ok && gtk.BaseWidget(x).IsDrawable() && within(rb, mb) {
-						shown++
-					}
-				})
-			}
+				}
+				shown++
+			})
 			switch {
 			case wd == 1460 && ht == 930:
 				// The window has room for all 20: no cap of its own (it
 				// stopped at 364 px, 14 steps, with 400 px to spare).
 				c.ok(shown == total && total == 20 && !middle, "gate at 1460x930: %d of %d steps shown, the middle scrolls %v; want all 20, nothing scrolling", shown, total, middle)
-			case wd == 1460 && ht == 500:
-				c.ok(shown >= 6, "gate at 1460x500: %d of %d steps shown, want at least 6", shown, total)
+			case ht < 600:
+				// A low window shows a useful part of the plan, not ~3
+				// steps in a 70 px rail (Dev 2's #96 at 620x500, 380x500).
+				c.ok(shown >= 6, "gate at %dx%d: %d of %d steps shown, want at least 6", wd, ht, shown, total)
 			}
 			c.rep.Narrow = append(c.rep.Narrow, fmt.Sprintf("gate %dx%d: %d of %d rail steps shown", wd, ht, shown, total))
 		}
