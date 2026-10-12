@@ -15,8 +15,9 @@ import (
 	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
-// The decision dialogs: one AdwAlertDialog per open prompt, kept in
-// w.dialogs by prompt ID until it is answered or the engine withdraws it
+// The decision dialogs: one dialog per open prompt (widedialog.go: a wide
+// AdwDialog for the confirms, the pick list and the report, an
+// AdwAlertDialog for the passwords), kept in w.dialogs by prompt ID until it is answered or the engine withdraws it
 // (PromptClosed → ForceClose). Every answer goes through answer, which
 // asks the model to claim the ID first: a stale ID (withdrawn, replaced by
 // a newer prompt, already answered) is dropped there and never reaches the
@@ -28,7 +29,7 @@ const askpassPromptMax = 48
 
 // prompt opens the dialog for p.
 func (w *Window) prompt(p runview.Prompt) {
-	var d *adw.AlertDialog
+	var d *amDialog
 	switch {
 	case p.Confirm != nil:
 		d = w.confirmDialog(*p.Confirm)
@@ -66,9 +67,10 @@ func (w *Window) answer(id engine.PromptID, cmd func() engine.Command) {
 //
 // Restyled (P8 row 13, spec 1.3): a dry run's banner first, then the body,
 // the lists, and a gate's plan as a numbered rail with its tags and notes.
-// The body is a label of the extra child, not the dialog's own, so the dry
-// run's banner can come before it.
-func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
+// Wide (task #95, widedialog.go): the gate's steps beside its notes, the
+// orphans beside what goes with them, as wide as that needs; one over the
+// other under the dialog's breakpoint.
+func (w *Window) confirmDialog(p engine.NeedsConfirm) *amDialog {
 	heading, body := p.Title, p.Body
 	if heading == "" {
 		heading = p.Msg
@@ -78,7 +80,24 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 		// first names and "…and N more") says the rest only.
 		body = runview.BodyWithoutItems(body, p.Items)
 	}
-	d := scoped(adw.NewAlertDialog(heading, ""))
+	// The orphans' cascade is pacman's "name version" lines, the orphans
+	// included: what goes with them is the rest, by name.
+	var extra []string
+	for _, c := range p.Cascade {
+		if name, _, _ := strings.Cut(c, " "); !slices.Contains(p.Direct, name) {
+			extra = append(extra, c)
+		}
+	}
+	width := wideText
+	switch {
+	case len(p.Plan) > 0:
+		width = wideGate
+	case len(p.Direct) > 0 && len(extra) > 0:
+		width = wideLists
+	case len(p.Direct) > 0 || len(p.Items) > 0:
+		width = wideList
+	}
+	d := newWideDialog(heading, width)
 	yes, no := w.model.ConfirmLabels(p)
 	d.AddResponse("no", no)
 	d.AddResponse("yes", yes)
@@ -94,41 +113,45 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 		d.SetDefaultResponse("no")
 		d.SetResponseAppearance("yes", adw.ResponseSuggested)
 	}
-	box := gtk.NewBox(gtk.OrientationVertical, 12)
 	if w.drvDry {
-		box.Append(dryBanner())
+		d.add(dryBanner())
 	}
 	if body != "" {
-		box.Append(dialogText(body, "am-dialog-body"))
+		d.add(dialogText(body, "am-dialog-body"))
 	}
-	if len(p.Direct) > 0 || len(p.Cascade) > 0 {
-		// Orphans: what was found, then what goes with it.
-		box.Append(itemList("Orphaned", p.Direct, p.Destructive))
-		// The cascade is pacman's "name version" lines, the orphans
-		// included: what goes with them is the rest, by name.
-		var extra []string
-		for _, c := range p.Cascade {
-			if name, _, _ := strings.Cut(c, " "); !slices.Contains(p.Direct, name) {
-				extra = append(extra, c)
-			}
-		}
+	switch {
+	case len(p.Direct) > 0 && len(extra) > 0:
+		// Orphans: what was found, beside what goes with it.
+		d.add(d.columns(itemList("Orphaned", p.Direct, p.Destructive), itemList("Removed with them", extra, p.Destructive), orphansColumn))
+	case len(p.Direct) > 0 || len(p.Cascade) > 0:
+		d.add(itemList("Orphaned", p.Direct, p.Destructive))
 		if len(extra) > 0 {
-			box.Append(itemList("Removed with them", extra, p.Destructive))
+			d.add(itemList("Removed with them", extra, p.Destructive))
 		}
-	} else if len(p.Items) > 0 {
-		box.Append(itemList("", p.Items, p.Destructive))
+	case len(p.Items) > 0:
+		d.add(itemList("", p.Items, p.Destructive))
 	}
 	if len(p.Plan) > 0 {
-		box.Append(planRail(p.Plan, runview.GateNotes(p.Plan, w.opts.KeepsPassword, w.drvDry)))
-	}
-	if box.FirstChild() != nil {
-		d.SetExtraChild(box)
+		steps := planSteps(p.Plan)
+		if notes := runview.GateNotes(p.Plan, w.opts.KeepsPassword, w.drvDry); len(notes) > 0 {
+			d.add(d.columns(steps, gateNotes(notes), notesColumn))
+		} else {
+			d.add(steps)
+		}
 	}
 	d.ConnectResponse(func(resp string) {
 		w.answer(p.ID, func() engine.Command { return engine.Confirm{Prompt: p.ID, Yes: resp == "yes"} })
 	})
 	return d
 }
+
+// The right columns' widths: the gate's notes (the mockup's 330 px), and
+// the orphans' second list, half of what the dialog has for both (its
+// padding and the rule between them taken off).
+const (
+	notesColumn   = 330
+	orphansColumn = (wideLists - 2*24 - 2*22 - 1) / 2
+)
 
 // dryBanner says up front that the run is a dry run: the Driver was made
 // with dry run on (the Settings switch, or Dry run first).
@@ -156,10 +179,15 @@ func dialogText(text, class string) *gtk.Label {
 	return l
 }
 
-// planRail is a gate's plan (spec 1.3): the kicker, the steps as a
-// numbered rail with their asks and root tags (scrolling past a few), and
-// the notes computed from the plan.
-func planRail(plan []engine.PlanStep, notes []string) gtk.Widgetter {
+// railScrollAfter is the longest plan the gate shows whole: a longer one
+// (the long-text plan) scrolls past about that many steps.
+const railScrollAfter = 14
+
+// planSteps is a gate's plan (spec 1.3): the kicker and the steps as a
+// numbered rail with their asks and root tags; whole up to
+// railScrollAfter steps (the real Full Cleanup has 10), scrolling past
+// that.
+func planSteps(plan []engine.PlanStep) gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 8)
 	kicker := gtk.NewLabel(runview.GateKicker(plan))
 	kicker.SetXAlign(0)
@@ -192,20 +220,44 @@ func planRail(plan []engine.PlanStep, notes []string) gtk.Widgetter {
 		}
 		rail.Append(row)
 	}
+	if len(plan) <= railScrollAfter {
+		box.Append(rail)
+		return box
+	}
 	sc := gtk.NewScrolledWindow()
 	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	sc.SetPropagateNaturalHeight(true)
-	sc.SetMaxContentHeight(180)
+	sc.SetMaxContentHeight(railScrollAfter * 26) // a step's line is ~26 px
 	sc.SetChild(rail)
 	box.Append(sc)
+	return box
+}
+
+// gateNotes is the gate's "Before you start" column: the notes computed
+// from the plan, each in full.
+func gateNotes(notes []string) gtk.Widgetter {
+	box := gtk.NewBox(gtk.OrientationVertical, 10)
+	kicker := gtk.NewLabel("Before you start")
+	kicker.SetXAlign(0)
+	kicker.AddCSSClass("am-kicker")
+	box.Append(kicker)
 	for _, n := range notes {
-		box.Append(dialogText(n, "am-note"))
+		l := dialogText(n, "am-note")
+		// Its natural width under the column's (notesColumn), so the
+		// column is that wide, measured and drawn alike, and the steps
+		// get the rest.
+		l.SetMaxWidthChars(20)
+		box.Append(l)
 	}
 	return box
 }
 
-// itemList is a titled list of package or file names, scrolling past a
-// few lines; red text when they are about to be removed.
+// listMaxHeight is how tall a dialog's list of names grows before it
+// scrolls: about 25 lines (the VM's 24 cascade lines whole).
+const listMaxHeight = 460
+
+// itemList is a titled list of package or file names, scrolling past
+// listMaxHeight; red text when they are about to be removed.
 func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 6)
 	if title != "" {
@@ -236,7 +288,7 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 	sc := gtk.NewScrolledWindow()
 	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	sc.SetPropagateNaturalHeight(true)
-	sc.SetMaxContentHeight(180)
+	sc.SetMaxContentHeight(listMaxHeight)
 	sc.SetChild(l)
 	box.Append(sc)
 	return box
@@ -256,12 +308,21 @@ const KeptNote = "archmaid keeps this password in memory for this run only. It a
 // note; the dialog's own body stays empty. Its message area must not
 // scroll the title away when the entry takes the focus, in a 630x372
 // window too (keepTitle).
-func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
+//
+// It stays an AdwAlertDialog (task #95, the owner's option A): the
+// password path's order (response before the wipe at closed) is
+// libadwaita's, unchanged. Wide where the window is wide enough
+// (prefer-wide-layout: libadwaita's wide cap); its labels report their
+// one-line width (wrapNatural), or the dialog would take their longest
+// word's.
+func (w *Window) passwordDialog(p engine.NeedsPassword) *amDialog {
 	heading, caller, body := passwordText(p)
-	d := scoped(adw.NewAlertDialog(heading, ""))
-	// Wide where the window is wide enough (libadwaita decides): the
-	// caller line and the note take fewer lines.
+	d := adw.NewAlertDialog(heading, "")
 	d.SetPreferWideLayout(true)
+	// style.css: in a wide window its buttons are wide enough that
+	// libadwaita lets the dialog grow to its wide cap (it caps a
+	// prefer-wide dialog at its button row's width).
+	d.AddCSSClass("am-password")
 	d.AddResponse("cancel", "Cancel")
 	d.AddResponse("ok", "Authenticate")
 	d.SetResponseAppearance("ok", adw.ResponseSuggested)
@@ -284,8 +345,7 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		// names itself), wrapped, never ellipsized or dimmed.
 		l := gtk.NewLabel(caller)
 		l.SetUseMarkup(false)
-		l.SetWrap(true)
-		l.SetWrapMode(pango.WrapWordChar)
+		wrapNatural(l)
 		l.SetEllipsize(pango.EllipsizeNone)
 		l.SetXAlign(0)
 		l.AddCSSClass("am-caller") // style.css: as prominent as the body
@@ -293,13 +353,17 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		box.Append(l)
 	}
 	if body != "" {
-		box.Append(dialogText(body, "am-dialog-body"))
+		l := dialogText(body, "am-dialog-body") // sudo's prompt, the error
+		wrapNatural(l)
+		box.Append(l)
 	}
 	box.Append(list)
 	if w.opts.KeepsPassword {
 		// Not muted: what the kept password answers, and that any other
 		// program asking shows this dialog, is part of the check.
-		box.Append(dialogText(KeptNote, "am-kept"))
+		l := dialogText(KeptNote, "am-kept")
+		wrapNatural(l)
+		box.Append(l)
 	}
 	d.SetExtraChild(box)
 	keepTitle(box)
@@ -351,7 +415,7 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *adw.AlertDialog {
 		respond("ok")
 		d.ForceClose()
 	})
-	return d
+	return alertDialog(d)
 }
 
 // keepTitle stops a dialog's message area from scrolling to the focused entry:
@@ -423,12 +487,12 @@ func passwordText(p engine.NeedsPassword) (heading, caller, body string) {
 
 // selectionDialog is a checkbox list; "Continue" sends the checked items
 // (in the engine's order), "Cancel" cancels.
-func (w *Window) selectionDialog(p engine.NeedsSelection) *adw.AlertDialog {
+func (w *Window) selectionDialog(p engine.NeedsSelection) *amDialog {
 	title := p.Title
 	if title == "" {
 		title = "Choose"
 	}
-	d := scoped(adw.NewAlertDialog(title, ""))
+	d := newWideDialog(title, wideText)
 	d.AddResponse("cancel", "Cancel")
 	d.AddResponse("ok", "Continue")
 	d.SetResponseAppearance("ok", adw.ResponseSuggested)
@@ -450,9 +514,9 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *adw.AlertDialog {
 	sc := gtk.NewScrolledWindow()
 	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	sc.SetPropagateNaturalHeight(true)
-	sc.SetMaxContentHeight(320)
+	sc.SetMaxContentHeight(listMaxHeight)
 	sc.SetChild(list)
-	d.SetExtraChild(sc)
+	d.add(sc)
 	d.ConnectResponse(func(resp string) {
 		w.answer(p.ID, func() engine.Command {
 			if resp != "ok" {
@@ -474,7 +538,7 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *adw.AlertDialog {
 // reportDialog shows a report (the AUR audit's findings, high ones
 // first-class in red). "Accept" (only when CanAccept) records the flagged
 // changes as checked: Confirm(yes); "Close" dismisses: Confirm(no).
-func (w *Window) reportDialog(p engine.OutputReport) *adw.AlertDialog {
+func (w *Window) reportDialog(p engine.OutputReport) *amDialog {
 	heading, body := "Report", p.Text
 	var extra gtk.Widgetter
 	canAccept := false
@@ -520,7 +584,11 @@ func (w *Window) reportDialog(p engine.OutputReport) *adw.AlertDialog {
 			extra = sc
 		}
 	}
-	d := scoped(adw.NewAlertDialog(heading, body))
+	width := wideText
+	if extra != nil {
+		width = wideList
+	}
+	d := newWideDialog(heading, width)
 	d.AddResponse("close", "Close")
 	d.SetCloseResponse("close")
 	d.SetDefaultResponse("close")
@@ -528,9 +596,11 @@ func (w *Window) reportDialog(p engine.OutputReport) *adw.AlertDialog {
 		d.AddResponse("accept", "Accept")
 		d.SetResponseAppearance("accept", adw.ResponseSuggested)
 	}
+	if body != "" {
+		d.add(dialogText(body, "am-dialog-body"))
+	}
 	if extra != nil {
-		d.SetExtraChild(extra)
-		d.SetPreferWideLayout(true)
+		d.add(extra)
 	}
 	d.ConnectResponse(func(resp string) {
 		w.answer(p.ID, func() engine.Command {

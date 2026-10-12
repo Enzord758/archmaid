@@ -77,7 +77,7 @@ func (c *covEnv) seq(gap uint, steps ...func()) {
 func (c *covEnv) feed(evs ...engine.Event) { c.w.apply(evs) }
 
 // press clicks a dialog's response button as a user does.
-func (c *covEnv) press(d *adw.AlertDialog, resp string) {
+func (c *covEnv) press(d *amDialog, resp string) {
 	if b := findButton(&d.Widget, d.ResponseLabel(resp)); b != nil {
 		b.Emit("clicked")
 		return
@@ -148,8 +148,8 @@ func init() { covScenarios["cov-dialogs"] = covDialogs }
 func covDialogs(c *covEnv) {
 	w := c.w
 	c.quiet()
-	var d *adw.AlertDialog
-	dialog := func(id engine.PromptID) *adw.AlertDialog {
+	var d *amDialog
+	dialog := func(id engine.PromptID) *amDialog {
 		d = w.dialogs[id]
 		c.ok(d != nil, "prompt %d has no dialog", id)
 		return d

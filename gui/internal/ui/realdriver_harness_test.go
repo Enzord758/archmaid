@@ -29,7 +29,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
@@ -1097,7 +1096,10 @@ func TestGUISmallWindow(t *testing.T) {
 	if _, err := fmt.Sscanf(rep.Geometry, "heading y=%g h=%g scrolled=%g window=%g", &y, &h, &scrolled, &winH); err != nil {
 		t.Fatalf("geometry %q: %v", rep.Geometry, err)
 	}
-	if scrolled != 0 || y < 0 || y+h > winH {
+	// The orphans dialog is a wide one (task #95): its heading is in a
+	// top bar, in no scrolled window at all (scrolled=-1), so only the
+	// middle can scroll under it.
+	if scrolled > 0 || y < 0 || y+h > winH {
 		t.Errorf("the orphan dialog's title is out of view (%s): the dialog's content must scroll under it", rep.Geometry)
 	}
 	if rep.Outcome != "completed" {
@@ -1253,7 +1255,7 @@ func shellGeometry(w *Window) string {
 // headingGeometry is where d's heading is: its top and height in the
 // window, how far the dialog's message area is scrolled down, and the
 // window's height.
-func headingGeometry(w *Window, d *adw.AlertDialog) string {
+func headingGeometry(w *Window, d *amDialog) string {
 	var heading *gtk.Label
 	var walk func(gtk.Widgetter)
 	walk = func(p gtk.Widgetter) {

@@ -23,12 +23,15 @@ cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
 # The whole display suite takes ~135 s, past the bound, so the default runs
-# it in eleven parts of at most ~40 s, each with its own weston and timeout:
+# it in twelve parts of at most ~40 s, each with its own weston and timeout:
 # the prompts, the real Driver and Stop, the Full Cleanup and the shimmed
 # password and services scenarios, the engine stopping and the instance
 # check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
-# windows, the Overview's starts, the coverage scenarios
+# windows, the wide dialogs, the Overview's starts, the coverage scenarios
 # (cover_harness_test.go), the first frame and throughput proofs, the rest.
+# The wide dialogs (TestGUIWideDialogs) run their 1460x930 window on an
+# output of 1600x1000 (HEADLESS_WIDTH, HEADLESS_HEIGHT; default 1280x800):
+# weston's output bounds the window.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUIPrompts$'
 	real='^TestGUI(RealDriver|StopAndQuit)$'
@@ -37,6 +40,7 @@ if [[ $# -eq 0 ]]; then
 	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards)$'
 	tones='^TestGUI(LastRunTones|AuditRerun)$'
 	states='^TestGUIMinWidthStates$'
+	wide='^TestGUIWideDialogs$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
@@ -52,10 +56,11 @@ if [[ $# -eq 0 ]]; then
 	"$self" go test -tags shots -count=1 -v -run "$narrow" ./internal/ui
 	"$self" go test -tags shots -count=1 -v -run "$tones" ./internal/ui
 	"$self" go test -tags shots -count=1 -v -run "$states" ./internal/ui
+	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$wide" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$starts|$cov|$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$starts|$cov|$perf" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and
@@ -67,7 +72,7 @@ export XDG_RUNTIME_DIR
 sock="archmaid-gui-headless"
 log="$XDG_RUNTIME_DIR/weston.log"
 timeout -k 5 "$limit" weston --backend=headless --renderer="${WESTON_RENDERER:-pixman}" --no-config \
-	--socket="$sock" --width=1280 --height=800 --idle-time=0 >"$log" 2>&1 &
+	--socket="$sock" --width="${HEADLESS_WIDTH:-1280}" --height="${HEADLESS_HEIGHT:-800}" --idle-time=0 >"$log" 2>&1 &
 weston=$!
 trap 'kill "$weston" 2>/dev/null; wait "$weston" 2>/dev/null; rm -rf "$XDG_RUNTIME_DIR"' EXIT
 

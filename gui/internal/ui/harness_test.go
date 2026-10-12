@@ -463,6 +463,9 @@ func runChild(scenario, path string) int {
 		if scenario == "narrow-toggle" { // narrowtoggle_harness_test.go: starts wide
 			w.win.SetDefaultSize(toggleWide, narrowH)
 		}
+		if scenario == "real-wide" { // widedialogs_harness_test.go
+			w.win.SetDefaultSize(wideSize())
+		}
 		if scenario == "real-small" || scenario == "narrow-nav" || strings.HasPrefix(scenario, "small-") {
 			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
 		}
@@ -1186,7 +1189,7 @@ func labelsUnder(root *gtk.Widget) []string {
 
 // dialogLabels is the text of d's labels that are shown, in order, but for
 // its heading, skip (the caller line, said apart) and its buttons'.
-func dialogLabels(d *adw.AlertDialog, skip *gtk.Label) string {
+func dialogLabels(d *amDialog, skip *gtk.Label) string {
 	var out []string
 	var walk func(gtk.Widgetter)
 	walk = func(p gtk.Widgetter) {

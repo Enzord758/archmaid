@@ -84,9 +84,9 @@ type Window struct {
 	// next frame (see output).
 	scrollQueued bool
 
-	dialogs map[engine.PromptID]*adw.AlertDialog
+	dialogs map[engine.PromptID]*amDialog
 	// quitDialog is the open "Stop the run and quit?" dialog, or nil.
-	quitDialog *adw.AlertDialog
+	quitDialog *amDialog
 	// The latest selection's check boxes and password entry, for the
 	// headless harness to tick and type into.
 	checks  []*gtk.CheckButton
@@ -139,7 +139,7 @@ type Window struct {
 }
 
 func newWindow(app *adw.Application, opts Options) *Window {
-	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*adw.AlertDialog{}}
+	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*amDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
 	w.win.AddCSSClass(scopeClass) // style.css's scope
 	w.launcher = opts.Launcher
@@ -513,7 +513,7 @@ func (w *Window) closeRequest() bool {
 		if w.quitDialog != nil {
 			return true
 		}
-		d := scoped(adw.NewAlertDialog("Stop the run and quit?", "The running step is stopped; what it already changed stays changed."))
+		d := alertDialog(adw.NewAlertDialog("Stop the run and quit?", "The running step is stopped; what it already changed stays changed."))
 		d.AddResponse("cancel", "Keep Running")
 		d.AddResponse("quit", "Stop and Quit")
 		d.SetResponseAppearance("quit", adw.ResponseDestructive)

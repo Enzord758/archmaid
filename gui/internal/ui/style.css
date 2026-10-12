@@ -178,7 +178,22 @@
   background-position: left top, left top, right top, right top, left bottom, left bottom, right bottom, right bottom;
   background-repeat: no-repeat;
 }
+/* The password dialogs and the quit question (AdwAlertDialog only). */
 .archmaid.am-dialog .message-area { padding-top: 24px; border-spacing: 14px; }
+/* The password dialog in a window over the narrow breakpoint: libadwaita
+   caps a prefer-wide-layout AdwAlertDialog at its button row's width
+   (two buttons, their spacing and padding), at most its wide cap (600sp),
+   and falls back to 372sp past that. Wide buttons let it grow to about
+   the cap; the labels report their one-line width (wrapNatural). */
+.archmaid:not(.am-narrow) .archmaid.am-password .response-area button { min-width: 230px; }
+/* The wide dialogs (widedialog.go): the heading at the start, the middle
+   (the only part that scrolls), the buttons at the end over a hairline;
+   columns split by a hairline. */
+.archmaid.am-wide .am-wide-heading { margin: 22px 24px 0; }
+.archmaid.am-wide .am-wide-body { margin: 14px 24px 18px; }
+.archmaid.am-wide .am-wide-buttons { padding: 14px 24px 20px; border-top: 1px solid @am_rail; }
+.archmaid.am-wide .am-wide-buttons > button { padding-left: 22px; padding-right: 22px; }
+.archmaid.am-wide .am-column-rule { background-color: @am_rail; }
 .archmaid .am-rail { border-left: 1px solid @am_rail; margin-left: 9px; }
 .archmaid .am-rail-step { padding: 3px 0 3px 10px; }
 .archmaid .am-note { color: @am_muted; }
