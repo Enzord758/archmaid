@@ -468,8 +468,14 @@ comments and `git log`; this is the "read before you touch it" list.
   word, so a box that gives it its natural width wraps it at every word.
   A label with the kicker's letter-spacing wraps its last word even at its
   natural width (and overlaps the line under it), so the Run page's kicker
-  expands. `TestGUIMinWidth` measures the real content at 360/480/960 px
-  and names the widest widget when something is too wide.
+  expands. A label that can hold one long word (a package name, a path, an
+  error) also needs `WrapWordChar`: with the default `WrapWord` the word's
+  length is the label's minimum width (a 90-letter word made the Run page
+  849 px wide, a dialog's item list 1831 px). `TestGUIMinWidth` measures
+  the real content at 360/480/960 px and `TestGUIMinWidthStates` the
+  long-text states (failed and refused rows, dialogs, discovery, Settings,
+  Logs) at 360/480 px; both name the widest widget when something is too
+  wide.
 - **The GUI password's last copy (accepted risk).** `engine.Secret` is a Go
   string (E0 is frozen), so the password typed into the GUI ends in one
   immutable string that can't be zeroed and stays in the heap until the GC
