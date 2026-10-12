@@ -3,6 +3,8 @@ package runview
 import (
 	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -17,29 +19,58 @@ func GateKicker(plan []engine.PlanStep) string {
 	return plural.N(len(plan), "step", "steps") + ", in this order"
 }
 
+// PrivTag is a step's privilege tag: "root" for a step archmaid runs as
+// root (through the root helper, a Verb: Full Cleanup's run together under
+// one polkit authorisation), "sudo" for one that runs as the user and gets
+// root through its own sudo (topgrade: its yay and pacman call sudo, which
+// asks through archmaid's askpass), "" for a step that needs neither. The
+// gate's rail, the Overview's plan and the Run page's step headers tag a
+// step with it, and GateNotes counts the root ones, so the note's count is
+// the number of root tags (Dev 5's VM round b6: "6 steps run as root"
+// beside 7 root tags, topgrade's among them).
+func PrivTag(needsPriv bool, verb string) string {
+	switch {
+	case !needsPriv:
+		return ""
+	case verb == "":
+		return "sudo"
+	}
+	return "root"
+}
+
+// PrivTag is the row's privilege tag (PrivTag).
+func (r Row) PrivTag() string { return PrivTag(r.NeedsPriv, r.Verb) }
+
 // GateNotes are the notes under the gate's plan: how the root steps are
 // authorised (kept: the Driver keeps the run's password, one-password; in
 // a dry run nothing is), each step that asks before it runs, by number,
-// and the AUR gate before topgrade.
+// and the AUR gate before topgrade. The root count is the steps tagged
+// "root" (PrivTag); with the kept password the steps tagged "sudo" are
+// named beside it.
 func GateNotes(plan []engine.PlanStep, kept, dry bool) []string {
 	var notes []string
-	helper, sudo := 0, false // root steps the helper runs (one polkit call); a step that runs sudo itself
-	for _, s := range plan {
-		switch {
-		case s.NeedsPriv && s.Verb != "":
+	helper := 0    // root steps the helper runs (one polkit call)
+	var sudo []int // the steps that run sudo themselves, by position
+	for i, s := range plan {
+		switch PrivTag(s.NeedsPriv, s.Verb) {
+		case "root":
 			helper++
-		case s.NeedsPriv:
-			sudo = true
+		case "sudo":
+			sudo = append(sudo, i)
 		}
 	}
 	has := func(id string) bool {
 		return slices.ContainsFunc(plan, func(s engine.PlanStep) bool { return s.ID == id })
 	}
 	switch {
-	case dry && (helper > 0 || sudo):
+	case dry && (helper > 0 || len(sudo) > 0):
 		notes = append(notes, DryNoPassword)
 	case helper > 0 && kept:
-		notes = append(notes, rootSteps(helper)+". You type your password once, the first time a step needs it; archmaid keeps it for this run only.")
+		n := rootSteps(helper) + ", through one authorisation"
+		if len(sudo) > 0 {
+			n += "; " + sudoSteps(plan, sudo)
+		}
+		notes = append(notes, n+". You type your password once, the first time a step needs it; archmaid keeps it for this run only.")
 	case helper > 0:
 		n := rootSteps(helper) + ", after one polkit authorisation"
 		if has(steps.IDTopgrade) {
@@ -48,9 +79,9 @@ func GateNotes(plan []engine.PlanStep, kept, dry bool) []string {
 			n += "."
 		}
 		notes = append(notes, n)
-	case sudo && kept:
+	case len(sudo) > 0 && kept:
 		notes = append(notes, "You type your password once, the first time a step needs it; archmaid keeps it for this run only.")
-	case sudo:
+	case len(sudo) > 0:
 		notes = append(notes, "If sudo needs your password, archmaid asks for it in its own dialog.")
 	}
 	for i, s := range plan {
@@ -82,4 +113,21 @@ func rootSteps(n int) string {
 		return "1 step runs as root"
 	}
 	return fmt.Sprintf("%d steps run as root, together", n)
+}
+
+// sudoSteps names the steps that get root through their own sudo (idx,
+// their positions in plan): "topgrade gets root through its own sudo" for
+// topgrade alone, else by number ("step 4 gets…", "steps 2 and 5 get…").
+func sudoSteps(plan []engine.PlanStep, idx []int) string {
+	if len(idx) == 1 && plan[idx[0]].ID == steps.IDTopgrade {
+		return "topgrade gets root through its own sudo"
+	}
+	if len(idx) == 1 {
+		return fmt.Sprintf("step %d gets root through its own sudo", idx[0]+1)
+	}
+	nums := make([]string, len(idx))
+	for i, j := range idx {
+		nums[i] = strconv.Itoa(j + 1)
+	}
+	return "steps " + strings.Join(nums[:len(nums)-1], ", ") + " and " + nums[len(nums)-1] + " get root through their own sudo"
 }

@@ -72,9 +72,14 @@ func TestPlanPreviewFullCleanupPolkit(t *testing.T) {
 	if got := titles(p); !slices.Equal(got, want) {
 		t.Fatalf("plan %q\nwant %q", got, want)
 	}
-	// topgrade (its sudo) plus the six steps of the one helper call.
-	if p.Root != 7 || !p.Orphans {
-		t.Errorf("root %d orphans %v, want 7 and true", p.Root, p.Orphans)
+	// The six steps of the one helper call are root; topgrade gets root
+	// through its own sudo, tagged sudo (the gate's "6 steps run as root"
+	// beside 6 root tags, not 7).
+	if p.Root != 6 || p.Sudo != 1 || !p.Orphans {
+		t.Errorf("root %d sudo %d orphans %v, want 6, 1 and true", p.Root, p.Sudo, p.Orphans)
+	}
+	if s := p.Steps[1]; s.Title != "Updating system with topgrade…" || s.Root || !s.Sudo {
+		t.Errorf("topgrade previewed as %+v, want sudo, not root", s)
 	}
 	combined, asks := 0, []string{}
 	for _, s := range p.Steps {
@@ -106,15 +111,15 @@ func TestPlanPreviewFullCleanupSudo(t *testing.T) {
 			t.Errorf("%q combined outside polkit", s.Title)
 		}
 	}
-	if p.Root != 6 || !p.Orphans {
-		t.Errorf("root %d orphans %v, want 6 and true", p.Root, p.Orphans)
+	if p.Root != 5 || p.Sudo != 1 || !p.Orphans {
+		t.Errorf("root %d sudo %d orphans %v, want 5, 1 and true", p.Root, p.Sudo, p.Orphans)
 	}
 }
 
 func TestPlanPreviewOthers(t *testing.T) {
 	env := previewEnv(t, true, false)
 	p, ok := PlanPreview(env, actions.IDTopgrade)
-	if !ok || !slices.Equal(titles(p), []string{"Auditing AUR packages…", "Updating system with topgrade…"}) || p.Root != 1 || p.Orphans {
+	if !ok || !slices.Equal(titles(p), []string{"Auditing AUR packages…", "Updating system with topgrade…"}) || p.Root != 0 || p.Sudo != 1 || p.Orphans {
 		t.Errorf("topgrade: ok %v %+v", ok, p)
 	}
 	if p, ok := PlanPreview(env, actions.IDUserCache); !ok || len(p.Steps) != 1 || p.Root != 0 || !p.Steps[0].Asks {
@@ -133,8 +138,8 @@ func TestPlanPreviewOthers(t *testing.T) {
 func TestCardsRootMatchesPlan(t *testing.T) {
 	env := previewEnv(t, true, false)
 	for _, c := range Cards() {
-		if p, ok := PlanPreview(env, c.ID); ok && c.Root != (p.Root > 0) {
-			t.Errorf("%s: card root %v, plan root %d", c.ID, c.Root, p.Root)
+		if p, ok := PlanPreview(env, c.ID); ok && c.Root != (p.Root+p.Sudo > 0) {
+			t.Errorf("%s: card root %v, plan root %d sudo %d", c.ID, c.Root, p.Root, p.Sudo)
 		}
 	}
 }

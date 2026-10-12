@@ -212,6 +212,40 @@ func TestStatusTextNotRunAndDropped(t *testing.T) {
 	}
 }
 
+// TestStatusTextGateDeclined: after a run, an action whose gate is
+// declined ends before its queue; the page keeps the last run (tagged
+// "previous run"), but the status line says this action's end, as its
+// toast does, without the last run's "Finished: completed" and its line
+// count (Dev 5's VM round b6 at 380 px: "Finished: completed · 14 lines"
+// under the toast "Run cancelled, nothing ran").
+func TestStatusTextGateDeclined(t *testing.T) {
+	w := &Window{model: runview.NewModel()}
+	w.model.Apply([]engine.Event{
+		engine.QueueStarted{Action: "a", Steps: []engine.PlanStep{{ID: "s1", Title: "S1"}}},
+		engine.StepStarted{ID: "s1"},
+		engine.OutputChunk{ID: "s1", Lines: []string{"x", "y", "z"}},
+		engine.StepDone{ID: "s1", Status: steps.OK},
+		engine.Finished{Action: "a", Outcome: engine.OutcomeCompleted},
+	})
+	w.queued = true
+	if got := w.statusText(); got != "Finished: completed · 3 lines" {
+		t.Fatalf("after the run: status %q", got)
+	}
+	// What start and redraw do for the next action, its gate declined:
+	// the page's Finished is put back, the action's own end is w.ended.
+	w.queued, w.lastFinished, w.pagePrev = false, w.model.Finished, true
+	w.model.Apply([]engine.Event{engine.Finished{Action: "a", Outcome: engine.OutcomeCancelled}})
+	w.ended, w.model.Finished = w.model.Finished, w.lastFinished
+	if got := w.statusText(); got != "Run cancelled, nothing ran" {
+		t.Errorf("after the declined gate: status %q, want %q", got, "Run cancelled, nothing ran")
+	}
+	// A dry attempt says so; the page's last run wasn't dry.
+	w.model.StartDry = true
+	if got := w.statusText(); got != "Run cancelled, nothing ran · DRY RUN" {
+		t.Errorf("a dry attempt: status %q", got)
+	}
+}
+
 // TestPumpDone: a Driver's pump is done once its events ended.
 func TestPumpDone(t *testing.T) {
 	runtime.LockOSThread()

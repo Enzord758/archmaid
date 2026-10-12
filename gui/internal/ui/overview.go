@@ -124,8 +124,11 @@ func (w *Window) newHero() gtk.Widgetter {
 			if s.Asks {
 				tags = append(tags, tag("asks", "am-tag-asks"))
 			}
-			if s.Root {
-				tags = append(tags, tag("root", "am-tag-root"))
+			switch {
+			case s.Root:
+				tags = append(tags, privTag("root"))
+			case s.Sudo:
+				tags = append(tags, privTag("sudo"))
 			}
 			line := newTagLine(t, 8, tags...)
 			line.tags.SetVisible(len(tags) > 0)
@@ -283,6 +286,25 @@ func tag(text, class string) *gtk.Label {
 	l.AddCSSClass("am-tag")
 	l.AddCSSClass(class)
 	return l
+}
+
+// privTag is a step's privilege tag (runview.PrivTag: "root" or "sudo")
+// as a tag, nil for "".
+func privTag(priv string) *gtk.Label {
+	if priv == "" {
+		return nil
+	}
+	return tag(priv, "am-tag-"+priv)
+}
+
+// setPrivClass gives a privilege tag its tone: am-tag-root for "root",
+// am-tag-sudo for "sudo".
+func setPrivClass(l *gtk.Label, priv string) {
+	l.RemoveCSSClass("am-tag-root")
+	l.RemoveCSSClass("am-tag-sudo")
+	if priv != "" {
+		l.AddCSSClass("am-tag-" + priv)
+	}
 }
 
 // newCell is an action's cell: a button holding its icon, the root tag,

@@ -330,12 +330,16 @@ func (w *Window) drawHeader(h *stepHeader) {
 	}
 	h.num.SetText(fmt.Sprintf("%02d", i+1))
 	h.title.SetText(r.Title)
-	h.root.SetVisible(r.NeedsPriv)
+	// "root" or "sudo" (runview.PrivTag), as the gate tagged the step.
+	priv := r.PrivTag()
+	h.root.SetText(priv)
+	setPrivClass(h.root, priv)
+	h.root.SetVisible(priv != "")
 	h.sub.SetText(r.Subtitle())
 	// Empty, it would still take the spacing after the root tag, and the
 	// tag would end short of the line's end.
 	h.sub.SetVisible(h.sub.Text() != "")
-	h.line.tags.SetVisible(r.NeedsPriv || h.sub.Text() != "")
+	h.line.tags.SetVisible(priv != "" || h.sub.Text() != "")
 	icon := r.State.Icon()
 	setStateClass(&h.icon.Widget, r)
 	setStateClass(&h.spin.Widget, r)

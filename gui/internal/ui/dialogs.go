@@ -122,17 +122,17 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *amDialog {
 	switch {
 	case len(p.Direct) > 0 && len(extra) > 0:
 		// Orphans: what was found, beside what goes with it.
-		d.add(d.columns(itemList("Orphaned", p.Direct, p.Destructive), itemList("Removed with them", extra, p.Destructive), orphansColumn))
+		d.add(d.columns(d.itemList("Orphaned", p.Direct, p.Destructive), d.itemList("Removed with them", extra, p.Destructive), orphansColumn))
 	case len(p.Direct) > 0 || len(p.Cascade) > 0:
-		d.add(itemList("Orphaned", p.Direct, p.Destructive))
+		d.add(d.itemList("Orphaned", p.Direct, p.Destructive))
 		if len(extra) > 0 {
-			d.add(itemList("Removed with them", extra, p.Destructive))
+			d.add(d.itemList("Removed with them", extra, p.Destructive))
 		}
 	case len(p.Items) > 0:
-		d.add(itemList("", p.Items, p.Destructive))
+		d.add(d.itemList("", p.Items, p.Destructive))
 	}
 	if len(p.Plan) > 0 {
-		steps := planSteps(p.Plan)
+		steps := planSteps(d, p.Plan)
 		if notes := runview.GateNotes(p.Plan, w.opts.KeepsPassword, w.drvDry); len(notes) > 0 {
 			d.add(d.columns(steps, gateNotes(notes), notesColumn))
 		} else {
@@ -146,11 +146,13 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *amDialog {
 }
 
 // The right columns' widths: the gate's notes (the mockup's 330 px), and
-// the orphans' second list, half of what the dialog has for both (its
-// padding and the rule between them taken off).
+// the orphans' "Removed with them", one "name version" per line: 430 px
+// holds ~48 monospace characters on a line (the 333 px half it had
+// wrapped "python-dependency-of-orphan-123 0.123.0-2", Dev 2's #96);
+// "Orphaned", names only, gets the rest (357 px).
 const (
 	notesColumn   = 330
-	orphansColumn = (wideLists - 2*24 - 2*22 - 1) / 2
+	orphansColumn = 430
 )
 
 // dryBanner says up front that the run is a dry run: the Driver was made
@@ -179,15 +181,17 @@ func dialogText(text, class string) *gtk.Label {
 	return l
 }
 
-// railScrollAfter is the longest plan the gate shows whole: a longer one
-// (the long-text plan) scrolls past about that many steps.
-const railScrollAfter = 14
-
 // planSteps is a gate's plan (spec 1.3): the kicker and the steps as a
-// numbered rail with their asks and root tags; whole up to
-// railScrollAfter steps (the real Full Cleanup has 10), scrolling past
-// that.
-func planSteps(plan []engine.PlanStep) gtk.Widgetter {
+// numbered rail with their asks and privilege tags (runview.PrivTag:
+// "root", or "sudo" for topgrade, which gets root through its own sudo).
+// Each step's title and tags are a tagLine: the tags at the line's end,
+// or under the title below the dialog's breakpoint, as every narrow row
+// has them (Dev 5's VM round b6: the 380 px bottom sheet kept them at the
+// end). The rail is always whole, never a scroller of its own: a long
+// plan scrolls with the dialog's middle, so it gets the height the window
+// has (a 20-step rail stopped at 364 px with 400 px to spare at 1460x930,
+// and shrank to three steps in a low window, Dev 2's #96).
+func planSteps(d *amDialog, plan []engine.PlanStep) gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 8)
 	kicker := gtk.NewLabel(runview.GateKicker(plan))
 	kicker.SetXAlign(0)
@@ -195,41 +199,39 @@ func planSteps(plan []engine.PlanStep) gtk.Widgetter {
 	box.Append(kicker)
 	rail := gtk.NewBox(gtk.OrientationVertical, 0)
 	rail.AddCSSClass("am-rail")
+	var lines []*tagLine
 	for i, s := range plan {
 		row := gtk.NewBox(gtk.OrientationHorizontal, 8)
 		row.AddCSSClass("am-rail-step")
 		num := gtk.NewLabel(fmt.Sprintf("%02d", i+1))
 		num.AddCSSClass("am-step-num")
-		num.SetVAlign(gtk.AlignStart)
+		num.SetVAlign(gtk.AlignBaselineCenter)
 		row.Append(num)
 		title := gtk.NewLabel(s.Title)
 		title.SetXAlign(0)
-		title.SetHExpand(true)
 		title.SetWrap(true)
 		title.SetWrapMode(pango.WrapWordChar) // a long package name breaks inside the word
-		row.Append(title)
-		for _, t := range []struct {
-			on         bool
-			text, tone string
-		}{{s.Confirm, "asks", "am-tag-asks"}, {s.NeedsPriv, "root", "am-tag-root"}} {
-			if t.on {
-				l := tag(t.text, t.tone)
-				l.SetVAlign(gtk.AlignStart)
-				row.Append(l)
-			}
+		var tags []gtk.Widgetter
+		if s.Confirm {
+			tags = append(tags, tag("asks", "am-tag-asks"))
 		}
+		if t := privTag(runview.PrivTag(s.NeedsPriv, s.Verb)); t != nil {
+			tags = append(tags, t)
+		}
+		line := newTagLine(title, 8, tags...)
+		line.tags.SetVisible(len(tags) > 0)
+		line.box.SetHExpand(true)
+		line.box.SetVAlign(gtk.AlignBaselineCenter)
+		lines = append(lines, line)
+		row.Append(line.box)
 		rail.Append(row)
 	}
-	if len(plan) <= railScrollAfter {
-		box.Append(rail)
-		return box
-	}
-	sc := gtk.NewScrolledWindow()
-	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
-	sc.SetPropagateNaturalHeight(true)
-	sc.SetMaxContentHeight(railScrollAfter * 26) // a step's line is ~26 px
-	sc.SetChild(rail)
-	box.Append(sc)
+	d.onNarrow(func(narrow bool) {
+		for _, l := range lines {
+			l.setUnder(narrow)
+		}
+	})
+	box.Append(rail)
 	return box
 }
 
@@ -253,12 +255,14 @@ func gateNotes(notes []string) gtk.Widgetter {
 }
 
 // listMaxHeight is how tall a dialog's list of names grows before it
-// scrolls: about 25 lines (the VM's 24 cascade lines whole).
+// scrolls: about 25 lines (the VM's 24 cascade lines whole). In a window
+// too low for that the list takes its whole height and the dialog's
+// middle scrolls instead (capList).
 const listMaxHeight = 460
 
 // itemList is a titled list of package or file names, scrolling past
-// listMaxHeight; red text when they are about to be removed.
-func itemList(title string, items []string, destructive bool) gtk.Widgetter {
+// listMaxHeight (capList); red text when they are about to be removed.
+func (d *amDialog) itemList(title string, items []string, destructive bool) gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 6)
 	if title != "" {
 		h := gtk.NewLabel(fmt.Sprintf("%s (%d)", title, len(items)))
@@ -286,9 +290,7 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 		l.AddCSSClass("error")
 	}
 	sc := gtk.NewScrolledWindow()
-	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
-	sc.SetPropagateNaturalHeight(true)
-	sc.SetMaxContentHeight(listMaxHeight)
+	d.capList(sc, listMaxHeight)
 	sc.SetChild(l)
 	box.Append(sc)
 	return box
@@ -512,9 +514,7 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *amDialog {
 		list.Append(row)
 	}
 	sc := gtk.NewScrolledWindow()
-	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
-	sc.SetPropagateNaturalHeight(true)
-	sc.SetMaxContentHeight(listMaxHeight)
+	d.capList(sc, listMaxHeight)
 	sc.SetChild(list)
 	d.add(sc)
 	d.ConnectResponse(func(resp string) {
@@ -535,12 +535,16 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *amDialog {
 	return d
 }
 
+// reportMaxHeight is how tall the audit report's findings grow before
+// they scroll (capList).
+const reportMaxHeight = 360
+
 // reportDialog shows a report (the AUR audit's findings, high ones
 // first-class in red). "Accept" (only when CanAccept) records the flagged
 // changes as checked: Confirm(yes); "Close" dismisses: Confirm(no).
 func (w *Window) reportDialog(p engine.OutputReport) *amDialog {
 	heading, body := "Report", p.Text
-	var extra gtk.Widgetter
+	var extra *gtk.ScrolledWindow
 	canAccept := false
 	if a := p.Audit; a != nil {
 		heading = "AUR Audit"
@@ -576,12 +580,8 @@ func (w *Window) reportDialog(p engine.OutputReport) *amDialog {
 				row.AddPrefix(icon)
 				list.Append(row)
 			}
-			sc := gtk.NewScrolledWindow()
-			sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
-			sc.SetPropagateNaturalHeight(true)
-			sc.SetMaxContentHeight(360)
-			sc.SetChild(list)
-			extra = sc
+			extra = gtk.NewScrolledWindow()
+			extra.SetChild(list)
 		}
 	}
 	width := wideText
@@ -600,6 +600,7 @@ func (w *Window) reportDialog(p engine.OutputReport) *amDialog {
 		d.add(dialogText(body, "am-dialog-body"))
 	}
 	if extra != nil {
+		d.capList(extra, reportMaxHeight)
 		d.add(extra)
 	}
 	d.ConnectResponse(func(resp string) {

@@ -103,6 +103,11 @@ func narrowStates(c *covEnv) {
 				c.fail("%s: no dialog for prompt %d", name, id)
 				return
 			}
+			if cf, ok := ev.(engine.NeedsConfirm); ok && len(cf.Plan) > 0 {
+				// The gate's rail: its tags under the titles in the
+				// bottom sheet, as every narrow row has them.
+				c.ok(checkRailTags(c, d, name) > 0, "%s: no rail step with tags drawn", name)
+			}
 			labels := labelsUnder(&d.Widget)
 			c.ok(slices.Contains(labels, dryBannerText) == dry, "%s: the dry run's banner shown %v, want %v", name, !dry, dry)
 			c.ok(slices.Contains(labels, KeptNote) == kept, "%s: the kept-password note shown %v, want %v", name, !kept, kept)

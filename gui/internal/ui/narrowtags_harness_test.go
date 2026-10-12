@@ -73,68 +73,111 @@ func checkTags(c *covEnv, moment string) int {
 	narrow := w.win.Width() <= narrowPx
 	checked := 0
 	for kind, rows := range tagRows(w) {
-		var ends []float64
-		var endsOf []string
-		for _, row := range rows {
-			labels := shownLabels(row)
-			// The title is the label after the step's number.
-			ni := slices.IndexFunc(labels, func(l *gtk.Label) bool { return l.HasCSSClass("am-step-num") })
-			if ni < 0 || ni+1 >= len(labels) {
-				continue
-			}
-			title := labels[ni+1]
-			var tags []*gtk.Label
-			for _, l := range labels[ni+2:] {
-				if l.HasCSSClass("am-tag") || l.HasCSSClass("am-step-sub") {
-					tags = append(tags, l)
-				}
-			}
-			if len(tags) == 0 {
-				continue
-			}
-			checked++
-			tb, ok := boundsIn(title, row)
-			if !ok {
-				c.fail("%s: %s row %q: no bounds", moment, kind, title.Text())
-				continue
-			}
-			first, _ := boundsIn(tags[0], row)
-			right := 0.0
-			for _, t := range tags {
-				b, _ := boundsIn(t, row)
-				right = max(right, b.x+b.w)
-				if narrow {
-					c.ok(b.y >= tb.y+tb.h-1, "%s: %s row %q: tag %q at y %.0f, beside the title (y %.0f-%.0f), not under it",
-						moment, kind, title.Text(), t.Text(), b.y, tb.y, tb.y+tb.h)
-				} else {
-					c.ok(b.y < tb.y+tb.h && b.x >= tb.x+tb.w, "%s: %s row %q: tag %q at %.0f,%.0f, not beside the title (%.0f,%.0f %.0fx%.0f)",
-						moment, kind, title.Text(), t.Text(), b.x, b.y, tb.x, tb.y, tb.w, tb.h)
-				}
-				if t.HasCSSClass("am-tag") {
-					// Height doesn't count the padding and border its
-					// natural height does, so a tag at its own height is
-					// a few px under it.
-					_, nat, _, _ := t.Measure(gtk.OrientationVertical, -1)
-					c.ok(t.Height() <= nat, "%s: %s row %q: tag %q drawn %d px high, its own height is %d px",
-						moment, kind, title.Text(), t.Text(), t.Height(), nat)
-				}
-			}
-			if narrow {
-				c.ok(abs(first.x-tb.x) <= 1, "%s: %s row %q: the tags start at x %.0f, the title at %.0f",
-					moment, kind, title.Text(), first.x, tb.x)
-			}
-			// How far the tags end from the row's end (a running or
-			// failed step's header is a few px narrower: its border).
-			gap := float64(gtk.BaseWidget(row).Width()) - right
-			ends = append(ends, gap)
-			endsOf = append(endsOf, fmt.Sprintf("%.16q %.0f px", title.Text(), gap))
-		}
-		if !narrow && len(ends) > 0 {
-			lo, hi := slices.Min(ends), slices.Max(ends)
-			c.ok(hi-lo <= 1, "%s: %s: the tags end %.0f to %.0f px before the row's end, not at the same line end: %q", moment, kind, lo, hi, endsOf)
-		}
+		checked += checkTagRows(c, moment, kind, rows, narrow)
 	}
+	return checked + checkCellTags(c, moment, narrow)
+}
 
+// dialogNarrowPx is the wide dialogs' breakpoint (wideNarrow) in px.
+const dialogNarrowPx = 640
+
+// checkRailTags checks the tags of the gate's rail in d as checkTags
+// does the plan's rows: under the dialog's breakpoint (its sheet under
+// 640 px: the bottom sheet in a narrow window) under each title, above it
+// at the line's end. It returns how many rows it checked.
+func checkRailTags(c *covEnv, d *amDialog, moment string) int {
+	var rows []gtk.Widgetter
+	var sheet gtk.Widgetter
+	eachWidget(d, func(wd gtk.Widgetter) {
+		b := gtk.BaseWidget(wd)
+		if sheet == nil && b.CSSName() == "sheet" {
+			sheet = wd
+		}
+		if b.HasCSSClass("am-rail-step") && b.IsDrawable() {
+			rows = append(rows, wd)
+		}
+	})
+	if sheet == nil {
+		c.fail("%s: the gate has no sheet", moment)
+		return 0
+	}
+	narrow := gtk.BaseWidget(sheet).Width() < dialogNarrowPx
+	return checkTagRows(c, moment, "gate", rows, narrow)
+}
+
+// checkTagRows checks rows' tags (kind names them in a failure): under
+// each title when narrow, else at the line's end, the same distance from
+// it on every row; no tag drawn taller than its own height.
+func checkTagRows(c *covEnv, moment, kind string, rows []gtk.Widgetter, narrow bool) int {
+	checked := 0
+	var ends []float64
+	var endsOf []string
+	for _, row := range rows {
+		labels := shownLabels(row)
+		// The title is the label after the step's number.
+		ni := slices.IndexFunc(labels, func(l *gtk.Label) bool { return l.HasCSSClass("am-step-num") })
+		if ni < 0 || ni+1 >= len(labels) {
+			continue
+		}
+		title := labels[ni+1]
+		var tags []*gtk.Label
+		for _, l := range labels[ni+2:] {
+			if l.HasCSSClass("am-tag") || l.HasCSSClass("am-step-sub") {
+				tags = append(tags, l)
+			}
+		}
+		if len(tags) == 0 {
+			continue
+		}
+		checked++
+		tb, ok := boundsIn(title, row)
+		if !ok {
+			c.fail("%s: %s row %q: no bounds", moment, kind, title.Text())
+			continue
+		}
+		first, _ := boundsIn(tags[0], row)
+		right := 0.0
+		for _, t := range tags {
+			b, _ := boundsIn(t, row)
+			right = max(right, b.x+b.w)
+			if narrow {
+				c.ok(b.y >= tb.y+tb.h-1, "%s: %s row %q: tag %q at y %.0f, beside the title (y %.0f-%.0f), not under it",
+					moment, kind, title.Text(), t.Text(), b.y, tb.y, tb.y+tb.h)
+			} else {
+				c.ok(b.y < tb.y+tb.h && b.x >= tb.x+tb.w, "%s: %s row %q: tag %q at %.0f,%.0f, not beside the title (%.0f,%.0f %.0fx%.0f)",
+					moment, kind, title.Text(), t.Text(), b.x, b.y, tb.x, tb.y, tb.w, tb.h)
+			}
+			if t.HasCSSClass("am-tag") {
+				// Height doesn't count the padding and border its
+				// natural height does, so a tag at its own height is
+				// a few px under it.
+				_, nat, _, _ := t.Measure(gtk.OrientationVertical, -1)
+				c.ok(t.Height() <= nat, "%s: %s row %q: tag %q drawn %d px high, its own height is %d px",
+					moment, kind, title.Text(), t.Text(), t.Height(), nat)
+			}
+		}
+		if narrow {
+			c.ok(abs(first.x-tb.x) <= 1, "%s: %s row %q: the tags start at x %.0f, the title at %.0f",
+				moment, kind, title.Text(), first.x, tb.x)
+		}
+		// How far the tags end from the row's end (a running or
+		// failed step's header is a few px narrower: its border).
+		gap := float64(gtk.BaseWidget(row).Width()) - right
+		ends = append(ends, gap)
+		endsOf = append(endsOf, fmt.Sprintf("%.16q %.0f px", title.Text(), gap))
+	}
+	if !narrow && len(ends) > 0 {
+		lo, hi := slices.Min(ends), slices.Max(ends)
+		c.ok(hi-lo <= 1, "%s: %s: the tags end %.0f to %.0f px before the row's end, not at the same line end: %q", moment, kind, lo, hi, endsOf)
+	}
+	return checked
+}
+
+// checkCellTags checks the action cells' root tags and the hero's
+// buttons (checkTags).
+func checkCellTags(c *covEnv, moment string, narrow bool) int {
+	w := c.w
+	checked := 0
 	// The action cells' root tags: on the icon line above the title when
 	// wide, under the title when narrow, as the plan's.
 	for ch := gtk.BaseWidget(w.cells).FirstChild(); ch != nil; ch = gtk.BaseWidget(ch).NextSibling() {

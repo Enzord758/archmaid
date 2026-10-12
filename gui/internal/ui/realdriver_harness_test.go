@@ -639,6 +639,15 @@ func TestGUIRealDriver(t *testing.T) {
 		if !slices.Contains(rep.Toasts, "Run cancelled, nothing ran") {
 			t.Errorf("toasts %q: the declined attempt isn't told", rep.Toasts)
 		}
+		// The status line says the declined attempt, as its toast does,
+		// not the failed run's end and lines as if it had just finished
+		// (Dev 5's VM round b6: "Finished: completed · 14 lines").
+		if len(rep.EndStatuses) != 2 || !strings.HasPrefix(rep.EndStatuses[0], "Finished: failed (1 step)") {
+			t.Fatalf("status lines at each end %q", rep.EndStatuses)
+		}
+		if got := rep.EndStatuses[1]; !strings.HasPrefix(got, "Run cancelled, nothing ran") || strings.Contains(got, "Finished") || strings.Contains(got, " line") {
+			t.Errorf("after the declined gate the status line reads %q; want this attempt's end, \"Run cancelled, nothing ran\", without the failed run's end or its %d lines", got, rep.EndLines[0])
+		}
 	})
 
 	t.Run("runs", func(t *testing.T) {

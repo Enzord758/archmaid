@@ -25,7 +25,7 @@ import (
 // pick list.
 const (
 	wideGate  = 880
-	wideLists = 760
+	wideLists = 880
 	wideList  = 720
 	wideText  = 640
 )
@@ -62,6 +62,20 @@ type amDialog struct {
 	narrowFns  []func(narrow bool)
 	breakpoint *adw.Breakpoint
 	parts      []gtk.Widgetter // the heading, the middle, the button bar (fitHeight)
+
+	// The middle's lists (capList) and whether they are uncapped, at
+	// which window size (fitLists); win is the window it is shown over.
+	lists      []cappedList
+	uncapped   bool
+	uncappedAt [2]int
+	win        *adw.ApplicationWindow
+}
+
+// cappedList is a list in a wide dialog's middle: its scroller and the
+// height it scrolls past (capList).
+type cappedList struct {
+	sc  *gtk.ScrolledWindow
+	cap int
 }
 
 // dialogResponse is one of a wide dialog's buttons.
@@ -164,6 +178,7 @@ func newWideDialog(heading string, width int) *amDialog {
 // can need more than that, which left the middle a negative height.
 // fitHeight shrinks it to its content once it has its width.
 func (d *amDialog) show(win *adw.ApplicationWindow) {
+	d.win = win
 	if d.alert == nil {
 		if h := win.Height(); h > 0 {
 			d.SetContentHeight(h)
@@ -184,6 +199,7 @@ func (d *amDialog) fitHeight(view *adw.ToolbarView) {
 	if width <= 0 || !view.Mapped() {
 		return
 	}
+	d.fitLists()
 	total := 0
 	for _, part := range d.parts {
 		b := gtk.BaseWidget(part)
@@ -197,6 +213,64 @@ func (d *amDialog) fitHeight(view *adw.ToolbarView) {
 	if total > 0 && total != d.ContentHeight() {
 		d.SetContentHeight(total)
 	}
+}
+
+// capList makes sc one of the middle's lists: it takes its content's
+// height up to maxH and scrolls past that, while the dialog fits the
+// window (fitLists).
+func (d *amDialog) capList(sc *gtk.ScrolledWindow, maxH int) {
+	sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	sc.SetPropagateNaturalHeight(true)
+	sc.SetMaxContentHeight(maxH)
+	d.lists = append(d.lists, cappedList{sc: sc, cap: maxH})
+}
+
+// fitLists keeps one scroller in the middle (Dev 2's #96). A list
+// scrolls by itself past its cap only while the dialog, lists capped,
+// fits the window; once it doesn't (the middle has to scroll), the lists
+// take their whole height and only the middle scrolls. A capped list's
+// own minimum is a few rows, so in a low window the middle never
+// scrolled: the lists shrank instead (the orphans' two lists to 110 px
+// each at 620x500), a scroller inside a scroller. Each window size is
+// tried capped first: on a new size the lists are capped again, and
+// the next fit uncaps them if the middle then overflows.
+func (d *amDialog) fitLists() {
+	if len(d.lists) == 0 || d.win == nil || len(d.parts) < 2 {
+		return
+	}
+	middle, ok := d.parts[1].(*gtk.ScrolledWindow)
+	if !ok {
+		return
+	}
+	size := [2]int{d.win.Width(), d.win.Height()}
+	switch {
+	case !d.uncapped && scrolls(middle):
+		d.setCapped(false)
+		d.uncapped, d.uncappedAt = true, size
+	case d.uncapped && size != d.uncappedAt:
+		d.setCapped(true)
+		d.uncapped = false
+	}
+}
+
+// setCapped caps the middle's lists (each scrolls past its cap), or lets
+// each take its whole height.
+func (d *amDialog) setCapped(on bool) {
+	for _, l := range d.lists {
+		if on {
+			l.sc.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+			l.sc.SetMaxContentHeight(l.cap)
+			continue
+		}
+		l.sc.SetMaxContentHeight(-1)
+		l.sc.SetPolicy(gtk.PolicyNever, gtk.PolicyNever)
+	}
+}
+
+// scrolls says whether sw has something to scroll vertically.
+func scrolls(sw *gtk.ScrolledWindow) bool {
+	adj := sw.VAdjustment()
+	return adj.Upper()-adj.PageSize() > 1
 }
 
 // onNarrow runs f with the dialog's breakpoint state whenever it changes.

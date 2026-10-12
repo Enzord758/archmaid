@@ -371,8 +371,8 @@ func TestConfirmLabels(t *testing.T) {
 }
 
 func TestPlanLines(t *testing.T) {
-	got := PlanLines([]engine.PlanStep{{Title: "Clearing cache…"}, {Title: "Updating…", NeedsPriv: true}})
-	if want := []string{"Clearing cache…", "Updating…  (root)"}; !slices.Equal(got, want) {
+	got := PlanLines([]engine.PlanStep{{Title: "Clearing cache…"}, {Title: "Updating…", NeedsPriv: true}, {Title: "Vacuuming…", Verb: "vacuum-journal", NeedsPriv: true}})
+	if want := []string{"Clearing cache…", "Updating…  (sudo)", "Vacuuming…  (root)"}; !slices.Equal(got, want) {
 		t.Errorf("%q, want %q", got, want)
 	}
 	if PlanLines(nil) != nil {

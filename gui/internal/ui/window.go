@@ -443,6 +443,17 @@ func (w *Window) statusText() string {
 	if w.opts.Stub {
 		parts = append(parts, "STUB")
 	}
+	// before: this action ended before its queue started (a declined
+	// gate, a notice), so the page, its header and m.Finished are still
+	// the last run's, tagged "previous run". The status line says this
+	// action, not the page: the last run's "Finished: completed" and line
+	// count read as if that run had just ended (Dev 5's VM round b6, a
+	// cancelled gate at 380 px).
+	before := w.ended != nil && !w.queued
+	dry := m.DryRun
+	if before {
+		dry = m.StartDry
+	}
 	switch {
 	case m.Stopped != "":
 		parts = append(parts, m.Stopped)
@@ -452,6 +463,10 @@ func (w *Window) statusText() string {
 		// m.Finished are still the last run's: the notice is what this
 		// action said, and it stays until the next one starts.
 		parts = append(parts, runview.Shorten(m.Notice, runview.ShortMax))
+	case before:
+		// How it ended, as its toast says ("Run cancelled, nothing
+		// ran"), until the next Start, as a notice stays.
+		parts = append(parts, m.EndToast(*w.ended))
 	case m.Finished != nil:
 		status, _ := m.FinishedText(*m.Finished)
 		parts = append(parts, status)
@@ -473,13 +488,16 @@ func (w *Window) statusText() string {
 	default:
 		parts = append(parts, "Ready")
 	}
-	if m.DryRun {
+	if dry {
 		parts = append(parts, "DRY RUN")
 	}
-	if m.Lines > 0 {
+	// The page's counts are the last run's when the action ended before
+	// its queue: not this action's (as the audit's report doesn't carry
+	// the run before it, TestGUIAuditRerun).
+	if m.Lines > 0 && !before {
 		parts = append(parts, plural.N(m.Lines, "line", "lines"))
 	}
-	if m.Dropped > 0 {
+	if m.Dropped > 0 && !before {
 		parts = append(parts, fmt.Sprintf("%d not shown (in the log)", m.Dropped))
 	}
 	if s := m.Stat.Status; s.Free != "" {

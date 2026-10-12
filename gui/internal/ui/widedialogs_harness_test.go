@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -119,6 +120,25 @@ func dialogGeometry(w *Window, d gtk.Widgetter, yes string) string {
 	return fmt.Sprintf("w=%.0f h=%.0f side=%s scrolls=%d buttons=%v fits=%v", b.w, b.h, side, scrolls, buttons, len(tooWide(d, w.win.Width())) == 0)
 }
 
+// gateRootCounts are the number the gate's note says run as root ("6
+// steps run as root"; 0 without one) and the rail's tags reading "root".
+func gateRootCounts(d *amDialog) (note, tags int) {
+	re := regexp.MustCompile(`^(\d+) steps? runs? as root`)
+	eachWidget(d, func(x gtk.Widgetter) {
+		l, ok := x.(*gtk.Label)
+		if !ok || !l.IsDrawable() {
+			return
+		}
+		if l.HasCSSClass("am-tag") && l.Text() == "root" {
+			tags++
+		}
+		if m := re.FindStringSubmatch(l.Text()); m != nil && l.HasCSSClass("am-note") {
+			note, _ = strconv.Atoi(m[1])
+		}
+	})
+	return note, tags
+}
+
 // wideConfirms are the prompts real-wide feeds after the real gate, each
 // as the engine builds it, with the button it is answered with.
 func wideConfirms() []struct {
@@ -203,11 +223,23 @@ func realWide(c *covEnv) {
 			}
 			if id < 200 { // the real gate
 				measure("gate", id, "Proceed")
+				// Its rail's tags: under the titles in the 380 px bottom
+				// sheet (Dev 5's VM round b6 had them at the line's end),
+				// at the line's end at 1460.
+				c.ok(checkRailTags(c, d, fmt.Sprintf("gate at %d", width)) >= 7, "gate at %d: fewer rail steps with tags drawn than the plan's 7", width)
+				// The note's count is the rail's root tags (Dev 5's VM
+				// round b6: "6 steps run as root" beside 7 root tags).
+				note, roots := gateRootCounts(d)
+				c.ok(note > 0 && note == roots, "gate at %d: the note says %d steps run as root, the rail tags %d root", width, note, roots)
 				c.press(d, "no")
 				return
 			}
 			cf := confirms[next]
 			measure(cf.name, id, cf.yes)
+			if cf.name == "orphans" && width >= 1460 {
+				// The VM's cascade, one "name version" per line, unbroken.
+				c.ok(len(wrappedLists(d)) == 0, "orphans at %d: lists wrap their lines: %q", width, wrappedLists(d))
+			}
 			c.press(d, cf.resp)
 			next++
 			coreglib.TimeoutAdd(150, func() { feedNext() })

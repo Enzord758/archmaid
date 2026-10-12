@@ -206,6 +206,11 @@ func realNarrow(c *covEnv) {
 					}
 				}
 				measure(fmt.Sprintf("%s-prompt-%d", moment, id))
+				if cf := ch.Opened.Confirm; cf != nil && len(cf.Plan) > 0 {
+					// The real plan's rail: tags under the titles in a
+					// narrow dialog, at the line's end in a wide one.
+					c.ok(checkRailTags(c, d, moment+"-gate") >= 7, "%s: fewer rail steps with tags drawn than the plan's 7", moment)
+				}
 				resp := "yes"
 				if phase == "real" {
 					resp = "no" // the gate, declined

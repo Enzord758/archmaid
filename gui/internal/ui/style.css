@@ -114,7 +114,9 @@
   padding: 1px 6px;
   border: 1px solid currentColor;
 }
-.archmaid .am-tag-root { color: @am_warn; }
+/* root: archmaid runs the step as root; sudo: the step gets root through
+   its own sudo (topgrade). Both are privilege, in the same tone. */
+.archmaid .am-tag-root, .archmaid .am-tag-sudo { color: @am_warn; }
 .archmaid .am-tag-asks { color: @am_running; }
 .archmaid .am-tag-ok { color: @am_ok; }
 .archmaid .am-tag-warn { color: @am_warn; }

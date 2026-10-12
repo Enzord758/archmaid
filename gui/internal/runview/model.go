@@ -77,8 +77,10 @@ type Row struct {
 	// the failed step's Open log.
 	Category logstore.Category
 	// NeedsPriv: the step needs root; Optional: "no" at its confirm skips
-	// it rather than ending the queue.
+	// it rather than ending the queue. Verb is the root helper's verb for
+	// it, "" for a step that gets root through its own sudo (PrivTag).
 	NeedsPriv, Optional bool
+	Verb                string
 	State               RowState
 	Elapsed             time.Duration
 	Err                 string
@@ -395,6 +397,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.PlanChanged:
 			if i := m.row(ev.Step.ID, ev.Index); i >= 0 {
 				m.Rows[i].Title, m.Rows[i].NeedsPriv, m.Rows[i].Optional = ev.Step.Title, ev.Step.NeedsPriv, ev.Step.Optional
+				m.Rows[i].Verb = ev.Step.Verb
 				m.Rows[i].LogLabel = ev.Step.LogLabel
 				touch(i)
 			}
@@ -586,7 +589,7 @@ func (m *Model) ShowReport(action string) Change {
 }
 
 func newRow(s engine.PlanStep) Row {
-	return Row{ID: s.ID, Title: s.Title, LogLabel: s.LogLabel, NeedsPriv: s.NeedsPriv, Optional: s.Optional, Category: s.Category}
+	return Row{ID: s.ID, Title: s.Title, LogLabel: s.LogLabel, NeedsPriv: s.NeedsPriv, Optional: s.Optional, Verb: s.Verb, Category: s.Category}
 }
 
 // EngineStopped is what the GUI says when the Driver's events end without
@@ -636,13 +639,14 @@ func (m *Model) ConfirmLabels(p engine.NeedsConfirm) (yes, no string) {
 }
 
 // PlanLines is a gate confirm's plan preview, one line per step: its
-// title, marked when it needs root. nil for a confirm without a plan.
+// title, marked with its PrivTag when it has one. nil for a confirm
+// without a plan.
 func PlanLines(plan []engine.PlanStep) []string {
 	var out []string
 	for _, s := range plan {
 		l := s.Title
-		if s.NeedsPriv {
-			l += "  (root)"
+		if t := PrivTag(s.NeedsPriv, s.Verb); t != "" {
+			l += "  (" + t + ")"
 		}
 		out = append(out, l)
 	}

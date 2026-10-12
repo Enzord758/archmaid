@@ -51,17 +51,20 @@ func Cards() []Card {
 // PlanItem is one step of an action's plan as the Overview previews it.
 type PlanItem struct {
 	Title string
-	// Root: the step needs root. Asks: it has its own confirm (the cache
-	// wipe). Combined: it runs inside the one root-helper call (polkit's
-	// one dialog per Full Cleanup).
-	Root, Asks, Combined bool
+	// Root: archmaid runs the step as root (the root helper's verb).
+	// Sudo: it runs as the user and gets root through its own sudo
+	// (topgrade). They are runview.PrivTag's "root" and "sudo", which the
+	// gate and the Run page tag the step with. Asks: it has its own
+	// confirm (the cache wipe). Combined: it runs inside the one
+	// root-helper call (polkit's one dialog per Full Cleanup).
+	Root, Sudo, Asks, Combined bool
 }
 
 // Preview is an action's plan before it starts.
 type Preview struct {
 	Steps []PlanItem
-	// Root counts the steps that need root.
-	Root int
+	// Root counts the steps tagged root, Sudo those tagged sudo.
+	Root, Sudo int
 	// Orphans: the plan finds orphans after the update and, when there
 	// are any, inserts their removal (a root step with its own confirm)
 	// behind the probe. The preview can't list that step: it doesn't
@@ -82,9 +85,13 @@ func PlanPreview(env actions.Env, id string) (p Preview, ok bool) {
 		return Preview{}, false
 	}
 	for _, s := range a.Steps(env) {
-		it := PlanItem{Title: s.Title, Root: s.NeedsPriv, Asks: s.Confirm != "", Combined: s.Combine != ""}
+		it := PlanItem{Title: s.Title, Root: s.NeedsPriv && s.Verb != "", Sudo: s.NeedsPriv && s.Verb == "",
+			Asks: s.Confirm != "", Combined: s.Combine != ""}
 		if it.Root {
 			p.Root++
+		}
+		if it.Sudo {
+			p.Sudo++
 		}
 		if s.ID == steps.IDOrphansProbe {
 			p.Orphans = true

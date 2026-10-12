@@ -126,6 +126,24 @@ func insideScroller(wd gtk.Widgetter, d *amDialog) bool {
 	return false
 }
 
+// wrappedLists are d's drawn item lists (one name, or "name version", per
+// line) that break a line: each as "first line: N lines drawn for M".
+func wrappedLists(d *amDialog) []string {
+	var out []string
+	eachWidget(d, func(x gtk.Widgetter) {
+		l, ok := x.(*gtk.Label)
+		if !ok || !l.IsDrawable() || !l.HasCSSClass("monospace") {
+			return
+		}
+		want := strings.Count(l.Text(), "\n") + 1
+		if got := l.Layout().LineCount(); got != want {
+			first, _, _ := strings.Cut(l.Text(), "\n")
+			out = append(out, fmt.Sprintf("%s…: %d lines drawn for %d", first, got, want))
+		}
+	})
+	return out
+}
+
 // overflows says whether sw has something to scroll.
 func overflows(sw *gtk.ScrolledWindow) bool {
 	adj := sw.VAdjustment()
@@ -206,6 +224,43 @@ func wideLong(c *covEnv) {
 		}
 		if ht < 600 && name != "step" && name != "askpass" {
 			c.ok(middle || inner > 0, "%s at %dx%d: nothing in the middle scrolls (sheet %.0fx%.0f)", name, wd, ht, sb.w, sb.h)
+		}
+		if ht < 600 && d.alert == nil {
+			// One scroller in a low window: the middle, the lists in it at
+			// their whole height. A capped list inside a scrolling middle
+			// shrank to a few rows instead (Dev 2's #96: the gate's rail
+			// to ~3 steps, the orphans' lists to 110 px each).
+			c.ok(inner == 0, "%s at %dx%d: %d lists scroll inside the middle (heights %v), want only the middle to scroll", name, wd, ht, inner, innerH)
+		}
+		if name == "gate" {
+			// How many of the rail's steps the middle shows whole.
+			shown, total := 0, 0
+			if mb, ok := boundsIn(d.parts[1], w.win); ok {
+				eachWidget(d, func(x gtk.Widgetter) {
+					if !gtk.BaseWidget(x).HasCSSClass("am-rail-step") {
+						return
+					}
+					total++
+					if rb, ok := boundsIn(x, w.win); ok && gtk.BaseWidget(x).IsDrawable() && within(rb, mb) {
+						shown++
+					}
+				})
+			}
+			switch {
+			case wd == 1460 && ht == 930:
+				// The window has room for all 20: no cap of its own (it
+				// stopped at 364 px, 14 steps, with 400 px to spare).
+				c.ok(shown == total && total == 20 && !middle, "gate at 1460x930: %d of %d steps shown, the middle scrolls %v; want all 20, nothing scrolling", shown, total, middle)
+			case wd == 1460 && ht == 500:
+				c.ok(shown >= 6, "gate at 1460x500: %d of %d steps shown, want at least 6", shown, total)
+			}
+			c.rep.Narrow = append(c.rep.Narrow, fmt.Sprintf("gate %dx%d: %d of %d rail steps shown", wd, ht, shown, total))
+		}
+		if name == "orphans" && wd == 1460 && ht == 930 {
+			// Two columns side by side, one "name version" per line:
+			// neither wraps (the 333 px "Removed with them" wrapped
+			// "python-dependency-of-orphan-123 0.123.0-2").
+			c.ok(len(wrappedLists(d)) == 0, "orphans at 1460x930: lists wrap their lines: %q", wrappedLists(d))
 		}
 		tw := tooWide(d, wd)
 		c.ok(len(tw) == 0, "%s at %dx%d: too wide: %q", name, wd, ht, tw)

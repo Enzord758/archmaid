@@ -835,7 +835,7 @@ func runChild(scenario, path string) int {
 					fail("the run finished before the window closed")
 				}
 				rep.Outcomes = append(rep.Outcomes, rep.Outcome)
-				if scenario == "audit-rerun" {
+				if scenario == "audit-rerun" || scenario == "real-failed-decline" {
 					rep.EndStatuses = append(rep.EndStatuses, w.status.Text())
 					rep.EndLines = append(rep.EndLines, w.model.Lines)
 				}
@@ -908,7 +908,19 @@ func runChild(scenario, path string) int {
 								rep.FailedActs = append(rep.FailedActs, s.header.acts.again.Label())
 							}
 						}
-						w.win.Close()
+						if os.Getenv(shotsEnv) == "" {
+							w.win.Close()
+							return
+						}
+						// The status line after the declined gate, wide
+						// (the sidebar's footer) and at 380 px (the bar
+						// under the content, as the VM's b6 shot).
+						shoot(w, "real-failed-decline", "declined")
+						w.win.SetDefaultSize(380, 640)
+						glib.TimeoutAdd(500, func() {
+							shoot(w, "real-failed-decline", "declined-380")
+							w.win.Close()
+						})
 					})
 					return
 				}
