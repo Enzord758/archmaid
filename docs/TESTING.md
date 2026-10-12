@@ -572,7 +572,12 @@ test can delete your files or need root.
    before the package's tests and compares after them, so plain `go test`
    FAILs a package that deleted, changed or added anything anywhere under
    it (`TestStateGuardFailsPackage` proves it on a scratch
-   `XDG_STATE_HOME`).
+   `XDG_STATE_HOME`). Its scratch dirs (`archmaid-test-home*`, `archmaid-test-trap*`)
+   are removed on every exit: by `Run` itself, and by the watchdog when the
+   binary dies first (panic in a test, timeout, SIGKILL). `check.sh` and
+   `gui/scripts/headless.sh` set `ARCHMAID_TESTENV_CREATED`, which every `Run`
+   appends its dirs to, and fail through `scripts/testenv-leftovers.sh` if any
+   still exists afterwards.
 3. **No real external programs.** `pacman`, `sudo`, `su`, `systemctl` etc. are
    replaced by shell shims placed first on `PATH` (see Recipes). This is
    enforced: `testenv.Run` puts traps first on `PATH` for the whole package
