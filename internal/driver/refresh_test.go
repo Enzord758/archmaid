@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/installed"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -75,13 +76,13 @@ func shims(t *testing.T, systemctl, script string) (sysLog, scriptLog string) {
 		}
 	}
 	write(filepath.Join(dir, "systemctl"), `echo "$*" >> `+sysLog+"\n"+systemctl)
-	old := UpdatesScript
-	UpdatesScript = filepath.Join(dir, "missing-check")
+	old := installed.UpdatesScript
+	installed.UpdatesScript = filepath.Join(dir, "missing-check")
 	if script != "" {
-		UpdatesScript = filepath.Join(dir, "check")
-		write(UpdatesScript, `echo ran >> `+scriptLog+"\n"+script)
+		installed.UpdatesScript = filepath.Join(dir, "check")
+		write(installed.UpdatesScript, `echo ran >> `+scriptLog+"\n"+script)
 	}
-	t.Cleanup(func() { UpdatesScript = old })
+	t.Cleanup(func() { installed.UpdatesScript = old })
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return sysLog, scriptLog
 }

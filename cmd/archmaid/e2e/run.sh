@@ -115,6 +115,10 @@ run_tape() {
 			fail "$name: mutating command $c was invoked"
 		fi
 	done
+	# Every tape is a dry run, which never refreshes the widget's update
+	# count. The real refresh starts the user unit and, if that fails, runs
+	# the installed check by absolute path, which no shim here can catch.
+	refuse "$SHIM_LOG" '^systemctl --user ' "$name: the widget's update check was started"
 	CLEANUP_LOG="$HOME_DIR/.local/state/archmaid/dryrun/cleanup.log"
 	STATE_DIR="$HOME_DIR/.local/state/archmaid"
 }

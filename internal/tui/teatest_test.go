@@ -2,7 +2,9 @@ package tui
 
 import (
 	"bytes"
+	"context"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +32,13 @@ func fixedModel() model {
 	return m
 }
 
+// prodRefreshUpdates is refreshUpdates as the binary has it, saved before
+// TestMain swaps in the fake that counts its calls in fakeRefreshes.
+var (
+	prodRefreshUpdates func(context.Context) error
+	fakeRefreshes      atomic.Int32
+)
+
 // TestMain forces lipgloss to the Ascii (no-color) profile so rendered frames
 // are plain text — deterministic and diff-friendly as golden files, regardless
 // of the terminal the tests run in.
@@ -51,6 +60,13 @@ func TestMain(m *testing.M) {
 	// Anything that wants the RPC points aurRPCURL at an httptest server
 	// (fakeAUR); everything else fails fast against this closed port.
 	aurRPCURL = "http://127.0.0.1:1/rpc"
+	// No test may refresh the widget's update count for real: the real
+	// refresh runs systemctl and then the installed check by absolute path,
+	// which a harness whose PATH is its shim dir alone reached on a machine
+	// with archmaid installed. testenv traps both; this keeps every Driver the
+	// tests build (driverDeps, newDriver) off them.
+	prodRefreshUpdates = refreshUpdates
+	refreshUpdates = func(context.Context) error { fakeRefreshes.Add(1); return nil }
 	// No test may write the user's real state dir either (appendLog, and now
 	// last-run.json): default to a throwaway one; tests that inspect the logs
 	// still point logDir at their own.

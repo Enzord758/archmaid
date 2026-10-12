@@ -597,6 +597,26 @@ test can delete your files or need root.
    pkexec); its verb tests use a fake `Runner` and never execute them, and
    only the `ExecRunner` tests run real, harmless binaries (`env`, `cat`,
    `sh`).
+   **Programs archmaid's own package installs** and archmaid runs by
+   absolute path (the widget's update check,
+   `/usr/lib/archmaid/archmaid-updates-check`, which `driver.RefreshUpdates`
+   runs when `systemctl --user start` fails) are variables in
+   `internal/installed`; `testenv.Run` points each at a trap for the whole
+   run, so reaching one FAILs the package with its real path in the report,
+   on a machine with archmaid installed as on CI without it, whatever the
+   test's `PATH`. `TestNoAbsoluteInstalledExec` rejects their literal paths
+   anywhere but `internal/installed`. The hole this closes (#108):
+   `TestTranscriptRealDriver` makes its shim dir the whole `PATH`, so
+   `systemctl` was "not installed" and the real Driver fell back to the
+   installed check, on the owner's machine the real script, 12 times a run
+   (it died at once: with that `PATH` not even `mkdir` exists; on CI, without
+   the script, the Driver's report failed the test instead). A test that
+   builds a real Driver therefore fakes `Deps.RefreshUpdates`: the TUI's
+   `TestMain` swaps `refreshUpdates` for every Driver its tests build
+   (`TestDriverDepsRefreshUpdates`), the GUI's `realdriver` `fakes` and its
+   UI harness set `Config.RefreshUpdates`. Only `internal/driver`'s refresh
+   tests run the real one, against a `systemctl` shim and a script of their
+   own in `installed.UpdatesScript`.
 4. **No network.** The AUR RPC is an `httptest` server reached through the
    `aurRPCURL` var. `TestMain` sets `aurRPCURL` to a closed local port, so any
    test that reaches the audit without `fakeAUR` (choosing Full Cleanup or Run
@@ -667,6 +687,7 @@ rather than adding more indirection:
 | `aurRPCURL` | point the AUR audit at `httptest` |
 | `tickFn` | `tea.Tick` for the status refresh (the sudo keep-alive is the Driver's) |
 | `logNow` | the clock that names the process's run directory (fixed by the first store) |
+| `refreshUpdates` | the widget's update-count refresh in `driverDeps` (`driver.RefreshUpdates` in the binary); `TestMain` sets a fake that counts its calls (`fakeRefreshes`) for every test |
 
 `TestMain` also dispatches `--askpass <sock> [prompt]` to `privilege.RunClient`
 exactly as `main()` does, so a wrapper that execs the test binary relays

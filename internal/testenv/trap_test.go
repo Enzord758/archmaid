@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/Enzord758/archmaid/internal/installed"
 )
 
 // TestMain runs this package under its own guard, like every other.
@@ -47,6 +49,18 @@ func TestTrapChild(t *testing.T) {
 		var exit *exec.ExitError
 		if err := cmd.Run(); !errors.As(err, &exit) || exit.ExitCode() != TrapExit {
 			t.Errorf("%s --version: %v, want exit %d from the trap", name, err, TrapExit)
+		}
+	}
+	// The installed programs archmaid runs by absolute path: Run has
+	// pointed each at a trap. The same belt and braces: never exec one that
+	// isn't.
+	for _, p := range installed.All() {
+		if b, err := os.ReadFile(*p); err != nil || !bytes.Contains(b, []byte("archmaid testenv trap")) {
+			t.Fatalf("installed program at %s is not a trap: refusing to run it", *p)
+		}
+		var exit *exec.ExitError
+		if err := exec.Command(*p, "--version").Run(); !errors.As(err, &exit) || exit.ExitCode() != TrapExit {
+			t.Errorf("%s --version: %v, want exit %d from the trap", *p, err, TrapExit)
 		}
 	}
 }
@@ -119,6 +133,124 @@ func TestTrapCatchesRealSu(t *testing.T) {
 	for _, name := range Trapped {
 		if !strings.Contains(out, "   "+name+" --version\n") {
 			t.Errorf("trap report misses %q:\n%s", name+" --version", out)
+		}
+	}
+	// The installed programs are reported by their real path.
+	for _, real := range installedPaths(t) {
+		if !strings.Contains(out, "   "+real+" --version\n") {
+			t.Errorf("trap report misses %q:\n%s", real+" --version", out)
+		}
+	}
+}
+
+// TestInstalledAreTrapped: under Run every path in internal/installed is a
+// trap in the trap dir, not the real program, whether or not this machine
+// has archmaid installed.
+func TestInstalledAreTrapped(t *testing.T) {
+	real := installedPaths(t)
+	for i, p := range installed.All() {
+		if *p == real[i] {
+			t.Errorf("%s is not trapped under Run", real[i])
+			continue
+		}
+		if filepath.Base(*p) != filepath.Base(real[i]) {
+			t.Errorf("%s's trap is %s, want one of the same name", real[i], *p)
+		}
+		if b, err := os.ReadFile(*p); err != nil || !bytes.Contains(b, []byte("archmaid testenv trap")) {
+			t.Errorf("%s points at %s, which is not a trap (%v)", real[i], *p, err)
+		}
+	}
+}
+
+// TestTrapInstalledLogsAndRestores: TrapInstalled's trap logs the real path
+// and argv and exits TrapExit, and restore points the variables back.
+func TestTrapInstalledLogsAndRestores(t *testing.T) {
+	under := slices.Clone(derefAll(installed.All())) // Run's traps
+	dir := t.TempDir()
+	log := filepath.Join(dir, "trap.log")
+	if err := os.WriteFile(log, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	restore, err := TrapInstalled(dir, log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		restore()
+		if got := derefAll(installed.All()); !slices.Equal(got, under) {
+			t.Errorf("after restore: %q, want %q", got, under)
+		}
+	}()
+	for i, p := range installed.All() {
+		if filepath.Dir(*p) != dir {
+			t.Fatalf("%s points at %s, not into %s", under[i], *p, dir)
+		}
+		var exit *exec.ExitError
+		if err := exec.Command(*p, "a", "b").Run(); !errors.As(err, &exit) || exit.ExitCode() != TrapExit {
+			t.Fatalf("trap: %v, want exit %d", err, TrapExit)
+		}
+	}
+	// TrapInstalled was handed Run's traps as the "real" paths: the log
+	// names what it replaced.
+	var want []string
+	for _, p := range under {
+		want = append(want, p+" a b")
+	}
+	if got := TrapCalls(log); !slices.Equal(got, want) {
+		t.Fatalf("calls = %q, want %q", got, want)
+	}
+}
+
+func derefAll(ps []*string) []string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = *p
+	}
+	return out
+}
+
+// installedPaths are internal/installed's real paths, read from its source
+// (under Run its variables point at traps): one string literal per
+// variable, in order.
+func installedPaths(t *testing.T) []string {
+	t.Helper()
+	root, _ := moduleGoFiles(t)
+	lits, err := absoluteLiterals(filepath.Join(root, installedFile), nil, func(string) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lits) != len(installed.All()) {
+		t.Fatalf("%s: %d absolute literals %q for %d variables: keep one literal per path, in All's order",
+			installedFile, len(lits), lits, len(installed.All()))
+	}
+	return lits
+}
+
+// installedFile holds the only literals of the installed programs' paths.
+var installedFile = filepath.Join("internal", "installed", "installed.go")
+
+// TestNoAbsoluteInstalledExec: no Go file but internal/installed names one
+// of archmaid's installed programs by absolute path (a system dir and that
+// program's name). Such a literal would bypass the trap Run sets on the
+// variable, and on a machine with archmaid installed a test reaching it
+// runs the real program: the updates check did, from a harness whose PATH
+// was its shim dir alone.
+func TestNoAbsoluteInstalledExec(t *testing.T) {
+	root, files := moduleGoFiles(t)
+	var names []string
+	for _, p := range installedPaths(t) {
+		names = append(names, filepath.Base(p))
+	}
+	for _, rel := range files {
+		if rel == installedFile {
+			continue
+		}
+		lits, err := absoluteLiterals(filepath.Join(root, rel), nil, func(s string) bool { return slices.Contains(names, filepath.Base(s)) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range lits {
+			t.Errorf("%s: %q names an installed program by absolute path, which bypasses testenv's trap; use internal/installed", rel, s)
 		}
 	}
 }
@@ -317,6 +449,12 @@ func TestAbsoluteTrappedFindsLiterals(t *testing.T) {
 // absoluteTrapped parses a Go file (src as for parser.ParseFile) and returns
 // its string literals that name a privileged binary in a system directory.
 func absoluteTrapped(path string, src any) ([]string, error) {
+	return absoluteLiterals(path, src, func(s string) bool { return slices.Contains(Privileged, filepath.Base(s)) })
+}
+
+// absoluteLiterals parses a Go file (src as for parser.ParseFile) and returns
+// its string literals that are a path in a system directory and match.
+func absoluteLiterals(path string, src any, match func(string) bool) ([]string, error) {
 	f, err := parser.ParseFile(token.NewFileSet(), path, src, parser.SkipObjectResolution)
 	if err != nil {
 		return nil, err
@@ -328,7 +466,7 @@ func absoluteTrapped(path string, src any) ([]string, error) {
 			return true
 		}
 		s, err := strconv.Unquote(lit.Value)
-		if err == nil && systemPath(s) && slices.Contains(Privileged, filepath.Base(s)) {
+		if err == nil && systemPath(s) && match(s) {
 			out = append(out, s)
 		}
 		return true

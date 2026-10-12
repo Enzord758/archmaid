@@ -35,7 +35,12 @@
 // executes a privileged binary by absolute path (TestNoAbsolutePrivilegedExec
 // keeps it that way), and archmaid-helper's absolute paths (/usr/bin/pacman
 // and friends, run as root under pkexec) only ever run in its tests through
-// a fake Runner.
+// a fake Runner. The programs archmaid's own package installs and archmaid
+// runs by absolute path (the widget's update check) are variables in
+// internal/installed, and Run points each at a trap of its own for the whole
+// run: a test that reaches one fails the package like any trapped call, on a
+// machine where the real one is installed as on one where it isn't
+// (TestNoAbsoluteInstalledExec keeps their literals in that package).
 //
 // Nothing a test starts may outlive the package run. Run sets MarkerEnv to a
 // fresh id for the whole run, which every process a test starts inherits, and
@@ -57,6 +62,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/Enzord758/archmaid/internal/installed"
 )
 
 const unset = "\x00unset"
@@ -125,6 +132,13 @@ func Run(m interface{ Run() int }) int {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
 		return 1
 	}
+	// PATH can't catch an absolute path: point archmaid's installed
+	// programs at traps of their own until the leftovers are reaped.
+	restoreInstalled, err := TrapInstalled(trapBin, trapLog)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "testenv:", err)
+		return 1
+	}
 
 	home, err := os.MkdirTemp("", "archmaid-test-home")
 	if err != nil {
@@ -171,6 +185,7 @@ func Run(m interface{ Run() int }) int {
 	// leak from the report.
 	dog.stop()
 	left, scanErr := reapLeftovers(marker)
+	restoreInstalled()
 
 	for k, v := range saved {
 		if v == unset {
@@ -193,7 +208,8 @@ func Run(m interface{ Run() int }) int {
 		failed = true
 	}
 	if calls := TrapCalls(trapLog); len(calls) > 0 {
-		fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: a test reached a real privileged or system-changing binary (shim it first on PATH):")
+		fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: a test reached a real privileged or system-changing binary"+
+			" (shim it first on PATH; an installed program run by absolute path: fake what runs it):")
 		for _, c := range calls {
 			fmt.Fprintln(os.Stderr, "  ", c)
 		}
@@ -274,6 +290,39 @@ func InstallTraps(dir string) (bin, log string, err error) {
 		}
 	}
 	return bin, log, nil
+}
+
+// TrapInstalled points every path in internal/installed at a trap in bin
+// named after it, which logs "<real path> <argv>" to log (as InstallTraps'
+// do) and exits TrapExit, and returns the func that points them back. The
+// real paths are absolute, which PATH can't catch; under Run no test can
+// execute one, whether or not this machine has archmaid installed.
+func TrapInstalled(bin, log string) (restore func(), err error) {
+	paths := installed.All()
+	saved := make([]string, len(paths))
+	for i, p := range paths {
+		saved[i] = *p
+	}
+	restore = func() {
+		for i, p := range paths {
+			*p = saved[i]
+		}
+	}
+	for _, p := range paths {
+		real := *p
+		trap := filepath.Join(bin, filepath.Base(real))
+		script := "#!/bin/sh\n" +
+			"# archmaid testenv trap: no test may run the installed " + real + ".\n" +
+			"printf '%s\\n' \"" + real + " $*\" >> " + shQuote(log) + "\n" +
+			"echo 'testenv: trapped a run of the installed " + real + " (by absolute path); fake what runs it' >&2\n" +
+			fmt.Sprintf("exit %d\n", TrapExit)
+		if err := os.WriteFile(trap, []byte(script), 0o700); err != nil {
+			restore()
+			return nil, err
+		}
+		*p = trap
+	}
+	return restore, nil
 }
 
 // TrapCalls returns the calls in a trap log, one "name argv" per call. A

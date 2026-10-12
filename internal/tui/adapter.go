@@ -51,9 +51,15 @@ func driverDeps(askpass <-chan *privilege.Request) driver.Deps {
 		Prefetch: startPrefetch,
 		Report:   driverReports.add,
 		// The widget's update count, refreshed after a topgrade run.
-		RefreshUpdates: driver.RefreshUpdates,
+		RefreshUpdates: refreshUpdates,
 	}
 }
+
+// refreshUpdates is driverDeps' RefreshUpdates: driver.RefreshUpdates,
+// which runs systemctl and, failing that, the installed update check by
+// absolute path. The package's TestMain swaps in a fake for every test
+// (testenv traps both, and fails the package if one is reached).
+var refreshUpdates = driver.RefreshUpdates
 
 // driverReports is the TUI's error log: what the Driver reports that no
 // Event carries (a log write that failed, a hook's error, a recovered

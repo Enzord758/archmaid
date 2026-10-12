@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/installed"
 )
 
 // Refreshing the widget's update count. After a run whose topgrade step
@@ -16,12 +18,11 @@ import (
 // the user unit the package ships; the widget re-reads updates-cache.json
 // when the file is replaced (packaging/dms/archmaid/ArchmaidWidget.qml).
 
-// UpdatesUnit is the user unit that runs the check, UpdatesScript what it
-// runs; both are variables so tests can point them elsewhere.
-var (
-	UpdatesUnit   = "archmaid-updates-check.service"
-	UpdatesScript = "/usr/lib/archmaid/archmaid-updates-check"
-)
+// UpdatesUnit is the user unit that runs the check. What it runs is
+// installed.UpdatesScript: an absolute path, which testenv's PATH traps
+// can't catch, so it lives in internal/installed, where testenv.Run points
+// it at a trap for every test binary.
+var UpdatesUnit = "archmaid-updates-check.service"
 
 // refreshTimeout bounds the systemctl call: it only queues the job
 // (--no-block), so it is quick unless the user manager hangs.
@@ -30,7 +31,7 @@ const refreshTimeout = 5 * time.Second
 // RefreshUpdates is the Deps.RefreshUpdates both front ends set. It starts
 // the unit with `systemctl --user start --no-block` (a oneshot unit that
 // is already running is not started twice). If that fails (no unit, no
-// user manager) and UpdatesScript exists, it starts the script in the background,
+// user manager) and installed.UpdatesScript exists, it starts the script in the background,
 // niced (19), and does not wait for it. Otherwise
 // it returns an error saying so; the Driver reports that as one line. It
 // never waits for the check itself, and ctx (the Driver's) ends a hung
@@ -44,15 +45,16 @@ func RefreshUpdates(ctx context.Context) error {
 	if err == nil {
 		return nil
 	}
-	if _, serr := os.Stat(UpdatesScript); serr != nil {
-		return fmt.Errorf("driver: updates check not started: systemctl: %v (%s); no %s", err, trimOut(out), UpdatesScript)
+	script := installed.UpdatesScript
+	if _, serr := os.Stat(script); serr != nil {
+		return fmt.Errorf("driver: updates check not started: systemctl: %v (%s); no %s", err, trimOut(out), script)
 	}
 	// No Setsid or Setpgid: children share archmaid's session
 	// (internal/proc, TestNoSetsid). Its stdin, stdout and stderr are
 	// /dev/null, so it cannot touch the terminal.
-	c := exec.Command(UpdatesScript)
+	c := exec.Command(script)
 	if serr := c.Start(); serr != nil {
-		return fmt.Errorf("driver: updates check not started: systemctl: %v; %s: %v", err, UpdatesScript, serr)
+		return fmt.Errorf("driver: updates check not started: systemctl: %v; %s: %v", err, script, serr)
 	}
 	_ = syscall.Setpriority(syscall.PRIO_PROCESS, c.Process.Pid, 19)
 	go func() { _ = c.Wait() }() // reap it; nothing waits for the check
