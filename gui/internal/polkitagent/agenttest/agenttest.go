@@ -7,9 +7,14 @@ package agenttest
 // its controlling terminal (polkitagenttextlistener.c), byte for byte
 // where it matters: the coloured banner, the message, "Authenticating as:"
 // or the identity menu, the PAM prompt with echo turned off, and the
-// verdict. It registers by closing fd 3 (--notify-fd), then serves each
-// request written to $AGENT_DIR/request (the action id), as polkitd would
-// call it when pkexec asks. It records its argv (agent.args), what it was
+// verdict. One order differs: the listener prints the prompt and then
+// turns echo off itself, but the shim needs stty, a child on the terminal,
+// so it turns echo off first and the agent never sees a prompt while stty
+// still holds the terminal (that would be ErrTTYShared); polkitagent's
+// TestWaitsForEchoOff covers the listener's order. It registers by closing
+// fd 3 (--notify-fd), then serves each request written to
+// $AGENT_DIR/request (the action id), as polkitd would call it when
+// pkexec asks. It records its argv (agent.args), what it was
 // answered (agent.got) and polkit's verdict (result: ok or fail; right
 // when the answer is $AGENT_WANT). AGENT_MODE=noreg fails to register as
 // pkttyagent does; AGENT_MODE=snoop has another process (its pid in
@@ -84,8 +89,11 @@ while :; do
 		other) printf 'Authenticating as: Someone Else (other)\n' >&4 ;;
 		*) printf 'Authenticating as: Me Myself (%s)\n' "$AGENT_USER" >&4 ;;
 		esac
-		printf 'Password: ' >&4
+		# Echo off before the prompt (the listener turns it off right after,
+		# in-process): stty is a child of ours on the terminal, and must be
+		# gone before the agent sees the prompt and checks who holds it.
 		stty -echo <&4
+		printf 'Password: ' >&4
 		if [ -f "$d/cancel-next" ]; then
 			# polkitd cancels the request (pkexec went away, say) before
 			# it is answered.
@@ -110,8 +118,8 @@ while :; do
 		printf '%s\n' "$pw" >> "$d/agent.got"
 		if [ "${AGENT_MODE:-}" = twoprompts ]; then
 			# PAM asks for more than the password (a second factor, say).
-			printf 'Verification code: ' >&4
 			stty -echo <&4
+			printf 'Verification code: ' >&4
 			if ! rd code; then
 				stty echo <&4
 				printf '\n' >&4

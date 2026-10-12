@@ -3,6 +3,7 @@ package polkitagent
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/Enzord758/archmaid/gui/internal/polkitagent/agenttest"
 	"github.com/Enzord758/archmaid/internal/driver"
@@ -150,6 +152,73 @@ func TestAgentChoosesTheUser(t *testing.T) {
 	}
 	if err := waitDone(t, p); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The fake pkttyagent turns echo off with stty, a child of its own on the
+// terminal, where the real listener does it in-process. That child must be
+// gone before the prompt shows, or Answer's holder check (rightly) finds it
+// and refuses (ErrTTYShared): CI run 38188943077, where stty was still
+// running on a loaded runner when the prompt had stood its 50 ms. A stty
+// that stays 0.3 s after turning echo off forces that order.
+func TestShimSttyGoneBeforePrompt(t *testing.T) {
+	real, err := exec.LookPath("stty")
+	if err != nil {
+		t.Skip("no stty")
+	}
+	bin := t.TempDir()
+	slow := "#!/bin/sh\n'" + real + "' \"$@\"\nst=$?\nsleep 0.3\nexit $st\n"
+	if err := os.WriteFile(filepath.Join(bin, "stty"), []byte(slow), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, idents := range []string{"", "multi"} {
+		path, dir := shim(t, "AGENT_IDENTS="+idents)
+		a := start(t, path)
+		request(t, dir, "org.archmaid.helper.check-files")
+		p := next(t, a)
+		if err := p.Answer([]byte("hunter2")); err != nil {
+			t.Fatalf("idents %q: %v", idents, err)
+		}
+		if err := waitDone(t, p); err != nil {
+			t.Fatalf("idents %q: %v", idents, err)
+		}
+		a.Stop()
+	}
+}
+
+// The listener's own order: the prompt shows, then it turns echo off. An
+// answer given in between waits for echo off (which flushes earlier input)
+// before anything is written.
+func TestWaitsForEchoOff(t *testing.T) {
+	master, slave, err := openPTY()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	defer slave.Close()
+	a := &Agent{master: master}
+	if a.waitNoEcho(20*time.Millisecond) == nil {
+		t.Fatal("waitNoEcho returned while echo was on")
+	}
+	const delay = 150 * time.Millisecond
+	go func() {
+		time.Sleep(delay)
+		var ts syscall.Termios
+		if ioctl(slave, syscall.TCGETS, unsafe.Pointer(&ts)) == nil {
+			ts.Lflag &^= syscall.ECHO
+			_ = ioctl(slave, syscall.TCSETS, unsafe.Pointer(&ts))
+		}
+	}()
+	t0 := time.Now()
+	if err := a.waitNoEcho(2 * time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(t0); d < delay {
+		t.Fatalf("waitNoEcho returned after %v, before echo went off", d)
+	}
+	if err := a.waitNoEcho(0); err != nil {
+		t.Fatalf("echo off, but: %v", err)
 	}
 }
 
