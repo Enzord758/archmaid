@@ -460,6 +460,9 @@ func runChild(scenario, path string) int {
 			// markup makes GTK log a g_warning naming toastControl.
 			gtk.NewLabel("").SetMarkup("<b>" + toastControl)
 		}
+		if scenario == "narrow-toggle" { // narrowtoggle_harness_test.go: starts wide
+			w.win.SetDefaultSize(toggleWide, narrowH)
+		}
 		if scenario == "real-small" || scenario == "narrow-nav" || strings.HasPrefix(scenario, "small-") {
 			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
 		}

@@ -54,3 +54,19 @@ func TestBodyWithoutItems(t *testing.T) {
 		t.Errorf("without items the body changed: %q", got)
 	}
 }
+
+// TestBodyWithoutItemsKeepsOtherEllipsisLines (QA, batch 6): only a line cut
+// the way the TUI cuts a name (to 60 runes, the last "…") can be a shortened
+// item. A short line that ends in "…" (a note, a summary) stays even when
+// some item's name starts the same way.
+func TestBodyWithoutItemsKeepsOtherEllipsisLines(t *testing.T) {
+	items := []string{"Moving files to trash.txt", "Total size 4 GB.iso"}
+	head := "Delete 2 item(s) older than 30 days in ~/Downloads?"
+	for _, keep := range []string{"Moving files…", "Total size…", "Moving…"} {
+		body := head + "\n\n  " + items[0] + "\n  " + keep + "\n  " + items[1]
+		want := head + "\n\n  " + keep
+		if got := BodyWithoutItems(body, items); got != want {
+			t.Errorf("a note %q beside the items: got\n%q\nwant\n%q", keep, got, want)
+		}
+	}
+}
