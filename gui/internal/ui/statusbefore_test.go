@@ -126,12 +126,25 @@ func TestStatusTextNoPolkitAgent(t *testing.T) {
 // TestStatusTextWhileDiscovering: between Start and the first end, the
 // previous run's end must not read as this action's state.
 func TestStatusTextWhileDiscovering(t *testing.T) {
-	t.Skip("KNOWN BUG (#102 finding 1): statusText falls through to m.Finished, still the previous run's until the queue starts, so a discovery, an open gate or a password prompt shows \"Finished: completed · 3 lines\"; remove this Skip with the fix")
 	w := afterRun(t)
 	startNext(w, "b", false)
 	w.model.Apply([]engine.Event{engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Looking…"}})
 	got := w.statusText()
 	if strings.Contains(got, "Finished") || strings.Contains(got, "3 lines") {
 		t.Errorf("while the new action discovers, status %q is the previous run's", got)
+	}
+}
+
+// TestStatusTextGateOpen: an open gate or the up-front password before the
+// queue starts reads "Waiting…", not the previous run's end.
+func TestStatusTextGateOpen(t *testing.T) {
+	w := afterRun(t)
+	startNext(w, "b", false)
+	w.model.Apply([]engine.Event{engine.NeedsPassword{ID: 7}})
+	if w.model.Prompt == nil {
+		t.Fatal("no prompt open")
+	}
+	if got := w.statusText(); got != "Waiting…" {
+		t.Errorf("gate/password open: status %q", got)
 	}
 }

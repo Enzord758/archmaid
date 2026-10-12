@@ -193,7 +193,9 @@ func heroKicker(p overview.Preview, ok, narrow bool) string {
 	if narrow {
 		sep = "\n"
 	}
-	return "Recommended · " + plural.N(len(p.Steps), "step", "steps") + sep + "root steps in one authorisation"
+	// The root count is the plan's root-tagged steps: topgrade, tagged sudo,
+	// is not one of the steps in the one authorisation.
+	return "Recommended · " + plural.N(len(p.Steps), "step", "steps") + sep + plural.N(p.Root, "root step", "root steps") + " in one authorisation"
 }
 
 // setNarrow lays the window's rows out for a window under the narrow
@@ -326,10 +328,10 @@ func (w *Window) newCell(c overview.Card) gtk.Widgetter {
 	// narrow, as the hero's plan has it (setNarrow).
 	var rootUnder *gtk.Label
 	if c.Root {
-		wide := tag("root", "am-tag-root")
+		wide := privTag(c.Tag)
 		wide.SetVAlign(gtk.AlignCenter)
 		head.Append(wide)
-		rootUnder = tag("root", "am-tag-root")
+		rootUnder = privTag(c.Tag)
 		rootUnder.SetHAlign(gtk.AlignStart)
 		wide.SetVisible(!w.narrow)
 		rootUnder.SetVisible(w.narrow)

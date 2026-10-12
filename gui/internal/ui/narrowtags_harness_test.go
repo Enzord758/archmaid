@@ -173,7 +173,7 @@ func checkTagRows(c *covEnv, moment, kind string, rows []gtk.Widgetter, narrow b
 	return checked
 }
 
-// checkCellTags checks the action cells' root tags and the hero's
+// checkCellTags checks the action cells' root and sudo tags and the hero's
 // buttons (checkTags).
 func checkCellTags(c *covEnv, moment string, narrow bool) int {
 	w := c.w
@@ -187,7 +187,7 @@ func checkCellTags(c *covEnv, moment string, narrow bool) int {
 			switch {
 			case l.HasCSSClass("am-cell-title"):
 				title = l
-			case l.HasCSSClass("am-tag-root"):
+			case l.HasCSSClass("am-tag-root") || l.HasCSSClass("am-tag-sudo"):
 				roots = append(roots, l)
 			}
 		}

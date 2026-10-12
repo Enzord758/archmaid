@@ -467,7 +467,9 @@ func (w *Window) statusText() string {
 		// How it ended, as its toast says ("Run cancelled, nothing
 		// ran"), until the next Start, as a notice stays.
 		parts = append(parts, m.EndToast(*w.ended))
-	case m.Finished != nil:
+	case m.Finished != nil && (w.queued || w.ended != nil):
+		// Only this action's end: until its queue starts, m.Finished is
+		// still the previous run's (QueueStarted clears it).
 		status, _ := m.FinishedText(*m.Finished)
 		parts = append(parts, status)
 		if n := m.Finished.NotRun; n > 0 {
@@ -475,6 +477,9 @@ func (w *Window) statusText() string {
 		}
 	case m.Busy != "":
 		parts = append(parts, m.Busy)
+	case m.Prompt != nil && !w.queued:
+		// A gate or the up-front password, before the queue starts.
+		parts = append(parts, "Waiting…")
 	case m.Auth != nil && m.Auth.Kind == engine.WaitPolkit:
 		s := "Waiting for authorisation"
 		if w.agentNotice != "" {
@@ -494,10 +499,13 @@ func (w *Window) statusText() string {
 	// The page's counts are the last run's when the action ended before
 	// its queue: not this action's (as the audit's report doesn't carry
 	// the run before it, TestGUIAuditRerun).
-	if m.Lines > 0 && !before {
+	// Likewise between Start and the queue (discovery, a gate, the password):
+	// the page still holds the last run's counts.
+	stale := before || (!w.queued && w.pagePrev)
+	if m.Lines > 0 && !stale {
 		parts = append(parts, plural.N(m.Lines, "line", "lines"))
 	}
-	if m.Dropped > 0 && !before {
+	if m.Dropped > 0 && !stale {
 		parts = append(parts, fmt.Sprintf("%d not shown (in the log)", m.Dropped))
 	}
 	if s := m.Stat.Status; s.Free != "" {

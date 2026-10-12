@@ -161,7 +161,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~135 s warm, so with no command it runs thirteen parts of at most ~40 s, each with its own weston (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one and `TestGUIWideDialogsLong` another on a 1600x1000 output: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run. Scenarios:
+~135 s warm, so with no command it runs fourteen parts of at most ~40 s, each with its own weston (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one `TestGUIWideDialogsLong` another and `TestGUIWideDialogsLongResize` (~41 s with the one before it) a last one, on a 1600x1000 output: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -392,7 +392,7 @@ rail whole at 1460x930 and at least 6 of its steps shown in each low
 window, the orphans' lines unbroken at 1460x930, nothing too wide, no GTK warning
 (`wide-long-<w>x<h>-<dialog>.png` with `ARCHMAID_GUI_SHOTS`).
 `TestGUIWideDialogsLongResize` (`widelongresize_harness_test.go`, scenario
-`wide-resize`, the same part) leaves the orphans, downloads and report
+`wide-resize`, a part of its own) leaves the orphans, downloads and report
 dialogs open while the window goes 1460x930, 1460x500, 1460x930 and so
 on, four times over: in each tall stage every list is capped again (max
 content height and automatic policy back, scrolling by itself, the middle

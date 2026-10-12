@@ -34,7 +34,7 @@ func TestGateNotes(t *testing.T) {
 	// The kept password (the real Driver): the count is the root tags,
 	// and topgrade, tagged sudo, is named beside it (Dev 5's VM round b6:
 	// "6 steps run as root" beside 7 root tags).
-	want[0] = "3 steps run as root, together, through one authorisation; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
+	want[0] = "3 steps run as root, each through sudo; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
 	if got := GateNotes(full, true, false); !slices.Equal(got, want) {
 		t.Errorf("kept: notes\n%q\nwant\n%q", got, want)
 	}
@@ -61,15 +61,15 @@ func TestGateNotes(t *testing.T) {
 	if got := GateNotes(one, false, false); !slices.Equal(got, []string{"1 step runs as root, after one polkit authorisation.", "Step 1 asks before it runs."}) {
 		t.Errorf("one: %q", got)
 	}
-	if got := GateNotes(one, true, false); !slices.Equal(got, []string{"1 step runs as root, through one authorisation. You type your password once, the first time a step needs it; archmaid keeps it for this run only.", "Step 1 asks before it runs."}) {
+	if got := GateNotes(one, true, false); !slices.Equal(got, []string{"1 step runs as root, through sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only.", "Step 1 asks before it runs."}) {
 		t.Errorf("one, kept: %q", got)
 	}
 	// Steps other than topgrade that run sudo themselves are named by number.
 	other := []engine.PlanStep{{ID: "a", NeedsPriv: true}, {ID: "b", Verb: "v", NeedsPriv: true}, {ID: "c", NeedsPriv: true}, {ID: "d", NeedsPriv: true}}
-	if got := GateNotes(other, true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through one authorisation; steps 1, 3 and 4 get root through their own sudo. ") {
+	if got := GateNotes(other, true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through sudo; steps 1, 3 and 4 get root through their own sudo. ") {
 		t.Errorf("other sudo steps: %q", got)
 	}
-	if got := GateNotes(other[:2], true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through one authorisation; step 1 gets root through its own sudo. ") {
+	if got := GateNotes(other[:2], true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through sudo; step 1 gets root through its own sudo. ") {
 		t.Errorf("one other sudo step: %q", got)
 	}
 	if got := GateNotes(nil, false, true); got != nil {

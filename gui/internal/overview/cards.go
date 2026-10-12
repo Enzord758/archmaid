@@ -15,23 +15,27 @@ type Card struct {
 	Desc string
 	// Root: the action has a step that needs root (sudo or polkit).
 	Root bool
+	// Tag is the cell's privilege tag, runview.PrivTag's words: "root" when
+	// the action has a helper step, "sudo" when its privileged steps all get
+	// root through their own sudo (topgrade), "" when it needs neither.
+	Tag string
 }
 
-// cardInfo is each action's description and root flag. The flag is
+// cardInfo is each action's description and privilege tag. The tag is
 // static on purpose: a discovery's steps exist only once it has run, and
 // the cell must say before the click whether a password may follow.
 var cardInfo = map[string]struct {
 	desc string
-	root bool
+	tag  string
 }{
 	actions.IDFullCleanup: {"Audits your AUR packages, updates the system with topgrade, then removes orphans (you confirm the list), " +
-		"trims the package cache, clears old temp files, vacuums the journal, checks package integrity and cleans the AUR build cache.", true},
-	actions.IDUserCache: {"Deletes everything under ~/.cache", false},
-	actions.IDRepair:    {"Finds packages with missing files and reinstalls them", true},
-	actions.IDDownloads: {"Files and folders not changed in 30 days, from your downloads folder", false},
-	actions.IDTopgrade:  {"Audits your AUR packages, then updates the system with topgrade", true},
-	actions.IDServices:  {"Pick from enabled services that aren't running", true},
-	actions.IDAURAudit:  {"Read-only check of foreign packages against the AUR", false},
+		"trims the package cache, clears old temp files, vacuums the journal, checks package integrity and cleans the AUR build cache.", "root"},
+	actions.IDUserCache: {"Deletes everything under ~/.cache", ""},
+	actions.IDRepair:    {"Finds packages with missing files and reinstalls them", "root"},
+	actions.IDDownloads: {"Files and folders not changed in 30 days, from your downloads folder", ""},
+	actions.IDTopgrade:  {"Audits your AUR packages, then updates the system with topgrade", "sudo"},
+	actions.IDServices:  {"Pick from enabled services that aren't running", "root"},
+	actions.IDAURAudit:  {"Read-only check of foreign packages against the AUR", ""},
 }
 
 // Cards is the Overview's action cells, in the menu's order: every entry
@@ -43,7 +47,7 @@ func Cards() []Card {
 			continue
 		}
 		info := cardInfo[e.ID]
-		out = append(out, Card{Entry: e, Desc: info.desc, Root: info.root})
+		out = append(out, Card{Entry: e, Desc: info.desc, Root: info.tag != "", Tag: info.tag})
 	}
 	return out
 }

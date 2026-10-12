@@ -66,7 +66,9 @@ func GateNotes(plan []engine.PlanStep, kept, dry bool) []string {
 	case dry && (helper > 0 || len(sudo) > 0):
 		notes = append(notes, DryNoPassword)
 	case helper > 0 && kept:
-		n := rootSteps(helper) + ", through one authorisation"
+		// The kept password is sudo mode: there is no combined helper call,
+		// each root step asks sudo, which takes the one kept password.
+		n := rootStepsSudo(helper)
 		if len(sudo) > 0 {
 			n += "; " + sudoSteps(plan, sudo)
 		}
@@ -113,6 +115,15 @@ func rootSteps(n int) string {
 		return "1 step runs as root"
 	}
 	return fmt.Sprintf("%d steps run as root, together", n)
+}
+
+// rootStepsSudo is rootSteps in sudo mode: "1 step runs as root, through
+// sudo" or "{n} steps run as root, each through sudo".
+func rootStepsSudo(n int) string {
+	if n == 1 {
+		return "1 step runs as root, through sudo"
+	}
+	return fmt.Sprintf("%d steps run as root, each through sudo", n)
 }
 
 // sudoSteps names the steps that get root through their own sudo (idx,

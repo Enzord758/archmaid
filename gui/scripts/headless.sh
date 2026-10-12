@@ -23,7 +23,7 @@ cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
 # The whole display suite takes ~135 s, past the bound, so the default runs
-# it in thirteen parts of at most ~40 s, each with its own weston and timeout:
+# it in fourteen parts of at most ~40 s, each with its own weston and timeout:
 # the prompts, the real Driver and Stop, the Full Cleanup and the shimmed
 # password and services scenarios, the engine stopping and the instance
 # check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
@@ -35,7 +35,8 @@ limit="${HEADLESS_TIMEOUT:-60}"
 # HEADLESS_HEIGHT; default 1280x800): weston's output bounds the window.
 # TestGUIMinWidthToggle (~12 s) shares that part (~28 s): with the narrow
 # or the states part it would be ~43 or ~47 s. TestGUIWideDialogsLong
-# (~25 s, the same output) is a part of its own: with them it would be ~53 s.
+# (~25 s, the same output) is a part of its own: with them it would be ~53 s;
+# TestGUIWideDialogsLongResize (~41 s with them) is another.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUIPrompts$'
 	real='^TestGUI(RealDriver|StopAndQuit)$'
@@ -45,7 +46,8 @@ if [[ $# -eq 0 ]]; then
 	tones='^TestGUI(LastRunTones|AuditRerun)$'
 	states='^TestGUIMinWidthStates$'
 	wide='^TestGUI(WideDialogs|MinWidthToggle)$'
-	widelong='^TestGUIWideDialogsLong'
+	widelong='^TestGUIWideDialogsLong$'
+	widelongr='^TestGUIWideDialogsLongResize$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
@@ -63,10 +65,11 @@ if [[ $# -eq 0 ]]; then
 	"$self" go test -tags shots -count=1 -v -run "$states" ./internal/ui
 	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$wide" ./internal/ui
 	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$widelong" ./internal/ui
+	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$widelongr" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$starts|$cov|$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$perf" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and

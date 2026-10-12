@@ -138,8 +138,24 @@ func TestPlanPreviewOthers(t *testing.T) {
 func TestCardsRootMatchesPlan(t *testing.T) {
 	env := previewEnv(t, true, false)
 	for _, c := range Cards() {
-		if p, ok := PlanPreview(env, c.ID); ok && c.Root != (p.Root+p.Sudo > 0) {
+		p, ok := PlanPreview(env, c.ID)
+		if !ok {
+			continue
+		}
+		if c.Root != (p.Root+p.Sudo > 0) {
 			t.Errorf("%s: card root %v, plan root %d sudo %d", c.ID, c.Root, p.Root, p.Sudo)
+		}
+		// The cell's tag text is the plan's: root when it has a helper
+		// step, sudo when its privileged steps are all sudo-only.
+		want := ""
+		switch {
+		case p.Root > 0:
+			want = "root"
+		case p.Sudo > 0:
+			want = "sudo"
+		}
+		if c.Tag != want {
+			t.Errorf("%s: card tag %q, plan root %d sudo %d wants %q", c.ID, c.Tag, p.Root, p.Sudo, want)
 		}
 	}
 }

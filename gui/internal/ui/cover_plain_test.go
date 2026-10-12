@@ -206,6 +206,7 @@ func TestStatusTextNotRunAndDropped(t *testing.T) {
 		engine.StepDone{ID: "s1", Status: steps.OK},
 		engine.Finished{Action: "a", Outcome: engine.OutcomeAborted, NotRun: 3},
 	})
+	w.queued = true // redraw sets it on QueueStarted
 	got := w.statusText()
 	if !strings.Contains(got, "3 not run") || !strings.Contains(got, "7 not shown (in the log)") {
 		t.Errorf("status %q", got)
