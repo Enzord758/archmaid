@@ -471,8 +471,12 @@ comments and `git log`; this is the "read before you touch it" list.
   expands. A label that can hold one long word (a package name, a path, an
   error) also needs `WrapWordChar`: with the default `WrapWord` the word's
   length is the label's minimum width (a 90-letter word made the Run page
-  849 px wide, a dialog's item list 1831 px). `TestGUIMinWidth` measures
-  the real content at 360/480/960 px and `TestGUIMinWidthStates` the
+  849 px wide, a dialog's item list 1831 px; the VM's real orphan cascade,
+  one "name version" per line, made the orphans dialog 392 px). A tag
+  beside a title that wraps is valigned (the last-run chip: centre), or it
+  stretches to the title's 2-3 lines. `TestGUIMinWidth` measures
+  the real content at 360/480/960 px (the orphans dialog with the VM's
+  real plan) and `TestGUIMinWidthStates` the
   long-text states (failed and refused rows, dialogs, discovery, Settings,
   Logs) at 360/480 px; both name the widest widget when something is too
   wide.

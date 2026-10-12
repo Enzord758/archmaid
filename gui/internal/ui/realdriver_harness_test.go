@@ -109,7 +109,11 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 	// stand-in instead (pkexec still names helperclient.HelperPath).
 	helpertest.UseHelperFile(&fakeTB, filepath.Join(shims, helperStandIn))
 	direct, cascade := []string{"oldlib"}, []string{"oldlib 1.0-1"}
-	if os.Getenv("ARCHMAID_GUI_CHILD") == "real-small" {
+	switch os.Getenv("ARCHMAID_GUI_CHILD") {
+	case "real-narrow":
+		// The test VM's real plan (Dev 5, b5r): its names and versions.
+		direct, cascade = vmOrphans, vmCascade
+	case "real-small":
 		// As the live VM had it: 15 orphans, 44 packages with what cascades.
 		direct, cascade = nil, nil
 		for i := range 44 {

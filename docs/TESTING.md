@@ -274,12 +274,17 @@ text, while three wrong passwords and a cancel at the desktop's dialog stay
 runs the real Driver's content at 360, 480 and 960 px wide (720 high):
 the Overview with the real Full Cleanup plan, its gate declined (and that
 toast), Dry run first through to its end (the Run page with the plan's
-rows and root tags), the longest toasts, then the Logs and Settings pages.
+rows and root tags, and the orphans dialog with the test VM's real plan:
+15 orphans, 39 packages with the cascade, their real names and versions,
+the dry run's banner; it must list the orphans once, "Removed with them
+(24)"), the longest toasts, then the Logs and Settings pages.
 At each moment the window's content (the toast overlay) must measure no
 wider than the window, no mapped widget (a dialog's, a breakpoint bin's
 content) may either, and the child's stderr must hold no GLib warning
 (but the one it provokes on purpose, so a lost stderr can't pass it). A
-failure names the widest widgets (`tooWide`). Libadwaita lets a window
+failure names the widest widgets (`tooWide`); each dialog's line gives its
+sheet's minimum (`dialog=`, libadwaita's "AdwFloatingSheet … exceeds
+AdwBreakpointBin width" when over). Libadwaita lets a window
 shrink to 360 px whatever its content asks; content wider than that is
 cut off on the right and logged as "AdwToastOverlay … exceeds
 AdwApplicationWindow width". Stub content can't stand in: the stub has no
@@ -292,9 +297,13 @@ long error, a 90-letter word and a long path in step titles, rows and
 output, a refused row ("no polkit agent is running..."), a waiting and a
 locked-out row, a long busy line and notice, a discovery result (nothing
 found, failed) with long unit names, every dialog (the gate with its plan,
-the step, orphans, downloads and audit-gate confirms, the three password
-dialogs, the services pick, the audit report, the quit question), Settings
-with long values and errors, the last-run cell with a long issue and the Logs
+the step, orphans, downloads and audit-gate confirms, the downloads confirm
+as a real scan's plan builds it with a Downloads folder's names, the three
+password dialogs, the services pick, the audit report, the quit question;
+the gate and the real downloads confirm with the dry run's banner, the
+passwords with the kept-password note, each checked shown), Settings
+with long values and errors, the last-run cell with a long issue and with
+a title over two lines beside its chip (the chip keeps its own height), and the Logs
 page (every category, long lines and the unreadable row). A new state that
 carries user or system text (a path, a package or unit name, an error)
 belongs there. The usual cause of a failure is a wrapping label whose wrap

@@ -270,6 +270,9 @@ func (w *Window) newLastRun() gtk.Widgetter {
 	w.lastTitle.SetHExpand(true)
 	w.lastTitle.AddCSSClass("am-cell-title")
 	w.lastTag = tag("", "am-tag-ok")
+	// Its own height, centred on the title as the icon is: filling the
+	// row drew a tall box beside a title wrapped over 2-3 lines.
+	w.lastTag.SetVAlign(gtk.AlignCenter)
 	head.Append(w.lastIcon)
 	head.Append(w.lastTitle)
 	head.Append(w.lastTag)

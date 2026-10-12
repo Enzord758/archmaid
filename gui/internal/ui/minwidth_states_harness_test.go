@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,8 +26,10 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -42,6 +45,25 @@ var (
 	longText = "The step failed because the thing it needs is not there and the explanation of why is long enough to wrap over several lines in a narrow window"
 )
 
+// realDownloads are names as a real Downloads folder holds them, sorted as
+// the scan sorts them: installers, archives with versions, a screenshot
+// with spaces, a long video title and a folder; more than the confirm's
+// text lists (it counts the rest).
+var realDownloads = []string{
+	"Firefox Setup 131.0.3.exe",
+	"Invoice_2026-08_Order-1234567890_Nordisk-Fjernvarme-og-Energiselskab-ApS.pdf",
+	"NVIDIA-Linux-x86_64-615.71.run",
+	"Screenshot from 2026-08-14 21-33-07.png",
+	"archlinux-2026.09.01-x86_64.iso",
+	"jetbrains-toolbox-2.5.2.35332.tar.gz",
+	"linux-firmware-20260910.r1234.gabcdef0123456789-1-any.pkg.tar.zst",
+	"proton-ge-custom-GE-Proton10-17",
+	"steamcmd_linux.tar.gz",
+	"texlive-2026-full-installation-image-with-all-collections-and-documentation-x86_64.iso",
+	"ubuntu-24.04.3-desktop-amd64.iso",
+	"y2mate.com - Some_Really_Long_Video_Title_With_Underscores_That_Never_Ends_1080p.mp4",
+}
+
 // narrowStates walks the states one after another, each measured once its
 // frames have been drawn.
 func narrowStates(c *covEnv) {
@@ -56,17 +78,30 @@ func narrowStates(c *covEnv) {
 		}
 	}
 	// ask feeds a prompt, measures its dialog, then answers it with resp.
+	// dry and kept are what the next dialogs are built with (a dry run's
+	// banner, the kept-password note): set when the prompt is fed, as the
+	// steps run, not when they are listed.
+	var dry, kept bool
 	ask := func(name string, id engine.PromptID, ev engine.Event, resp string) {
-		add(func() { c.feed(ev) },
-			func() {
-				measure(name)()
-				d := w.dialogs[id]
-				if d == nil {
-					c.fail("%s: no dialog for prompt %d", name, id)
-					return
-				}
-				c.press(d, resp)
-			})
+		dry, kept := dry, kept
+		var wasDry, wasKept bool
+		add(func() {
+			wasDry, wasKept = w.drvDry, w.opts.KeepsPassword
+			w.drvDry, w.opts.KeepsPassword = dry, kept
+			c.feed(ev)
+		}, func() {
+			measure(name)()
+			w.drvDry, w.opts.KeepsPassword = wasDry, wasKept
+			d := w.dialogs[id]
+			if d == nil {
+				c.fail("%s: no dialog for prompt %d", name, id)
+				return
+			}
+			labels := labelsUnder(&d.Widget)
+			c.ok(slices.Contains(labels, dryBannerText) == dry, "%s: the dry run's banner shown %v, want %v", name, !dry, dry)
+			c.ok(slices.Contains(labels, KeptNote) == kept, "%s: the kept-password note shown %v, want %v", name, !kept, kept)
+			c.press(d, resp)
+		})
 	}
 	now := time.Now()
 	plan := func(n int) []engine.PlanStep {
@@ -196,25 +231,38 @@ func narrowStates(c *covEnv) {
 	reset()
 	// The dialogs: each kind with long text, a dry run's banner on the
 	// first and the kept-password note on the passwords.
-	w.drvDry = true
+	dry = true
 	ask("confirm-gate", 101, engine.NeedsConfirm{ID: 101, Kind: engine.ConfirmGate, Title: "Proceed with " + longText + "?", Body: longText + " " + longPath,
 		Plan: plan(6), YesLabel: "Proceed"}, "no")
-	w.drvDry = false
+	dry = false
 	ask("confirm-step", 102, engine.NeedsConfirm{ID: 102, Kind: engine.ConfirmStep, Step: "s1", Title: "Clear all of " + longPath + "?", Msg: "Clear?",
 		Destructive: true, YesLabel: "Clear everything under that folder"}, "no")
 	ask("confirm-orphans", 103, engine.NeedsConfirm{ID: 103, Kind: engine.ConfirmOrphans, Title: "Remove 3 orphans?", Destructive: true,
 		Direct: []string{longPkg, longWord, "short"}, Cascade: []string{longPkg, longUnit, "other"}}, "no")
 	ask("confirm-downloads", 104, engine.NeedsConfirm{ID: 104, Kind: engine.ConfirmDownloads, Title: "Delete 2 old downloads?", Destructive: true,
 		Items: []string{longPath, longWord + ".iso"}, YesLabel: "Delete"}, "no")
+	// The downloads confirm as the engine builds it from a real scan's
+	// plan (downloads.Plan.Confirm, split as the engine splits it), with
+	// a dry run's banner: names as a Downloads folder holds them.
+	dry = true
+	dl := downloads.Plan{Shown: "~/Downloads", Names: realDownloads}
+	dlTitle, dlBody, _ := strings.Cut(dl.Confirm(), "\n")
+	var dlItems []string
+	for _, n := range dl.Names {
+		dlItems = append(dlItems, sanitize.QuoteName(n, 200))
+	}
+	ask("confirm-downloads-real", 111, engine.NeedsConfirm{ID: 111, Kind: engine.ConfirmDownloads, Step: "downloads", Title: dlTitle,
+		Body: strings.TrimLeft(dlBody, "\n"), Msg: dl.Confirm(), Items: dlItems, Destructive: true, YesLabel: "Delete"}, "no")
+	dry = false
 	ask("confirm-audit-gate", 105, engine.NeedsConfirm{ID: 105, Kind: engine.ConfirmAuditGate, Title: "The audit flagged " + longPkg,
 		Body: "Maintainer " + longWord + " → " + longWord, YesLabel: "Update anyway"}, "no")
-	w.opts.KeepsPassword = true
+	kept = true
 	ask("password-upfront", 106, engine.NeedsPassword{ID: 106, Kind: engine.PasswordUpFront, Gate: "Proceed with " + longText + "?",
 		Error: "Incorrect password — " + longText, AttemptsLeft: 2}, "cancel")
 	ask("password-askpass", 107, engine.NeedsPassword{ID: 107, Kind: engine.PasswordAskpass, Requester: "/usr/bin/" + longWord + " (pid 12345)",
 		Prompt: "[sudo] password for " + longWord + ": " + longText, Error: "wrong password"}, "cancel")
 	ask("password-polkit", 108, engine.NeedsPassword{ID: 108, Kind: engine.PasswordAskpass, Polkit: true, Action: "org.archmaid.helper." + longWord}, "cancel")
-	w.opts.KeepsPassword = false
+	kept = false
 	ask("selection", 109, engine.NeedsSelection{ID: 109, Title: "Enabled but not running — " + longText,
 		Items: []string{longUnit, "cups.service", longWord, longPath}}, "cancel")
 	ask("audit-report", 110, engine.OutputReport{ID: 110, Text: "x", Audit: &engine.AuditReport{Total: 7, CanAccept: true, Findings: []engine.AuditFinding{
@@ -256,7 +304,23 @@ func narrowStates(c *covEnv) {
 		w.lastTitle.SetText("The last run's record can't be read")
 		w.lastIssues.SetText("read " + longPath + ": " + longWord)
 		w.lastIssues.SetVisible(true)
-	}, measure("overview-last-run"), w.refreshLastRun)
+	}, measure("overview-last-run"), func() {
+		// The VM's last-run title over two lines and more beside the
+		// FAILED and CANCELLED chips: a chip keeps its own height.
+		w.lastTitle.SetText("Full Cleanup (Recommended) · just now")
+		w.lastTag.SetText("CANCELLED")
+		w.lastTag.SetVisible(true)
+	}, measure("overview-last-run-chip"), func() {
+		titleH, tagH := w.lastTitle.Height(), w.lastTag.Height()
+		// Its natural height counts its padding and border; Height doesn't,
+		// so a chip at its own height is a few px under it.
+		_, natH, _, _ := w.lastTag.Measure(gtk.OrientationVertical, -1)
+		if n := len(c.rep.Narrow); n > 0 { // for the log
+			c.rep.Narrow[n-1] += fmt.Sprintf(" chip=%d (own %d) title=%d", tagH, natH, titleH)
+		}
+		c.ok(titleH > natH || w.win.Width() > 360, "the last-run title is %d px high, the chip %d px: the title didn't wrap, nothing to check", titleH, natH)
+		c.ok(tagH <= natH, "the last-run chip is drawn %d px high beside a %d px title; its own height is %d px", tagH, titleH, natH)
+	}, w.refreshLastRun)
 
 	// The Logs page: every category with long lines, then the error row.
 	add(func() { w.pickPage("logs"); w.refreshLogs() }, measure("logs"))
@@ -339,8 +403,8 @@ func TestGUIMinWidthStates(t *testing.T) {
 				}
 			}
 			for _, want := range []string{"run-going", "run-failed", "run-waiting", "run-locked", "busy", "notice", "discovery-nothing", "discovery-failed",
-				"confirm-gate", "confirm-step", "confirm-orphans", "confirm-downloads", "confirm-audit-gate", "password-upfront", "password-askpass",
-				"password-polkit", "selection", "audit-report", "quit-question", "settings-long", "settings-one-word", "overview-last-run", "logs", "logs-unreadable"} {
+				"confirm-gate", "confirm-step", "confirm-orphans", "confirm-downloads", "confirm-downloads-real", "confirm-audit-gate", "password-upfront", "password-askpass",
+				"password-polkit", "selection", "audit-report", "quit-question", "settings-long", "settings-one-word", "overview-last-run", "overview-last-run-chip", "logs", "logs-unreadable"} {
 				if !seen[want] {
 					t.Errorf("never measured %s (%q)", want, rep.Narrow)
 				}

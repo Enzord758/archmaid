@@ -13,6 +13,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"slices"
@@ -26,6 +27,7 @@ import (
 
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
 )
 
 // envNarrowW is real-narrow's window width (the parent sets it).
@@ -106,6 +108,20 @@ func tooWide(root gtk.Widgetter, limit int) []string {
 	return out
 }
 
+// widestUnder is the largest minimum width of root and every mapped
+// widget under it: for a dialog, its sheet's content (the dialog itself
+// measures 0, being shown in the window's dialog host; the button layout
+// it doesn't use is unmapped).
+func widestUnder(root gtk.Widgetter) int {
+	n := minWidth(root)
+	for c := gtk.BaseWidget(root).FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+		if gtk.BaseWidget(c).Mapped() {
+			n = max(n, widestUnder(c))
+		}
+	}
+	return n
+}
+
 // narrowMeasure is one moment's measure: the window's width, its
 // content's minimum (the toast overlay, which libadwaita checks against
 // the window) and what is too wide in it or in an open dialog (a dialog
@@ -114,11 +130,15 @@ func narrowMeasure(w *Window, moment string) string {
 	width := w.win.Width()
 	s := fmt.Sprintf("%s width=%d content=%d page=%s", moment, width, minWidth(w.toasts), w.stack.VisibleChildName())
 	wide := tooWide(w.toasts, width)
-	for _, d := range w.dialogs {
-		wide = append(wide, tooWide(d, width)...)
-	}
+	dialogs := slices.Collect(maps.Values(w.dialogs))
 	if w.quitDialog != nil {
-		wide = append(wide, tooWide(w.quitDialog, width)...)
+		dialogs = append(dialogs, w.quitDialog)
+	}
+	for _, d := range dialogs {
+		// The dialog's own minimum, for the log: its sheet asks for this
+		// much of the window (libadwaita's "AdwFloatingSheet … exceeds").
+		s += fmt.Sprintf(" dialog=%d", widestUnder(d))
+		wide = append(wide, tooWide(d, width)...)
 	}
 	for _, x := range wide {
 		s += "\n  too wide: " + x
@@ -148,7 +168,22 @@ func realNarrow(c *covEnv) {
 					c.fail("prompt %d has no dialog", id)
 					return
 				}
-				measure(fmt.Sprintf("%s-prompt-%d", phase, id))
+				moment := phase
+				if cf := ch.Opened.Confirm; cf != nil && cf.Kind == engine.ConfirmOrphans {
+					// The VM's dialog: its counts in the title, the dry
+					// run's banner, both lists.
+					moment += "-orphans"
+					c.ok(cf.Title == vmOrphansTitle, "the orphans dialog's title is %q, want %q", cf.Title, vmOrphansTitle)
+					c.ok(w.drvDry, "the orphans dialog isn't a dry run's")
+					// The cascade's lines carry versions; the orphans
+					// among them aren't listed twice.
+					// One-line labels: the headings, not the lists.
+					labels := slices.DeleteFunc(labelsUnder(&d.Widget), func(l string) bool { return strings.Contains(l, "\n") })
+					for _, want := range []string{dryBannerText, "Orphaned (15)", "Removed with them (24)"} {
+						c.ok(slices.Contains(labels, want), "the orphans dialog shows no %q: %q", want, labels)
+					}
+				}
+				measure(fmt.Sprintf("%s-prompt-%d", moment, id))
 				resp := "yes"
 				if phase == "real" {
 					resp = "no" // the gate, declined
@@ -261,7 +296,7 @@ func TestGUIMinWidth(t *testing.T) {
 					t.Errorf("%s: the content asks for %d px in a %d px window:\n%s", name, content, width, m)
 				}
 			}
-			for _, want := range []string{"overview", "real", "cancelled-toast", "dry", "dry-end", "toast-0", "toast-3", "logs", "settings"} {
+			for _, want := range []string{"overview", "real", "cancelled-toast", "dry", "dry-orphans", "dry-end", "toast-0", "toast-3", "logs", "settings"} {
 				if !moments[want] {
 					t.Errorf("never measured %s (%q)", want, rep.Narrow)
 				}
@@ -282,6 +317,56 @@ var longToasts = []string{
 	strings.Repeat("A notice that runs on and on. ", 4)[:runview.ShortMax-1] + "…",
 	"Couldn't open it: open /home/someone/.local/state/archmaid/runs/2026-10-12_09-30-00_full-cleanup: no such file",
 }
+
+// vmOrphans and vmCascade are the test VM's real orphan plan (Dev 5's
+// b5r round, its dryrun/orphans.log): 15 orphans, 39 packages once the
+// dependencies cascade. real-narrow's Driver plans them, so its dry run
+// opens the orphans dialog the VM showed 392 px wide in a 360 px window.
+var (
+	vmOrphans = strings.Fields("asar clojure gobject-introspection meson nvm patchelf pnpm python-build python-clickgen python-dbusmock python-hatchling python-installer vala walbottle-git xorg-server-xvfb")
+	vmCascade = strings.Split(`ada 4.0.0-1.1
+asar 4.3.1-1
+clojure 1.12.5.1664-1
+docbook-xml 4.5-11
+docbook-xsl 1.79.2-9
+glib2-docs 2.90.1-1.1
+gobject-introspection 1.86.0-2.1
+gtk-doc 1.37.0-1
+java-environment-common 3-6
+java-runtime-common 3-6
+jdk-openjdk 27.u35-2
+libnet 2:1.3-2.1
+meson 1.12.1-2
+node-gyp 13.1.0-1
+nodejs 26.11.1-2
+nodejs-nopt 10.0.1-1
+nvm 0.40.7-1
+patchelf 0.19.2-1.1
+pnpm 12.12.1-1
+python-build 1.6.0-1
+python-clickgen 2.2.5-1
+python-dbusmock 0.38.1-1
+python-editables 0.6-1
+python-hatchling 1.32.3-1
+python-installer 1.0.1-1
+python-markdown 3.11.0-1
+python-pathspec 1.1.1-1
+python-pluggy 1.6.0-3
+python-pygments 2.21.0-1
+python-pyproject-hooks 1.3.3-1
+python-toml 0.10.2-13
+python-tomlkit 0.15.1-1
+python-tqdm 4.70.1-1
+python-trove-classifiers 2026.9.21.13-1
+semver 7.8.5-1
+simdjson 1:5.0.3-1.1
+vala 0.56.19-2.1
+walbottle-git 0.2.0.r71.ge643df3-3
+xorg-server-xvfb 21.1.25-1.1`, "\n")
+)
+
+// vmOrphansTitle is the VM's orphans dialog title, from its plan's counts.
+const vmOrphansTitle = "Remove 15 orphaned package(s) — 39 total once dependencies cascade?"
 
 // toastControl is the text of the warning real-narrow provokes on purpose.
 const toastControl = "toast-control-never-closed"

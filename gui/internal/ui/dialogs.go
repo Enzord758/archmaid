@@ -99,9 +99,11 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 	if len(p.Direct) > 0 || len(p.Cascade) > 0 {
 		// Orphans: what was found, then what goes with it.
 		box.Append(itemList("Orphaned", p.Direct, p.Destructive))
+		// The cascade is pacman's "name version" lines, the orphans
+		// included: what goes with them is the rest, by name.
 		var extra []string
 		for _, c := range p.Cascade {
-			if !slices.Contains(p.Direct, c) {
+			if name, _, _ := strings.Cut(c, " "); !slices.Contains(p.Direct, name) {
 				extra = append(extra, c)
 			}
 		}
