@@ -482,8 +482,14 @@ comments and `git log`; this is the "read before you touch it" list.
   content is cut off on the right (the header title, chips, Stop, the
   toast) and logged as "AdwToastOverlay … exceeds AdwApplicationWindow
   width". A label that can be long wraps or ellipsizes (with the whole
-  text as its tooltip); a title with tags is a `tagLine` (an `AdwWrapBox`:
-  the tags at the line's end, or under the title when narrow). A wrapping
+  text as its tooltip); a title with tags is a `tagLine` (a box that
+  `setNarrow` turns: above the narrow breakpoint the tags at the line's
+  end, under it on their own line under the title, starting where the
+  title does, on every row alike; an `AdwWrapBox` moved them only where
+  the title didn't fit, so a narrow plan zig-zagged, the owner's r532
+  screenshot). Rows the list makes later (the Run page's step headers)
+  take `w.narrow` when built; anything new that changes with the width
+  and isn't a breakpoint setter goes through `setNarrow`. A wrapping
   label needs `wrapNatural`: by default its natural width is its longest
   word, so a box that gives it its natural width wraps it at every word.
   A label with the kicker's letter-spacing wraps its last word even at its
@@ -493,13 +499,16 @@ comments and `git log`; this is the "read before you touch it" list.
   length is the label's minimum width (a 90-letter word made the Run page
   849 px wide, a dialog's item list 1831 px; the VM's real orphan cascade,
   one "name version" per line, made the orphans dialog 392 px). A tag
-  beside a title that wraps is valigned (the last-run chip: centre), or it
-  stretches to the title's 2-3 lines. `TestGUIMinWidth` measures
+  beside a title or a state line that wraps is valigned (the last-run
+  chip: centre; a `tagLine`'s tags: the first line's baseline), or it
+  stretches to their 2-3 lines (Dev 5's VM screenshot of a refused root
+  row). A flow box keeps a line for a child whose content is hidden: hide
+  its `FlowBoxChild` too (`setShown`). `TestGUIMinWidth` measures
   the real content at 360/480/960 px (the orphans dialog with the VM's
   real plan) and `TestGUIMinWidthStates` the
   long-text states (failed and refused rows, dialogs, discovery, Settings,
   Logs) at 360/480 px; both name the widest widget when something is too
-  wide.
+  wide, and both check where the tags sit (`checkTags`).
 - **The GUI password's last copy (accepted risk).** `engine.Secret` is a Go
   string (E0 is frozen), so the password typed into the GUI ends in one
   immutable string that can't be zeroed and stays in the heap until the GC

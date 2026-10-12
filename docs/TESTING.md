@@ -272,12 +272,22 @@ text, while three wrong passwords and a cancel at the desktop's dialog stay
 
 `TestGUIMinWidth` (`minwidth_harness_test.go`, scenario `real-narrow`)
 runs the real Driver's content at 360, 480 and 960 px wide (720 high):
-the Overview with the real Full Cleanup plan, its gate declined (and that
+the Overview with the real Full Cleanup plan (also scrolled to its
+buttons and to its end, for the screenshots), its gate declined (and that
 toast), Dry run first through to its end (the Run page with the plan's
 rows and root tags, and the orphans dialog with the test VM's real plan:
 15 orphans, 39 packages with the cascade, their real names and versions,
 the dry run's banner; it must list the orphans once, "Removed with them
 (24)"), the longest toasts, then the Logs and Settings pages.
+On the Overview and the finished Run page it also checks where the tags
+sit (`checkTags`, `narrowtags_harness_test.go`): under 760 px every plan
+row's, step header's and action cell's tags on their own line under the
+title, starting at the title's x; above it at the line's end, the same
+distance from it on every row; no tag drawn taller than its own height;
+the hero's Run and Dry run first stacked at its full width when narrow
+(nothing under them but its padding), side by side when wide.
+`ARCHMAID_GUI_NARROW_WIDTHS=380,960` runs both min-width tests at other
+widths, for screenshots (`ARCHMAID_GUI_SHOTS`).
 At each moment the window's content (the toast overlay) must measure no
 wider than the window, no mapped widget (a dialog's, a breakpoint bin's
 content) may either, and the child's stderr must hold no GLib warning
@@ -294,11 +304,15 @@ plan, so the hero has no kicker or step list.
 `narrow-states`, 360 and 480 px, its own part of `headless.sh`) measures the
 states that carry long text, fed to the window as events: a failed run with a
 long error, a 90-letter word and a long path in step titles, rows and
-output, a refused row ("no polkit agent is running..."), a waiting and a
-locked-out row, a long busy line and notice, a discovery result (nothing
+output, a refused row ("no polkit agent is running..."; alone too, as the
+VM showed it, its root tag beside a 3-line state line), a waiting and a
+locked-out row (the run states' tags checked as in `TestGUIMinWidth`), a
+long busy line and notice, a discovery result (nothing
 found, failed) with long unit names, every dialog (the gate with its plan,
 the step, orphans, downloads and audit-gate confirms, the downloads confirm
-as a real scan's plan builds it with a Downloads folder's names, the three
+as a real scan's plan builds it with a Downloads folder's names, each
+shown once, as its body, the TUI's text, drops the names its list shows
+(`runview.BodyWithoutItems`), the three
 password dialogs, the services pick, the audit report, the quit question;
 the gate and the real downloads confirm with the dry run's banner, the
 passwords with the kept-password note, each checked shown), Settings
