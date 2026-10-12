@@ -71,6 +71,10 @@ func narrowStates(c *covEnv) {
 	c.quiet()
 	var steps_ []func()
 	add := func(f ...func()) { steps_ = append(steps_, f...) }
+	// tagsAt checks the drawn rows' tags (checkTags).
+	tagsAt := func(m string) func() {
+		return func() { c.ok(checkTags(c, m) > 0, "%s: no step header with tags drawn", m) }
+	}
 	measure := func(m string) func() {
 		return func() {
 			c.rep.Narrow = append(c.rep.Narrow, narrowMeasure(w, m))
@@ -82,6 +86,8 @@ func narrowStates(c *covEnv) {
 	// banner, the kept-password note): set when the prompt is fed, as the
 	// steps run, not when they are listed.
 	var dry, kept bool
+	// dialogChecks are a dialog's own checks, by its moment's name.
+	dialogChecks := map[string]func(labels []string){}
 	ask := func(name string, id engine.PromptID, ev engine.Event, resp string) {
 		dry, kept := dry, kept
 		var wasDry, wasKept bool
@@ -100,6 +106,9 @@ func narrowStates(c *covEnv) {
 			labels := labelsUnder(&d.Widget)
 			c.ok(slices.Contains(labels, dryBannerText) == dry, "%s: the dry run's banner shown %v, want %v", name, !dry, dry)
 			c.ok(slices.Contains(labels, KeptNote) == kept, "%s: the kept-password note shown %v, want %v", name, !kept, kept)
+			if f := dialogChecks[name]; f != nil {
+				f(labels)
+			}
 			c.press(d, resp)
 		})
 	}
@@ -128,10 +137,13 @@ func narrowStates(c *covEnv) {
 	add(func() {
 		start := time.Now()
 		for _, text := range []string{"", " ", "   ", "\n", "\n\n", longWord, strings.Repeat("a", 1000), longPkg + " " + longPath, longText, "ä" + strings.Repeat("🙂", 300)} {
-			l := gtk.NewLabel(text)
+			l, l2 := gtk.NewLabel(text), gtk.NewLabel(text)
 			wrapNatural(l)
-			line, _ := tagLine(l, 8, gtk.NewLabel("root"))
-			for _, wd := range []gtk.Widgetter{l, line} {
+			wrapNatural(l2)
+			beside := newTagLine(l, 8, gtk.NewLabel("root"))
+			under := newTagLine(l2, 8, gtk.NewLabel("root"))
+			under.setUnder(true)
+			for _, wd := range []gtk.Widgetter{l, beside.box, under.box} {
 				b := gtk.BaseWidget(wd)
 				minW, natW, _, _ := b.Measure(gtk.OrientationHorizontal, -1)
 				c.ok(minW >= 0 && minW <= natW && natW < 1<<20, "wrapNatural(%.20q): width min %d nat %d", text, minW, natW)
@@ -156,7 +168,7 @@ func narrowStates(c *covEnv) {
 			engine.StepStarted{ID: "s1", At: now},
 			engine.OutputChunk{ID: "s1", Lines: []string{longText, longWord + longWord, longPath, "\x1b[31m" + longPkg + "\x1b[0m"}},
 		)
-	}, measure("run-going"), func() {
+	}, measure("run-going"), tagsAt("run-going"), func() {
 		c.feed(
 			engine.StepDone{ID: "s1", Index: 0, Status: steps.Failed, Elapsed: 3 * time.Second, Err: longText + " " + longPath},
 			engine.StepStarted{ID: "s2", Index: 1, At: now},
@@ -167,7 +179,7 @@ func narrowStates(c *covEnv) {
 			engine.Finished{Action: actions.IDFullCleanup, Outcome: engine.OutcomeCompleted, Elapsed: 5 * time.Second, Errs: 2, Refused: 2, NotRun: 1},
 			engine.PhaseChanged{Phase: engine.PhaseIdle},
 		)
-	}, measure("run-failed"))
+	}, measure("run-failed"), tagsAt("run-failed"))
 
 	// Waiting for authorisation with one more failure to lock, then the
 	// locked-out account's refused row.
@@ -188,7 +200,22 @@ func narrowStates(c *covEnv) {
 			engine.Finished{Action: actions.IDFullCleanup, Outcome: engine.OutcomeCompleted, Refused: 2, NotRun: 2},
 			engine.PhaseChanged{Phase: engine.PhaseIdle},
 		)
-	}, measure("run-locked"))
+	}, measure("run-locked"), tagsAt("run-locked"))
+
+	// Dev 5's VM row: one root step refused with a state line over three
+	// lines (its tag stretched to their height).
+	add(func() {
+		c.feed(
+			engine.PhaseChanged{Phase: engine.PhaseRunning},
+			engine.QueueStarted{Action: actions.IDFullCleanup, Started: now, Steps: []engine.PlanStep{
+				{ID: "o1", Title: "Finding orphaned packages…"}, {ID: "o2", Title: "Removing orphaned packages…", NeedsPriv: true}}},
+			engine.StepStarted{ID: "o1", At: now},
+			engine.StepDone{ID: "o1", Status: steps.OK},
+			engine.StepDone{ID: "o2", Index: 1, Status: steps.AuthRefused, Err: "no polkit agent is running, so the password can't be asked"},
+			engine.Finished{Action: actions.IDFullCleanup, Outcome: engine.OutcomeCompleted, Refused: 1},
+			engine.PhaseChanged{Phase: engine.PhaseIdle},
+		)
+	}, measure("run-refused"), tagsAt("run-refused"))
 
 	// reset puts a short, clean run on the Run page, so the next state is
 	// measured without the last one's rows.
@@ -250,6 +277,10 @@ func narrowStates(c *covEnv) {
 	var dlItems []string
 	for _, n := range dl.Names {
 		dlItems = append(dlItems, sanitize.QuoteName(n, 200))
+	}
+	dialogChecks["confirm-downloads-real"] = func(labels []string) {
+		noNamesTwice(c, "confirm-downloads-real", labels, dlItems)
+		c.ok(slices.Contains(labels, dlTitle), "confirm-downloads-real: the heading %q isn't shown: %q", dlTitle, labels)
 	}
 	ask("confirm-downloads-real", 111, engine.NeedsConfirm{ID: 111, Kind: engine.ConfirmDownloads, Step: "downloads", Title: dlTitle,
 		Body: strings.TrimLeft(dlBody, "\n"), Msg: dl.Confirm(), Items: dlItems, Destructive: true, YesLabel: "Delete"}, "no")
@@ -364,7 +395,7 @@ func narrowStateLogs(t *testing.T) string {
 // 480 px: nothing asks for more width than the window has.
 func TestGUIMinWidthStates(t *testing.T) {
 	needDisplay(t)
-	for _, wd := range []int{360, 480} {
+	for _, wd := range narrowWidths(t, 360, 480) {
 		t.Run(strconv.Itoa(wd), func(t *testing.T) {
 			_, env := installShims(t, shimOpts{})
 			state := narrowStateLogs(t)
@@ -402,7 +433,7 @@ func TestGUIMinWidthStates(t *testing.T) {
 					t.Log(m)
 				}
 			}
-			for _, want := range []string{"run-going", "run-failed", "run-waiting", "run-locked", "busy", "notice", "discovery-nothing", "discovery-failed",
+			for _, want := range []string{"run-going", "run-failed", "run-waiting", "run-locked", "run-refused", "busy", "notice", "discovery-nothing", "discovery-failed",
 				"confirm-gate", "confirm-step", "confirm-orphans", "confirm-downloads", "confirm-downloads-real", "confirm-audit-gate", "password-upfront", "password-askpass",
 				"password-polkit", "selection", "audit-report", "quit-question", "settings-long", "settings-one-word", "overview-last-run", "overview-last-run-chip", "logs", "logs-unreadable"} {
 				if !seen[want] {

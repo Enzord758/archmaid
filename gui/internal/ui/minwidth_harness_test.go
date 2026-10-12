@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -32,6 +33,27 @@ import (
 
 // envNarrowW is real-narrow's window width (the parent sets it).
 const envNarrowW = "ARCHMAID_GUI_NARROW_W"
+
+// envWidths overrides the widths TestGUIMinWidth and TestGUIMinWidthStates
+// run at ("380,960"): for screenshots at another width (ARCHMAID_GUI_SHOTS).
+const envWidths = "ARCHMAID_GUI_NARROW_WIDTHS"
+
+// narrowWidths is envWidths' list, or def without it.
+func narrowWidths(t *testing.T, def ...int) []int {
+	v := os.Getenv(envWidths)
+	if v == "" {
+		return def
+	}
+	var out []int
+	for _, f := range strings.Split(v, ",") {
+		n, err := strconv.Atoi(strings.TrimSpace(f))
+		if err != nil || n < 360 {
+			t.Fatalf("%s=%q: %q isn't a width of at least 360", envWidths, v, f)
+		}
+		out = append(out, n)
+	}
+	return out
+}
 
 // narrowH is real-narrow's window height: the VM's, a tall narrow window.
 const narrowH = 720
@@ -216,38 +238,69 @@ func realNarrow(c *covEnv) {
 	settled := func() bool { return finished && !w.busy }
 	measure("overview")
 	c.ok(w.heroSteps.Visible(), "the hero shows no plan: not the real Driver's Env")
-	phase, finished = "real", false
-	w.menu[actions.IDFullCleanup].start()
-	until("the declined gate", settled, func() {
-		coreglib.TimeoutAdd(250, func() {
-			measure("cancelled-toast")
-			phase, finished = "dry", false
-			w.dryFirst.Emit("clicked")
-			until("the dry run", settled, func() {
-				coreglib.TimeoutAdd(250, func() {
-					measure("dry-end")
-					c.rep.Toasts = append([]string(nil), w.toasted...)
-					var show func(i int)
-					show = func(i int) {
-						if i == len(longToasts) {
-							// The other two pages, as the sidebar shows them.
-							c.seq(150, func() { w.pickPage("logs") }, func() { measure("logs") },
-								func() { w.pickPage("settings") }, func() { measure("settings") })
-							return
+	c.ok(checkTags(c, "overview") >= 10, "overview: fewer tag lines found than the plan's 7 and the cells' 3")
+	// The rest of the Overview scrolled into view for the screenshots: the
+	// hero's buttons and the last run, then the cells at its end.
+	scroll, _ := w.stack.ChildByName("overview").(*gtk.ScrolledWindow)
+	scrollTo := func(end bool) {
+		if scroll == nil {
+			return
+		}
+		adj := scroll.VAdjustment()
+		v := adj.Upper()
+		if b, ok := boundsIn(w.heroButtons, scroll.Child()); ok && !end {
+			v = b.y - 160
+		}
+		adj.SetValue(v)
+	}
+	// Each shot 150 ms after its scroll, so its frames are drawn.
+	scrollTo(false)
+	scrolled := time.Now()
+	var midDone bool
+	until("the Overview's middle", func() bool { return time.Since(scrolled) > 150*time.Millisecond }, func() {
+		measure("overview-mid")
+		scrollTo(true)
+		scrolled, midDone = time.Now(), true
+	})
+	until("the Overview's end", func() bool { return midDone && time.Since(scrolled) > 150*time.Millisecond }, func() {
+		measure("overview-end")
+		if scroll != nil {
+			scroll.VAdjustment().SetValue(0)
+		}
+		phase, finished = "real", false
+		w.menu[actions.IDFullCleanup].start()
+		until("the declined gate", settled, func() {
+			coreglib.TimeoutAdd(250, func() {
+				measure("cancelled-toast")
+				phase, finished = "dry", false
+				w.dryFirst.Emit("clicked")
+				until("the dry run", settled, func() {
+					coreglib.TimeoutAdd(250, func() {
+						measure("dry-end")
+						c.ok(checkTags(c, "dry-end") >= 3, "dry-end: fewer than 3 step headers with tags drawn")
+						c.rep.Toasts = append([]string(nil), w.toasted...)
+						var show func(i int)
+						show = func(i int) {
+							if i == len(longToasts) {
+								// The other two pages, as the sidebar shows them.
+								c.seq(150, func() { w.pickPage("logs") }, func() { measure("logs") },
+									func() { w.pickPage("settings") }, func() { measure("settings") })
+								return
+							}
+							// High: shown at once, not queued behind the run's
+							// own toasts (each up for seconds).
+							t := plainToast(longToasts[i])
+							t.SetPriority(adw.ToastPriorityHigh)
+							w.toasts.AddToast(t)
+							coreglib.TimeoutAdd(200, func() {
+								c.ok(slices.Contains(labelsUnder(&w.toasts.Widget), longToasts[i]), "toast %q isn't shown", longToasts[i])
+								measure(fmt.Sprintf("toast-%d", i))
+								t.Dismiss()
+								coreglib.TimeoutAdd(150, func() { show(i + 1) })
+							})
 						}
-						// High: shown at once, not queued behind the run's
-						// own toasts (each up for seconds).
-						t := plainToast(longToasts[i])
-						t.SetPriority(adw.ToastPriorityHigh)
-						w.toasts.AddToast(t)
-						coreglib.TimeoutAdd(200, func() {
-							c.ok(slices.Contains(labelsUnder(&w.toasts.Widget), longToasts[i]), "toast %q isn't shown", longToasts[i])
-							measure(fmt.Sprintf("toast-%d", i))
-							t.Dismiss()
-							coreglib.TimeoutAdd(150, func() { show(i + 1) })
-						})
-					}
-					show(0)
+						show(0)
+					})
 				})
 			})
 		})
@@ -260,7 +313,7 @@ func realNarrow(c *covEnv) {
 // the window has, and GTK logs no warning.
 func TestGUIMinWidth(t *testing.T) {
 	needDisplay(t)
-	for _, wd := range []int{360, 480, 960} {
+	for _, wd := range narrowWidths(t, 360, 480, 960) {
 		t.Run(strconv.Itoa(wd), func(t *testing.T) {
 			_, env := installShims(t, shimOpts{})
 			var buf bytes.Buffer
@@ -296,7 +349,7 @@ func TestGUIMinWidth(t *testing.T) {
 					t.Errorf("%s: the content asks for %d px in a %d px window:\n%s", name, content, width, m)
 				}
 			}
-			for _, want := range []string{"overview", "real", "cancelled-toast", "dry", "dry-orphans", "dry-end", "toast-0", "toast-3", "logs", "settings"} {
+			for _, want := range []string{"overview", "overview-mid", "overview-end", "real", "cancelled-toast", "dry", "dry-orphans", "dry-end", "toast-0", "toast-3", "logs", "settings"} {
 				if !moments[want] {
 					t.Errorf("never measured %s (%q)", want, rep.Narrow)
 				}

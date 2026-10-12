@@ -104,17 +104,27 @@ type Window struct {
 	// The Overview page: the hero (its steps, Dry run first), the last
 	// run's cell, the cells, the actions by ID. current is the action last
 	// started.
-	heroSteps  *gtk.FlowBox
-	dryFirst   *gtk.Button
-	cells      *gtk.FlowBox
-	lastIcon   *gtk.Image
-	lastTitle  *gtk.Label
-	lastTag    *gtk.Label
-	lastIssues *gtk.Label
-	lastRun    overview.LastRun
-	menu       map[string]*menuRow
-	current    string
-	logs       *logsPage
+	heroSteps *gtk.FlowBox
+	dryFirst  *gtk.Button
+	// narrow: the window is under the narrow breakpoint (setNarrow). The
+	// Overview's widgets that follow it: the hero's kicker and its text
+	// for each width, the plan's tag lines, the buttons' row, and each
+	// action cell's root tag on its icon line and under its title.
+	narrow      bool
+	heroKicker  *gtk.Label
+	kickerText  [2]string // wide, narrow
+	heroLines   []*tagLine
+	heroButtons *gtk.FlowBox
+	cellRoots   [][2]*gtk.Label
+	cells       *gtk.FlowBox
+	lastIcon    *gtk.Image
+	lastTitle   *gtk.Label
+	lastTag     *gtk.Label
+	lastIssues  *gtk.Label
+	lastRun     overview.LastRun
+	menu        map[string]*menuRow
+	current     string
+	logs        *logsPage
 	// shownOverview is what the Overview's widgets show (nil: not drawn).
 	shownOverview *overviewState
 	// The Clear user cache cell's size line (usercache.go): what was

@@ -73,6 +73,11 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *adw.AlertDialog {
 	if heading == "" {
 		heading = p.Msg
 	}
+	if len(p.Items) > 0 && len(p.Direct) == 0 && len(p.Cascade) == 0 {
+		// The items are listed below: the body (the TUI's text, the
+		// first names and "…and N more") says the rest only.
+		body = runview.BodyWithoutItems(body, p.Items)
+	}
 	d := scoped(adw.NewAlertDialog(heading, ""))
 	yes, no := w.model.ConfirmLabels(p)
 	d.AddResponse("no", no)

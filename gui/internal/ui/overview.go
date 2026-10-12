@@ -81,10 +81,13 @@ func (w *Window) newHero() gtk.Widgetter {
 	hero.AddCSSClass("am-blueprint")
 
 	preview, ok := w.planPreview(actions.IDFullCleanup)
-	kicker := gtk.NewLabel(heroKicker(preview, ok))
+	w.kickerText = [2]string{heroKicker(preview, ok, false), heroKicker(preview, ok, true)}
+	kicker := gtk.NewLabel(w.kickerText[0])
+	w.heroKicker = kicker
 	kicker.SetXAlign(0)
 	// It wraps: on one line it alone made the Overview 529 px wide at least
-	// (Dev 5's VM round b5, in a 360 px window).
+	// (Dev 5's VM round b5, in a 360 px window). When narrow its text
+	// breaks where it reads well (heroKicker), not wherever the line ends.
 	wrapNatural(kicker)
 	kicker.AddCSSClass("am-kicker")
 	title := gtk.NewLabel("Full Cleanup")
@@ -106,20 +109,17 @@ func (w *Window) newHero() gtk.Widgetter {
 	w.heroSteps.SetFocusable(false)
 	if ok {
 		for i, s := range preview.Steps {
-			// The number and the title, on their first line's baseline:
-			// the title wraps rather than being cut, and the tags move
-			// under the two when the line is too narrow (tagLine).
+			// The number, then the title and its tags (tagLine), on the
+			// title's first baseline: the title wraps rather than being
+			// cut, and when narrow the tags go under it.
 			head := gtk.NewBox(gtk.OrientationHorizontal, 8)
 			head.SetVAlign(gtk.AlignCenter)
 			n := gtk.NewLabel(fmt.Sprintf("%02d", i+1))
 			n.AddCSSClass("am-step-num")
-			n.SetVAlign(gtk.AlignBaselineFill)
+			n.SetVAlign(gtk.AlignBaselineCenter)
 			t := gtk.NewLabel(s.Title)
 			t.SetXAlign(0)
-			t.SetVAlign(gtk.AlignBaselineFill)
 			wrapNatural(t)
-			head.Append(n)
-			head.Append(t)
 			var tags []gtk.Widgetter
 			if s.Asks {
 				tags = append(tags, tag("asks", "am-tag-asks"))
@@ -127,9 +127,14 @@ func (w *Window) newHero() gtk.Widgetter {
 			if s.Root {
 				tags = append(tags, tag("root", "am-tag-root"))
 			}
-			line, tagBox := tagLine(head, 8, tags...)
-			tagBox.SetVisible(len(tags) > 0)
-			w.heroSteps.Append(line)
+			line := newTagLine(t, 8, tags...)
+			line.tags.SetVisible(len(tags) > 0)
+			line.box.SetVAlign(gtk.AlignBaselineCenter)
+			line.setUnder(w.narrow)
+			w.heroLines = append(w.heroLines, line)
+			head.Append(n)
+			head.Append(line.box)
+			w.heroSteps.Append(head)
 		}
 	}
 	w.heroSteps.SetVisible(ok)
@@ -151,30 +156,103 @@ func (w *Window) newHero() gtk.Widgetter {
 	// the page's minimum width is its widest button, not the whole row
 	// (a Box made the Overview 371 px wide at least, and the toast overlay
 	// logged "exceeds AdwApplicationWindow width" in a 360 px window).
+	// When narrow the two are stacked at the hero's full width
+	// (setNarrow): left-aligned at their own widths, one over the other,
+	// they looked left over (the owner's r532 screenshot).
 	buttons := gtk.NewFlowBox()
+	w.heroButtons = buttons
 	buttons.SetSelectionMode(gtk.SelectionNone)
 	buttons.SetFocusable(false)
-	buttons.SetMaxChildrenPerLine(4)
 	buttons.SetColumnSpacing(8)
 	buttons.SetRowSpacing(8)
-	buttons.SetHAlign(gtk.AlignStart)
+	w.stackButtons(w.narrow)
 	for _, c := range []gtk.Widgetter{run, dry, spin, sub} {
 		buttons.Append(c)
 	}
 	for c := buttons.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
 		gtk.BaseWidget(c).SetFocusable(false)
 	}
+	setShown(spin, false)
+	setShown(sub, false)
 	hero.Append(buttons)
 	w.menu[actions.IDFullCleanup] = &menuRow{entry: card.Entry, cell: run, sub: sub, spin: spin}
 	return hero
 }
 
-// heroKicker is the hero's kicker (spec 1.11).
-func heroKicker(p overview.Preview, ok bool) string {
+// heroKicker is the hero's kicker (spec 1.11). Narrow, it doesn't fit one
+// line, so it breaks at its second separator instead of before its last
+// word or two.
+func heroKicker(p overview.Preview, ok, narrow bool) string {
 	if !ok {
 		return "Recommended"
 	}
-	return "Recommended · " + plural.N(len(p.Steps), "step", "steps") + " · root steps in one authorisation"
+	sep := " · "
+	if narrow {
+		sep = "\n"
+	}
+	return "Recommended · " + plural.N(len(p.Steps), "step", "steps") + sep + "root steps in one authorisation"
+}
+
+// setNarrow lays the window's rows out for a window under the narrow
+// breakpoint (narrow) or above it: the tags of the hero's plan, of the Run
+// page's step headers and of the action cells under their titles or at
+// the line's end, the hero's buttons stacked at full width or side by
+// side, and the kickers' text.
+func (w *Window) setNarrow(narrow bool) {
+	w.narrow = narrow
+	if narrow {
+		w.win.AddCSSClass("am-narrow")
+	} else {
+		w.win.RemoveCSSClass("am-narrow")
+	}
+	if w.heroKicker != nil {
+		i := 0
+		if narrow {
+			i = 1
+		}
+		w.heroKicker.SetText(w.kickerText[i])
+	}
+	for _, l := range w.heroLines {
+		l.setUnder(narrow)
+	}
+	w.stackButtons(narrow)
+	for _, r := range w.cellRoots {
+		r[0].SetVisible(!narrow)
+		r[1].SetVisible(narrow)
+	}
+	if w.tl != nil {
+		for _, h := range w.tl.headers {
+			h.line.setUnder(narrow)
+		}
+	}
+}
+
+// setShown shows or hides wd, and the flow box child holding it if it is
+// in one (the hero's spinner and running line): a flow box keeps a line,
+// and its spacing, for a child whose content is hidden, which left a gap
+// under the stacked buttons.
+func setShown(wd gtk.Widgetter, on bool) {
+	b := gtk.BaseWidget(wd)
+	b.SetVisible(on)
+	if fc, ok := b.Parent().(*gtk.FlowBoxChild); ok {
+		fc.SetVisible(on)
+	}
+}
+
+// stackButtons stacks the hero's buttons at its full width (narrow), or
+// puts them side by side at their own widths.
+func (w *Window) stackButtons(narrow bool) {
+	b := w.heroButtons
+	if b == nil {
+		return
+	}
+	if narrow {
+		b.SetMaxChildrenPerLine(1)
+		b.SetHAlign(gtk.AlignFill)
+		return
+	}
+	b.SetMaxChildrenPerLine(4)
+	b.SetHAlign(gtk.AlignStart)
 }
 
 // cardByID is action id's Overview card (its menu entry when it has none).
@@ -218,13 +296,23 @@ func (w *Window) newCell(c overview.Card) gtk.Widgetter {
 	spin := adw.NewSpinner()
 	spin.SetVisible(false)
 	head.Append(spin)
-	if c.Root {
-		head.Append(tag("root", "am-tag-root"))
-	}
 	title := gtk.NewLabel(c.Label)
 	title.SetXAlign(0)
 	title.SetWrap(true)
 	title.AddCSSClass("am-cell-title")
+	// The root tag: at the icon line's end, or under the title when
+	// narrow, as the hero's plan has it (setNarrow).
+	var rootUnder *gtk.Label
+	if c.Root {
+		wide := tag("root", "am-tag-root")
+		wide.SetVAlign(gtk.AlignCenter)
+		head.Append(wide)
+		rootUnder = tag("root", "am-tag-root")
+		rootUnder.SetHAlign(gtk.AlignStart)
+		wide.SetVisible(!w.narrow)
+		rootUnder.SetVisible(w.narrow)
+		w.cellRoots = append(w.cellRoots, [2]*gtk.Label{wide, rootUnder})
+	}
 	desc := gtk.NewLabel(c.Desc)
 	desc.SetXAlign(0)
 	desc.SetWrap(true)
@@ -240,6 +328,9 @@ func (w *Window) newCell(c overview.Card) gtk.Widgetter {
 	inner := gtk.NewBox(gtk.OrientationVertical, 6)
 	inner.Append(head)
 	inner.Append(title)
+	if rootUnder != nil {
+		inner.Append(rootUnder)
+	}
 	inner.Append(desc)
 	inner.Append(sub)
 	b := gtk.NewButton()
@@ -445,7 +536,7 @@ func (w *Window) updateOverview() {
 	w.shownOverview = &st
 	for id, r := range w.menu {
 		running := w.busy && id == w.current
-		r.spin.SetVisible(running)
+		setShown(r.spin, running)
 		sub := ""
 		if running && w.model.Phase == engine.PhaseDiscovering {
 			sub = w.model.Busy
@@ -458,7 +549,7 @@ func (w *Window) updateOverview() {
 			sub = w.cache.line
 		}
 		r.sub.SetText(sub)
-		r.sub.SetVisible(sub != "")
+		setShown(r.sub, sub != "")
 		// One action at a time.
 		r.cell.SetSensitive(!w.busy)
 	}

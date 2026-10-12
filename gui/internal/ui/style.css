@@ -65,6 +65,9 @@
   letter-spacing: 2px;
   color: @am_muted;
 }
+/* Under the narrow breakpoint (the window's am-narrow, setNarrow) the
+   kickers wrap: tighter, they keep their phrases on one line. */
+.archmaid.am-narrow .am-kicker { letter-spacing: 1px; }
 .archmaid .am-meter-name { color: @am_muted; }
 .archmaid .am-meter-value { font-family: "JetBrains Mono", monospace; }
 .archmaid levelbar.am-meter-bar trough { min-height: 2px; padding: 0; border-radius: 0; }

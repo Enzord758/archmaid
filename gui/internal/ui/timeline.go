@@ -61,7 +61,7 @@ type stepHeader struct {
 	title *gtk.Label
 	root  *gtk.Label
 	sub   *gtk.Label
-	tags  *gtk.Box       // root and sub
+	line  *tagLine       // the title, then root and sub
 	acts  *failedActions // a failed step's actions (failed.go)
 	sec   *section
 }
@@ -276,20 +276,30 @@ func (w *Window) newStepHeader() (*stepHeader, *gtk.Box) {
 	h.title.AddCSSClass("am-step-title")
 	h.root = tag("root", "am-tag-root")
 	h.sub = gtk.NewLabel("")
-	h.sub.SetXAlign(1)
-	h.sub.SetWrap(true)
-	h.sub.SetWrapMode(pango.WrapWordChar) // an error that is one long word wraps inside it
+	h.sub.SetXAlign(0)
+	// It wraps (an error that is one long word inside it), and asks for
+	// its one line's width: beside the title it then takes that, and the
+	// title wraps first.
+	wrapNatural(h.sub)
+	// Beside the title, a long one (an error) is a column of at most this
+	// width at the line's end, and the title keeps the rest.
+	h.sub.SetMaxWidthChars(40)
 	h.sub.SetUseMarkup(false)
 	h.sub.AddCSSClass("am-step-sub")
 	// The title, then the root tag and the state line: at the end of the
-	// line, or under the title when the line is too narrow (tagLine).
-	var title *adw.WrapBox
-	title, h.tags = tagLine(h.title, 10, h.root, h.sub)
+	// line, or under the title when the window is narrow (tagLine).
+	h.line = newTagLine(h.title, 10, h.root, h.sub)
+	h.line.setUnder(w.narrow)
+	// The marker and the number sit on the title's first line.
+	h.icon.SetVAlign(gtk.AlignStart)
+	h.spin.SetVAlign(gtk.AlignStart)
+	h.num.SetVAlign(gtk.AlignBaselineCenter)
+	h.line.box.SetVAlign(gtk.AlignBaselineCenter)
 	row := gtk.NewBox(gtk.OrientationHorizontal, 10)
 	row.Append(h.icon)
 	row.Append(h.spin)
 	row.Append(h.num)
-	row.Append(title)
+	row.Append(h.line.box)
 	h.box = gtk.NewBox(gtk.OrientationVertical, 6)
 	h.box.AddCSSClass("am-step-header")
 	h.box.Append(row)
@@ -322,7 +332,10 @@ func (w *Window) drawHeader(h *stepHeader) {
 	h.title.SetText(r.Title)
 	h.root.SetVisible(r.NeedsPriv)
 	h.sub.SetText(r.Subtitle())
-	h.tags.SetVisible(r.NeedsPriv || h.sub.Text() != "")
+	// Empty, it would still take the spacing after the root tag, and the
+	// tag would end short of the line's end.
+	h.sub.SetVisible(h.sub.Text() != "")
+	h.line.tags.SetVisible(r.NeedsPriv || h.sub.Text() != "")
 	icon := r.State.Icon()
 	setStateClass(&h.icon.Widget, r)
 	setStateClass(&h.spin.Widget, r)

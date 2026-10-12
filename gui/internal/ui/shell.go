@@ -2,6 +2,7 @@ package ui
 
 import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
@@ -187,6 +188,15 @@ func (w *Window) buildShell() {
 	w.win.AddBreakpoint(narrow)
 	w.win.AddBreakpoint(short)
 	w.win.AddBreakpoint(both)
+	// What a setter can't do: the Run page's step headers come and go with
+	// the list, and the rows' tags move between beside and under.
+	w.win.NotifyProperty("current-breakpoint", func() {
+		cur := w.win.CurrentBreakpoint()
+		on := cur != nil && (sameObject(cur, narrow) || sameObject(cur, both))
+		if on != w.narrow {
+			w.setNarrow(on)
+		}
+	})
 
 	w.toasts = adw.NewToastOverlay()
 	w.toasts.SetChild(sh.split)
@@ -194,6 +204,11 @@ func (w *Window) buildShell() {
 
 	w.stack.NotifyProperty("visible-child-name", w.pageShown)
 	w.pageShown()
+}
+
+// sameObject: a and b wrap the same GObject.
+func sameObject(a, b coreglib.Objector) bool {
+	return coreglib.InternObject(a).Native() == coreglib.InternObject(b).Native()
 }
 
 // overlayOpen: the split view is collapsed and its sidebar shown over the
