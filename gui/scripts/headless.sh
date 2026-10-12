@@ -45,7 +45,7 @@ if [[ $# -eq 0 ]]; then
 	tones='^TestGUI(LastRunTones|AuditRerun)$'
 	states='^TestGUIMinWidthStates$'
 	wide='^TestGUI(WideDialogs|MinWidthToggle)$'
-	widelong='^TestGUIWideDialogsLong$'
+	widelong='^TestGUIWideDialogsLong'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'

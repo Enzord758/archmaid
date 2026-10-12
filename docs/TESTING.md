@@ -391,6 +391,20 @@ inside it: a capped list shrank there instead, task #101), the 20-step
 rail whole at 1460x930 and at least 6 of its steps shown in each low
 window, the orphans' lines unbroken at 1460x930, nothing too wide, no GTK warning
 (`wide-long-<w>x<h>-<dialog>.png` with `ARCHMAID_GUI_SHOTS`).
+`TestGUIWideDialogsLongResize` (`widelongresize_harness_test.go`, scenario
+`wide-resize`, the same part) leaves the orphans, downloads and report
+dialogs open while the window goes 1460x930, 1460x500, 1460x930 and so
+on, four times over: in each tall stage every list is capped again (max
+content height and automatic policy back, scrolling by itself, the middle
+not), in each low one every list is uncapped and only the middle scrolls.
+A fitHeight without the re-cap on a new window size fails it at stage 2.
+Plain Go: `TestStatusTextEndsBeforeQueue` and `TestStatusTextNoPolkitAgent`
+(`statusbefore_test.go`: a cancelled up-front password, a discovery with
+nothing to say, a notice, each dry or not, after a run: the status line
+says how that action ended, no "Finished" and no lines of the run before;
+`TestStatusTextWhileDiscovering` is skipped, a known bug: the previous
+run's "Finished: completed" shows until the queue starts) and
+`TestSudoStepIsOnlyTopgrade` (`overview/privtag_test.go`).
 `TestGUISmallWindow` accepts a heading in no
 scrolled window at all (`scrolled=-1`: the wide orphans dialog's heading
 is in its top bar).
