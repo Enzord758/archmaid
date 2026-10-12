@@ -171,6 +171,7 @@ func TestEnvValidatePolkit(t *testing.T) {
 // Under sudo (the TUI) the AUR cache step is as it was: yay -Sc, its sudo
 // on the primed ticket, and no pacman -Sc step of its own.
 func TestOnlyTopgradeAsksUnderPolkit(t *testing.T) {
+	t.Setenv("NO_COLOR", "") // the colour switches on (colour.go), whatever the shell says
 	a, _ := ByID(IDFullCleanup)
 	for _, polkit := range []bool{false, true} {
 		env := testEnv(true)
@@ -193,7 +194,7 @@ func TestOnlyTopgradeAsksUnderPolkit(t *testing.T) {
 		yay := queue[slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDYayCache })]
 		hasSc := slices.ContainsFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDPkgCacheUninstalled })
 		if !polkit {
-			if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--noconfirm"}) || yay.NeedsPriv || hasSc {
+			if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--noconfirm", "--color", "always"}) || yay.NeedsPriv || hasSc {
 				t.Errorf("sudo: AUR cache step %+v, a pacman -Sc step: %v", yay, hasSc)
 			}
 			continue
@@ -201,7 +202,7 @@ func TestOnlyTopgradeAsksUnderPolkit(t *testing.T) {
 		if !slices.Equal(askpass, []string{steps.IDTopgrade}) {
 			t.Errorf("polkit: steps with the askpass %q, want only topgrade", askpass)
 		}
-		if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--aur", "--noconfirm"}) || yay.NeedsPriv || yay.Verb != "" {
+		if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--aur", "--noconfirm", "--color", "always"}) || yay.NeedsPriv || yay.Verb != "" {
 			t.Errorf("polkit: AUR cache step %+v, want yay -Sc --aur as the user", yay)
 		}
 		sc := queue[slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDPkgCacheUninstalled })]

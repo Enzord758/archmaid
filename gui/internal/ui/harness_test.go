@@ -86,8 +86,10 @@ type report struct {
 	ViewLines  uint // lines in the output list at the end
 	LastLine   string
 	// Labels are the output rows on screen at the end; Coloured those
-	// with Pango attributes.
+	// with Pango attributes, and LineAttrs each of them as "text<TAB>its
+	// attributes" (pango_attr_list_to_string).
 	Labels, Coloured int
+	LineAttrs        []string
 	Pump             runview.Stats
 	RunNs            int64 // Start click → Finished applied
 	Frames           []time.Duration
@@ -369,7 +371,10 @@ func runChild(scenario, path string) int {
 	case "engine-stops-askpass": // ... with sudo's askpass dialog open, typed in
 		action = stub.IDFullCleanupAskpass
 	case "real-dry", "real-refused", "real-locked", "real-close", "real-tty", "real-small", // realdriver_harness_test.go
-		"real-one-password", "real-agent-missing", "real-foreign-first":
+		"real-one-password", "real-agent-missing", "real-foreign-first",
+		"real-colour-fc": // TestGUIRunColour: Full Cleanup, its yay last and open at the end
+	case "real-colour": // TestGUIRunColour: Run topgrade with a topgrade that colours when asked
+		action = actions.IDTopgrade
 	case "real-runs": // realRuns real topgrade runs in one window, then a dry one
 		action = actions.IDTopgrade
 	case "real-askpass": // topgrade's sudo asks through the relay
@@ -767,6 +772,7 @@ func runChild(scenario, path string) int {
 				// Count the coloured rows once the last batch is drawn.
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
+					rep.LineAttrs = lineAttrs(&w.outView.Widget)
 					for _, c := range []*gtk.Label{w.tl.done, w.tl.failed, w.tl.skipped, w.tl.refused} {
 						if c.IsVisible() {
 							rep.Chips = append(rep.Chips, c.Text())
@@ -1269,6 +1275,20 @@ func countLabels(root *gtk.Widget) (labels, coloured int) {
 		labels, coloured = labels+n, coloured+k
 	}
 	return labels, coloured
+}
+
+// lineAttrs is, for each mapped output row under root drawn with Pango
+// attributes, its text and its attribute list as Pango prints it.
+func lineAttrs(root *gtk.Widget) []string {
+	var out []string
+	for c := root.FirstChild(); c != nil; c = gtk.BaseWidget(c).NextSibling() {
+		w := gtk.BaseWidget(c)
+		if l, ok := c.(*gtk.Label); ok && w.Mapped() && l.HasCSSClass("am-line") && l.Attributes() != nil {
+			out = append(out, l.Text()+"\t"+l.Attributes().String())
+		}
+		out = append(out, lineAttrs(w)...)
+	}
+	return out
 }
 
 // mem is the process's memory, in KiB: RSS (VmRSS; shared libraries count

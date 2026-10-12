@@ -8,7 +8,7 @@ plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sud
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
 plan  5 "Finding orphaned packages…" inproc cat=orphans
-plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm cat=cleanup
+plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm --color always cat=cleanup
 plan  7 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
 plan  9 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
@@ -49,7 +49,7 @@ exec  sudo -A pacman -Rns --noconfirm -- libfoo libbar
 step  6 ok
 log   orphans OK: Orphaned packages removed
 step  7 running
-exec  yay -Sc --noconfirm
+exec  yay -Sc --noconfirm --color always
 out   7 error: could not access cache directory
 step  7 failed
 log   cleanup FAIL: AUR cache cleaned

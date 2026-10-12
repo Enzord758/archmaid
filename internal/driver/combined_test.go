@@ -39,6 +39,7 @@ func fullCleanupRig(t *testing.T, body string) (*rig, string) {
 // fullCleanupRigDry is fullCleanupRig, as a dry run when dry.
 func fullCleanupRigDry(t *testing.T, body string, dry bool) (*rig, string) {
 	t.Helper()
+	t.Setenv("NO_COLOR", "") // the colour switches on (actions/colour.go), whatever the shell says
 	fc, ok := actions.ByID(actions.IDFullCleanup)
 	if !ok {
 		t.Fatal("no Full Cleanup action")
@@ -182,8 +183,8 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 		t.Errorf("Finished = %+v", fin)
 	}
 	dir := filepath.Dir(calls)
-	if got := readFileLines(t, filepath.Join(dir, "yay.log")); !slices.Equal(got, []string{"-Sc --aur --noconfirm"}) {
-		t.Errorf("yay ran %q, want once, -Sc --aur --noconfirm", got)
+	if got := readFileLines(t, filepath.Join(dir, "yay.log")); !slices.Equal(got, []string{"-Sc --aur --noconfirm --color always"}) {
+		t.Errorf("yay ran %q, want once, -Sc --aur --noconfirm --color always", got)
 	}
 	if got := readFileLines(t, filepath.Join(dir, "sudo.log")); got != nil {
 		t.Errorf("sudo ran %q: a step besides topgrade needed a password", got)
@@ -279,7 +280,7 @@ func TestFullCleanupPolkitDryRun(t *testing.T) {
 			t.Errorf("%s's output %q, want %q", id, byRow[id], want)
 		}
 	}
-	if got := byRow[steps.IDYayCache]; !slices.Equal(got, []string{"[dry-run] would run: yay -Sc --aur --noconfirm"}) {
+	if got := byRow[steps.IDYayCache]; !slices.Equal(got, []string{"[dry-run] would run: yay -Sc --aur --noconfirm --color always"}) {
 		t.Errorf("the AUR cache row: %q", got)
 	}
 	for id, lines := range byRow {

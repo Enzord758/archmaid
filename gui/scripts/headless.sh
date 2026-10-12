@@ -39,7 +39,7 @@ limit="${HEADLESS_TIMEOUT:-60}"
 # TestGUIWideDialogsLongResize (~41 s with them) is another.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUIPrompts$'
-	real='^TestGUI(RealDriver|StopAndQuit)$'
+	real='^TestGUI(RealDriver|StopAndQuit|RunColour)$'
 	svc='^TestGUI(FullCleanup|OnePassword|RealServices)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
 	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards)$'

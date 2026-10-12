@@ -25,6 +25,12 @@ type Step struct {
 	Title    string   // shown in the checklist and spinner ("Cleaning package cache…")
 	LogLabel string   // written to the log ("Old package cache cleaned")
 	Argv     []string // the command line, e.g. {"sudo", "paccache", "-r"}
+	// Env is what the step's child gets in its environment on top of
+	// what every child gets ("NAME=value" each; proc.Spec.ExtraEnv), never
+	// set in archmaid's own: topgrade's CLICOLOR_FORCE, so it colours its
+	// output into the pipe. A sudo resets it for the command it runs as
+	// root. Nil for most steps.
+	Env []string
 
 	// Confirm, if set, is asked before the step runs. Optional decides what a
 	// "no" means: skip just this step (Optional) vs. abort the whole queue.

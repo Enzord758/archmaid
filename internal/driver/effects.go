@@ -185,7 +185,9 @@ func (d *Driver) startStep(e engine.StartStep) {
 	}
 	ch := make(chan proc.Msg, proc.BatchMax)
 	opts := proc.Options{DryRun: e.Env.DryRun, WaitDelay: d.cfg.WaitDelay, KillGrace: d.cfg.KillGrace, Detach: d.cfg.Detach}
-	c := proc.New(opts).Start(d.cfg.Priv.Command(st.Argv, st.NeedsPriv), ch, nil)
+	spec := d.cfg.Priv.Command(st.Argv, st.NeedsPriv)
+	spec.ExtraEnv = st.Env // the step's own variables (topgrade's colour), for its child only
+	c := proc.New(opts).Start(spec, ch, nil)
 	if c != nil {
 		d.children[e.Seq] = c
 		d.childPriv[e.Seq] = st.NeedsPriv

@@ -20,7 +20,9 @@ import (
 // it, privileged().
 func runStep(s steps.Step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
 	opts := proc.Options{DryRun: dryRun, WaitDelay: stepWaitDelay, KillGrace: sigkillGrace}
-	return proc.New(opts).Start(privileged().Command(s.Argv, s.NeedsPriv), ch, quit)
+	spec := privileged().Command(s.Argv, s.NeedsPriv)
+	spec.ExtraEnv = s.Env // as the Driver does (internal/driver startStep)
+	return proc.New(opts).Start(spec, ch, quit)
 }
 
 // shimEchoArgs installs a fake `name` on PATH that prints its argv and exits 0.

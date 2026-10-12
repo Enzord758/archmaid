@@ -37,6 +37,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 			ID:    steps.IDTopgrade,
 			Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
 			Argv: []string{"topgrade", "-y", "--disable", "hyprpm"}, NeedsPriv: true,
+			Env:      topgradeColourEnv(), // colour into the pipe (colour.go)
 			Category: logstore.Topgrade, AlwaysLog: true,
 		},
 		{
@@ -61,7 +62,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 		{
 			ID:    steps.IDYayCache,
 			Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned",
-			Argv: []string{"yay", "-Sc", "--noconfirm"},
+			Argv: append([]string{"yay", "-Sc", "--noconfirm"}, yayColourArgs()...),
 			// yay runs `sudo pacman -Sc` itself, which under the TUI rides
 			// the primed ticket on its terminal. Under polkit (the GUI)
 			// this step is split (polkitFullCleanup): pacman -Sc goes into
@@ -148,7 +149,7 @@ func polkitFullCleanup(queue []steps.Step) []steps.Step {
 		Argv: []string{"pacman", "-Sc", "--noconfirm"}, NeedsPriv: true,
 	}
 	yay := byID[steps.IDYayCache]
-	yay.Argv = []string{"yay", "-Sc", "--aur", "--noconfirm"}
+	yay.Argv = append([]string{"yay", "-Sc", "--aur", "--noconfirm"}, yayColourArgs()...)
 	byID[steps.IDYayCache] = yay
 	out := []steps.Step{byID[steps.IDAURAudit], byID[steps.IDTopgrade], byID[steps.IDOrphansProbe]}
 	for _, id := range fullCleanupRoot {
@@ -171,6 +172,7 @@ func topgradeSteps(env Env) []steps.Step {
 			ID:    steps.IDTopgrade,
 			Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
 			Argv: []string{"topgrade", "-y"}, NeedsPriv: true,
+			Env:      topgradeColourEnv(), // colour into the pipe (colour.go)
 			Category: logstore.Topgrade, AlwaysLog: true,
 		},
 	}

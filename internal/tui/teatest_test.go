@@ -56,6 +56,9 @@ func TestMain(m *testing.M) {
 	}
 
 	lipgloss.SetColorProfile(termenv.Ascii)
+	// The transcripts record yay's argv with its colour switch
+	// (actions/colour.go), which NO_COLOR in the shell would drop.
+	_ = os.Unsetenv("NO_COLOR")
 	// No test may reach the real AUR: Full Cleanup's first step now calls it.
 	// Anything that wants the RPC points aurRPCURL at an httptest server
 	// (fakeAUR); everything else fails fast against this closed port.

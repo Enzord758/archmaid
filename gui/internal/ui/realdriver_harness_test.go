@@ -211,13 +211,36 @@ func pkexecWaiting() bool {
 // internal/actions/testdata (a machine with enabled-but-inactive
 // services), "none" lists nothing, "fail" fails as systemctl does
 // without its bus. Unset, a systemctl call reaches testenv's trap.
+//
+// colour has topgrade and yay print what they print in a terminal, in
+// colour only when their switch asks for it (actions/colour.go), as the
+// real ones do into a pipe: topgrade its own lines under CLICOLOR_FORCE
+// (the console crate; the pacman lines under it stay plain), yay under
+// --color always.
 type shimOpts struct {
 	refuse     []string
 	topgrade   string
 	yay        string
 	pkexecWait bool
 	systemctl  string
+	colour     bool
 }
+
+// colourTopgrade and colourYay are shimOpts.colour's shim bodies: SGR as
+// the console crate (bold, then the colour) and yay (bold colour) write it.
+// topgrade takes half a second first, so the gate's dialog has faded out
+// of the end's screenshot.
+const (
+	colourTopgrade = `sleep 0.5
+if [ "${CLICOLOR_FORCE:-0}" != 0 ]; then b=$(printf '\033[1m') g=$(printf '\033[32m') y=$(printf '\033[33m') o=$(printf '\033[0m'); else b= g= y= o=; fi
+printf '%s\n' "${b}―― 09:00:01 - System update ――${o}" ':: Synchronizing package databases...' ' core is up to date' ':: Starting full system upgrade...' ' there is nothing to do'
+printf '%s\n' "${b}―― 09:00:04 - Flatpak ――${o}" 'Nothing to do.' "${b}―― 09:00:05 - Summary ――${o}"
+printf '%s\n' "System update: ${b}${g}OK${o}" "Flatpak: ${b}${g}OK${o}" "Rustup: ${b}${y}SKIPPED${o}"
+`
+	colourYay = `case " $* " in *' --color always '*) c=$(printf '\033[1;34m') w=$(printf '\033[1m') o=$(printf '\033[0m');; *) c= w= o=;; esac
+printf '%s\n' "${c}::${o}${w} Cleaning AUR cache...${o}" "${c}==>${o}${w} Removing untracked AUR files from cache...${o}" "${w}Cleaned 3 build directories${o}"
+`
+)
 
 // installShims writes the shims into a fresh dir and returns it, with the
 // child's environment (PATH first).
@@ -331,6 +354,10 @@ fi
 	if o.yay == "sudo" {
 		yay += "case \" $* \" in *' --aur '*) ;; *) sudo pacman -Sc || exit 1 ;; esac\n"
 	}
+	if o.colour {
+		topgrade += colourTopgrade
+		yay += colourYay
+	}
 	yay += "echo 'yay shim: cache cleaned'\n"
 	shims := map[string]string{"pkexec": pkexec, "sudo": sudo, "su": su, "topgrade": topgrade, "yay": yay, "pkttyagent": agenttest.Shim}
 	if o.systemctl != "" {
@@ -349,7 +376,8 @@ fi
 		t.Fatal(err)
 	}
 	return dir, []string{envShims + "=" + dir, "PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"),
-		"AGENT_DIR=" + dir, "AGENT_USER=" + me.Username, "AGENT_WANT=" + shimPw}
+		"AGENT_DIR=" + dir, "AGENT_USER=" + me.Username, "AGENT_WANT=" + shimPw,
+		"NO_COLOR="} // the colour switches on (actions/colour.go), whatever the shell says
 }
 
 // systemctlShim is the systemctl shim for shimOpts.systemctl (kind),
@@ -738,8 +766,8 @@ func TestGUIRealDriver(t *testing.T) {
 		if got := readLines(t, filepath.Join(dir, "sudo.got")); !slices.Equal(got, []string{shimPw}) {
 			t.Errorf("sudo got %q, want the password once (topgrade's)", got)
 		}
-		if got := readLines(t, filepath.Join(dir, "yay.log")); !slices.Equal(got, []string{"-Sc --aur --noconfirm"}) {
-			t.Errorf("yay ran %q, want once with -Sc --aur --noconfirm", got)
+		if got := readLines(t, filepath.Join(dir, "yay.log")); !slices.Equal(got, []string{"-Sc --aur --noconfirm --color always"}) {
+			t.Errorf("yay ran %q, want once with -Sc --aur --noconfirm --color always", got)
 		}
 		calls := readLines(t, filepath.Join(dir, "pkexec.log"))
 		if len(calls) != 1 || !strings.Contains(calls[0], " full-cleanup ") || !strings.Contains(calls[0], " --uninstalled") {

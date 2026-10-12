@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,6 +37,11 @@ type Spec struct {
 	// Env is the child's whole environment; nil inherits archmaid's, minus
 	// any SUDO_ASKPASS (see env).
 	Env []string
+	// ExtraEnv is added to that environment, after it, so a name in both
+	// takes ExtraEnv's value (the step's own variables, steps.Step.Env).
+	// A SUDO_ASKPASS in it is dropped: only the caller's Env hands out the
+	// askpass wrapper (privilege.Sudo.Env).
+	ExtraEnv []string
 	// Display is what a dry run reports it would run; empty means Name and
 	// Args joined by spaces.
 	Display string
@@ -195,13 +201,24 @@ func checkShellWords(words []string, depth int) error {
 // user's shell exported. That helper is code archmaid knows nothing about;
 // archmaid gives its own wrapper explicitly, to the steps that need it. (An
 // explicit Env is the caller's, e.g. privilege.Sudo.Env with that wrapper.)
+// ExtraEnv follows, without any SUDO_ASKPASS; exec.Cmd keeps the last value
+// of a name given twice.
 func (s Spec) env() []string {
-	if s.Env != nil {
-		return s.Env
+	base := s.Env
+	if base == nil {
+		environ := os.Environ()
+		base = make([]string, 0, len(environ)+len(s.ExtraEnv))
+		for _, kv := range environ {
+			if !strings.HasPrefix(kv, "SUDO_ASKPASS=") {
+				base = append(base, kv)
+			}
+		}
 	}
-	environ := os.Environ()
-	env := make([]string, 0, len(environ))
-	for _, kv := range environ {
+	if len(s.ExtraEnv) == 0 {
+		return base
+	}
+	env := slices.Clip(base) // never append into the caller's Env
+	for _, kv := range s.ExtraEnv {
 		if !strings.HasPrefix(kv, "SUDO_ASKPASS=") {
 			env = append(env, kv)
 		}
