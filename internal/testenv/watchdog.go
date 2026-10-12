@@ -17,7 +17,10 @@ import (
 
 // watchdogScript is the watchdog: $1 is the marker. It ignores the
 // signals a terminal sends its process group (go test's ctrl+c), reads
-// stdin until EOF, then kills, twice over to catch a fork in between.
+// stdin until EOF, then kills, twice over to catch a fork in between, and
+// removes the run's scratch dirs ($2 and $3, only if named archmaid-test-*):
+// a crash, a panic in a test or a timeout skips Run's deferred cleanup, and
+// they used to stay in TMPDIR.
 const watchdogScript = `trap '' INT HUP TERM QUIT
 while read -r _; do :; done
 for round in 1 2; do
@@ -30,6 +33,17 @@ for round in 1 2; do
 		fi
 	done
 done
+for d in "$2" "$3"; do
+	case "${d##*/}" in
+	archmaid-test-?*)
+		for try in 1 2 3; do
+			rm -rf "$d" 2>/dev/null
+			[ -e "$d" ] || break
+			sleep 0.2
+		done
+		;;
+	esac
+done
 `
 
 // watchdog is a running watchdog; hold keeps its pipe open.
@@ -40,13 +54,13 @@ type watchdog struct {
 
 // startWatchdog starts the watchdog for marker. Its environment carries no
 // marker (it must outlive what it kills) and no trap dir.
-func startWatchdog(marker string) (*watchdog, error) {
+func startWatchdog(marker string, dirs ...string) (*watchdog, error) {
 	r, w, err := os.Pipe()
 	if err != nil {
 		return nil, err
 	}
 	defer r.Close()
-	cmd := exec.Command("/bin/sh", "-c", watchdogScript, "sh", marker)
+	cmd := exec.Command("/bin/sh", append([]string{"-c", watchdogScript, "sh", marker}, dirs...)...)
 	cmd.Stdin = r
 	cmd.Env = []string{"PATH=/usr/bin:/bin", "LC_ALL=C"}
 	if err := cmd.Start(); err != nil {

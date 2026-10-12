@@ -96,6 +96,43 @@ const TrapExit = 97
 // code for os.Exit: m.Run's, or 1 if a test touched the real state directory,
 // reached a trapped binary or left a process running.
 func Run(m interface{ Run() int }) int {
+	var made []string
+	code := run(m, &made)
+	// run defers the removal of its scratch dirs; prove it happened.
+	for _, p := range made {
+		if _, err := os.Lstat(p); err == nil {
+			fmt.Fprintln(os.Stderr, "\ntestenv: FAIL: left behind:", p, "(removed now)")
+			_ = os.RemoveAll(p)
+			code = 1
+		}
+	}
+	return code
+}
+
+// CreatedEnv names a file that every Run (this process's and the re-exec'd
+// test binaries it starts) appends the scratch dirs it creates to, one path
+// per line, when set. scripts/testenv-leftovers.sh uses it to fail a gate run
+// when any of them still exists afterwards, however its test binary ended.
+const CreatedEnv = "ARCHMAID_TESTENV_CREATED"
+
+// mkScratch makes a temp dir named prefix*, records it in made and in the
+// CreatedEnv file.
+func mkScratch(prefix string, made *[]string) (string, error) {
+	dir, err := os.MkdirTemp("", prefix)
+	if err != nil {
+		return "", err
+	}
+	*made = append(*made, dir)
+	if f := os.Getenv(CreatedEnv); f != "" {
+		if w, err := os.OpenFile(f, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600); err == nil {
+			fmt.Fprintln(w, dir)
+			w.Close()
+		}
+	}
+	return dir, nil
+}
+
+func run(m interface{ Run() int }, made *[]string) int {
 	marker, err := newMarker()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
@@ -110,7 +147,7 @@ func Run(m interface{ Run() int }) int {
 	// The traps and the snapshot live outside the scratch home: tests list
 	// and wipe that. The trap dir goes last, after the orphan scan: a
 	// process that outlived it would reach the real binaries.
-	trapRoot, err := os.MkdirTemp("", "archmaid-test-trap")
+	trapRoot, err := mkScratch("archmaid-test-trap", made)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
 		return 1
@@ -140,7 +177,7 @@ func Run(m interface{ Run() int }) int {
 		return 1
 	}
 
-	home, err := os.MkdirTemp("", "archmaid-test-home")
+	home, err := mkScratch("archmaid-test-home", made)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
 		return 1
@@ -171,7 +208,7 @@ func Run(m interface{ Run() int }) int {
 	}
 
 	// Should this binary die before the check below (watchdog.go).
-	dog, err := startWatchdog(marker)
+	dog, err := startWatchdog(marker, trapRoot, home)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "testenv: watchdog:", err)
 		return 1

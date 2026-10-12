@@ -83,7 +83,20 @@ log="$XDG_RUNTIME_DIR/weston.log"
 timeout -k 5 "$limit" weston --backend=headless --renderer="${WESTON_RENDERER:-pixman}" --no-config \
 	--socket="$sock" --width="${HEADLESS_WIDTH:-1280}" --height="${HEADLESS_HEIGHT:-800}" --idle-time=0 >"$log" 2>&1 &
 weston=$!
-trap 'kill "$weston" 2>/dev/null; wait "$weston" 2>/dev/null; rm -rf "$XDG_RUNTIME_DIR"' EXIT
+# testenv.Run records its scratch dirs here; a leftover fails the run
+# (scripts/testenv-leftovers.sh).
+created="$XDG_RUNTIME_DIR.created"
+export ARCHMAID_TESTENV_CREATED="$created"
+finish() {
+	local rc=$?
+	kill "$weston" 2>/dev/null
+	wait "$weston" 2>/dev/null
+	rm -rf "$XDG_RUNTIME_DIR"
+	../scripts/testenv-leftovers.sh "$created" || rc=1
+	rm -f "$created"
+	exit "$rc"
+}
+trap finish EXIT
 
 for _ in $(seq 100); do
 	[[ -S "$XDG_RUNTIME_DIR/$sock" ]] && break

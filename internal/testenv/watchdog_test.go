@@ -47,7 +47,8 @@ func TestWatchdogKillsAfterCrash(t *testing.T) {
 		}
 	})
 	cmd := exec.Command(os.Args[0], "-test.run=^TestWatchdogChild$", "-test.count=1")
-	cmd.Env = append(os.Environ(), watchdogChildEnv+"="+pidFile)
+	created := filepath.Join(t.TempDir(), "created")
+	cmd.Env = append(os.Environ(), watchdogChildEnv+"="+pidFile, CreatedEnv+"="+created)
 	err := cmd.Run()
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) || exit.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
@@ -61,6 +62,19 @@ func TestWatchdogKillsAfterCrash(t *testing.T) {
 		t.Fatalf("pid %d (sleep 300) outlived its crashed test binary", pid)
 	}
 	waitOrphanedWatchdogs(t)
+	// A crashed binary skips Run's deferred cleanup: the watchdog removes
+	// the scratch dirs (they used to stay in TMPDIR).
+	b, _ := os.ReadFile(created)
+	dirs := strings.Fields(string(b))
+	if len(dirs) != 2 {
+		t.Fatalf("the child recorded %q, want its trap and home dirs", dirs)
+	}
+	for _, d := range dirs {
+		if _, err := os.Lstat(d); err == nil {
+			t.Errorf("%s outlived its crashed test binary", d)
+			_ = os.RemoveAll(d)
+		}
+	}
 }
 
 // waitOrphanedWatchdogs waits for the crashed child's watchdog to finish
@@ -92,7 +106,7 @@ func waitOrphanedWatchdogs(t *testing.T) {
 			}
 			// Ours (this binary's own, for its marker) stays up.
 			if strings.HasPrefix(string(b), "/bin/sh\x00-c\x00"+watchdogScript) &&
-				!strings.HasSuffix(string(b), "\x00"+os.Getenv(MarkerEnv)+"\x00") {
+				!strings.Contains(string(b), "\x00"+os.Getenv(MarkerEnv)+"\x00") {
 				busy++
 			}
 		}

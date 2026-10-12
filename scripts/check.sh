@@ -26,6 +26,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # the gate even when everything else passed.
 GUARD_SNAP="$(mktemp)"
 PROFILE=""
+# Every testenv.Run appends the scratch dirs it makes to this file; the gate
+# fails if any of them is still there at the end (scripts/testenv-leftovers.sh).
+CREATED="$(mktemp)"
+export ARCHMAID_TESTENV_CREATED="$CREATED"
 scripts/state-guard.sh snapshot >"$GUARD_SNAP"
 guard_done=0
 guard_compare() {
@@ -39,6 +43,8 @@ finish() {
 		rc=1
 	fi
 	rm -f "$GUARD_SNAP"
+	scripts/testenv-leftovers.sh "$CREATED" || rc=1
+	rm -f "$CREATED"
 	exit "$rc"
 }
 trap finish EXIT
