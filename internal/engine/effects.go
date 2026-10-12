@@ -90,6 +90,13 @@ type WriteLog struct {
 // (logstore.Store.WriteLastRun). No Input.
 type WriteLastRun struct{ Record logstore.RunRecord }
 
+// RefreshUpdates asks the front end's Driver to re-run the update check the
+// DMS widget's UPDATES count comes from (Deps.RefreshUpdates). The Session
+// emits it once, at the end of a real run (not a dry run) whose topgrade
+// step started, whatever the outcome: the system may have changed. Fire
+// and forget: no Input, and a failure is never the run's.
+type RefreshUpdates struct{}
+
 // StartPrefetch starts the named prefetch (steps.Prefetch*: the AUR
 // lookup) so it runs while a prompt is up; CancelPrefetch drops it. No
 // Input: the step that needs it awaits it.
@@ -120,6 +127,7 @@ func (Stop) isEffect()           {}
 func (RunHook) isEffect()        {}
 func (WriteLog) isEffect()       {}
 func (WriteLastRun) isEffect()   {}
+func (RefreshUpdates) isEffect() {}
 func (StartPrefetch) isEffect()  {}
 func (CancelPrefetch) isEffect() {}
 func (AnswerAskpass) isEffect()  {}

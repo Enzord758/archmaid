@@ -98,6 +98,11 @@ type Config struct {
 	KillGrace, WaitDelay time.Duration
 	// Report is told what no Event carries (driver.Deps.Report).
 	Report func(error)
+	// RefreshUpdates is driver.Deps.RefreshUpdates: the widget's update
+	// check after a topgrade run. Nil is driver.RefreshUpdates (systemctl
+	// --user, else the packaged script); tests must set a fake, because
+	// that reaches systemctl and a script outside the test.
+	RefreshUpdates func(context.Context) error
 
 	// Now is read once per Driver (New) to stamp its run directory; nil
 	// is time.Now. Log entries are stamped with the real time.
@@ -197,9 +202,14 @@ func (w *Wiring) New(o engine.Options) engine.Driver {
 		// shell still has the shell's, and sudo would prompt there.
 		Detach: true,
 		Report: w.cfg.Report,
+		// The widget's update count, refreshed after a topgrade run.
+		RefreshUpdates: w.cfg.RefreshUpdates,
 		// One password per run: the first the user gives answers the
 		// run's later sudo and polkit prompts (driver/keep.go).
 		KeepPassword: true,
+	}
+	if deps.RefreshUpdates == nil {
+		deps.RefreshUpdates = driver.RefreshUpdates
 	}
 	agents := make(chan driver.AgentPrompt)
 	deps.Agent, deps.Helper = agents, w.helper(agents)

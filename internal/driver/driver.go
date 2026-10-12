@@ -125,6 +125,13 @@ type Deps struct {
 	FlushEvery time.Duration
 	MaxLines   int
 
+	// RefreshUpdates is called (on a worker, never on the loop) once at
+	// the end of a real run whose topgrade step started
+	// (engine.RefreshUpdates); its context ends at Close. Both front ends
+	// set the package's RefreshUpdates; nil does nothing. An error goes to
+	// Report; it never fails the run.
+	RefreshUpdates func(ctx context.Context) error
+
 	// Report is told what no Event carries: a log write that failed, a
 	// hook's error, a recovered panic. Nil drops them. It may run on the
 	// loop and must not call Close.

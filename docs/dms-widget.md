@@ -47,6 +47,13 @@ says "Set $TERMINAL ..." and nothing starts. Note that DMS only sees `$TERMINAL`
 in the session environment (for example `~/.config/environment.d/` or the compositor's
 env), not only in a shell rc. Authentication happens in the app, never in the widget.
 
+**Refresh after a run**: when a real run whose topgrade step started ends (Full
+Cleanup or Run topgrade, TUI or GUI; completed, failed or aborted; not a dry run, a
+declined gate or an abort before topgrade), archmaid runs `systemctl --user start
+--no-block archmaid-updates-check.service` once (fallback: the script itself, detached and
+niced), so UPDATES shows the new count within seconds instead of up to 30 min. The widget
+needs nothing for it: it already re-reads `updates-cache.json` when the file is replaced.
+
 **Pending updates**: `archmaid-updates-check.timer` (systemd USER timer, no root, no
 sudo) runs `archmaid-updates-check` 3 min after the session starts and then every 30 min
 (+ up to 5 min random delay, Nice 19, idle IO). The timer is monotonic, so `Persistent=`

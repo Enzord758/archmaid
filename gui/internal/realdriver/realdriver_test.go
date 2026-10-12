@@ -50,6 +50,9 @@ func fakes(t *testing.T, cfg Config) Config {
 	cfg.Foreign = func(context.Context) ([]string, error) { return nil, nil }
 	cfg.LookPath = func(string) (string, error) { return "", os.ErrNotExist }
 	cfg.RuntimeDir = t.TempDir()
+	if cfg.RefreshUpdates == nil {
+		cfg.RefreshUpdates = func(context.Context) error { return nil } // never systemctl or the packaged script
+	}
 	return cfg
 }
 

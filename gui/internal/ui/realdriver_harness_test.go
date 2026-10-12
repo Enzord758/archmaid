@@ -154,7 +154,9 @@ func startRealWiring(fail func(string, ...any)) *realdriver.Wiring {
 		LookPath:  func(string) (string, error) { return "", errors.New("not found") },
 		KillGrace: grace,
 		WaitDelay: 500 * time.Millisecond,
-		Report:    func(err error) { fail("driver report: %v", err) },
+		// Never the real systemctl or the packaged check script.
+		RefreshUpdates: func(context.Context) error { return nil },
+		Report:         func(err error) { fail("driver report: %v", err) },
 	})
 }
 

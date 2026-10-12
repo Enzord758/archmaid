@@ -585,6 +585,7 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 		tg.lastRuns = append(tg.lastRuns, e.Record)
 		_ = logs().WriteLastRun(e.Record)
 	case engine.KeepAlive: // the refresh is a tick; the transcripts drop ticks
+	case engine.RefreshUpdates: // the real Driver's systemctl call, covered in internal/driver; no transcript line
 	case engine.StartPrefetch:
 		if e.Name != steps.PrefetchAURAudit {
 			tg.fail("unknown prefetch %q", e.Name)

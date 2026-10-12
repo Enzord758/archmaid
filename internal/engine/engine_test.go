@@ -51,7 +51,7 @@ var (
 	allEffects = []Effect{
 		Probe{}, Authenticate{}, KeepAlive{}, ReadFaillock{}, Discover{}, StartStep{},
 		Stop{}, RunHook{}, WriteLog{}, WriteLastRun{}, StartPrefetch{},
-		CancelPrefetch{}, AnswerAskpass{}, HangUpAskpass{},
+		CancelPrefetch{}, AnswerAskpass{}, HangUpAskpass{}, RefreshUpdates{},
 	}
 	allInputs = []Input{
 		Tick{}, ProbeDone{}, AuthDone{}, FaillockRead{}, Discovered{}, StepOutput{},

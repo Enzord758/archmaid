@@ -50,6 +50,8 @@ func driverDeps(askpass <-chan *privilege.Request) driver.Deps {
 		Askpass:  askpass,
 		Prefetch: startPrefetch,
 		Report:   driverReports.add,
+		// The widget's update count, refreshed after a topgrade run.
+		RefreshUpdates: driver.RefreshUpdates,
 	}
 }
 

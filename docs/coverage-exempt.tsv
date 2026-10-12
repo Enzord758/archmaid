@@ -54,8 +54,8 @@ internal/downloads/downloads.go	614-615	remover.removeContents	1	make-testable	y
 internal/downloads/downloads.go	618-619	remover.removeContents	1	make-testable	yes	OpenRoot/Lstat/Open/Readdirnames of a directory entryIsOld just walked fail, or it is swapped, only in a race; no seam between the checks
 internal/downloads/downloads.go	623-624	remover.removeContents	1	make-testable	yes	OpenRoot/Lstat/Open/Readdirnames of a directory entryIsOld just walked fail, or it is swapped, only in a race; no seam between the checks
 internal/downloads/downloads.go	638-638	inode	1	keep-exempt	yes	on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail
-internal/driver/driver.go	301-302	currentFaillock	1	keep-exempt	no	user.Current fails only when the uid has no passwd entry; no seam
-internal/driver/driver.go	511-511	Driver.command.func	1	keep-exempt	no	the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's
+internal/driver/driver.go	308-309	currentFaillock	1	keep-exempt	no	user.Current fails only when the uid has no passwd entry; no seam
+internal/driver/driver.go	518-518	Driver.command.func	1	keep-exempt	no	the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's
 internal/engine/combine.go	85-85	Session.combineNext	1	keep-exempt	no	the guard skips a slot that is not Pending or already accepted; every caller advances r.cur past a slot it has settled or accepted, so the loop never meets one
 internal/engine/stub/fullcleanup.go	93-93	builder.index	1	keep-exempt	no	the hand-built script only names its own steps
 internal/frontend/topgrade.go	55-56	EnsureTopgradeConfig	1	keep-exempt	no	O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's

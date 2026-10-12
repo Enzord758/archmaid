@@ -658,6 +658,9 @@ func (s *Session) finish(o *Output, outcome Outcome) {
 	case r.planned && outcome != OutcomeNotice:
 		o.effect(WriteLastRun{Record: s.record(outcome, now)})
 	}
+	if !s.opts.DryRun && r.topgradeStarted() {
+		o.effect(RefreshUpdates{})
+	}
 	notRun := 0
 	for _, sl := range r.plan {
 		if sl.status == steps.Pending {
@@ -708,4 +711,20 @@ func (s *Session) record(outcome Outcome, now time.Time) logstore.RunRecord {
 		rec.Outcome = logstore.OutcomeOK
 	}
 	return rec
+}
+
+// topgradeStarted reports whether the plan's topgrade step started (it
+// ran, failed, or was aborted while running): the system may have been
+// updated, so the widget's update count is stale.
+func (r *run) topgradeStarted() bool {
+	for _, sl := range r.plan {
+		if sl.step.ID != steps.IDTopgrade {
+			continue
+		}
+		switch sl.status {
+		case steps.OK, steps.Failed, steps.Aborted, steps.Running:
+			return true
+		}
+	}
+	return false
 }

@@ -52,6 +52,14 @@ func (d *Driver) effect(e engine.Effect) {
 		if err := d.cfg.Log.WriteLastRun(e.Record); err != nil {
 			d.report(fmt.Errorf("driver: writing the last run: %w", err))
 		}
+	case engine.RefreshUpdates:
+		if f := d.cfg.RefreshUpdates; f != nil {
+			d.goRun(func() {
+				if err := f(d.root); err != nil {
+					d.report(err)
+				}
+			})
+		}
 	case engine.StartPrefetch:
 		if d.cfg.Prefetch == nil || d.prefetch[e.Name] != nil {
 			return
