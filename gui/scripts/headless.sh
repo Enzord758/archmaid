@@ -27,11 +27,13 @@ limit="${HEADLESS_TIMEOUT:-60}"
 # the prompts, the real Driver and Stop, the Full Cleanup and the shimmed
 # password and services scenarios, the engine stopping and the instance
 # check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
-# windows, the wide dialogs, the Overview's starts, the coverage scenarios
-# (cover_harness_test.go), the first frame and throughput proofs, the rest.
-# The wide dialogs (TestGUIWideDialogs) run their 1460x930 window on an
-# output of 1600x1000 (HEADLESS_WIDTH, HEADLESS_HEIGHT; default 1280x800):
-# weston's output bounds the window.
+# windows, the wide dialogs and the breakpoint toggle, the Overview's
+# starts, the coverage scenarios (cover_harness_test.go), the first frame
+# and throughput proofs, the rest. The wide dialogs (TestGUIWideDialogs)
+# run their 1460x930 window on an output of 1600x1000 (HEADLESS_WIDTH,
+# HEADLESS_HEIGHT; default 1280x800): weston's output bounds the window.
+# TestGUIMinWidthToggle (~12 s) shares that part (~28 s): with the narrow
+# or the states part it would be ~43 or ~47 s.
 if [[ $# -eq 0 ]]; then
 	long='^TestGUIPrompts$'
 	real='^TestGUI(RealDriver|StopAndQuit)$'
@@ -40,7 +42,7 @@ if [[ $# -eq 0 ]]; then
 	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards)$'
 	tones='^TestGUI(LastRunTones|AuditRerun)$'
 	states='^TestGUIMinWidthStates$'
-	wide='^TestGUIWideDialogs$'
+	wide='^TestGUI(WideDialogs|MinWidthToggle)$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
