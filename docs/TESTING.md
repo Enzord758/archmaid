@@ -161,7 +161,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~135 s warm, so with no command it runs eleven parts of at most ~40 s, each with its own weston (the coverage scenarios are one part); CI sets 600), so nothing outlives the run. Scenarios:
+~135 s warm, so with no command it runs twelve parts of at most ~40 s, each with its own weston (the coverage scenarios are one part, the wide dialogs one on a 1600x1000 output: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -332,6 +332,28 @@ carries user or system text (a path, a package or unit name, an error)
 belongs there. The usual cause of a failure is a wrapping label whose wrap
 mode is `WORD`: a word longer than the window is its minimum width, so
 labels that can hold one use `WrapWordChar`.
+
+`TestGUIWideDialogs` (`widedialogs_harness_test.go`, scenario
+`real-wide`, its own part of `headless.sh` on a 1600x1000 weston output,
+since the output bounds the window) opens every decision dialog at
+1460x930 and at 380x720: the real Driver's Full Cleanup gate (declined),
+then the orphans confirm with the VM's plan, the real downloads confirm,
+a step confirm, the audit gate, the three password dialogs, the services
+pick and the audit report, each fed as the engine sends it. It measures
+each dialog's sheet (`dialogGeometry`: size, whether the gate's steps and
+notes are side by side, how many scrolled windows have something to
+scroll, the yes button in the window, nothing too wide). At 1460 the gate
+must be at least 800 px wide, shorter than before (372x567 on d3b2b94),
+side by side, nothing scrolling; every other dialog wider than before
+(`*WBefore`), the passwords wider than 372 px. At 380 everything fits
+with its buttons in view and the gate stacked. With `ARCHMAID_GUI_SHOTS`
+it writes `real-wide-<width>-<dialog>.png`. `TestGUICovDialogClose`
+(`cov-dialog-close`) closes a wide confirm, pick list and report as
+Escape does (`adw_dialog_close`) and a confirm under the window's close:
+each sends its close response exactly once, and a clicked button's
+dialog responds once. `TestGUISmallWindow` accepts a heading in no
+scrolled window at all (`scrolled=-1`: the wide orphans dialog's heading
+is in its top bar).
 
 The stub is only ever `--stub`: `TestParseLaunch` (plain Go) checks that
 `ARCHMAID_GUI_STUB` and any `ARCHMAID_GUI_SCRIPT` leave a launch without it

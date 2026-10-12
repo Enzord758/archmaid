@@ -86,7 +86,7 @@ GTK-free; the DMS widget opens `archmaid-gui` when it is on PATH, else the TUI.
 | `gui/internal/overview` | plain Go: `Entries` (`actions.Menu` as the GUI shows it: Adwaita symbolic icons, `Busy`; View log opens the Logs page; Exit and Edit config are the TUI's), `StatusLine`, `ReadLastRun`/`Summarize` (last-run.json through logstore, read only; the DMS widget's rule: outcome issue first, stale past `StaleDays` = 14) |
 | `gui/internal/logview` | plain Go: `Runs` (the run directories under the state dir, newest first, the dry-run slot last, with the category logs each has) and `Run.Read` (through a `logstore.Store` whose clock reads the run's stamp). Read only: never creates, deletes or rotates |
 | `gui/internal/settings` | plain Go: the Settings page's `Settings` (downloads folder, dry run), `Path`/`Load`/`Save` (`$XDG_CONFIG_HOME/archmaid/gui.json`, never the state dir; written atomically, 0600), `CheckDownloads` (`downloads.Resolve` with the Flag set: refuses what the TUI's `--downloads` refuses) and `Apply` (the settings onto the `engine.Options` for the next run) |
-| `gui/internal/ui` | the only gotk4 package: `Main` (the real Driver through `realdriver`, its base Options checked by `Validate` first; only `--stub` runs the stub instead, which touches nothing — no environment variable does, so a stray one never puts the real GUI on it (`parseLaunch`); a stub window always shows the banner "Demo — the stub, changes nothing", "(stub)" in its title and STUB in the status line, and runs as its own app id `StubAppID` (`AppID` + ".Stub"), so a demo and a real window never share an instance on the session bus. The stub plays its `Catalog`, a script per menu action with the declined paths; with `--stub`, `ARCHMAID_GUI_SCRIPT`: `flood`, `flood-colour` play a single script, `uncached`, `askpass` swap in the stub's password variants of Full Cleanup, and any other value is refused), `DefaultRenderer` (cairo unless `GSK_RENDERER` is set), `Run`, `Window` (a view stack: Overview — status line, last run, the menu, a row starts its action —, Run, Logs — runs as expanders, the log in a `ListView` —, Settings — dry run and the downloads folder, its error inline; they apply to the next Start; every Start makes a fresh Driver through `Options.NewDriver(engine.Options)` (closing the idle one), so a run never shares a Session or a log store with the one before; header with the view switcher and Stop; on the Run page a checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList` whose rows get their SGR colour as Pango attributes at bind, status bar, toasts, close-mid-run confirm). An action that ends at its discovery (nothing found, or the look failed) is its own result: `engine.DiscoveryResult` (Nothing/Failed) makes the Run page this action's, a run of one "Discovery" step (`runview.DiscoveryStepID`) with the Summary as its line, the Details as its output, ok or failed, the kicker "Nothing found"/"Failed: ...", no "previous run" tag; a Found result changes nothing (its queue is the run). Its toast (`Model.EndToast`) and the status line say the Summary (cut at `runview.ShortMax`), until the next Start. Its log is on the Logs page, and the Overview's last run cell reads `nothing-found` as NOTHING FOUND (ok tone). `dialogs.go`: one `AdwAlertDialog` per open prompt — confirm (Items, or the orphans' Direct and the cascade's extra, the gate's `Plan`; yes is `YesLabel` or "Yes", no is "Skip" for an Optional step else "Cancel"; no is the default for `Destructive` whatever `Default` says, else `Default`; yes red when destructive), password (up front with `Gate` as heading; askpass naming `Requester` and sudo's prompt; `Error`, attempts left), selection (check boxes → `Select`), report (audit findings, high ones flagged; "Accept" only with `CanAccept`). Every answer goes through `Window.answer`, which sends only when `Model.Answer` claims the ID, so a stale ID never reaches the engine. `secret.go` reads the password entry's text as C bytes (never a gotk4 Go string), wipes the entry, and zeroes the bytes after building the `Secret`. `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
+| `gui/internal/ui` | the only gotk4 package: `Main` (the real Driver through `realdriver`, its base Options checked by `Validate` first; only `--stub` runs the stub instead, which touches nothing — no environment variable does, so a stray one never puts the real GUI on it (`parseLaunch`); a stub window always shows the banner "Demo — the stub, changes nothing", "(stub)" in its title and STUB in the status line, and runs as its own app id `StubAppID` (`AppID` + ".Stub"), so a demo and a real window never share an instance on the session bus. The stub plays its `Catalog`, a script per menu action with the declined paths; with `--stub`, `ARCHMAID_GUI_SCRIPT`: `flood`, `flood-colour` play a single script, `uncached`, `askpass` swap in the stub's password variants of Full Cleanup, and any other value is refused), `DefaultRenderer` (cairo unless `GSK_RENDERER` is set), `Run`, `Window` (a view stack: Overview — status line, last run, the menu, a row starts its action —, Run, Logs — runs as expanders, the log in a `ListView` —, Settings — dry run and the downloads folder, its error inline; they apply to the next Start; every Start makes a fresh Driver through `Options.NewDriver(engine.Options)` (closing the idle one), so a run never shares a Session or a log store with the one before; header with the view switcher and Stop; on the Run page a checklist `ListBox` of `AdwActionRow`s, output `ListView` over a `GtkStringList` whose rows get their SGR colour as Pango attributes at bind, status bar, toasts, close-mid-run confirm). An action that ends at its discovery (nothing found, or the look failed) is its own result: `engine.DiscoveryResult` (Nothing/Failed) makes the Run page this action's, a run of one "Discovery" step (`runview.DiscoveryStepID`) with the Summary as its line, the Details as its output, ok or failed, the kicker "Nothing found"/"Failed: ...", no "previous run" tag; a Found result changes nothing (its queue is the run). Its toast (`Model.EndToast`) and the status line say the Summary (cut at `runview.ShortMax`), until the next Start. Its log is on the Logs page, and the Overview's last run cell reads `nothing-found` as NOTHING FOUND (ok tone). `dialogs.go`: one dialog per open prompt, an `amDialog` (`widedialog.go`: AdwAlertDialog's response API — labels, default and close response, `ConnectResponse` — over either a wide `AdwDialog` built by `newWideDialog`, heading in a top bar, the middle scrolling, the buttons in a bottom bar, its columns stacked under its own `max-width: 640sp` breakpoint, a bottom sheet in a narrow window; or an `AdwAlertDialog` through `alertDialog`, the password dialogs and the quit question) — confirm (wide: the gate 880 px with its steps beside "Before you start" and its notes, the orphans 760 px with "Orphaned" beside "Removed with them", a list 720 px, a question 640 px; Items, or the orphans' Direct and the cascade's extra, the gate's `Plan`; yes is `YesLabel` or "Yes", no is "Skip" for an Optional step else "Cancel"; no is the default for `Destructive` whatever `Default` says, else `Default`; yes red when destructive), password (an AdwAlertDialog with prefer-wide-layout, up to libadwaita's 600 px cap in a window over the narrow breakpoint; up front with `Gate` as heading; askpass naming `Requester` and sudo's prompt; `Error`, attempts left), selection (wide, 640 px; check boxes → `Select`), report (wide; audit findings, high ones flagged; "Accept" only with `CanAccept`). Every answer goes through `Window.answer`, which sends only when `Model.Answer` claims the ID, so a stale ID never reaches the engine. `secret.go` reads the password entry's text as C bytes (never a gotk4 Go string), wipes the entry, and zeroes the bytes after building the `Secret`. `harness_test.go` is the headless harness (see `TESTING.md` → GUI) |
 | `gui/scripts/headless.sh` | runs a command against a private `weston --backend=headless` and a private, activation-free D-Bus, so GUI tests never open a window on the desktop |
 
 ## Decisions and landmines
@@ -472,7 +472,17 @@ comments and `git log`; this is the "read before you touch it" list.
   response has read it (wiping at `closed` sent an empty password for a
   click on Authenticate). The harness clicks the buttons
   (`findButton`); `Emit("response")` then `ForceClose` is the reverse
-  order and hid both bugs. While a helper step's pkexec waits for polkit's
+  order and hid both bugs. That order is the AdwAlertDialog's, so it holds
+  for the password dialogs and the quit question only. **A wide dialog
+  (`widedialog.go`, an `AdwDialog`) has no response of its own:** its
+  button sends the response, then closes it; Escape, the window's close
+  (libadwaita closes the open dialog first, the window stays) and a
+  `ForceClose` emit only `closed`, which `newWideDialog` turns into the
+  close response. `amDialog.respond` answers once per dialog, so neither
+  path can answer twice, and a dialog closed without a button still
+  answers (else the engine waits for ever). `TestGUICovDialogClose` holds
+  both (a mutant without the `closed` bridge sends nothing; one without the
+  once-guard responds yes then no). While a helper step's pkexec waits for polkit's
   dialog (`WaitPolkit`), the X doesn't ask at all: the agent's window
   covers ours, so the question would open under it, and nothing of that
   step runs as root yet; it is Stop and Quit at once (pkexec killed, the
@@ -509,6 +519,36 @@ comments and `git log`; this is the "read before you touch it" list.
   long-text states (failed and refused rows, dialogs, discovery, Settings,
   Logs) at 360/480 px; both name the widest widget when something is too
   wide, and both check where the tags sit (`checkTags`).
+- **GUI: how wide the dialogs get (task #95).** A wide dialog
+  (`newWideDialog`) has breakpoints, so like an `AdwBreakpointBin` it has
+  no minimum of its own: `SetSizeRequest(wideMinW, wideMinH)` (300x200)
+  must fit the smallest window, and content wider than the dialog is
+  clipped, not reported, so only the stacked layout under its
+  `max-width: 640sp` breakpoint keeps it inside (`columns`; the min-width
+  tests measure after it applied). Its height: libadwaita measures it
+  once, at the content width, and keeps that, so a bottom sheet kept the
+  wide layout's height (scrolling with room to spare) and the wide one got
+  a gap; `fitHeight` sets the content height to the content's natural
+  height at the width it got, on the map and each allocation change of
+  the middle. It sums the heading's, the middle's and the button bar's
+  heights each measured at that width: the toolbar view's own measure
+  takes its bars at one line, so a wrapped heading (a long path) or a
+  wrapped button label left the middle a negative height (a GTK warning
+  the min-width tests fail on). `show` opens a wide dialog at the
+  window's height first, for the same reason, and `fitHeight` shrinks it.
+  Button labels wrap (`wrapNatural`): "Clear everything under that
+  folder" in a homogeneous row was 566 px.
+  A column's labels need a natural width under the column's (the notes'
+  `SetMaxWidthChars`), or measure and allocation split the row
+  differently. The password dialog stays an AdwAlertDialog, which
+  libadwaita sizes as `clamp(content, 300, cap)` where, with
+  prefer-wide-layout, cap is its button row's width (two buttons, 12 px
+  between, 48 px padding) up to 600 px, and 372 px once the row is wider
+  than 600: labels with `wrapNatural` alone left it at 328 px. So
+  `.am-password`'s buttons get `min-width: 230px` over the window's
+  narrow breakpoint (600 px measured at 1460x930); widen them past ~270 px
+  and it drops back to 372. `TestGUIWideDialogs` (1460x930 and 380x720,
+  on a 1600x1000 weston output) holds the sizes.
 - **The GUI password's last copy (accepted risk).** `engine.Secret` is a Go
   string (E0 is frozen), so the password typed into the GUI ends in one
   immutable string that can't be zeroed and stays in the heap until the GC

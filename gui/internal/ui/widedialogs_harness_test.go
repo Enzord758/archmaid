@@ -295,7 +295,7 @@ func TestGUIWideDialogs(t *testing.T) {
 					t.Errorf("%s at %d px: %d px wide, want wider than before (%d)", n, wd, g.w, before)
 				}
 			}
-			if slices.ContainsFunc(names, func(n string) bool { return got[n].scrolls > 0 && n != "orphans" && n != "downloads" }) {
+			if slices.ContainsFunc(names, func(n string) bool { return got[n].scrolls > 0 }) {
 				t.Errorf("a dialog scrolls at %d px: %v", wd, got)
 			}
 		})

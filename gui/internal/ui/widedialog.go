@@ -61,6 +61,7 @@ type amDialog struct {
 	buttons    *gtk.Box // the bottom bar
 	narrowFns  []func(narrow bool)
 	breakpoint *adw.Breakpoint
+	parts      []gtk.Widgetter // the heading, the middle, the button bar (fitHeight)
 }
 
 // dialogResponse is one of a wide dialog's buttons.
@@ -120,6 +121,7 @@ func newWideDialog(heading string, width int) *amDialog {
 	view.SetContent(sc)
 	view.AddBottomBar(bar)
 	d.SetChild(view)
+	d.parts = []gtk.Widgetter{head, sc, bar}
 
 	// The dialog's height is its content's at the width it has. Left to
 	// libadwaita it is measured once, at the content width, so a bottom
@@ -129,9 +131,9 @@ func newWideDialog(heading string, width int) *amDialog {
 	// height is set to the content's natural height at the width it got;
 	// that height depends only on the width, so this settles at once. The
 	// window still caps it, and the middle scrolls beyond that.
-	sc.VAdjustment().ConnectChanged(func() {
-		post(func() { d.fitHeight(view) })
-	})
+	fit := func() { post(func() { d.fitHeight(view) }) }
+	sc.VAdjustment().ConnectChanged(fit)
+	view.ConnectMap(fit) // the first allocation can come before the map
 
 	// Under the breakpoint the buttons share the dialog's width (a bottom
 	// sheet's, in a narrow window) and the columns stack (columns).
@@ -156,19 +158,44 @@ func newWideDialog(heading string, width int) *amDialog {
 	return d
 }
 
-// fitHeight sets the dialog's content height to view's natural height at
-// the width view has now (newWideDialog).
+// show presents the dialog over win. A wide one first asks for the
+// window's whole height: libadwaita's own measure is at the content
+// width, and in a narrower dialog the heading and the buttons (wrapped)
+// can need more than that, which left the middle a negative height.
+// fitHeight shrinks it to its content once it has its width.
+func (d *amDialog) show(win *adw.ApplicationWindow) {
+	if d.alert == nil {
+		if h := win.Height(); h > 0 {
+			d.SetContentHeight(h)
+		}
+	}
+	d.Present(win)
+}
+
+// fitHeight sets the dialog's content height to its parts' natural
+// heights at the width view has now (newWideDialog): the heading, the
+// middle and the buttons, each measured at that width. Not the toolbar
+// view's own measure: it measures its bars at their natural width, one
+// line, so a heading or a button label that wraps (a long path, "Clear
+// everything under that folder" at 360 px) was left out, and the middle
+// got a negative height.
 func (d *amDialog) fitHeight(view *adw.ToolbarView) {
 	width := view.Width()
 	if width <= 0 || !view.Mapped() {
 		return
 	}
-	if minW, _, _, _ := view.Measure(gtk.OrientationHorizontal, -1); width < minW {
-		width = minW // asking for less than the minimum is a GTK warning
+	total := 0
+	for _, part := range d.parts {
+		b := gtk.BaseWidget(part)
+		w := width
+		if minW, _, _, _ := b.Measure(gtk.OrientationHorizontal, -1); w < minW {
+			w = minW // asking for less than the minimum is a GTK warning
+		}
+		_, nat, _, _ := b.Measure(gtk.OrientationVertical, w)
+		total += nat
 	}
-	_, nat, _, _ := view.Measure(gtk.OrientationVertical, width)
-	if nat > 0 && nat != d.ContentHeight() {
-		d.SetContentHeight(nat)
+	if total > 0 && total != d.ContentHeight() {
+		d.SetContentHeight(total)
 	}
 }
 
@@ -231,6 +258,13 @@ func (d *amDialog) AddResponse(id, label string) {
 		return
 	}
 	r := &dialogResponse{id: id, label: label, button: gtk.NewButtonWithLabel(label)}
+	// A long label ("Clear everything under that folder") wraps rather
+	// than make the button row wider than a narrow window; one line
+	// wherever it fits.
+	if l, ok := r.button.Child().(*gtk.Label); ok {
+		wrapNatural(l)
+		l.SetJustify(gtk.JustifyCenter)
+	}
 	r.button.ConnectClicked(func() {
 		if d.respond(id) {
 			d.ForceClose()
