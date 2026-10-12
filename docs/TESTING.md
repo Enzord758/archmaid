@@ -161,7 +161,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~135 s warm, so with no command it runs twelve parts of at most ~40 s, each with its own weston (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one on a 1600x1000 output: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run. Scenarios:
+~135 s warm, so with no command it runs thirteen parts of at most ~40 s, each with its own weston (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one and `TestGUIWideDialogsLong` another on a 1600x1000 output: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -351,7 +351,33 @@ it writes `real-wide-<width>-<dialog>.png`. `TestGUICovDialogClose`
 (`cov-dialog-close`) closes a wide confirm, pick list and report as
 Escape does (`adw_dialog_close`) and a confirm under the window's close:
 each sends its close response exactly once, and a clicked button's
-dialog responds once. `TestGUISmallWindow` accepts a heading in no
+dialog responds once. `TestGUICovDialogEdges` (`cov-dialog-edges`,
+`dialogedges_harness_test.go`) holds the contract's edges: Escape twice
+(in one main-loop turn and across two), a click while the dialog is
+closing (its `closed` comes at the start of the close animation; a real
+pointer no longer reaches the button then, the test clicks in code) and
+a click then Escape, a confirm, pick list and report withdrawn while
+open, a confirm withdrawn while closing and one withdrawn before it was
+drawn (nothing sent, no dialog left on screen), the password
+AlertDialog's order (closed, then the response; the typed password sent
+whole, the entry wiped) for a click, Escape twice then a click, Enter and
+a withdrawal, the window's close with a wide confirm open idle and
+mid-run (the dialog closes with its close response, the window stays,
+the next close asks), and a confirm arriving over the quit question
+(Escape answers the confirm; Stop and Quit under it sends nothing for
+it). For the wide dialogs it checks the dialog's own responses too, since
+`Window.answer` drops a second answer for a forgotten ID. A mutant
+without the once-guard fails it (no then yes), one without the `closed`
+bridge too. `TestGUIWideDialogsLong` (`widelong_harness_test.go`,
+scenario `wide-long`, its own part on the 1600x1000 output) opens a
+20-step gate, 300 orphans with a 500-line cascade, 200 long file names, a
+step confirm naming a long path, 80 services, a 40-finding report and an
+askpass named by a long path at 1460x930, 1460x500, 620x500 and 380x500:
+each sheet inside the window, its heading and buttons drawn inside it
+and (a wide dialog's) in no scrolled window, something in its middle
+scrolling in the short windows, nothing too wide, no GTK warning
+(`wide-long-<w>x<h>-<dialog>.png` with `ARCHMAID_GUI_SHOTS`).
+`TestGUISmallWindow` accepts a heading in no
 scrolled window at all (`scrolled=-1`: the wide orphans dialog's heading
 is in its top bar).
 
