@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/installed"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -53,15 +55,71 @@ func TestRefreshUpdatesPerRun(t *testing.T) {
 	}
 }
 
-// A refresh that errors is reported, not the run's failure.
-func TestRefreshUpdatesErrorIsReported(t *testing.T) {
+// A refresh that errors is one WARN line in the run's topgrade log: not a
+// Report (the TUI prints those on the terminal after it quits), not the
+// run's failure.
+func TestRefreshUpdatesErrorIsALogLine(t *testing.T) {
 	r := newRig(t, engine.Options{}, Deps{RefreshUpdates: func(context.Context) error { return os.ErrNotExist }},
 		action("q", shStep(steps.IDTopgrade, "true")))
 	evs := r.run("q", yes)
 	if fin := find[engine.Finished](t, evs); fin.Errs != 0 {
 		t.Errorf("Finished.Errs = %d, want 0", fin.Errs)
 	}
-	waitFor(t, "the report", func() bool { return strings.Contains(r.reports.text(), "file does not exist") })
+	waitFor(t, "the log line", func() bool {
+		s, _ := r.log.Read(logstore.Topgrade)
+		return strings.Contains(s, "WARN: Widget update count not refreshed: file does not exist")
+	})
+	r.d.Close() // the worker is done once Close returns
+	if s := r.reports.text(); s != "" {
+		t.Errorf("the failed refresh was reported: %q", s)
+	}
+}
+
+// Where systemctl isn't installed and neither is the check (the TUI over
+// ssh on a machine without the package's user unit, or CI): the real
+// RefreshUpdates leaves exactly one WARN line naming why, and nothing the
+// user sees.
+func TestRefreshUpdatesNoSystemctlIsQuiet(t *testing.T) {
+	bin := t.TempDir()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sh, filepath.Join(bin, "sh")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin) // sh for the step, no systemctl
+	old := installed.UpdatesScript
+	installed.UpdatesScript = filepath.Join(t.TempDir(), "archmaid-updates-check") // not there
+	t.Cleanup(func() { installed.UpdatesScript = old })
+	r := newRig(t, engine.Options{}, Deps{RefreshUpdates: RefreshUpdates}, action("q", shStep(steps.IDTopgrade, "true")))
+	evs := r.run("q", yes)
+	if fin := find[engine.Finished](t, evs); fin.Errs != 0 || fin.Outcome != engine.OutcomeCompleted {
+		t.Errorf("Finished = %+v, want a completed run", fin)
+	}
+	r.d.Close()
+	if s := r.reports.text(); s != "" {
+		t.Errorf("reported: %q", s)
+	}
+	s, _ := r.log.Read(logstore.Topgrade)
+	if strings.Count(s, "\n") != 1 || !strings.Contains(s, "WARN: Widget update count not refreshed: driver: updates check not started: systemctl:") ||
+		!strings.Contains(s, "executable file not found") {
+		t.Errorf("topgrade log = %q, want one WARN line saying systemctl isn't there", s)
+	}
+}
+
+// A WARN line that can't be written is reported, with why the refresh
+// failed.
+func TestRefreshUpdatesUnloggableIsReported(t *testing.T) {
+	r := newRig(t, engine.Options{}, Deps{
+		Log:            logstore.New(logstore.Options{Dir: "relative"}), // no state dir: every write fails
+		RefreshUpdates: func(context.Context) error { return os.ErrNotExist },
+	}, action("q", shStep(steps.IDTopgrade, "true")))
+	r.run("q", yes)
+	waitFor(t, "the report", func() bool {
+		return strings.Contains(r.reports.text(), "driver: writing the topgrade log") &&
+			strings.Contains(r.reports.text(), "the update count refresh failed: file does not exist")
+	})
 }
 
 // shims puts a systemctl that runs body first on PATH, logging its argv to

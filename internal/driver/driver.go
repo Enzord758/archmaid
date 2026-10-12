@@ -128,8 +128,9 @@ type Deps struct {
 	// RefreshUpdates is called (on a worker, never on the loop) once at
 	// the end of a real run whose topgrade step started
 	// (engine.RefreshUpdates); its context ends at Close. Both front ends
-	// set the package's RefreshUpdates; nil does nothing. An error goes to
-	// Report; it never fails the run.
+	// set the package's RefreshUpdates; nil does nothing. An error is one
+	// WARN line in the run's topgrade log, never a Report (the TUI prints
+	// those on the terminal after it quits); it never fails the run.
 	RefreshUpdates func(ctx context.Context) error
 
 	// Report is told what no Event carries: a log write that failed, a

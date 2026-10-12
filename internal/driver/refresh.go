@@ -31,9 +31,11 @@ const refreshTimeout = 5 * time.Second
 // RefreshUpdates is the Deps.RefreshUpdates both front ends set. It starts
 // the unit with `systemctl --user start --no-block` (a oneshot unit that
 // is already running is not started twice). If that fails (no unit, no
-// user manager) and installed.UpdatesScript exists, it starts the script in the background,
-// niced (19), and does not wait for it. Otherwise
-// it returns an error saying so; the Driver reports that as one line. It
+// user manager) and installed.UpdatesScript exists, it starts the script
+// in the background, niced (19), and does not wait for it. Otherwise it
+// returns an error saying so, which the Driver writes as one WARN line in
+// the run's topgrade log: on a machine without either (the TUI over ssh
+// without a user manager, a build without the package) nothing shows. It
 // never waits for the check itself, and ctx (the Driver's) ends a hung
 // systemctl.
 func RefreshUpdates(ctx context.Context) error {

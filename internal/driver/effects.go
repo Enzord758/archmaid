@@ -8,6 +8,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/helperclient"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -56,7 +57,7 @@ func (d *Driver) effect(e engine.Effect) {
 		if f := d.cfg.RefreshUpdates; f != nil {
 			d.goRun(func() {
 				if err := f(d.root); err != nil {
-					d.report(err)
+					d.refreshFailed(err)
 				}
 			})
 		}
@@ -94,6 +95,20 @@ func (d *Driver) writeLog(e engine.WriteLog) bool {
 		return false
 	}
 	return true
+}
+
+// refreshFailed records a RefreshUpdates that failed (no user manager or
+// unit and no installed check, as on a machine running the TUI over ssh;
+// a hung systemctl): one WARN line in the run's topgrade log, never a
+// Report, which the TUI prints on the terminal after it quits. The refresh
+// is best effort and the run is over. Only a failed log write is reported.
+// It runs on a worker: a Store is safe for that (Append opens its file
+// each time, O_APPEND).
+func (d *Driver) refreshFailed(err error) {
+	label := "Widget update count not refreshed: " + sanitize.OneLine(err.Error())
+	if lerr := d.cfg.Log.Append(logstore.Topgrade, "WARN", label, ""); lerr != nil {
+		d.report(fmt.Errorf("driver: writing the %s log: %w (the update count refresh failed: %v)", logstore.Topgrade, lerr, err))
+	}
 }
 
 // cancelPrefetch drops a running prefetch and reaps it.
