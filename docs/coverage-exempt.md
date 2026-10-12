@@ -1,6 +1,6 @@
 # Coverage exemptions (category E)
 
-Statements no test or run can reach, as measured at `8ae7202` (139 statements in 107 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
+Statements no test or run can reach, as measured at `9fe4b9d` (134 statements in 104 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
 
 Refreshing: after a code change that moves a listed block, re-run the measurement (docs/coverage-map.md, "How it was measured") and `scripts/covmap/report.py`; do not edit the tsv by hand.
 
@@ -8,7 +8,7 @@ Refreshing: after a code change that moves a listed block, re-run the measuremen
 
 | Recommendation | Means | Blocks | Statements | of which security code |
 |---|---|---|---|---|
-| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 83 | 105 | 44 |
+| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 80 | 100 | 41 |
 | `make-testable` | a small seam turns it into a unit test (A): the shared atomic-write helper, or a hook between a TOCTOU check and its use | 23 | 33 | 8 |
 | `remove` | dead code: delete the branch (a reviewer confirms it cannot be reached) | 1 | 1 | 0 |
 
@@ -50,7 +50,7 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 |---|---|---|---|---|
 | `internal/audit/result.go:186-186` | `packageNames` | 1 |  | only called with the gating (high) names, never none |
 
-## `keep-exempt` (105 statements)
+## `keep-exempt` (100 statements)
 
 | Where | Function | Stmts | Security | Why it can't run |
 |---|---|---|---|---|
@@ -59,27 +59,24 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `cmd/archmaid-helper/internal/helper/checks.go:135-135` | `acquireLock` | 1 | yes | flock(LOCK_EX|LOCK_NB) on a regular file just opened fails only with EWOULDBLOCK (busy, covered); ENOLCK/EBADF/EINTR are not producible |
 | `cmd/archmaid/main.go:33-34` | `main` | 1 |  | prctl(PR_SET_DUMPABLE) on our own process doesn't fail |
 | `cmd/archmaid/main.go:40-42` | `main` | 2 |  | tui.ActionEnv always fills every required field (Env.Validate is the guard for a future change) |
-| `gui/internal/polkitagent/polkitagent.go:181-182` | `Start` | 1 | yes | openPTY failing |
-| `gui/internal/polkitagent/polkitagent.go:185-188` | `Start` | 3 | yes | openPTY failing |
-| `gui/internal/polkitagent/polkitagent.go:247-250` | `Start` | 3 | yes | TIOCEXCL on the pty just opened can't fail |
-| `gui/internal/polkitagent/polkitagent.go:595-596` | `Agent.waitNoEcho` | 1 | yes | the termios read fails only on a closed pty |
-| `gui/internal/polkitagent/polkitagent.go:614-615` | `ioctl` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
-| `gui/internal/polkitagent/polkitagent.go:620-621` | `ioctl` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
-| `gui/internal/polkitagent/polkitagent.go:623-624` | `ioctl` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
-| `gui/internal/polkitagent/polkitagent.go:632-633` | `openPTY` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
-| `gui/internal/polkitagent/polkitagent.go:636-638` | `openPTY` | 2 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
-| `gui/internal/polkitagent/polkitagent.go:641-643` | `openPTY` | 2 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
-| `gui/internal/polkitagent/polkitagent.go:646-648` | `openPTY` | 2 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
+| `gui/internal/polkitagent/polkitagent.go:293-294` | `Start` | 1 | yes | openPTY failing |
+| `gui/internal/polkitagent/polkitagent.go:365-368` | `Start` | 3 | yes | TIOCEXCL on the pty just opened can't fail |
+| `gui/internal/polkitagent/polkitagent.go:713-714` | `Agent.waitNoEcho` | 1 | yes | the termios read fails only on a closed pty |
+| `gui/internal/polkitagent/polkitagent.go:732-733` | `ioctl` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
+| `gui/internal/polkitagent/polkitagent.go:738-739` | `ioctl` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
+| `gui/internal/polkitagent/polkitagent.go:741-742` | `ioctl` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
+| `gui/internal/polkitagent/polkitagent.go:750-751` | `openPTY` | 1 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
+| `gui/internal/polkitagent/polkitagent.go:754-756` | `openPTY` | 2 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
+| `gui/internal/polkitagent/polkitagent.go:759-761` | `openPTY` | 2 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
+| `gui/internal/polkitagent/polkitagent.go:764-766` | `openPTY` | 2 | yes | posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail |
 | `gui/internal/runview/stepline.go:51-52` | `Model.seqLine` | 1 |  | StepLine derives seq from viewLo and the run lengths, so it is always inside the view and the ring; the guard is for a future change |
 | `gui/internal/ui/dump.go:36-37` | `NoCoreFiles` | 1 |  | setrlimit/prctl on our own process don't fail |
 | `gui/internal/ui/dump.go:39-40` | `NoCoreFiles` | 1 |  | setrlimit/prctl on our own process don't fail |
 | `gui/internal/ui/dump.go:48-49` | `coreRlimit` | 1 |  | setrlimit/prctl on our own process don't fail |
 | `gui/internal/ui/logs.go:189-190` | `Window.newLogs.func` | 1 |  | GTK binds only positions the model holds, so i is always below len(p.rows) |
-| `gui/internal/ui/overview.go:377-378` | `Window.refreshLastRun` | 1 |  | the last-run cell is built before the first refresh, so lastRunExtras never returns nil |
 | `gui/internal/ui/secret.go:30-31` | `editableBytes` | 1 |  | the password entry is always a GtkEditable with a buffer |
 | `gui/internal/ui/style.go:39-40` | `loadStyle.func` | 1 |  | the embedded CSS parses; only a future GTK could report errors |
 | `gui/internal/ui/style.go:43-46` | `loadStyle.func` | 3 |  | the embedded CSS parses; only a future GTK could report errors |
-| `gui/internal/ui/timeline.go:134-135` | `Window.newRunPage.func` | 1 |  | ConnectBind always follows ConnectSetup, which stores the header in tl.headers |
 | `internal/audit/snapshot.go:76-77` | `Entry.UnmarshalJSON` | 1 |  | b starts with a quote and the outer decoder already validated the JSON, so the string always unmarshals |
 | `internal/audit/snapshot.go:177-178` | `WriteSnapshot` | 1 |  | json.MarshalIndent of map[string]Entry can't fail |
 | `internal/audit/snapshot.go:236-236` | `lockSnapshot` | 1 |  | flock(LOCK_EX|LOCK_NB) on an open regular file fails only with EWOULDBLOCK (handled) or EINTR |

@@ -286,6 +286,15 @@ title, starting at the title's x; above it at the line's end, the same
 distance from it on every row; no tag drawn taller than its own height;
 the hero's Run and Dry run first stacked at its full width when narrow
 (nothing under them but its padding), side by side when wide.
+`TestGUIMinWidthToggle` (`narrowtoggle_harness_test.go`, scenario
+`narrow-toggle`) crosses the breakpoint both ways (960, 500, 960, 500 px, the
+window resized live) with Run pages of 6, 12 and 18 steps started at each
+width, so the step headers made while narrow (only rows beyond the most any
+earlier run made are new widgets; the list view recycles the rest) come out
+under their titles, and `checkTags` runs after each move; the Overview's
+kicker follows too. `polkitagent/holders_real_test.go` runs the terminal-holder
+check on the real `/proc`: a child holding the pty is found, a zombie and a
+reaped child hold nothing.
 `ARCHMAID_GUI_NARROW_WIDTHS=380,960` runs both min-width tests at other
 widths, for screenshots (`ARCHMAID_GUI_SHOTS`).
 At each moment the window's content (the toast overlay) must measure no

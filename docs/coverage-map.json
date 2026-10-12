@@ -1,5 +1,5 @@
 {
- "base": "8ae7202e86b82379488b0c038c3b9652b7d75468",
+ "base": "9fe4b9d43183f269958e3747287c6219a05972c4",
  "measured": "scripts/cover-report.sh with COVER_GUI=1: unit (cover-unit.sh) + e2e tapes + GUI headless, merged",
  "categories": {
   "A": "unit",
@@ -10,8 +10,8 @@
  },
  "totals": {
   "core": {
-   "stmts": 5444,
-   "covered": 5334,
+   "stmts": 5478,
+   "covered": 5368,
    "exempt": 66
   },
   "helper": {
@@ -20,9 +20,9 @@
    "exempt": 3
   },
   "gui": {
-   "stmts": 4263,
-   "covered": 4124,
-   "exempt": 36
+   "stmts": 4780,
+   "covered": 4639,
+   "exempt": 31
   },
   "testonly": {
    "stmts": 510,
@@ -30,9 +30,9 @@
    "exempt": 34
   },
   "all": {
-   "stmts": 11100,
-   "covered": 10625,
-   "exempt": 139
+   "stmts": 11651,
+   "covered": 11174,
+   "exempt": 134
   }
  },
  "work_packages": {
@@ -56,19 +56,19 @@
   },
   "4": {
    "name": "Leaf packages and the polkit agent",
-   "stmts": 76,
-   "security_stmts": 49,
+   "stmts": 79,
+   "security_stmts": 52,
    "role": "performance-QA (polkitagent, realdriver, downloads: security)"
   },
   "5": {
    "name": "GUI logs, timeline and signals pages",
-   "stmts": 1,
+   "stmts": 3,
    "security_stmts": 0,
    "role": "GUI"
   },
   "6": {
    "name": "GUI windows, dialogs, settings, run view",
-   "stmts": 4,
+   "stmts": 6,
    "security_stmts": 0,
    "role": "GUI"
   },
@@ -286,7 +286,7 @@
   },
   {
    "file": "cmd/archmaid-helper/main.go",
-   "lines": "23-24",
+   "lines": "25-26",
    "func": "main",
    "stmts": 8,
    "cat": "B",
@@ -297,7 +297,7 @@
   },
   {
    "file": "cmd/archmaid-helper/main.go",
-   "lines": "25-27",
+   "lines": "27-29",
    "func": "main",
    "stmts": 8,
    "cat": "B",
@@ -308,7 +308,7 @@
   },
   {
    "file": "cmd/archmaid-helper/main.go",
-   "lines": "28-32",
+   "lines": "30-34",
    "func": "main",
    "stmts": 8,
    "cat": "B",
@@ -319,7 +319,7 @@
   },
   {
    "file": "cmd/archmaid-helper/main.go",
-   "lines": "33-34",
+   "lines": "35-36",
    "func": "main",
    "stmts": 1,
    "cat": "B",
@@ -330,7 +330,7 @@
   },
   {
    "file": "cmd/archmaid-helper/main.go",
-   "lines": "35-35",
+   "lines": "37-37",
    "func": "main",
    "stmts": 1,
    "cat": "B",
@@ -374,8 +374,8 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "133-134",
-   "func": "Agent.otherHolders",
+   "lines": "163-164",
+   "func": "fileIDOf",
    "stmts": 1,
    "cat": "A",
    "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
@@ -385,8 +385,8 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "170-171",
-   "func": "Start",
+   "lines": "173-174",
+   "func": "fileIDOf",
    "stmts": 1,
    "cat": "A",
    "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
@@ -396,85 +396,8 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "177-178",
+   "lines": "282-283",
    "func": "Start",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
-   "home": "gui/internal/polkitagent/polkitagent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "181-182",
-   "func": "Start",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "openPTY failing",
-   "recommend": "keep-exempt",
-   "note": "keep",
-   "security": true
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "185-188",
-   "func": "Start",
-   "stmts": 3,
-   "cat": "E",
-   "reason": "openPTY failing",
-   "recommend": "keep-exempt",
-   "note": "keep",
-   "security": true
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "235-238",
-   "func": "Start",
-   "stmts": 4,
-   "cat": "A",
-   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
-   "home": "gui/internal/polkitagent/polkitagent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "247-250",
-   "func": "Start",
-   "stmts": 3,
-   "cat": "E",
-   "reason": "TIOCEXCL on the pty just opened can't fail",
-   "recommend": "keep-exempt",
-   "note": "keep",
-   "security": true
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "255-255",
-   "func": "Start",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
-   "home": "gui/internal/polkitagent/polkitagent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "256-257",
-   "func": "Start",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
-   "home": "gui/internal/polkitagent/polkitagent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "268-268",
-   "func": "discard",
    "stmts": 1,
    "cat": "A",
    "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
@@ -485,6 +408,105 @@
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
    "lines": "289-290",
+   "func": "Start",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
+   "home": "gui/internal/polkitagent/polkitagent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "293-294",
+   "func": "Start",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "openPTY failing",
+   "recommend": "keep-exempt",
+   "note": "keep",
+   "security": true
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "297-300",
+   "func": "Start",
+   "stmts": 3,
+   "cat": "A",
+   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
+   "home": "gui/internal/polkitagent/polkitagent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "303-306",
+   "func": "Start",
+   "stmts": 3,
+   "cat": "A",
+   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
+   "home": "gui/internal/polkitagent/polkitagent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "353-356",
+   "func": "Start",
+   "stmts": 4,
+   "cat": "A",
+   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
+   "home": "gui/internal/polkitagent/polkitagent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "365-368",
+   "func": "Start",
+   "stmts": 3,
+   "cat": "E",
+   "reason": "TIOCEXCL on the pty just opened can't fail",
+   "recommend": "keep-exempt",
+   "note": "keep",
+   "security": true
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "373-373",
+   "func": "Start",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
+   "home": "gui/internal/polkitagent/polkitagent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "374-375",
+   "func": "Start",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
+   "home": "gui/internal/polkitagent/polkitagent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "386-386",
+   "func": "discard",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
+   "home": "gui/internal/polkitagent/polkitagent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "407-408",
    "func": "Agent.Stop.func",
    "stmts": 2,
    "cat": "A",
@@ -495,7 +517,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "427-428",
+   "lines": "545-546",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -506,7 +528,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "453-454",
+   "lines": "571-572",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -517,7 +539,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "471-472",
+   "lines": "589-590",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -528,7 +550,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "482-482",
+   "lines": "600-600",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -539,7 +561,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "495-496",
+   "lines": "613-614",
    "func": "Agent.sendEOF",
    "stmts": 1,
    "cat": "A",
@@ -550,7 +572,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "530-530",
+   "lines": "648-648",
    "func": "Prompt.Err",
    "stmts": 1,
    "cat": "A",
@@ -561,7 +583,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "572-574",
+   "lines": "690-692",
    "func": "Prompt.Answer.func",
    "stmts": 2,
    "cat": "A",
@@ -572,7 +594,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "595-596",
+   "lines": "713-714",
    "func": "Agent.waitNoEcho",
    "stmts": 1,
    "cat": "E",
@@ -583,40 +605,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "600-600",
-   "func": "Agent.waitNoEcho",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
-   "home": "gui/internal/polkitagent/polkitagent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "601-602",
-   "func": "Agent.waitNoEcho",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
-   "home": "gui/internal/polkitagent/polkitagent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "603-603",
-   "func": "Agent.waitNoEcho",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject",
-   "home": "gui/internal/polkitagent/polkitagent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "614-615",
+   "lines": "732-733",
    "func": "ioctl",
    "stmts": 1,
    "cat": "E",
@@ -627,7 +616,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "620-621",
+   "lines": "738-739",
    "func": "ioctl",
    "stmts": 1,
    "cat": "E",
@@ -638,7 +627,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "623-624",
+   "lines": "741-742",
    "func": "ioctl",
    "stmts": 1,
    "cat": "E",
@@ -649,7 +638,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "632-633",
+   "lines": "750-751",
    "func": "openPTY",
    "stmts": 1,
    "cat": "E",
@@ -660,7 +649,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "636-638",
+   "lines": "754-756",
    "func": "openPTY",
    "stmts": 2,
    "cat": "E",
@@ -671,7 +660,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "641-643",
+   "lines": "759-761",
    "func": "openPTY",
    "stmts": 2,
    "cat": "E",
@@ -682,7 +671,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "646-648",
+   "lines": "764-766",
    "func": "openPTY",
    "stmts": 2,
    "cat": "E",
@@ -693,7 +682,7 @@
   },
   {
    "file": "gui/internal/realdriver/agent.go",
-   "lines": "57-58",
+   "lines": "59-60",
    "func": "Wiring.helper.func",
    "stmts": 2,
    "cat": "A",
@@ -704,7 +693,7 @@
   },
   {
    "file": "gui/internal/realdriver/agent.go",
-   "lines": "60-61",
+   "lines": "62-63",
    "func": "Wiring.helper.func",
    "stmts": 2,
    "cat": "A",
@@ -715,7 +704,7 @@
   },
   {
    "file": "gui/internal/realdriver/agent.go",
-   "lines": "70-71",
+   "lines": "72-73",
    "func": "Wiring.helper.func",
    "stmts": 2,
    "cat": "A",
@@ -726,7 +715,7 @@
   },
   {
    "file": "gui/internal/realdriver/agent.go",
-   "lines": "74-76",
+   "lines": "76-78",
    "func": "Wiring.helper.func",
    "stmts": 2,
    "cat": "A",
@@ -737,7 +726,7 @@
   },
   {
    "file": "gui/internal/realdriver/agent.go",
-   "lines": "95-96",
+   "lines": "101-102",
    "func": "Wiring.startAgent",
    "stmts": 1,
    "cat": "A",
@@ -748,18 +737,7 @@
   },
   {
    "file": "gui/internal/realdriver/agent.go",
-   "lines": "99-100",
-   "func": "Wiring.startAgent",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config",
-   "home": "gui/internal/realdriver/agent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/realdriver/agent.go",
-   "lines": "103-104",
+   "lines": "105-106",
    "func": "Wiring.startAgent",
    "stmts": 1,
    "cat": "A",
@@ -1176,6 +1154,17 @@
    "security": false
   },
   {
+   "file": "gui/internal/ui/failed.go",
+   "lines": "176-177",
+   "func": "recordFolder",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 5
+  },
+  {
    "file": "gui/internal/ui/launcher.go",
    "lines": "37-37",
    "func": "gtkLauncher.launch",
@@ -1339,14 +1328,25 @@
   },
   {
    "file": "gui/internal/ui/overview.go",
-   "lines": "377-378",
+   "lines": "247-248",
+   "func": "Window.stackButtons",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/overview.go",
+   "lines": "499-500",
    "func": "Window.refreshLastRun",
    "stmts": 1,
-   "cat": "E",
-   "reason": "the last-run cell is built before the first refresh, so lastRunExtras never returns nil",
-   "recommend": "keep-exempt",
-   "note": "keep: fail-closed",
-   "security": false
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
   },
   {
    "file": "gui/internal/ui/secret.go",
@@ -1423,18 +1423,18 @@
   },
   {
    "file": "gui/internal/ui/timeline.go",
-   "lines": "134-135",
+   "lines": "135-136",
    "func": "Window.newRunPage.func",
    "stmts": 1,
-   "cat": "E",
-   "reason": "ConnectBind always follows ConnectSetup, which stores the header in tl.headers",
-   "recommend": "keep-exempt",
-   "note": "keep: fail-closed",
-   "security": false
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 5
   },
   {
    "file": "gui/internal/ui/window.go",
-   "lines": "137-137",
+   "lines": "147-147",
    "func": "newWindow.func",
    "stmts": 1,
    "cat": "A",
