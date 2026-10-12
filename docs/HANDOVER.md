@@ -358,8 +358,8 @@ comments and `git log`; this is the "read before you touch it" list.
     agent and registering the next, a request goes to the desktop's dialog
     without the status-line notice; it fails safe.
 
-    *Residual, for the owner to decide (Dev 3, from Dev 2's #77 finding
-    and polkit 127's source):* a request of ours that reaches the spent
+    *Accepted residual (owner, 2026-10-12; Dev 3, from Dev 2's #77
+    finding and polkit 127's source):* a request of ours that reaches the spent
     pkttyagent is refused without any dialog. **What:** polkitd allows one
     agent per subject and routes our pkexec's request to whichever agent is
     registered for archmaid-gui when it arrives. The text listener serves
@@ -386,8 +386,9 @@ comments and `git log`; this is the "read before you touch it" list.
     refused without a dialog of ours would close the user-visible part, but
     it can't tell that case from a refusal at the desktop's dialog in the
     gap above (it would ask again right after the user cancelled there) and
-    it bypasses the engine's faillock read; not small. **Recommendation:**
-    accept the refusal; if the hidden row matters, cancel a foreign request
+    it bypasses the engine's faillock read; not small. **Decision:** the
+    owner accepted the refusal and its hidden row on 2026-10-12. If the
+    hidden row ever matters, cancel a foreign request
     at its password prompt by stopping pkttyagent instead of an end of file
     (its thread is still blocked in `getc`, so our queued request is never
     served by a spent listener: refused without PAM, no row), which also
@@ -954,9 +955,10 @@ to:
   asking for the password itself before the helper step (su-checked, then
   kept and handed to the agent). Not built: it would ask even when polkit
   wouldn't (a kept `auth_admin_keep` authorization, a rule that allows the
-  action), and it changes when the dialog appears. *For the owner to
-  decide*; my recommendation (Dev 3) is to keep the row as a documented
-  cost: the last-attempt warning already says a cancelled dialog counts.
+  action), and it changes when the dialog appears. *Decided by the owner
+  on 2026-10-12: keep the row as a documented cost* (Dev 3's
+  recommendation): the last-attempt warning already says a cancelled
+  dialog counts.
 - **Read the faillock state before every password or polkit prompt.**
   `privilege.FaillockStatus(user, now)` returns `Status{Failures, Locked,
   Unlock, Deny}` as pam_faillock would judge it, read-only and without root:
