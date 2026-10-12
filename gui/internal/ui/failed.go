@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/logview"
@@ -23,12 +24,14 @@ import (
 
 // failedActions is a step header's row of buttons.
 type failedActions struct {
-	box              *gtk.Box
+	box              *adw.WrapBox // wraps: three buttons are 476 px in a row
 	again, log, copy *gtk.Button
 }
 
 func (w *Window) newFailedActions(h *stepHeader) *failedActions {
-	a := &failedActions{box: gtk.NewBox(gtk.OrientationHorizontal, 6)}
+	a := &failedActions{box: adw.NewWrapBox()}
+	a.box.SetChildSpacing(6)
+	a.box.SetLineSpacing(6)
 	a.box.AddCSSClass("am-step-actions")
 	a.box.SetVisible(false)
 	a.again = gtk.NewButton()

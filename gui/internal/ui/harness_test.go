@@ -453,7 +453,7 @@ func runChild(scenario, path string) int {
 	measuring := false
 	opts.hook = func(w *Window) {
 		closeSoon := func() { glib.TimeoutAdd(50, func() { w.win.Close() }) }
-		if scenario == "real-narrow" { // minwidth_harness_test.go
+		if scenario == "real-narrow" || scenario == "narrow-states" { // minwidth_harness_test.go, minwidth_states_harness_test.go
 			wd, _ := strconv.Atoi(os.Getenv(envNarrowW))
 			w.win.SetDefaultSize(wd, narrowH)
 			// A positive control for the test's stderr capture: broken

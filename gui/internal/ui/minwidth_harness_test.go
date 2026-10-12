@@ -117,6 +117,9 @@ func narrowMeasure(w *Window, moment string) string {
 	for _, d := range w.dialogs {
 		wide = append(wide, tooWide(d, width)...)
 	}
+	if w.quitDialog != nil {
+		wide = append(wide, tooWide(w.quitDialog, width)...)
+	}
 	for _, x := range wide {
 		s += "\n  too wide: " + x
 	}

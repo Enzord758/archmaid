@@ -171,6 +171,7 @@ func planRail(plan []engine.PlanStep, notes []string) gtk.Widgetter {
 		title.SetXAlign(0)
 		title.SetHExpand(true)
 		title.SetWrap(true)
+		title.SetWrapMode(pango.WrapWordChar) // a long package name breaks inside the word
 		row.Append(title)
 		for _, t := range []struct {
 			on         bool
@@ -216,6 +217,11 @@ func itemList(title string, items []string, destructive bool) gtk.Widgetter {
 	// can still be selected and copied with the mouse, and the default
 	// response keeps the focus.
 	l.SetFocusable(false)
+	// Wrapped, not cut: one name per line, a long one broken inside the
+	// word (a scrolled window that never scrolls sideways asks for the
+	// label's whole width otherwise).
+	l.SetWrap(true)
+	l.SetWrapMode(pango.WrapWordChar)
 	l.AddCSSClass("monospace")
 	if destructive {
 		l.AddCSSClass("error")

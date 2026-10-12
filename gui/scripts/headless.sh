@@ -23,7 +23,7 @@ cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
 # The whole display suite takes ~135 s, past the bound, so the default runs
-# it in ten parts of at most ~40 s, each with its own weston and timeout:
+# it in eleven parts of at most ~40 s, each with its own weston and timeout:
 # the prompts, the real Driver and Stop, the Full Cleanup and the shimmed
 # password and services scenarios, the engine stopping and the instance
 # check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
@@ -36,6 +36,7 @@ if [[ $# -eq 0 ]]; then
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
 	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards)$'
 	tones='^TestGUI(LastRunTones|AuditRerun)$'
+	states='^TestGUIMinWidthStates$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
@@ -50,10 +51,11 @@ if [[ $# -eq 0 ]]; then
 	"$self" go test -tags shots -count=1 -v -run "$stops" ./internal/ui
 	"$self" go test -tags shots -count=1 -v -run "$narrow" ./internal/ui
 	"$self" go test -tags shots -count=1 -v -run "$tones" ./internal/ui
+	"$self" go test -tags shots -count=1 -v -run "$states" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$starts|$cov|$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$starts|$cov|$perf" ./internal/ui
 fi
 
 # A private runtime dir for weston's socket (CI containers have none, and

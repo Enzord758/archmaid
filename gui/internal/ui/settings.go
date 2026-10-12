@@ -279,6 +279,7 @@ func errorLabel() *gtk.Label {
 	l.AddCSSClass("error")
 	l.SetXAlign(0)
 	l.SetWrap(true)
+	l.SetWrapMode(pango.WrapWordChar) // a path with no break in it wraps inside it
 	l.SetMarginTop(6)
 	l.SetVisible(false)
 	return l

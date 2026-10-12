@@ -161,7 +161,7 @@ dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). weston and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~135 s warm, so with no command it runs ten parts of at most ~40 s, each with its own weston (the coverage scenarios are one part); CI sets 600), so nothing outlives the run. Scenarios:
+~135 s warm, so with no command it runs eleven parts of at most ~40 s, each with its own weston (the coverage scenarios are one part); CI sets 600), so nothing outlives the run. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -284,6 +284,22 @@ shrink to 360 px whatever its content asks; content wider than that is
 cut off on the right and logged as "AdwToastOverlay … exceeds
 AdwApplicationWindow width". Stub content can't stand in: the stub has no
 plan, so the hero has no kicker or step list.
+
+`TestGUIMinWidthStates` (`minwidth_states_harness_test.go`, scenario
+`narrow-states`, 360 and 480 px, its own part of `headless.sh`) measures the
+states that carry long text, fed to the window as events: a failed run with a
+long error, a 90-letter word and a long path in step titles, rows and
+output, a refused row ("no polkit agent is running..."), a waiting and a
+locked-out row, a long busy line and notice, a discovery result (nothing
+found, failed) with long unit names, every dialog (the gate with its plan,
+the step, orphans, downloads and audit-gate confirms, the three password
+dialogs, the services pick, the audit report, the quit question), Settings
+with long values and errors, the last-run cell with a long issue and the Logs
+page (every category, long lines and the unreadable row). A new state that
+carries user or system text (a path, a package or unit name, an error)
+belongs there. The usual cause of a failure is a wrapping label whose wrap
+mode is `WORD`: a word longer than the window is its minimum width, so
+labels that can hold one use `WrapWordChar`.
 
 The stub is only ever `--stub`: `TestParseLaunch` (plain Go) checks that
 `ARCHMAID_GUI_STUB` and any `ARCHMAID_GUI_SCRIPT` leave a launch without it

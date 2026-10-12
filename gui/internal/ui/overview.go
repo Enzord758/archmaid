@@ -7,6 +7,7 @@ import (
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/Enzord758/archmaid/gui/internal/logview"
 	"github.com/Enzord758/archmaid/gui/internal/overview"
@@ -275,6 +276,7 @@ func (w *Window) newLastRun() gtk.Widgetter {
 	w.lastIssues = gtk.NewLabel("")
 	w.lastIssues.SetXAlign(0)
 	w.lastIssues.SetWrap(true)
+	w.lastIssues.SetWrapMode(pango.WrapWordChar) // an error's path wraps inside itself
 	w.lastIssues.AddCSSClass("am-cell-desc")
 	w.lastTitle.SetMaxWidthChars(24)
 	w.lastIssues.SetMaxWidthChars(30)

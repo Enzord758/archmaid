@@ -278,6 +278,7 @@ func (w *Window) newStepHeader() (*stepHeader, *gtk.Box) {
 	h.sub = gtk.NewLabel("")
 	h.sub.SetXAlign(1)
 	h.sub.SetWrap(true)
+	h.sub.SetWrapMode(pango.WrapWordChar) // an error that is one long word wraps inside it
 	h.sub.SetUseMarkup(false)
 	h.sub.AddCSSClass("am-step-sub")
 	// The title, then the root tag and the state line: at the end of the

@@ -3,6 +3,7 @@ package ui
 import (
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
+	"github.com/diamondburned/gotk4/pkg/pango"
 )
 
 // A line of a title and its tags ("root", "asks", a step's state): on one
@@ -18,6 +19,9 @@ import (
 // gives it its natural width wraps it at every word.
 func wrapNatural(l *gtk.Label) {
 	l.SetWrap(true)
+	// A word longer than the line (a package name, a path) breaks inside
+	// the word: by default its length is the label's minimum width.
+	l.SetWrapMode(pango.WrapWordChar)
 	l.SetNaturalWrapMode(gtk.NaturalWrapNone)
 }
 
