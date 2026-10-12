@@ -840,6 +840,16 @@ func runChild(scenario, path string) int {
 					rep.EndLines = append(rep.EndLines, w.model.Lines)
 				}
 				if scenario == "clear-rerun" || scenario == "audit-rerun" || scenario == "real-failed-decline" {
+					// The flush that finished may have queued its fold
+					// (timeline.go: fold waits for an idle after the
+					// batch); the page is what it shows once that ran.
+					// Captured before it, a run whose last steps and
+					// Finished came in one batch still had a step open:
+					// the failed-decline flake ("lines=5" then "lines=3"
+					// for the same page, under load; task #96).
+					if w.tl.foldQueued {
+						w.foldNow()
+					}
 					rep.Pages = append(rep.Pages, runPage(w))
 					rep.Heads = append(rep.Heads, fmt.Sprintf("prev=%v title=%q", w.tl.prev.IsVisible(), w.shell.title.Label()))
 				}
