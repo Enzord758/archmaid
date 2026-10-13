@@ -102,17 +102,29 @@ func openPty(cols int) (master, slave *os.File, err error) {
 	return m, os.NewFile(uintptr(sfd), "pty"), nil
 }
 
+// Seams: a test makes TIOCGPTPEER fail (a kernel before 4.13) and sees
+// how the slave is then opened by name.
+var (
+	ptyPeerIoctl = func(fd int, flags uintptr) (int, error) {
+		s, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), unix.TIOCGPTPEER, flags)
+		if errno != 0 {
+			return -1, errno
+		}
+		return int(s), nil
+	}
+	ptyOpenByName = unix.Open
+)
+
 // peer opens the slave of master fd: TIOCGPTPEER (Linux 4.13), else by its
 // /dev/pts name, for writing only and never as a controlling terminal.
 func peer(fd int) (int, error) {
 	flags := uintptr(unix.O_WRONLY | unix.O_NOCTTY | unix.O_CLOEXEC)
-	s, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), unix.TIOCGPTPEER, flags)
-	if errno == 0 {
-		return int(s), nil
+	if s, err := ptyPeerIoctl(fd, flags); err == nil {
+		return s, nil
 	}
 	n, err := unix.IoctlGetUint32(fd, unix.TIOCGPTN)
 	if err != nil {
 		return -1, err
 	}
-	return unix.Open("/dev/pts/"+strconv.FormatUint(uint64(n), 10), int(flags), 0)
+	return ptyOpenByName("/dev/pts/"+strconv.FormatUint(uint64(n), 10), int(flags), 0)
 }

@@ -1,12 +1,15 @@
 package proc
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // ptyFacts is what a child under Options.Pty sees, one fact per line. The
@@ -87,6 +90,9 @@ func TestPtyPagerReadFailsAtOnce(t *testing.T) {
 // open, even without O_NOCTTY, never makes it the controlling terminal
 // (the kernel wants read access for that). /dev/tty still fails.
 func TestPtyReopenByNameNeverControls(t *testing.T) {
+	if unix.Geteuid() == 0 {
+		t.Skip("root opens a mode 0200 slave for reading: rdwr=permission denied holds for others only")
+	}
 	lines := probe(t, "reopen")
 	// (The test binary adds its own lines: PASS, and a coverage figure
 	// under -cover.)
@@ -233,5 +239,42 @@ func TestNextMergesReplace(t *testing.T) {
 	b, _ = Next(ch, nil, 16)
 	if b.Replace != 1 || strings.Join(b.Lines, ",") != "z,w" {
 		t.Fatalf("batch %+v", b)
+	}
+}
+
+// TestPtyPeerFallbackOpensByName (review #141): where TIOCGPTPEER fails
+// (a kernel before 4.13), peer opens /dev/pts/N by name, still write-only
+// and O_NOCTTY (a read-write open by a session leader could make the pty
+// its controlling terminal), and the slave is as with the ioctl.
+func TestPtyPeerFallbackOpensByName(t *testing.T) {
+	ioctl, open := ptyPeerIoctl, ptyOpenByName
+	t.Cleanup(func() { ptyPeerIoctl, ptyOpenByName = ioctl, open })
+	ptyPeerIoctl = func(int, uintptr) (int, error) { return -1, errors.New("no TIOCGPTPEER") }
+	var name string
+	var flags int
+	ptyOpenByName = func(path string, mode int, perm uint32) (int, error) {
+		name, flags = path, mode
+		return open(path, mode, perm)
+	}
+	m, slave, err := openPty(80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	defer slave.Close()
+	if !strings.HasPrefix(name, "/dev/pts/") {
+		t.Fatalf("the slave was opened as %q, want a /dev/pts/N name", name)
+	}
+	if want := unix.O_WRONLY | unix.O_NOCTTY | unix.O_CLOEXEC; flags != want {
+		t.Errorf("open flags %#x, want O_WRONLY|O_NOCTTY|O_CLOEXEC %#x", flags, want)
+	}
+	if fl, err := unix.FcntlInt(slave.Fd(), unix.F_GETFL, 0); err != nil || fl&unix.O_ACCMODE != unix.O_WRONLY {
+		t.Errorf("slave flags %#x (%v), want write-only", fl, err)
+	}
+	if _, err := unix.Read(int(slave.Fd()), make([]byte, 1)); err != unix.EBADF {
+		t.Errorf("read of the slave: %v, want EBADF", err)
+	}
+	if fi, err := slave.Stat(); err != nil || fi.Mode().Perm() != slaveMode {
+		t.Errorf("slave mode %v (%v), want %#o", fi, err, slaveMode)
 	}
 }

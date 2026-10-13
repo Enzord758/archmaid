@@ -197,7 +197,9 @@ comments and `git log`; this is the "read before you touch it" list.
   is what it drew there last, so it can redraw an error line it printed
   away (never another step's output: one `vt.Screen` per child), and the
   dearest input (a line-wide `ESC[P`/`ESC[@`) costs about 0.16 µs per byte
-  (`docs/design/run-pty.md`, "Cost"). The pty is only in `internal/proc/pty.go` and only `Start` opens
+  (`docs/design/run-pty.md`, "Cost").
+
+  The pty is only in `internal/proc/pty.go` and only `Start` opens
   it (`TestChildrenNeverRunOnATerminal`): `Query`'s parsed commands keep
   pipes. The TUI never gets it (`TestTUIDoesNotDetach`). A tool that asks
   for a key once stdout is a terminal (topgrade's "Retry?" after a failed
