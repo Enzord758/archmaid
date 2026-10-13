@@ -611,7 +611,25 @@ test can delete your files or need root.
    script inherits the traps. `PATH` can't catch an absolute path, so
    `TestNoAbsolutePrivilegedExec` rejects any Go string literal naming one of
    the privileged binaries under a system dir (`/usr/bin/sudo`…) outside a short
-   allow-list of literals that are only compared, never run. archmaid-helper
+   allow-list of literals that are only compared, never run.
+   **archmaid's own privileged programs** (`su`, `sudo`, `pkexec`,
+   `pkttyagent`, `topgrade`) run by absolute `/usr/bin` path in the product
+   (`internal/sysbin`; HANDOVER.md, "archmaid doesn't trust PATH for
+   privilege"). `internal/testenv`'s `init` sets each back to its bare name
+   in every process of a test binary, a re-exec'd child that never calls
+   `Run` (the GUI harness's windows, the askpass relays) included, so the
+   traps and a test's own shims decide exactly as before; `Run` fails the
+   package if one is absolute when it starts. A test that proves a call
+   site uses the absolute path points the variable at a shim of its own
+   outside `PATH` (`testenv.UseSysbin`) with decoys first on `PATH`
+   (`testenv.Decoys`), and must not run in parallel. The e2e harness
+   builds the real binary with them bare (`-ldflags -X`, which
+   `TestE2EBuildsBareSysbin` keeps complete and `run.sh` checks with
+   `go version -m`); `check.sh` fails a main package that links
+   `internal/testenv` (its init would make the product trust `PATH` again)
+   and a PKGBUILD or cover build that names `sysbin`.
+   `TestNoBarePrivilegedExec` keeps the bare names out of every exec call in
+   product code. archmaid-helper
    runs `/usr/bin/pacman` and friends by absolute path (as root, under
    pkexec); its verb tests use a fake `Runner` and never execute them, and
    only the `ExecRunner` tests run real, harmless binaries (`env`, `cat`,

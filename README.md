@@ -116,9 +116,16 @@ binary would shadow the package's.
   name, never the kept password. Every answer is checked with `su` first,
   so a wrong password costs no `pam_faillock` attempt. The GUI reads the
   faillock state first: on a locked account it doesn't ask, and when one
-  more failure would lock the account it warns you. The details and the
-  trust model are in [`docs/HANDOVER.md`](docs/HANDOVER.md) ("The GUI
-  keeps the run's password").
+  more failure would lock the account it warns you. If topgrade's `PATH`
+  has a `sudo`, `su`, `pkexec`, `doas`, `run0`, `please` or `sudo-rs`
+  (or a relative entry) before `/usr/bin/sudo`, the GUI keeps nothing
+  that run: every prompt asks you, and the run's output and topgrade log
+  name the file. The details and the trust model are in
+  [`docs/HANDOVER.md`](docs/HANDOVER.md) ("The GUI keeps the run's
+  password", "archmaid doesn't trust PATH for privilege").
+- **Both.** archmaid itself runs `su`, `sudo`, `pkexec`, `pkttyagent` and
+  `topgrade` from `/usr/bin`, never from your `PATH`, so a program of that
+  name earlier on `PATH` is never handed your password.
 
 ## Logs and state
 

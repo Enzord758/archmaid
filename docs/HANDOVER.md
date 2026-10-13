@@ -61,6 +61,7 @@ charmbracelet, except `internal/tui`, and any that imports gotk4):
 | `internal/actions` | the menu as data: `Menu []Action` (`ID`, `Label`, `Icon`, `Gate`, `Busy`, `Steps func(Env) []steps.Step` or `Discover func(ctx, Env) Discovery`, `Record` — the discovery's log category), `ByID`; the queues (Full Cleanup, Run topgrade, Clear user cache), the orphan probe, Repair's user scan and root recheck, the services discovery and `DisableUnits`, the downloads discovery. `Discovery` is a typed union: `Notice{Text, Err, Details, Log}` (ends the action: nothing found, or with `Err` the look failed), `Pending`, `NeedsSelection{Items, Steps}`, `Report{Text, Accept}` (`Accept func() error` accepts the flagged findings, nil when there is nothing to accept), `NeedsRoot{Items, Busy, AuthFailed, Rescan}`; `Pending`, `NeedsSelection` and `NeedsRoot` carry `Checked{Summary, Details, Log}`, what the discovery looked at (see "The discovery record"). `Env` carries the run's flags and what still lives in the TUI, as func values: the AUR audit (`AuditStep`, `AuditReport`) and the downloads delete step (`Downloads`, `DeleteDownloads`). Those four are required (a nil one panics mid-action); `Env.Validate` names any left out, and the TUI's `main` calls it on `actionEnv()` at startup. `DryRun`, `LookPath` and `RepairWorkers` may stay zero |
 | `internal/engine` | the run logic as a state machine with no IO, shared by the TUI and the GUI. **API frozen at E0: changes after this are additive only** (new types, fields, constants; nothing renamed, removed or given a new meaning). The package doc is the contract: event ordering within a step, prompt IDs (stale ones ignored), that only `OutputChunk` may be coalesced or dropped (by a Driver, never the engine) and that no Event carries a password. `Session` (`New(Options{DryRun, Now, Env, Auth})`, checked by `Options.Validate`; `Start`, `Confirm`, `SubmitPassword`, `CancelPrompt`, `Select`, `Abort`, `Handle(Input)`, each returning `Output{Events, Effects}`) runs, as of E1–E5, an action's discovery (a notice, a queue, a pick list or a report) and the whole queue core: the sudo probe and the proceed-gate, step confirms, steps' output and results, the logging policy, steps a result inserts (`InsertNext`) or gates (`ConfirmNext`, failing closed on a refused result), hyprpm kept last, the last-run record; auth (`auth.go`: the up-front password with three attempts and the give-up that refuses the queue's `NeedsPriv` steps, the faillock read before the prompt and before each polkit helper step — a locked account refuses the helper step without a dialog —, Repair's `NeedsRoot` probe/password/rescan, `WaitPolkit` until `PrivilegeGranted` or a `NotGranted` exit); askpass (`askpass.go`: only for the running sudo step, peer-checked by the Driver, on the run's attempt count). E5: `Abort` (`abort.go`: from a running step — `Stop`, then `Aborted` —, a prompt — `PromptClosed` — or a wait; pending steps get no event and count in `Finished.NotRun`; last-run.json as the TUI's abortRunning), the pick list (`select.go`: `NeedsSelection`/`Select`, matched by what was shown; nothing picked ends cancelled), reports (`report.go`: `OutputReport{Audit}`, accepted through `RunHook` then `ReportAccepted`), Repair's polkit recheck decided from the helper's check event (`repaircheck.go`, the `HelperCheck` input), the gate's plan preview and each confirm's `YesLabel`, and the discovery record (`discovery.go`: `DiscoveryResult`, the record's `WriteLog` and the `nothing-found`/`failed` last-run record; see "The discovery record"). Nothing panics (`queue.go` holds the run, `session.go` the API). Both front ends run on it through a `Driver` (`Events`, `Send(Command) bool` — never blocks — `Close`): the TUI since E7b and the GUI, each on `internal/driver`. Events mirror `internal/testtranscript`'s vocabulary so a `sessionTarget` maps them 1:1; privilege is one outcome (`steps.AuthRefused`) — except a Cancel in the GUI's own polkit dialog, which the Session sees and ends as the user's no (`askpass.go`, `cancelledByUser`; see "pkexec: one exit code" below) —, with `AuthWaiting`/`AuthResolved`/`FaillockState` for the polkit flow; passwords travel only as `Secret` (prints `<redacted>`) in Commands and Effects |
 | `internal/driver` `refresh.go` | the widget's update count after a topgrade run: `engine.RefreshUpdates` is an Effect the Session emits once in `finish` (a real run whose topgrade step started: OK, failed or aborted while running; never a dry run, a declined gate or confirm, an abort before topgrade, or an action without topgrade). The engine stays pure (the Effect is data); the Driver, which both front ends run on, carries it out on a worker through `Deps.RefreshUpdates` (nil: nothing; the TUI's `driverDeps` (through its `refreshUpdates` seam) and `realdriver.New` set `driver.RefreshUpdates`): `systemctl --user start --no-block archmaid-updates-check.service` (5 s timeout, ended by Close), else `installed.UpdatesScript` (`/usr/lib/archmaid/archmaid-updates-check`) in the background, niced 19, not waited for, else (no `systemctl` or user manager or unit, and no installed check: the TUI over ssh, a build without the package; or a hung `systemctl`) one `WARN` line in the run's topgrade log (`refreshFailed`): never a `Report`, which the TUI prints on the terminal after it quits; only a failed log write is reported. Never fails the run. Tests: `engine/refresh_test.go`, `driver/refresh_test.go` (shim systemctl on PATH, their own script in `installed.UpdatesScript`). **No other test may reach it**: every harness on a real Driver fakes `RefreshUpdates` (the TUI's `TestMain` swaps `refreshUpdates`; the GUI's `realdriver` tests and harness set `Config.RefreshUpdates`), and `testenv` traps the installed script (see `internal/installed`) |
+| `internal/sysbin` | the system programs archmaid runs for privilege, by absolute `/usr/bin` path, never from `PATH`: `Su`, `Sudo`, `Pkexec`, `Pkttyagent`, `Topgrade` (`All()`), as variables in a package that imports nothing. `internal/testenv`'s `init` sets each back to its bare name in every process of a test binary (re-exec'd children too), so the `PATH` traps and shims decide as before; the e2e build does the same with `-ldflags -X`. Read at the call, never copied at init. See the landmine "archmaid doesn't trust PATH for privilege" |
 | `internal/installed` | the programs archmaid's package installs that archmaid runs by absolute path (`UpdatesScript`; `All()`), as variables in a package that imports nothing: an absolute path bypasses `testenv`'s `PATH` traps, so `testenv.Run` points each at a trap of its own, and `TestNoAbsoluteInstalledExec` keeps their literals in this package. (archmaid-helper isn't one: archmaid only names it to pkexec.) The hole it closes: on 62f0606 `TestTranscriptRealDriver`, whose `PATH` is its shim dir alone, ran the owner's real installed check 12 times per run (#108) |
 | `internal/engine/enginetest` | test helpers shared by the engine's tests, the stub's and the transcript harness: `CheckContract(t, events)` holds an event sequence to the package doc's ordering rules |
 | `internal/engine/stub` | a `Driver` that replays a scripted event sequence (`Script` of `Cue{After, Event}`) on a `Clock` (the wall clock, or `FakeClock`, which jumps instead of sleeping): prompts wait for their answer, stale IDs and early commands are ignored, `Abort` withdraws the prompt and ends the run like the engine would. `FullCleanup(start)` is a ready-made run shaped like the orphan-cascade transcript. Only the GUI's `--stub` demo runs on it; real runs use `internal/driver` (E6) |
@@ -182,7 +183,7 @@ comments and `git log`; this is the "read before you touch it" list.
   (`Sudo.Probe`, `Sudo.Refresh`).
 - **The TUI drops its sudo ticket on exit (owner's decision M1).** `main`
   calls `tui.DropSudoTicket` after `Finish` on every path: `sudo -n -k`
-  (`privilege.DropTicket`: by name on PATH, `SUDO_ASKPASS` dropped, stdin
+  (`privilege.DropTicket`: `sysbin.Sudo`, `SUDO_ASKPASS` dropped, stdin
   `/dev/null`, bounded at 3 s, its failure only reported), so your next
   manual `sudo` in that terminal asks again. Bubble Tea ends on q, SIGINT
   and SIGTERM; `tui.Run` makes SIGHUP quit it too instead of killing the
@@ -438,6 +439,78 @@ comments and `git log`; this is the "read before you touch it" list.
     on our pty (`Setsid`, `Setctty`): it lives in the GUI module, outside
     TestNoSetsid's scan, and is never a step's child. The TUI keeps none
     of this.
+- **archmaid doesn't trust PATH for privilege (#131).** Two halves:
+  - *What archmaid starts itself* runs by absolute `/usr/bin` path,
+    whatever `PATH` the session has (`internal/sysbin`): `su` (the
+    password check), `sudo` (probe, `-S -v`, keep-alive, `-n -k`, every
+    sudo step through `Sudo.Command`, Repair's root recheck), `pkexec`
+    (`helperclient.Run`), `pkttyagent` (`polkitagent.Start`) and the
+    update step's `topgrade` (`Sudo.Command` maps the step's name; the
+    step keeps showing `topgrade -y`). Before, a `su` or `sudo` earlier on
+    `PATH` (`~/.local/bin`, a relative entry) was handed the typed
+    password, and a `pkttyagent` there read polkit's. The paths are
+    variables so tests can still trap them: `testenv`'s `init` sets each
+    back to its bare name in every process of a test binary (an init,
+    because a re-exec'd child such as the GUI harness's window never calls
+    `testenv.Run`, and a variable `Run` set would not cross the exec), so
+    `PATH`'s traps and shims decide exactly as before; `Run` refuses to
+    start with one absolute. The e2e harness builds the real binary with
+    them bare (`-ldflags -X`, checked with `go version -m` before any
+    tape); `check.sh` fails a PKGBUILD or cover build that names
+    `sysbin`, and a main package that links `testenv`. Guards:
+    `TestNoBarePrivilegedExec` (no bare privileged name as an exec call's
+    program in product code), `TestSysbinDefaultsAbsolute`,
+    `TestE2EBuildsBareSysbin`, and one test per call site that runs a shim
+    at the sysbin path with a decoy first on `PATH` (each failed before).
+  - *What a step's child starts by name* (topgrade's yay, yay's and
+    makepkg's `sudo`) still goes through the step's `PATH`; archmaid
+    can't change how those tools look sudo up. The risk is the kept
+    password: a script named `sudo` before `/usr/bin/sudo` that execs the
+    real sudo with a command of its own (`exec /usr/bin/sudo -A sh -c
+    '…'`) *is* sudo run by yay once it has exec'd, so its request passes
+    `Request.Verify` and `KeptMayAnswer`, and the kept password would
+    answer it with no dialog. So when a `NeedsPriv` child step starts
+    under a Driver that keeps the password, the Driver scans the `PATH`
+    the child will get (`privilege.ChildPATH`, `PathShadows`;
+    `internal/driver/pathguard.go`, one call in `startStep`): every
+    directory before the first that holds `/usr/bin/sudo` itself (a plain
+    file, the same file: `/bin` and `/usr/sbin` count as `/usr/bin`) is
+    searched for `sudo`, `sudo-rs`, `doas`, `run0`, `please`, `su` and
+    `pkexec`; a relative entry before it counts by itself (yay builds in
+    the package's own folder). Conservative: any symlink with such a name
+    counts (to `/usr/bin/sudo` too: its target can change mid-run), a
+    regular file counts if it has an execute bit; a directory or a
+    non-executable file doesn't, nor does anything after the real sudo's
+    directory. A root-owned `/usr/local/bin/sudo` counts too. If anything
+    is found, the kept password is off for the rest of the run
+    (`KeptPassword.Fail`): every prompt, sudo's and polkit's, gets the
+    dialog naming its caller. One WARN line in the step's log and one
+    line at the top of its output name what was found. The scan runs on
+    the loop before the child starts, bounded at 2 s (a hung network or
+    FUSE `PATH` entry): one that takes longer counts as found.
+    `internal/driver/pathguard_test.go` holds it on a real child with the
+    askpass (shadow before: off, WARN, dialog; after, not executable:
+    no effect; symlink to the real sudo, other names, a relative entry,
+    a scan timeout: off; only a real `NeedsPriv` child under
+    `KeepPassword`).
+  - *Not covered* (open, Dev 3): a file planted on `PATH` after the scan,
+    while the step runs. That needs a process of the user's own uid
+    acting mid-run. Rejected for now: the *pin dir* (a private dir of
+    symlinks to `/usr/bin/sudo` and the rest, first on the child's
+    `PATH`). It covers files that appear later in the user's dirs, but
+    the pin dir is the same uid's to rewrite, and the child's environment,
+    which names it, is readable to that uid, so it moves the race rather
+    than closing it. It also changes the `PATH` every program under
+    topgrade sees, needs making and removing per run (a SIGKILLed GUI
+    leaves it behind), and pins only the names on its list. Cheaper and
+    closer: re-run the scan right before each kept answer
+    (`askpassRequest`, `agentRequest`), which narrows the window to the
+    answer itself; it needs a second call site in `keep.go`. Also open:
+    after the guard turns keeping off, the password dialog's kept-password
+    note (`ui.KeptNote`, shown from a static option) still says the
+    password is kept; it fails safe (more dialogs, not fewer), and the
+    step's output says it is off. Fixing it needs the Session to say so
+    per prompt (an additive engine field).
 - **Repair scans as the user first, and asks for sudo only to recheck what it
   flagged.** Repair's discovery (`internal/actions`, `discoverRepair`) lists
   the installed packages (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as

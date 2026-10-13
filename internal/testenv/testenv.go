@@ -31,9 +31,12 @@
 // subprocesses too: a re-exec'd test binary or a shell script inherits the
 // PATH.
 //
-// What PATH can't catch: a hard-coded absolute path. No production code
-// executes a privileged binary by absolute path (TestNoAbsolutePrivilegedExec
-// keeps it that way), and archmaid-helper's absolute paths (/usr/bin/pacman
+// What PATH can't catch: a hard-coded absolute path. archmaid runs its own
+// su, sudo, pkexec, pkttyagent and topgrade by absolute path, but only
+// through internal/sysbin's variables, which this package's init sets back
+// to their bare names in every process of a test binary (sysbin.go), so
+// PATH decides them in tests (TestNoAbsolutePrivilegedExec keeps every
+// other literal out), and archmaid-helper's absolute paths (/usr/bin/pacman
 // and friends, run as root under pkexec) only ever run in its tests through
 // a fake Runner. The programs archmaid's own package installs and archmaid
 // runs by absolute path (the widget's update check) are variables in

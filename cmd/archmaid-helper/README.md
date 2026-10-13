@@ -384,6 +384,10 @@ In order, before anything else:
 - Environment and fd attacks on the root process (`LD_PRELOAD`, `PATH`,
   `GCONV_PATH`, `IFS`, leaked fds). Control and escape sequences in output
   reaching a terminal or GUI.
+- A `pkexec` or `pkttyagent` earlier on the user's `PATH`. archmaid-gui
+  starts `/usr/bin/pkexec` and `/usr/bin/pkttyagent` by absolute path
+  (`internal/sysbin`), never from `PATH`, so neither the password polkit
+  asks for nor the helper call can be routed through a stand-in.
 - A helper copied or symlinked elsewhere, or installed with weak permissions.
   It refuses to run as root unless it is the root-owned file at the fixed
   path.
