@@ -107,8 +107,14 @@ func TestGateNoteMatrix(t *testing.T) {
 							if !topgrade && strings.Contains(first, "topgrade") {
 								t.Errorf("note %q names topgrade, which is not in the plan", first)
 							}
-							if kept && !strings.Contains(first, "You type your password once") {
+							// polkit alone asks (no topgrade, so no sudo in the plan):
+							// polkit's own wording, no "you type once".
+							polkitOnly := polkit && !topgrade
+							if kept && !polkitOnly && !strings.Contains(first, "You type your password once") {
 								t.Errorf("kept note %q lacks the one-password sentence", first)
+							}
+							if kept && polkitOnly && (strings.Contains(first, "You type your password") || !strings.Contains(first, "polkit asks for your password")) {
+								t.Errorf("polkit-only kept note %q: want polkit's wording, no sudo sentence", first)
 							}
 							if hasOrph := slices.ContainsFunc(notes, func(s string) bool { return strings.HasPrefix(s, "Orphans are listed") }); hasOrph != orphans {
 								t.Errorf("orphans note present = %v, orphan probe in plan = %v", hasOrph, orphans)

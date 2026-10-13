@@ -76,6 +76,11 @@ func GateNotes(plan []engine.PlanStep, polkit, kept, dry bool) []string {
 			n += "; " + sudoSteps(plan, sudo)
 		}
 		switch {
+		case kept && polkit && !has(steps.IDTopgrade) && len(sudo) == 0:
+			// Only polkit asks (a gated helper action with no sudo in the
+			// plan): no sudo prompt to type "once, the first time a step
+			// needs it" into.
+			n += ". polkit asks for your password; archmaid keeps it for this run only."
 		case kept:
 			n += ". You type your password once, the first time a step needs it; archmaid keeps it for this run only."
 		case polkit && has(steps.IDTopgrade):

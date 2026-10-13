@@ -90,6 +90,30 @@ func TestGateNotes(t *testing.T) {
 	}
 }
 
+// TestGateNotesPolkitOnlyKept (#120): a synthetic gated polkit plan with
+// root steps and no topgrade (none exists today): only polkit asks, so the
+// kept note must not say "You type your password once, the first time a
+// step needs it" (that is sudo's). With topgrade or a sudo step beside it,
+// the one-password sentence stays.
+func TestGateNotesPolkitOnlyKept(t *testing.T) {
+	root := []engine.PlanStep{{ID: "x", Verb: "v", NeedsPriv: true}, {ID: "y", Verb: "w", NeedsPriv: true}}
+	want := []string{"2 steps run as root, together, through one authorisation. polkit asks for your password; archmaid keeps it for this run only."}
+	if got := GateNotes(root, true, true, false); !slices.Equal(got, want) {
+		t.Errorf("polkit only, kept: %q, want %q", got, want)
+	}
+	if got := GateNotes(root, true, false, false); !slices.Equal(got, []string{"2 steps run as root, together, through one authorisation."}) {
+		t.Errorf("polkit only, not kept: %q", got)
+	}
+	withTG := append(slices.Clone(root), engine.PlanStep{ID: steps.IDTopgrade, NeedsPriv: true})
+	if got := GateNotes(withTG, true, true, false); len(got) != 1 || !strings.Contains(got[0], "You type your password once") {
+		t.Errorf("polkit and topgrade, kept: %q", got)
+	}
+	withSudo := append(slices.Clone(root), engine.PlanStep{ID: "z", NeedsPriv: true})
+	if got := GateNotes(withSudo, true, true, false); len(got) != 1 || !strings.Contains(got[0], "You type your password once") {
+		t.Errorf("polkit and a sudo step, kept: %q", got)
+	}
+}
+
 // TestPrivTag: a step archmaid runs as root through the helper (a Verb)
 // is tagged root; one that needs root without a Verb gets it through its
 // own sudo (topgrade) and is tagged sudo; the gate's note counts the root
