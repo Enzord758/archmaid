@@ -134,3 +134,52 @@ func TestPathShadowsPerNameBoundary(t *testing.T) {
 		t.Errorf("PathShadows = %q, want %q", got, want)
 	}
 }
+
+// TestPathShadowsSymlinkedSudo (review #139): with /usr/bin/sudo itself a
+// symlink, its directory is still sudo's boundary (compared as a link, not
+// followed): a sudo before it counts, one after it doesn't, and the scan
+// doesn't turn off.
+func TestPathShadowsSymlinkedSudo(t *testing.T) {
+	sys := realSudoDir(t)
+	if err := os.Rename(filepath.Join(sys, "sudo"), filepath.Join(sys, "sudo.real")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("sudo.real", filepath.Join(sys, "sudo")); err != nil {
+		t.Fatal(err)
+	}
+	before, after := put(t, 0o755, "sudo"), put(t, 0o755, "sudo")
+	got := paths(PathShadows(list(before, sys, after)))
+	if !slices.Equal(got, []string{filepath.Join(before, "sudo")}) {
+		t.Errorf("PathShadows = %q, want only the sudo before", got)
+	}
+}
+
+// TestPathShadowsAllBoundariesPassed (review #139): once every name has
+// met the system's own file, the scan is over: a relative or empty entry
+// after that, and a planted sudo, su or doas after it, are no shadows. A
+// relative entry between the first boundary and the last still is one (a
+// name whose boundary is ahead is found through it).
+func TestPathShadowsAllBoundariesPassed(t *testing.T) {
+	sys := realSudoDir(t)
+	for _, n := range ShadowNames {
+		if n == "sudo" {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(sys, n), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	planted := put(t, 0o755, ShadowNames...)
+	if got := paths(PathShadows(list(sys, "rel", "", planted))); got != nil {
+		t.Errorf("after every boundary: PathShadows = %q, want none", got)
+	}
+	// A dir that holds a hard link to the system's own sudo only: sudo's
+	// boundary is passed there, the others' are still ahead.
+	hl := t.TempDir()
+	if err := os.Link(filepath.Join(sys, "sudo"), filepath.Join(hl, "sudo")); err != nil {
+		t.Fatal(err)
+	}
+	if got := paths(PathShadows(list(hl, "rel", sys, "rel2", planted))); !slices.Equal(got, []string{`the relative PATH entry "rel"`}) {
+		t.Errorf("between boundaries: PathShadows = %q, want only rel", got)
+	}
+}
