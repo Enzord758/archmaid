@@ -1,6 +1,6 @@
 # Coverage exemptions (category E)
 
-Statements no test or run can reach, as measured at `9fe4b9d` (134 statements in 104 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
+Statements no test or run can reach, as measured at `5cd3d64` (178 statements in 127 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
 
 Refreshing: after a code change that moves a listed block, re-run the measurement (docs/coverage-map.md, "How it was measured") and `scripts/covmap/report.py`; do not edit the tsv by hand.
 
@@ -8,7 +8,7 @@ Refreshing: after a code change that moves a listed block, re-run the measuremen
 
 | Recommendation | Means | Blocks | Statements | of which security code |
 |---|---|---|---|---|
-| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 80 | 100 | 41 |
+| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 103 | 144 | 41 |
 | `make-testable` | a small seam turns it into a unit test (A): the shared atomic-write helper, or a hook between a TOCTOU check and its use | 23 | 33 | 8 |
 | `remove` | dead code: delete the branch (a reviewer confirms it cannot be reached) | 1 | 1 | 0 |
 
@@ -50,7 +50,7 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 |---|---|---|---|---|
 | `internal/audit/result.go:186-186` | `packageNames` | 1 |  | only called with the gating (high) names, never none |
 
-## `keep-exempt` (100 statements)
+## `keep-exempt` (144 statements)
 
 | Where | Function | Stmts | Security | Why it can't run |
 |---|---|---|---|---|
@@ -88,8 +88,8 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/downloads/downloads.go:399-400` | `dirIdentity` | 1 | yes | on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail |
 | `internal/downloads/downloads.go:409-410` | `<package>` | 1 | yes | on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail |
 | `internal/downloads/downloads.go:638-638` | `inode` | 1 | yes | on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail |
-| `internal/driver/driver.go:301-302` | `currentFaillock` | 1 |  | user.Current fails only when the uid has no passwd entry; no seam |
-| `internal/driver/driver.go:511-511` | `Driver.command.func` | 1 |  | the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's |
+| `internal/driver/driver.go:309-310` | `currentFaillock` | 1 |  | user.Current fails only when the uid has no passwd entry; no seam |
+| `internal/driver/driver.go:519-519` | `Driver.command.func` | 1 |  | the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's |
 | `internal/engine/combine.go:85-85` | `Session.combineNext` | 1 |  | the guard skips a slot that is not Pending or already accepted; every caller advances r.cur past a slot it has settled or accepted, so the loop never meets one |
 | `internal/engine/stub/fullcleanup.go:93-93` | `builder.index` | 1 |  | the hand-built script only names its own steps |
 | `internal/frontend/topgrade.go:55-56` | `EnsureTopgradeConfig` | 1 |  | O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's |
@@ -105,26 +105,49 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/privilege/privtest/privtest.go:18-18` | `testOnly` | 1 | yes | panics outside a test binary |
 | `internal/proc/detach.go:57-58` | `groupAlive` | 1 |  | Getpgid errors other than ESRCH (EPERM across namespaces) don't happen for our own children |
 | `internal/testenv/cover.go:24-25` | `coverChildren` | 1 |  | the early return is for runs without coverage, which count nothing |
-| `internal/testenv/testenv.go:94-96` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:100-102` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:108-110` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:115-117` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:120-122` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:125-127` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:131-133` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:137-139` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:202-202` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:203-205` | `Run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:206-206` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:207-208` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:209-209` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:261-262` | `InstallTraps` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:264-265` | `InstallTraps` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:273-274` | `InstallTraps` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:297-298` | `newMarker` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:307-308` | `setChildSubreaper` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/watchdog.go:46-47` | `startWatchdog` | 1 |  | os.Pipe and exec of /bin/sh fail only on fd exhaustion or a missing /bin/sh |
-| `internal/testenv/watchdog.go:53-55` | `startWatchdog` | 2 |  | os.Pipe and exec of /bin/sh fail only on fd exhaustion or a missing /bin/sh |
+| `internal/testenv/testenv.go:102-102` | `Run` | 3 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:103-103` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:104-107` | `Run` | 3 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:109-109` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:123-124` | `mkScratch` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:138-140` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:144-146` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:152-154` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:159-161` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:164-166` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:169-171` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:176-178` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:182-184` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:188-190` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:213-215` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:223-226` | `run` | 6 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:227-227` | `run` | 6 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:228-228` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:229-230` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:231-232` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:235-236` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:237-239` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:240-240` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:241-242` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:243-244` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:245-245` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:247-247` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:248-250` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:251-252` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:253-253` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:255-255` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:256-258` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:259-259` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:260-261` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:262-262` | `run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:314-315` | `InstallTraps` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:317-318` | `InstallTraps` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:326-327` | `InstallTraps` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:357-359` | `TrapInstalled` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:383-384` | `newMarker` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:393-394` | `setChildSubreaper` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/watchdog.go:60-61` | `startWatchdog` | 1 |  | os.Pipe and exec of /bin/sh fail only on fd exhaustion or a missing /bin/sh |
+| `internal/testenv/watchdog.go:67-69` | `startWatchdog` | 2 |  | os.Pipe and exec of /bin/sh fail only on fd exhaustion or a missing /bin/sh |
 | `internal/ttyguard/ttyguard.go:63-64` | `Hold` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |
 | `internal/ttyguard/ttyguard.go:122-123` | `Exclusive` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |
 | `internal/ttyguard/ttyguard.go:130-131` | `ioctl` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |

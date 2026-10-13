@@ -89,21 +89,21 @@ exempt list (`coverage-exempt.md`). Both come out of `scripts/covblocks
 <!-- gen:totals -->
 | Scope | Statements | Covered | Raw | Uncovered | A unit | B e2e | C vm | D owner | E exempt | Reachable (covered / (total - E)) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| core | 5478 | 5368 | 97.9 % | 110 | 40 | 3 | 1 | 0 | 66 | 99.1 % (5368/5412) |
-| helper | 883 | 829 | 93.8 % | 54 | 0 | 51 | 0 | 0 | 3 | 94.2 % (829/880) |
-| gui | 4780 | 4639 | 97.0 % | 141 | 49 | 39 | 22 | 0 | 31 | 97.6 % (4639/4749) |
-| testonly | 510 | 338 | 66.2 % | 172 | 138 | 0 | 0 | 0 | 34 | 71.0 % (338/476) |
-| all | 11651 | 11174 | 95.9 % | 477 | 227 | 93 | 23 | 0 | 134 | 97.0 % (11174/11517) |
+| core | 5545 | 5435 | 98.0 % | 110 | 40 | 3 | 1 | 0 | 66 | 99.1 % (5435/5479) |
+| helper | 902 | 848 | 94.0 % | 54 | 0 | 51 | 0 | 0 | 3 | 94.3 % (848/899) |
+| gui | 5269 | 5112 | 97.0 % | 157 | 65 | 39 | 22 | 0 | 31 | 97.5 % (5112/5238) |
+| testonly | 553 | 366 | 66.1 % | 187 | 109 | 0 | 0 | 0 | 78 | 77.0 % (366/475) |
+| all | 12269 | 11761 | 95.8 % | 508 | 214 | 93 | 23 | 0 | 178 | 97.2 % (11761/12091) |
 
 Raw / reachable, cumulative:
 
 | Scope | Now (unit + e2e + GUI) | after A | after A+B | after A+B+C | after A+B+C+D (= every reachable statement) |
 |---|---|---|---|---|---|
-| core | 97.9 % / 99.1 % | 98.7 % / 99.9 % | 98.7 % / 99.9 % | 98.7 % / 100.0 % | 98.7 % / 100.0 % |
-| helper | 93.8 % / 94.2 % | 93.8 % / 94.2 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % |
-| gui | 97.0 % / 97.6 % | 98.0 % / 98.7 % | 98.8 % / 99.5 % | 99.3 % / 100.0 % | 99.3 % / 100.0 % |
-| testonly | 66.2 % / 71.0 % | 93.3 % / 100.0 % | 93.3 % / 100.0 % | 93.3 % / 100.0 % | 93.3 % / 100.0 % |
-| all | 95.9 % / 97.0 % | 97.8 % / 98.9 % | 98.6 % / 99.8 % | 98.8 % / 100.0 % | 98.8 % / 100.0 % |
+| core | 98.0 % / 99.1 % | 98.7 % / 99.9 % | 98.7 % / 99.9 % | 98.8 % / 100.0 % | 98.8 % / 100.0 % |
+| helper | 94.0 % / 94.3 % | 94.0 % / 94.3 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % |
+| gui | 97.0 % / 97.5 % | 98.2 % / 98.8 % | 98.9 % / 99.5 % | 99.4 % / 100.0 % | 99.4 % / 100.0 % |
+| testonly | 66.1 % / 77.0 % | 85.8 % / 100.0 % | 85.8 % / 100.0 % | 85.8 % / 100.0 % | 85.8 % / 100.0 % |
+| all | 95.8 % / 97.2 % | 97.6 % / 99.0 % | 98.3 % / 99.8 % | 98.5 % / 100.0 % | 98.5 % / 100.0 % |
 <!-- /gen:totals -->
 
 D is 0 statements: every line the owner's checks exercise is reachable by
@@ -143,15 +143,15 @@ largest single gain.
 <!-- gen:workpackages -->
 | # | Package | Statements | Gain (all) | Role | Security code | Covers |
 |---|---|---|---|---|---|---|
-| 1 | **Test infrastructure** (A) | 138 | +1.1 pts | architecture | no | testenv's post-`m.Run` checks (orphan reaper, trap report, state-guard compare) called directly inside a test, the recorder's fake targets, the contract checker's own failure paths. By package: `testenv` 120, `engine/enginetest` 13, `testtranscript` 5 |
+| 1 | **Test infrastructure** (A) | 109 | +0.8 pts | architecture | no | testenv's post-`m.Run` checks (orphan reaper, trap report, state-guard compare) called directly inside a test, the recorder's fake targets, the contract checker's own failure paths. By package: `testenv` 91, `engine/enginetest` 13, `testtranscript` 5 |
 | 2 | **Helper and privilege edge cases** (A) | 0 | +0.0 pts | security | no | the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures. By package:  |
-| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 1 | +0.0 pts | architecture (driver/keep.go and the askpass bits: security) | no | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `logstore` 1 |
-| 4 | **Leaf packages and the polkit agent** (A) | 79 | +0.6 pts | performance-QA (polkitagent, realdriver, downloads: security) | 52 stmts: Dev 3 reviews | audit/downloads write and scan error paths, proc argv forms, sanitize and sysstat edges, polkitagent and realdriver against fake agents. By package: `gui/polkitagent` 27, `gui/realdriver` 13, `audit` 13, `downloads` 12, `proc` 10, `sanitize` 2 |
+| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 3 | +0.0 pts | architecture (driver/keep.go and the askpass bits: security) | no | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `driver` 2, `logstore` 1 |
+| 4 | **Leaf packages and the polkit agent** (A) | 78 | +0.6 pts | performance-QA (polkitagent, realdriver, downloads: security) | 53 stmts: Dev 3 reviews | audit/downloads write and scan error paths, proc argv forms, sanitize and sysstat edges, polkitagent and realdriver against fake agents. By package: `gui/polkitagent` 27, `gui/realdriver` 14, `audit` 13, `downloads` 12, `proc` 10, `sysstat` 2 |
 | 5 | **GUI logs, timeline and signals pages** (A) | 3 | +0.0 pts | GUI | no | new headless scenarios: log page states (none, unreadable, empty), the timeline, signals mid-run, the failed-step view, logview and overview edges. By package: `gui/ui` 3 |
-| 6 | **GUI windows, dialogs, settings, run view** (A) | 6 | +0.0 pts | GUI | no | window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells. By package: `gui/settings` 3, `gui/ui` 3 |
+| 6 | **GUI windows, dialogs, settings, run view** (A) | 21 | +0.1 pts | GUI | no | window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells. By package: `gui/ui` 18, `gui/settings` 3 |
 | 7 | **E2E: the cover-helper check** (B) | 51 | +0.4 pts | performance-QA with Dev 3's review (helper) | 51 stmts: Dev 3 reviews | main and hardenProcess of the helper binary: the run.sh check of the cover helper as the user and as uid 0 in an unprivileged user namespace (both refused before anything runs). By package: `cmd/archmaid-helper` 50, `cmd/archmaid-helper/coverdir` 1 |
 | 8 | **E2E: binary entries** (B) | 42 | +0.3 pts | GUI (the TUI tape: architecture) | no | archmaid-gui's main, `--stub` with each script (headless), the TUI's error exit and the editor handover on a pty tape. By package: `gui/ui` 33, `gui/cmd/archmaid-gui` 6, `cmd/archmaid` 3 |
-| | **A and B together** | 320 | +2.7 pts | | | |
+| | **A and B together** | 307 | +2.5 pts | | | |
 <!-- /gen:workpackages -->
 
 ## The 10 most important VM (C) checks
@@ -323,13 +323,13 @@ Statements still uncovered after unit + e2e + GUI, by category.
 | `cmd/archmaid` |  | 3 |  |  | 3 |
 | `gui/cmd/archmaid-gui` |  | 6 |  |  |  |
 | `gui/internal/polkitagent` | 27 |  |  |  | 15 |
-| `gui/internal/realdriver` | 13 |  |  |  |  |
+| `gui/internal/realdriver` | 14 |  |  |  |  |
 | `gui/internal/runview` |  |  |  |  | 1 |
 | `gui/internal/settings` | 3 |  |  |  | 6 |
-| `gui/internal/ui` | 6 | 33 | 22 |  | 9 |
+| `gui/internal/ui` | 21 | 33 | 22 |  | 9 |
 | `internal/audit` | 13 |  |  |  | 17 |
 | `internal/downloads` | 12 |  |  |  | 15 |
-| `internal/driver` |  |  |  |  | 2 |
+| `internal/driver` | 2 |  |  |  | 2 |
 | `internal/engine` |  |  |  |  | 1 |
 | `internal/engine/enginetest` | 13 |  |  |  |  |
 | `internal/engine/stub` |  |  |  |  | 1 |
@@ -340,9 +340,8 @@ Statements still uncovered after unit + e2e + GUI, by category.
 | `internal/privilege` |  |  |  |  | 8 |
 | `internal/privilege/privtest` |  |  |  |  | 1 |
 | `internal/proc` | 10 |  |  |  | 1 |
-| `internal/sanitize` | 2 |  |  |  |  |
 | `internal/sysstat` | 2 |  |  |  |  |
-| `internal/testenv` | 120 |  |  |  | 31 |
+| `internal/testenv` | 91 |  |  |  | 75 |
 | `internal/testtranscript` | 5 |  |  |  |  |
 | `internal/ttyguard` |  |  |  |  | 4 |
 | `internal/tui` |  |  |  |  | 5 |
@@ -395,8 +394,9 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 |---|---|---|---|---|---|
 | `agent.go:59-60, 62-63, 72-73, 76-78` | `Wiring.helper.func` | 8 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
 | `agent.go:101-102, 105-106` | `Wiring.startAgent` | 2 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
-| `realdriver.go:138-139, 143-144` | `Start` | 2 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
-| `realdriver.go:221-222` | `Wiring.env` | 1 | A | Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C) | gui/internal/realdriver/realdriver_test.go (security: Dev 3) |
+| `realdriver.go:143-144, 148-149` | `Start` | 2 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
+| `realdriver.go:212-213` | `Wiring.New` | 1 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
+| `realdriver.go:231-232` | `Wiring.env` | 1 | A | Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C) | gui/internal/realdriver/realdriver_test.go (security: Dev 3) |
 
 #### `gui/internal/settings`
 
@@ -414,6 +414,7 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `app.go:181-181` | `mainReal.func` | 1 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
 | `app.go:198-198, 199-199, 199-199, 201-201, 202-202, 202-202, 212-212, 213-216` | `stubDriver.func` | 10 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
 | `app.go:204-204, 206-206, 208-208, 210-210, 218-218` | `stubDriver` | 5 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `dialogs.go:129-130, 139-140` | `Window.confirmDialog` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `failed.go:176-177` | `recordFolder` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `launcher.go:37-37, 38-39, 40-41, 46-46` | `gtkLauncher.launch` | 5 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `launcher.go:42-42, 43-44` | `gtkLauncher.launch.func` | 2 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
@@ -422,12 +423,20 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `launcher.go:53-54, 55-56` | `gtkLauncher.ChooseFolder` | 3 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `launcher.go:57-57, 58-59, 60-62, 63-63` | `gtkLauncher.ChooseFolder.func` | 6 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
 | `logs.go:157-158` | `Window.newLogs.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `overview.go:247-248` | `Window.stackButtons` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
-| `overview.go:499-500` | `Window.refreshLastRun` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `overview.go:252-253` | `Window.stackButtons` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `overview.go:523-524` | `Window.refreshLastRun` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `settings.go:206-206, 207-208` | `Window.topgradeCard.func` | 2 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
 | `settings.go:251-252` | `Window.logFolderCard.func` | 1 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
 | `settings.go:266-267` | `Window.chooseDownloads` | 1 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
 | `timeline.go:135-136` | `Window.newRunPage.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:158-159, 163-163` | `newWideDialog.func` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:240-241` | `amDialog.naturalHeight` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:310-313` | `amDialog.columns.func` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:357-357` | `amDialog.response` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:368-368` | `amDialog.ResponseLabel` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:380-381` | `amDialog.SetResponseAppearance` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:396-397, 401-401` | `amDialog.ResponseAppearance` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `widedialog.go:421-422` | `amDialog.DefaultResponse` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `window.go:147-147` | `newWindow.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 
 #### `internal/audit`
@@ -460,6 +469,13 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `downloads.go:501-502` | `Delete` | 1 | A | the folder removed after the scan (OpenRoot fails); mountinfoPath seam on a missing file | internal/downloads/downloads_test.go (security: Dev 3) |
 | `downloads.go:591-592` | `remover.removeTree` | 1 | A | a file in an old 0500 subdirectory (clock moved past the chmod with Options.Now): Remove fails EACCES | internal/downloads/downloads_test.go (security: Dev 3) |
 
+#### `internal/driver`
+
+| Lines | Function | Stmts | Cat | Why | Test home |
+|---|---|---|---|---|---|
+| `refresh.go:59-60` | `RefreshUpdates` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
+| `refresh.go:68-69` | `trimOut` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
+
 #### `internal/engine/enginetest`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
@@ -483,17 +499,11 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `proc.go:80-81` | `checkSudo` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
-| `proc.go:144-144, 149-149, 153-153` | `envCommand` | 3 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
-| `proc.go:422-423` | `Child.GroupStopped` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
-| `proc.go:445-445` | `Child.escalateGroup` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:86-87` | `checkSudo` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:150-150, 155-155, 159-159` | `envCommand` | 3 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:439-440` | `Child.GroupStopped` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:462-462` | `Child.escalateGroup` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
 | `procfs.go:40-41, 44-45, 51-52, 57-58` | `readAt` | 4 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
-
-#### `internal/sanitize`
-
-| Lines | Function | Stmts | Cat | Why | Test home |
-|---|---|---|---|---|---|
-| `sanitize.go:217-217, 227-228` | `escapeEnd` | 2 | A | CSI with intermediates, a CSI cut off before its final byte, OSC ended by ESC \ | internal/sanitize/sanitize_test.go |
 
 #### `internal/sysstat`
 
@@ -513,11 +523,10 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `orphans.go:114-114, 115-115, 116-117, 118-119, 120-120, 121-122, 123-123, 125-125, 136-136, 136-136` | `leftovers.func` | 11 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:173-174, 175-176, 177-178, 179-179, 180-181, 183-183` | `hasMarker` | 8 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:188-189, 190-191, 192-192` | `cmdline` | 4 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
-| `testenv.go:162-164, 172-174, 175-175, 176-176, 177-178, 179-180, 183-184, 185-187, 188-188, 189-190, 191-192, 193-193, 195-195, 196-197, 198-199, 200-200` | `Run` | 29 | A | the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them | internal/testenv/trap_test.go |
-| `testenv.go:217-218, 226-227` | `guardScript` | 2 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
-| `testenv.go:240-241` | `guardSnapshot` | 1 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
-| `testenv.go:249-251` | `guardCompare` | 2 | A | post-m.Run: counted only from a direct test | internal/testenv/trap_test.go |
-| `watchdog.go:62-65` | `watchdog.stop` | 3 | A | post-m.Run in Run (counted never, after the counters are written); a direct call in a test counts | internal/testenv/trap_test.go |
+| `testenv.go:270-271, 279-280` | `guardScript` | 2 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
+| `testenv.go:293-294` | `guardSnapshot` | 1 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
+| `testenv.go:302-304` | `guardCompare` | 2 | A | post-m.Run: counted only from a direct test | internal/testenv/trap_test.go |
+| `watchdog.go:76-79` | `watchdog.stop` | 3 | A | post-m.Run in Run (counted never, after the counters are written); a direct call in a test counts | internal/testenv/trap_test.go |
 
 #### `internal/testtranscript`
 

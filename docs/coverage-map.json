@@ -1,5 +1,5 @@
 {
- "base": "9fe4b9d43183f269958e3747287c6219a05972c4",
+ "base": "5cd3d64ef1edd435524dc12a90bfacf8abd55ca9",
  "measured": "scripts/cover-report.sh with COVER_GUI=1: unit (cover-unit.sh) + e2e tapes + GUI headless, merged",
  "categories": {
   "A": "unit",
@@ -10,35 +10,35 @@
  },
  "totals": {
   "core": {
-   "stmts": 5478,
-   "covered": 5368,
+   "stmts": 5545,
+   "covered": 5435,
    "exempt": 66
   },
   "helper": {
-   "stmts": 883,
-   "covered": 829,
+   "stmts": 902,
+   "covered": 848,
    "exempt": 3
   },
   "gui": {
-   "stmts": 4780,
-   "covered": 4639,
+   "stmts": 5269,
+   "covered": 5112,
    "exempt": 31
   },
   "testonly": {
-   "stmts": 510,
-   "covered": 338,
-   "exempt": 34
+   "stmts": 553,
+   "covered": 366,
+   "exempt": 78
   },
   "all": {
-   "stmts": 11651,
-   "covered": 11174,
-   "exempt": 134
+   "stmts": 12269,
+   "covered": 11761,
+   "exempt": 178
   }
  },
  "work_packages": {
   "1": {
    "name": "Test infrastructure",
-   "stmts": 138,
+   "stmts": 109,
    "security_stmts": 0,
    "role": "architecture"
   },
@@ -50,14 +50,14 @@
   },
   "3": {
    "name": "Core: TUI keys, driver, engine, actions, logstore",
-   "stmts": 1,
+   "stmts": 3,
    "security_stmts": 0,
    "role": "architecture (driver/keep.go and the askpass bits: security)"
   },
   "4": {
    "name": "Leaf packages and the polkit agent",
-   "stmts": 79,
-   "security_stmts": 52,
+   "stmts": 78,
+   "security_stmts": 53,
    "role": "performance-QA (polkitagent, realdriver, downloads: security)"
   },
   "5": {
@@ -68,7 +68,7 @@
   },
   "6": {
    "name": "GUI windows, dialogs, settings, run view",
-   "stmts": 6,
+   "stmts": 21,
    "security_stmts": 0,
    "role": "GUI"
   },
@@ -748,17 +748,6 @@
   },
   {
    "file": "gui/internal/realdriver/realdriver.go",
-   "lines": "138-139",
-   "func": "Start",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config",
-   "home": "gui/internal/realdriver/agent_test.go",
-   "security": true,
-   "package": 4
-  },
-  {
-   "file": "gui/internal/realdriver/realdriver.go",
    "lines": "143-144",
    "func": "Start",
    "stmts": 1,
@@ -770,7 +759,29 @@
   },
   {
    "file": "gui/internal/realdriver/realdriver.go",
-   "lines": "221-222",
+   "lines": "148-149",
+   "func": "Start",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config",
+   "home": "gui/internal/realdriver/agent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/realdriver/realdriver.go",
+   "lines": "212-213",
+   "func": "Wiring.New",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config",
+   "home": "gui/internal/realdriver/agent_test.go",
+   "security": true,
+   "package": 4
+  },
+  {
+   "file": "gui/internal/realdriver/realdriver.go",
+   "lines": "231-232",
    "func": "Wiring.env",
    "stmts": 1,
    "cat": "A",
@@ -1121,6 +1132,28 @@
    "package": 8
   },
   {
+   "file": "gui/internal/ui/dialogs.go",
+   "lines": "129-130",
+   "func": "Window.confirmDialog",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/dialogs.go",
+   "lines": "139-140",
+   "func": "Window.confirmDialog",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
    "file": "gui/internal/ui/dump.go",
    "lines": "36-37",
    "func": "NoCoreFiles",
@@ -1328,7 +1361,7 @@
   },
   {
    "file": "gui/internal/ui/overview.go",
-   "lines": "247-248",
+   "lines": "252-253",
    "func": "Window.stackButtons",
    "stmts": 1,
    "cat": "A",
@@ -1339,7 +1372,7 @@
   },
   {
    "file": "gui/internal/ui/overview.go",
-   "lines": "499-500",
+   "lines": "523-524",
    "func": "Window.refreshLastRun",
    "stmts": 1,
    "cat": "A",
@@ -1431,6 +1464,116 @@
    "home": "gui/internal/ui/harness_test.go",
    "security": false,
    "package": 5
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "158-159",
+   "func": "newWideDialog.func",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "163-163",
+   "func": "newWideDialog.func",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "240-241",
+   "func": "amDialog.naturalHeight",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "310-313",
+   "func": "amDialog.columns.func",
+   "stmts": 4,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "357-357",
+   "func": "amDialog.response",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "368-368",
+   "func": "amDialog.ResponseLabel",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "380-381",
+   "func": "amDialog.SetResponseAppearance",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "396-397",
+   "func": "amDialog.ResponseAppearance",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "401-401",
+   "func": "amDialog.ResponseAppearance",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/widedialog.go",
+   "lines": "421-422",
+   "func": "amDialog.DefaultResponse",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
   },
   {
    "file": "gui/internal/ui/window.go",
@@ -2017,7 +2160,7 @@
   },
   {
    "file": "internal/driver/driver.go",
-   "lines": "301-302",
+   "lines": "309-310",
    "func": "currentFaillock",
    "stmts": 1,
    "cat": "E",
@@ -2028,7 +2171,7 @@
   },
   {
    "file": "internal/driver/driver.go",
-   "lines": "511-511",
+   "lines": "519-519",
    "func": "Driver.command.func",
    "stmts": 1,
    "cat": "E",
@@ -2036,6 +2179,28 @@
    "recommend": "keep-exempt",
    "note": "keep-exempt",
    "security": false
+  },
+  {
+   "file": "internal/driver/refresh.go",
+   "lines": "59-60",
+   "func": "RefreshUpdates",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
+   "home": "internal/driver/*_test.go",
+   "security": false,
+   "package": 3
+  },
+  {
+   "file": "internal/driver/refresh.go",
+   "lines": "68-69",
+   "func": "trimOut",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
+   "home": "internal/driver/*_test.go",
+   "security": false,
+   "package": 3
   },
   {
    "file": "internal/engine/combine.go",
@@ -2401,7 +2566,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "80-81",
+   "lines": "86-87",
    "func": "checkSudo",
    "stmts": 1,
    "cat": "A",
@@ -2412,7 +2577,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "144-144",
+   "lines": "150-150",
    "func": "envCommand",
    "stmts": 1,
    "cat": "A",
@@ -2423,7 +2588,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "149-149",
+   "lines": "155-155",
    "func": "envCommand",
    "stmts": 1,
    "cat": "A",
@@ -2434,7 +2599,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "153-153",
+   "lines": "159-159",
    "func": "envCommand",
    "stmts": 1,
    "cat": "A",
@@ -2445,7 +2610,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "422-423",
+   "lines": "439-440",
    "func": "Child.GroupStopped",
    "stmts": 1,
    "cat": "A",
@@ -2456,7 +2621,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "445-445",
+   "lines": "462-462",
    "func": "Child.escalateGroup",
    "stmts": 1,
    "cat": "A",
@@ -2506,28 +2671,6 @@
    "cat": "A",
    "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
    "home": "internal/proc/*_test.go",
-   "security": false,
-   "package": 4
-  },
-  {
-   "file": "internal/sanitize/sanitize.go",
-   "lines": "217-217",
-   "func": "escapeEnd",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "CSI with intermediates, a CSI cut off before its final byte, OSC ended by ESC \\",
-   "home": "internal/sanitize/sanitize_test.go",
-   "security": false,
-   "package": 4
-  },
-  {
-   "file": "internal/sanitize/sanitize.go",
-   "lines": "227-228",
-   "func": "escapeEnd",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "CSI with intermediates, a CSI cut off before its final byte, OSC ended by ESC \\",
-   "home": "internal/sanitize/sanitize_test.go",
    "security": false,
    "package": 4
   },
@@ -3226,9 +3369,9 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "94-96",
+   "lines": "102-102",
    "func": "Run",
-   "stmts": 2,
+   "stmts": 3,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
    "recommend": "keep-exempt",
@@ -3237,260 +3380,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "100-102",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "108-110",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "115-117",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "120-122",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "125-127",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "131-133",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "137-139",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "162-164",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "172-174",
-   "func": "Run",
-   "stmts": 5,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "175-175",
-   "func": "Run",
-   "stmts": 5,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "176-176",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "177-178",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "179-180",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "183-184",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "185-187",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "188-188",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "189-190",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "191-192",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "193-193",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "195-195",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "196-197",
-   "func": "Run",
-   "stmts": 2,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "198-199",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "200-200",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "A",
-   "reason": "the post-m.Run checks (reap, trap report, guard compare): run every time, counted never (after the counters are written); a test calling Run on a fake M counts them",
-   "home": "internal/testenv/trap_test.go",
-   "security": false,
-   "package": 1
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "202-202",
+   "lines": "103-103",
    "func": "Run",
    "stmts": 1,
    "cat": "E",
@@ -3501,8 +3391,41 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "203-205",
+   "lines": "104-107",
    "func": "Run",
+   "stmts": 3,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "109-109",
+   "func": "Run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "123-124",
+   "func": "mkScratch",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "138-140",
+   "func": "run",
    "stmts": 2,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
@@ -3512,8 +3435,129 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "206-206",
-   "func": "Run",
+   "lines": "144-146",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "152-154",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "159-161",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "164-166",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "169-171",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "176-178",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "182-184",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "188-190",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "213-215",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "223-226",
+   "func": "run",
+   "stmts": 6,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "227-227",
+   "func": "run",
+   "stmts": 6,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "228-228",
+   "func": "run",
    "stmts": 1,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
@@ -3523,8 +3567,8 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "207-208",
-   "func": "Run",
+   "lines": "229-230",
+   "func": "run",
    "stmts": 1,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
@@ -3534,8 +3578,8 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "209-209",
-   "func": "Run",
+   "lines": "231-232",
+   "func": "run",
    "stmts": 1,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
@@ -3545,7 +3589,172 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "217-218",
+   "lines": "235-236",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "237-239",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "240-240",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "241-242",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "243-244",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "245-245",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "247-247",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "248-250",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "251-252",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "253-253",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "255-255",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "256-258",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "259-259",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "260-261",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "262-262",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "270-271",
    "func": "guardScript",
    "stmts": 1,
    "cat": "A",
@@ -3556,7 +3765,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "226-227",
+   "lines": "279-280",
    "func": "guardScript",
    "stmts": 1,
    "cat": "A",
@@ -3567,7 +3776,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "240-241",
+   "lines": "293-294",
    "func": "guardSnapshot",
    "stmts": 1,
    "cat": "A",
@@ -3578,7 +3787,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "249-251",
+   "lines": "302-304",
    "func": "guardCompare",
    "stmts": 2,
    "cat": "A",
@@ -3589,7 +3798,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "261-262",
+   "lines": "314-315",
    "func": "InstallTraps",
    "stmts": 1,
    "cat": "E",
@@ -3600,7 +3809,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "264-265",
+   "lines": "317-318",
    "func": "InstallTraps",
    "stmts": 1,
    "cat": "E",
@@ -3611,7 +3820,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "273-274",
+   "lines": "326-327",
    "func": "InstallTraps",
    "stmts": 1,
    "cat": "E",
@@ -3622,7 +3831,18 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "297-298",
+   "lines": "357-359",
+   "func": "TrapInstalled",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "383-384",
    "func": "newMarker",
    "stmts": 1,
    "cat": "E",
@@ -3633,7 +3853,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "307-308",
+   "lines": "393-394",
    "func": "setChildSubreaper",
    "stmts": 1,
    "cat": "E",
@@ -3644,7 +3864,7 @@
   },
   {
    "file": "internal/testenv/watchdog.go",
-   "lines": "46-47",
+   "lines": "60-61",
    "func": "startWatchdog",
    "stmts": 1,
    "cat": "E",
@@ -3655,7 +3875,7 @@
   },
   {
    "file": "internal/testenv/watchdog.go",
-   "lines": "53-55",
+   "lines": "67-69",
    "func": "startWatchdog",
    "stmts": 2,
    "cat": "E",
@@ -3666,7 +3886,7 @@
   },
   {
    "file": "internal/testenv/watchdog.go",
-   "lines": "62-65",
+   "lines": "76-79",
    "func": "watchdog.stop",
    "stmts": 3,
    "cat": "A",
