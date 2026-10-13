@@ -57,7 +57,9 @@ type Options struct {
 	Exe       func() (string, error)
 	Stat      func(string) (FileStat, error)
 	// LockPath is the helper's own lock; PacmanDBLock is pacman's.
-	LockPath     string
+	LockPath string
+	// PacmanDBLock "" (production) means pacman-conf DBPath + db.lck,
+	// read once per run (dblock.go); tests set a path.
 	PacmanDBLock string
 	// Dev is set by the devhelper build tag: refuse root, skip the install check.
 	Dev bool
@@ -67,19 +69,20 @@ type Options struct {
 	// called with each candidate's name while pacman's lock is held.
 	now             func() time.Time
 	underPacmanLock func(name string)
+	// lockDirCheck replaces checkLockDir (the lock folder is root's alone).
+	lockDirCheck func(dir string) error
 }
 
 // DefaultOptions returns the production seams (everything but CallerUID,
 // Euid and Dev, which main supplies).
 func DefaultOptions() Options {
 	return Options{
-		Runner:       ExecRunner{},
-		Stdout:       os.Stdout,
-		Stderr:       os.Stderr,
-		Exe:          os.Executable,
-		Stat:         LstatFile,
-		LockPath:     DefaultLockPath,
-		PacmanDBLock: DefaultPacmanDBLock,
+		Runner:   ExecRunner{},
+		Stdout:   os.Stdout,
+		Stderr:   os.Stderr,
+		Exe:      os.Executable,
+		Stat:     LstatFile,
+		LockPath: DefaultLockPath,
 	}
 }
 
@@ -114,6 +117,9 @@ type session struct {
 	skipped   []Skip
 	pacman    bool   // verb wants the pacman lock check
 	part      string // the combined verb's part running now (its verb), or ""
+
+	dbLock       string // pacman's db.lck for this run, see lockPath
+	lockResolved bool
 }
 
 // progress announces step n of `of`, as a part of a combined verb while
@@ -183,7 +189,11 @@ func (s *session) usage(format string, a ...any) int {
 // lock takes the helper lock (and the pacman check when the verb wants it).
 // On failure it writes the result itself; the caller returns the code.
 func (s *session) lock() (release func(), code int) {
-	release, err := acquireLock(s.o.LockPath, s.o.PacmanDBLock, s.pacman)
+	dbLock := ""
+	if s.pacman {
+		dbLock = s.lockPath() // before the first check that needs it
+	}
+	release, err := acquireLock(s.o.LockPath, dbLock, s.pacman)
 	if err != nil {
 		if errors.Is(err, errBusy) {
 			return nil, s.finish(ExitBusy, err.Error())
@@ -506,7 +516,7 @@ func (s *session) removeOrphans(n, of int, want string) (int, string) {
 		s.skip("remove-orphans", "pacman is running")
 		return ExitBusy, err.Error() + "; orphans were not removed"
 	}
-	if err := pacmanIdle(s.o.PacmanDBLock); err != nil {
+	if err := pacmanIdle(s.lockPath()); err != nil {
 		return busy(err)
 	}
 	p, err := ComputePlan(s.o.Runner)
@@ -524,7 +534,7 @@ func (s *session) removeOrphans(n, of int, want string) (int, string) {
 		s.skip("remove-orphans", "no orphaned packages")
 		return ExitOK, ""
 	}
-	if err := pacmanIdle(s.o.PacmanDBLock); err != nil {
+	if err := pacmanIdle(s.lockPath()); err != nil {
 		return busy(err)
 	}
 	if ok, msg := s.step(n, of, fmt.Sprintf("Removing %d orphaned package(s)", len(p.Targets)), removeArgv(p.Targets)); !ok {

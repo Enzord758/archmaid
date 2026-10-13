@@ -193,7 +193,8 @@ alone:
   (pacman) can have made an entry in it;
 - the name is exactly `download-` plus six ASCII letters or digits;
 - the helper holds **pacman's own lock** while it removes: it creates
-  `/var/lib/pacman/db.lck` exactly as libalpm does (`_alpm_handle_lock`:
+  `db.lck` in `pacman-conf DBPath` (default `/var/lib/pacman/db.lck`, see
+  "The lock's path" below) exactly as libalpm does (`_alpm_handle_lock`:
   `open(O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0000)`, nothing written in it),
   so no pacman that locks can run meanwhile; if the lock exists, pacman is
   running, nothing is touched and the lock is left as it is ("Left pacman's
@@ -223,8 +224,25 @@ runtime fatal error and a power loss, inside a window of microseconds per
 folder. pacman, which holds the same lock for minutes, has the same
 exposure, and so does `pacman -Sc` right after the tidy, for seconds. On an
 NFS or FUSE cache dir, `fstatat` and `unlinkat` under the lock can block. A lock left that way is pacman's
-usual stale `db.lck`: once no pacman is running, `sudo rm
-/var/lib/pacman/db.lck`. A failed release says so in its own line.
+usual stale `db.lck`: once no pacman is running, `sudo rm` it (the line
+names the path). A failed release says so in its own line.
+
+*The lock's path.* Every `db.lck` check (the start check of the verbs that
+run pacman, the orphan removal's two rechecks, the tidy's busy test and its
+hold) uses one path, `<pacman-conf DBPath>/db.lck`: `/usr/bin/pacman-conf
+DBPath`, a fixed absolute argv, read once per run before the first check
+that needs it. The answer must be one absolute path without control
+characters; it goes through `filepath.Clean`. If pacman-conf fails or prints
+anything else, the helper falls back to `/var/lib/pacman/db.lck` and prints
+one plain line saying so. It does not refuse: the lock is a guard against a
+pacman the helper can't see, not a precondition (pacman, paccache and the
+removals take their own locks), so a broken pacman-conf shouldn't stop every
+cleanup, and the fallback guards what the helper guarded before it read the
+path. The tidy takes the lock only when the lock's folder is root's alone
+(owned by root, not group- or other-writable); otherwise it skips with a
+note ("not taking pacman's lock …"). A lock that already exists is still
+honoured as busy there: a lock someone else made is still a possible
+pacman.
 
 The lock alone would allow dropping the age rule for every folder libalpm
 makes inside a transaction (`download_files` runs in `alpm_trans_commit`,
@@ -232,8 +250,8 @@ which requires the lock). Not every folder is made that way, though:
 `pacman -U <url>` fetches through `alpm_fetch_pkgurl` *before* its
 `trans_init` (`src/pacman/upgrade.c`), so it makes its folder in the cache
 with no `db.lck`; so does a libalpm user with another `DBPath` and the same
-cache (`checkupdates -d` run as root), and pacman itself if `pacman.conf`'s
-`DBPath` isn't `/var/lib/pacman/`. Such a folder is empty only between its
+cache (`checkupdates -d` run as root), and pacman itself if run
+with another `--dbpath` than `pacman.conf`'s. Such a folder is empty only between its
 `mkdtemp` and the first `.part` file, which libalpm's built-in curl opens before the
 transfer starts (`curl_add_payload`): milliseconds, or seconds if looking
 up the download user is slow. With an `XferCommand` (`curl … -o %o`) the
@@ -312,7 +330,7 @@ field is not a schema break; changing or removing one bumps `v`.
 | 2 | bad usage or input |
 | 3 | state changed since the user confirmed (orphan plan hash mismatch), or `repair` has nothing it may reinstall because the repos have a different version, or reinstalling would pull in or upgrade other packages (update the system first) |
 | 4 | refused: denylisted unit, a running `Also=` unit or trigger (or an enabled trigger left behind), not root, no `PKEXEC_UID`/`SUDO_UID`, wrong install path/ownership/mode, or a devhelper build run as root |
-| 5 | busy: `/run/archmaid-helper.lock` is held, or `/var/lib/pacman/db.lck` exists (checked only for verbs that run pacman/paccache mutations; `full-cleanup`'s download-leftovers tidy also takes `db.lck` itself for a moment, see "Download leftovers") |
+| 5 | busy: `/run/archmaid-helper.lock` is held, or pacman's `db.lck` (in `pacman-conf DBPath`, default `/var/lib/pacman/db.lck`) exists (checked only for verbs that run pacman/paccache mutations; `full-cleanup`'s download-leftovers tidy also takes `db.lck` itself for a moment, see "Download leftovers") |
 
 ## Hardening
 

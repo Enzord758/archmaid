@@ -55,7 +55,8 @@ import (
 // trans_init (src/pacman/upgrade.c), so it makes its folder in the cache
 // with no db.lck; so does a libalpm user with another DBPath and the same
 // cache (checkupdates -d run as root), and so does pacman itself if
-// pacman.conf's DBPath is not the one PacmanDBLock names. Such a folder
+// run with another --dbpath than pacman.conf's (the lock is pacman-conf's
+// DBPath, dblock.go). Such a folder
 // is empty only from its mkdtemp to the first .part file, which
 // curl_add_payload opens before the transfer starts: milliseconds, or
 // seconds if the download user's lookup (getpwnam, NSS) is slow. That holds
@@ -144,7 +145,18 @@ func (s *session) tidyDownloadLeftovers() {
 	}
 	if n > 0 {
 		now := s.now()
-		err := holdPacmanLock(s.o.PacmanDBLock, func() {
+		lock := s.lockPath()
+		if err := s.lockDirSafe(lock); err != nil {
+			// Not root's alone: don't take the lock, but a lock that is
+			// there still means pacman is running.
+			if idle := pacmanIdle(lock); idle != nil {
+				note("Left pacman's download folders alone: %v", idle)
+			} else {
+				note("Left pacman's download folders alone: not taking pacman's lock %s: %v", lock, err)
+			}
+			return
+		}
+		err := holdPacmanLock(lock, func() {
 			for _, sc := range scans {
 				for _, name := range sc.candidates {
 					if s.o.underPacmanLock != nil {
@@ -175,7 +187,7 @@ func (s *session) tidyDownloadLeftovers() {
 		for _, k := range sc.kept {
 			p := filepath.Join(sc.dir, k.name)
 			if k.reason == reasonNotEmpty {
-				note("Left %s alone: %s%s", p, k.reason, notEmptyHint(p, s.o.PacmanDBLock))
+				note("Left %s alone: %s%s", p, k.reason, notEmptyHint(p, s.lockPath()))
 				continue
 			}
 			note("Left %s alone: %s", p, k.reason)

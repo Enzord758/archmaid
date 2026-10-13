@@ -117,6 +117,8 @@ func rootOpts(t *testing.T, r Runner) (Options, *bytes.Buffer) {
 		Stat:         rootStat,
 		LockPath:     filepath.Join(dir, "helper.lock"),
 		PacmanDBLock: filepath.Join(dir, "db.lck"),
+		// the temp dir is the test user's, not root's
+		lockDirCheck: func(string) error { return nil },
 	}, &out
 }
 

@@ -757,8 +757,13 @@ comments and `git log`; this is the "read before you touch it" list.
   `[A-Za-z0-9/._+-]`: the line is sanitized, and any other path would be
   pasted as another one). The part's result stays `-Sc`'s. **The preview doesn't show the
   tidy**: the step shows `pacman -Sc --noconfirm` and a dry run names
-  the part. The lock path is the helper's fixed `/var/lib/pacman/db.lck`
-  (like its other `db.lck` checks), not `pacman-conf DBPath`. Keep it
+  the part. The lock path (#125) is `pacman-conf DBPath` + `db.lck`
+  (`dblock.go`, `session.lockPath`), read once per run before the first check
+  that needs it and used for every `db.lck` check and the hold; an unreadable
+  or invalid answer falls back to `/var/lib/pacman/db.lck` with one note (not
+  a refusal: the lock is a guard, not a precondition). The hold needs the
+  lock's folder root-owned and not group/other-writable (`checkLockDir`), else
+  the tidy skips with a note, yet an existing lock still counts as busy. Keep it
   rmdir-only and fd-relative: no path walk, no `RemoveAll`, no path from
   the client; `openat2(RESOLVE_NO_SYMLINKS)` for the cache dir's parents
   is a documented note, not built (they are root's). The TUI is
