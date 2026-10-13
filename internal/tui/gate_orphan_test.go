@@ -128,7 +128,7 @@ func TestActivateFullCleanupRunsNoPacman(t *testing.T) {
 		t.Fatal("activating Full Cleanup should start the audit prefetch")
 	}
 	b, _ := os.ReadFile(shimLog)
-	if log := strings.TrimSpace(string(b)); log != "pacman -Qqm" {
+	if log := strings.TrimSpace(string(b)); log != "pacman -Qqm --color never" {
 		t.Fatalf("activate ran:\n%s\nwant only the audit prefetch's pacman -Qqm", log)
 	}
 }
@@ -163,7 +163,7 @@ func TestFindOrphansInsertsRemoval(t *testing.T) {
 		}
 	}
 	b, _ := os.ReadFile(shimLog)
-	if got := string(b); got != "pacman -Qdtq\npacman -Rs --print -- liba libb\n" {
+	if got := string(b); got != "pacman -Qdtq --color never\npacman -Rs --print --color never -- liba libb\n" {
 		t.Fatalf("probe ran:\n%s", got)
 	}
 }
@@ -186,7 +186,7 @@ func TestFindOrphansNone(t *testing.T) {
 	if r.Err != nil || r.InsertNext != nil || r.Output != "No orphaned packages." {
 		t.Fatalf("result = %+v, want a clean 'none'", r)
 	}
-	if b, _ := os.ReadFile(shimLog); string(b) != "pacman -Qdtq\n" {
+	if b, _ := os.ReadFile(shimLog); string(b) != "pacman -Qdtq --color never\n" {
 		t.Fatalf("probe ran:\n%s", b)
 	}
 }

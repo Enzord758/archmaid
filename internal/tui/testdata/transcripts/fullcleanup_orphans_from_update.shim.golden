@@ -1,5 +1,5 @@
 action "Full Cleanup (Recommended)"
-exec  pacman -Qqm
+exec  pacman -Qqm --color never
 exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps
@@ -33,8 +33,8 @@ ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> no
 step  4 skipped
 log   cleanup SKIP: Entire package cache removed (declined)
 step  5 running
-exec  pacman -Qdtq
-exec  pacman -Rs --print -- libold python-oldthing
+exec  pacman -Qdtq --color never
+exec  pacman -Rs --print --color never -- libold python-oldthing
 out   5 2 orphaned package(s): libold python-oldthing
 out   5 pacman -Rns would remove 3 package(s):
 out   5   libold

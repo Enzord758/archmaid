@@ -1,5 +1,5 @@
 action "Full Cleanup (Recommended)"
-exec  pacman -Qqm
+exec  pacman -Qqm --color never
 exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps

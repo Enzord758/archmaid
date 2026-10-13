@@ -1,5 +1,5 @@
 action "Audit AUR packages"
-exec  pacman -Qqm
+exec  pacman -Qqm --color never
 log   audit AUDIT: AUR audit: 2 checked, 2 flagged
 audit 2 foreign package(s) checked against the AUR
 audit

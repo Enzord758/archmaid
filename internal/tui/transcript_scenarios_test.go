@@ -262,7 +262,7 @@ echo python-oldthing`}}, sh["pacman"]...)
 		pinScanWorkers(t, 2)
 		shimLog := installShims(t, Shims{
 			"pacman": repairPacmanRules("amd-ucode baz foo glibc", "amd-ucode baz foo"),
-			"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qkq -- ", Exit: 1, Out: "" +
+			"sudo": sudoRules(true, Rule{Prefix: "-n pacman -Qkq --color never -- ", Exit: 1, Out: "" +
 				"baz /usr/share/baz/a\n" +
 				"baz /usr/share/baz/b\n" +
 				"foo /usr/share/foo/a"}),
@@ -285,7 +285,7 @@ echo python-oldthing`}}, sh["pacman"]...)
 		pinScanWorkers(t, 2)
 		shimLog := installShims(t, Shims{
 			"pacman": repairPacmanRules("amd-ucode baz foo glibc", "amd-ucode"),
-			"sudo":   sudoRules(true, Rule{Prefix: "-n pacman -Qkq -- "}),
+			"sudo":   sudoRules(true, Rule{Prefix: "-n pacman -Qkq --color never -- "}),
 		})
 		return record(t, mk, shimLog, "Repair broken packages")
 	}},
@@ -466,7 +466,7 @@ func sudoRules(cached bool, extra ...Rule) []Rule {
 func repairPacmanRules(installed, flagged string) []Rule {
 	return []Rule{
 		{Prefix: "-Qq", Out: strings.ReplaceAll(installed, " ", "\n")},
-		{Prefix: "-Qkq -- ", Script: `shift 2; rc=0
+		{Prefix: "-Qkq --color never -- ", Script: `shift 4; rc=0
 for p in "$@"; do for b in ` + flagged + `; do
 	if [ "$p" = "$b" ]; then echo "$p /usr/lib/$p/missing"; rc=1; fi
 done; done

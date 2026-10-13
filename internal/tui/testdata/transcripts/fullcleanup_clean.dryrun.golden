@@ -1,5 +1,5 @@
 action "Full Cleanup (Recommended)"
-exec  pacman -Qqm
+exec  pacman -Qqm --color never
 ask   "Proceed with full cleanup?" -> yes
 plan  9 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
@@ -27,7 +27,7 @@ ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> no
 step  4 skipped
 log   cleanup SKIP: Entire package cache removed (declined)
 step  5 running
-exec  pacman -Qdtq
+exec  pacman -Qdtq --color never
 out   5 No orphaned packages.
 step  5 ok
 log   orphans DRYRUN: Orphaned packages checked

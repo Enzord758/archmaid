@@ -300,7 +300,7 @@ func orphanSummary(orphans, cascade []string) string {
 // anymore (pacman -Qdtq). pacman reports "none" by exiting 1 without a word,
 // so that is an empty list; any other failure is an error.
 func orphanPackages(ctx context.Context) ([]string, error) {
-	out, err := proc.Query(ctx, "pacman", "-Qdtq")
+	out, err := proc.Query(ctx, "pacman", "-Qdtq", "--color", "never")
 	var exit *exec.ExitError
 	if errors.As(err, &exit) && exit.ExitCode() == 1 && len(out) == 0 && len(exit.Stderr) == 0 {
 		return nil, nil
@@ -308,7 +308,11 @@ func orphanPackages(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return nonEmptyLines(string(out)), nil
+	names := nonEmptyLines(string(out))
+	if err := checkPackageNames("pacman -Qdtq", names); err != nil {
+		return nil, err
+	}
+	return names, nil
 }
 
 // orphanRemovalPreview lists what `pacman -Rns <orphans>` will actually
@@ -319,7 +323,7 @@ func orphanPackages(ctx context.Context) ([]string, error) {
 // -Rns — the dropped -n only affects whether removed configs are kept as
 // .pacsave, not what gets selected.
 func orphanRemovalPreview(ctx context.Context, orphans []string) ([]string, error) {
-	out, err := proc.Query(ctx, "pacman", append([]string{"-Rs", "--print", "--"}, orphans...)...)
+	out, err := proc.Query(ctx, "pacman", append([]string{"-Rs", "--print", "--color", "never", "--"}, orphans...)...)
 	if err != nil {
 		return nil, err
 	}

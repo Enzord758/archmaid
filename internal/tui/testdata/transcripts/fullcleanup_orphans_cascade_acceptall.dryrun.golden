@@ -1,5 +1,5 @@
 action "Full Cleanup (Recommended)"
-exec  pacman -Qqm
+exec  pacman -Qqm --color never
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
@@ -34,8 +34,8 @@ out   4 [dry-run] would run: sudo paccache -rk0
 step  4 ok
 log   cleanup DRYRUN: Entire package cache removed
 step  5 running
-exec  pacman -Qdtq
-exec  pacman -Rs --print -- libfoo libbar
+exec  pacman -Qdtq --color never
+exec  pacman -Rs --print --color never -- libfoo libbar
 out   5 2 orphaned package(s): libfoo libbar
 out   5 pacman -Rns would remove 3 package(s):
 out   5   libfoo

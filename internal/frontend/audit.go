@@ -74,7 +74,7 @@ func AuditConfig(store *logstore.Store, o AuditOptions) audit.Config {
 // failure reads as none too, and audit.Run reports that as ErrNoForeign.
 // When ctx ends first, Run sees that itself.
 func ForeignPackages(ctx context.Context) ([]string, error) {
-	out, _ := proc.Query(ctx, "pacman", "-Qqm")
+	out, _ := proc.Query(ctx, "pacman", "-Qqm", "--color", "never")
 	var names []string
 	for _, l := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if l = strings.TrimSpace(l); l != "" {

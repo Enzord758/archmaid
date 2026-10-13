@@ -46,7 +46,7 @@ echo "pacman $*" >> %[1]s
 case "$1" in
 -Qq) printf '%%s\n' %[2]s; exit 0;;
 -Qkq)
-	shift; [ "$1" = "--" ] && shift
+	shift; [ "$1" = "--color" ] && shift 2; [ "$1" = "--" ] && shift
 	broken=%[3]s; [ -n "$SHIM_AS_ROOT" ] && broken=%[4]s
 	rc=0
 	for p in "$@"; do for b in $broken; do
@@ -144,14 +144,14 @@ func TestBrokenCandidatesParallelMatchesSingle(t *testing.T) {
 			t.Fatalf("workers=%d: the user scan ran sudo: %v", workers, s)
 		}
 		calls := execLog(t, log, "pacman")
-		if calls[0] != "pacman -Qq" || len(calls)-1 != min(workers, len(installed)) {
-			t.Fatalf("workers=%d: want pacman -Qq then %d chunks, got %v", workers, min(workers, len(installed)), calls)
+		if calls[0] != "pacman -Qq --color never" || len(calls)-1 != min(workers, len(installed)) {
+			t.Fatalf("workers=%d: want pacman -Qq --color never then %d chunks, got %v", workers, min(workers, len(installed)), calls)
 		}
 		var checked []string
 		for _, c := range calls[1:] {
-			targets, ok := strings.CutPrefix(c, "pacman -Qkq -- ")
+			targets, ok := strings.CutPrefix(c, "pacman -Qkq --color never -- ")
 			if !ok {
-				t.Fatalf("workers=%d: chunk call %q, want pacman -Qkq -- <pkgs>", workers, c)
+				t.Fatalf("workers=%d: chunk call %q, want pacman -Qkq --color never -- <pkgs>", workers, c)
 			}
 			checked = append(checked, strings.Fields(targets)...)
 		}
@@ -199,7 +199,7 @@ func TestBrokenPackagesRechecksAsRoot(t *testing.T) {
 	if !ok || len(p.Steps) != 1 || !reflect.DeepEqual(p.Steps[0].Args(), []string{"pacman", "-S", "--noconfirm", "--", "bad"}) {
 		t.Fatalf("got %+v, want a reinstall of just bad", p)
 	}
-	if s := execLog(t, log, "sudo"); !reflect.DeepEqual(s, []string{"sudo -n pacman -Qkq -- amd-ucode bad"}) {
+	if s := execLog(t, log, "sudo"); !reflect.DeepEqual(s, []string{"sudo -n pacman -Qkq --color never -- amd-ucode bad"}) {
 		t.Fatalf("sudo calls %v, want one recheck of the candidates", s)
 	}
 }

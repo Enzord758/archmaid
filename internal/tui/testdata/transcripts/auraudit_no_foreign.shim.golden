@@ -1,5 +1,5 @@
 action "Audit AUR packages"
-exec  pacman -Qqm
+exec  pacman -Qqm --color never
 log   auraudit CHECK: No foreign (AUR or locally built) packages installed: nothing to audit.
 note  "No foreign (AUR or locally built) packages installed: nothing to audit."
 end   outcome=notice errs=0 skipped=0

@@ -138,7 +138,7 @@ func TestRescanRepairSudoUnchanged(t *testing.T) {
 		t.Fatalf("step %+v, want the reinstall of big", s)
 	}
 	got, err := os.ReadFile(argsFile)
-	if err != nil || string(got) != "-n pacman -Qkq -- amd-ucode big\n" {
+	if err != nil || string(got) != "-n pacman -Qkq --color never -- amd-ucode big\n" {
 		t.Fatalf("sudo ran with %q (%v), want the -n recheck of both candidates", got, err)
 	}
 }

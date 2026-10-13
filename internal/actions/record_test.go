@@ -33,7 +33,7 @@ func shimPacman(t *testing.T, pacman, sudo string) {
 // pacmanFour lists four packages and flags the ones in $FLAG for -Qkq.
 const pacmanFour = `case "$1" in
 -Qq) printf 'amd-ucode\nbaz\nfoo\nglibc\n' ;;
--Qkq) shift; shift; rc=0; for p in "$@"; do case " $FLAG " in *" $p "*) echo "$p /usr/lib/$p.so"; rc=1 ;; esac; done; exit $rc ;;
+-Qkq) shift 4; rc=0; for p in "$@"; do case " $FLAG " in *" $p "*) echo "$p /usr/lib/$p.so"; rc=1 ;; esac; done; exit $rc ;;
 esac
 `
 

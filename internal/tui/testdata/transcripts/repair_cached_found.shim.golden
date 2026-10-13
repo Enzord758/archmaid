@@ -1,9 +1,9 @@
 action "Repair broken packages"
-exec  pacman -Qq
-exec  pacman -Qkq -- amd-ucode baz
-exec  pacman -Qkq -- foo glibc
+exec  pacman -Qq --color never
+exec  pacman -Qkq --color never -- amd-ucode baz
+exec  pacman -Qkq --color never -- foo glibc
 exec  sudo -n -v
-exec  sudo -n pacman -Qkq -- amd-ucode baz foo
+exec  sudo -n pacman -Qkq --color never -- amd-ucode baz foo
 plan  1 steps
 plan  1 "Reinstalling packages…" argv=sudo pacman -S --noconfirm -- baz foo sudo confirm optional alwayslog cat=cleanup
 log   cleanup CHECK: Checked 4 installed packages: 2 broken (baz, foo), confirmed as root.

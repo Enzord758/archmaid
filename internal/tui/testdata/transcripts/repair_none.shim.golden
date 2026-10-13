@@ -1,7 +1,7 @@
 action "Repair broken packages"
-exec  pacman -Qq
-exec  pacman -Qkq -- amd-ucode baz
-exec  pacman -Qkq -- foo glibc
+exec  pacman -Qq --color never
+exec  pacman -Qkq --color never -- amd-ucode baz
+exec  pacman -Qkq --color never -- foo glibc
 log   repair CHECK: No broken packages: checked 4 installed packages for missing files (pacman -Qk, as the user).
 note  "No broken packages: checked 4 installed packages for missing files (pacman -Qk, as the user)."
 end   outcome=notice errs=0 skipped=0

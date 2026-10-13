@@ -164,7 +164,7 @@ func clipErr(err error) string {
 // it is what a single `pacman -Qkq` over everything would report.
 func brokenCandidates(ctx context.Context, workers int) (repairScan, error) {
 	scan := repairScan{log: "$ pacman -Qq\n"}
-	installed, err := qkqOutput(ctx, "pacman", "-Qq")
+	installed, err := qkqOutput(ctx, "pacman", "-Qq", "--color", "never")
 	if err != nil {
 		return scan, err
 	}
@@ -179,7 +179,7 @@ func brokenCandidates(ctx context.Context, workers int) (repairScan, error) {
 	var wg sync.WaitGroup
 	for i, chunk := range chunks {
 		wg.Go(func() {
-			out, err := qkqOutput(ctx, "pacman", append([]string{"-Qkq", "--"}, chunk...)...)
+			out, err := qkqOutput(ctx, "pacman", append([]string{"-Qkq", "--color", "never", "--"}, chunk...)...)
 			found[i], outs[i], errs[i] = parseBrokenPackages(out), out, err
 		})
 	}
@@ -192,6 +192,9 @@ func brokenCandidates(ctx context.Context, workers int) (repairScan, error) {
 		return scan, err
 	}
 	scan.cands = slices.Concat(found...)
+	if err := checkPackageNames("pacman -Qkq", scan.cands); err != nil {
+		return scan, err
+	}
 	return scan, nil
 }
 
@@ -223,11 +226,15 @@ func chunkStrings(s []string, n int) [][]string {
 // where a full scan as root took ~850. -n: the ticket is already primed, and
 // nothing may prompt on the raw tty.
 func brokenPackages(ctx context.Context, candidates []string) (pkgs []string, out string, err error) {
-	out, err = qkqOutput(ctx, "sudo", append([]string{"-n", "pacman", "-Qkq", "--"}, candidates...)...)
+	out, err = qkqOutput(ctx, "sudo", append([]string{"-n", "pacman", "-Qkq", "--color", "never", "--"}, candidates...)...)
 	if err != nil {
 		return nil, out, err
 	}
-	return parseBrokenPackages(out), out, nil
+	pkgs = parseBrokenPackages(out)
+	if err := checkPackageNames("sudo -n pacman -Qkq", pkgs); err != nil {
+		return nil, out, err
+	}
+	return pkgs, out, nil
 }
 
 // qkqOutput runs a pacman query (proc.Query) and returns its stdout. pacman
