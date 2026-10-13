@@ -121,6 +121,20 @@ func TestForeignPackages(t *testing.T) {
 	}
 }
 
+// TestForeignPackagesIsColourless: the parsed `pacman -Qqm` asks for
+// --color never, so a colourising pacman cannot put SGR into a name.
+func TestForeignPackagesIsColourless(t *testing.T) {
+	dir := t.TempDir()
+	script := "#!/bin/sh\n[ \"$*\" = \"-Qqm --color never\" ] || exit 2\necho a-bin\n"
+	if err := os.WriteFile(filepath.Join(dir, "pacman"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if got, _ := ForeignPackages(context.Background()); !slices.Equal(got, []string{"a-bin"}) {
+		t.Fatalf("ForeignPackages = %q, want [a-bin] (pacman exits 2 on any other argv)", got)
+	}
+}
+
 // TestMenuAuditNotices: nothing to audit, an unreachable AUR and a stopped
 // audit are notices, and a stopped one writes no snapshot.
 func TestMenuAuditNotices(t *testing.T) {
