@@ -44,7 +44,8 @@ type Discovered struct {
 }
 
 // StepOutput is output of the child StartStep started with Seq: whole
-// lines, already sanitized (sanitize.KeepSGR), in order. A Driver may batch
+// lines, already sanitized (sanitize.KeepSGR; the Session sanitizes again,
+// per sanitize.ColourMode), in order. A Driver may batch
 // lines into one StepOutput; it never drops any here.
 type StepOutput struct {
 	Seq   uint64

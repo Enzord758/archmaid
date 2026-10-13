@@ -12,7 +12,9 @@ import "os"
 // runs as root. The root helper asks for its own colour, as constants in
 // its own argv (cmd/archmaid-helper, helper.go: pacman's --color always on
 // what it only relays, --color never on what it parses); nothing here
-// reaches it, and NO_COLOR is honoured for it by internal/helperclient,
+// reaches it. NO_COLOR is honoured for all output once, by the engine
+// (sanitize.ColourMode: the user steps' lines) and for the helper by
+// internal/helperclient,
 // which then drops the colour of its lines.
 //
 // What each tool needs, from its source (the versions Arch ships):

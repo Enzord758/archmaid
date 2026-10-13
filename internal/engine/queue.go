@@ -412,7 +412,7 @@ func (s *Session) output(o *Output, lines []string) {
 	r := s.run
 	clean := make([]string, len(lines))
 	for i, l := range lines {
-		clean[i] = sanitize.String(l, sanitize.KeepSGR)
+		clean[i] = sanitize.String(l, s.outMode)
 	}
 	r.out = append(r.out, clean...)
 	o.event(OutputChunk{ID: r.plan[r.cur].step.ID, Index: r.cur, Lines: clean})
@@ -510,7 +510,7 @@ func (s *Session) stepResult(o *Output, in StepResult) {
 	if res.Output != "" {
 		// Sanitized whole, then split, as the TUI does: an escape that spans
 		// a newline swallows it rather than leaving its tail on a line (L7).
-		s.output(o, strings.Split(sanitize.String(strings.TrimRight(res.Output, "\n"), sanitize.KeepSGR), "\n"))
+		s.output(o, strings.Split(sanitize.String(strings.TrimRight(res.Output, "\n"), s.outMode), "\n"))
 	}
 	s.settle(o, outcome(res.Err), errText(res.Err))
 	if res.Err == nil && res.InsertNext != nil {

@@ -4,6 +4,7 @@
 package sanitize
 
 import (
+	"os"
 	"strconv"
 	"strings"
 	"unicode"
@@ -33,6 +34,18 @@ const (
 	// so streamed output keeps its colours in the output pane.
 	KeepSGR
 )
+
+// ColourMode is the Mode for text that may show colour: KeepSGR, or Plain
+// when NO_COLOR (set and not empty, no-color.org) is in the environment, so
+// NO_COLOR means no SGR anywhere, a user step's own output included
+// (yay's bold under topgrade). Callers read it once, at start: the engine
+// Session in New, the helper client per step.
+func ColourMode() Mode {
+	if os.Getenv("NO_COLOR") != "" {
+		return Plain
+	}
+	return KeepSGR
+}
 
 // String returns s with every control character removed except tab and
 // newline, and every escape sequence removed except, in KeepSGR, SGR.

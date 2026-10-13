@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
 // Options configure a Session. The zero value is a real run with the sudo
@@ -107,6 +108,9 @@ type Session struct {
 	opts   Options
 	env    actions.Env
 	lookup func(string) (actions.Action, bool) // actions.ByID; tests swap it
+	// outMode is how step output is sanitized: sanitize.ColourMode, read
+	// once in New (NO_COLOR: no SGR at all).
+	outMode sanitize.Mode
 
 	lastPrompt PromptID
 	lastSeq    uint64
@@ -119,7 +123,7 @@ func New(opts Options) *Session {
 	env := opts.Env
 	env.DryRun = opts.DryRun
 	env.Polkit = opts.Auth == AuthPolkit
-	return &Session{opts: opts, env: env, lookup: actions.ByID}
+	return &Session{opts: opts, env: env, lookup: actions.ByID, outMode: sanitize.ColourMode()}
 }
 
 // Start runs the menu action with id (actions.ByID): a queue is planned

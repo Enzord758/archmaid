@@ -3,7 +3,6 @@ package helperclient
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 
@@ -69,12 +68,7 @@ type decoder struct {
 // not empty, no-color.org) is honoured: Plain drops the colour, KeepSGR
 // keeps it and drops every other escape. Either way logs are plain
 // (sanitize.Plain in logstore).
-func lineMode() sanitize.Mode {
-	if os.Getenv("NO_COLOR") != "" {
-		return sanitize.Plain
-	}
-	return sanitize.KeepSGR
-}
+func lineMode() sanitize.Mode { return sanitize.ColourMode() }
 
 func newDecoder(st steps.Step) *decoder {
 	d := &decoder{verb: st.Verb, lines: lineMode()}

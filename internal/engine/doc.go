@@ -111,7 +111,8 @@
 // funcs, channels or interfaces in their fields — and every string in them
 // that came from outside archmaid (command output, AUR names, sudo's
 // prompt) has been through internal/sanitize: output lines keep only SGR
-// colour (sanitize.KeepSGR), everything else is plain.
+// colour (sanitize.KeepSGR; none under NO_COLOR, sanitize.ColourMode),
+// everything else is plain.
 //
 // # Privilege
 //
