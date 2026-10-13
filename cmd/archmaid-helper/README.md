@@ -158,7 +158,7 @@ this order, each named by the verb it stands for (`clean-uninstalled` has a name
 1. `remove-orphans`: remove-orphans `H` (only with `--orphans`; a stale plan is skipped and reported, not run). First, right after the lock check, while the confirmed plan is freshest
 2. `paccache`: `paccache -r -k N`
 3. `paccache-wipe`: `paccache -r -k 0` (only with `--wipe`)
-4. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog
+4. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog. Before `-Sc` it removes the empty `download-XXXXXX` folders interrupted pacman downloads left in the cache, which `-Sc` would otherwise report one red `error: could not open file …` line each for (see "Download leftovers" below)
 5. `clean-tmp`: `systemd-tmpfiles --clean`
 6. `vacuum-journal`: `journalctl --vacuum-time=D`
 7. `check-files`: `pacman -Qk --color always` (relayed only, no `check` event here; the `check-files` verb's own `-Qk` runs with `--color never`)
@@ -171,6 +171,33 @@ runs Full Cleanup's root steps as this one verb, so the whole cleanup shows
 one admin dialog, and maps each part back to its own checklist row
 (`internal/helperclient`). The order is part of the protocol: the client
 checks it.
+
+**Download leftovers.** pacman 7 downloads as its `DownloadUser` into a
+`download-XXXXXX` folder (libalpm's `mkdtemp`) in the first writable cache
+dir and removes it afterwards; an interrupted download leaves it behind.
+The `clean-uninstalled` part removes such a folder, as root, only when all
+of this holds, and leaves everything else alone:
+
+- it is a direct child of a cache dir `pacman-conf CacheDir` names
+  (`/usr/bin/pacman-conf`, pacman's own reading of `pacman.conf`; never a
+  path from the caller), an absolute path, at most 16 of them;
+- that cache dir, opened with `O_NOFOLLOW|O_DIRECTORY`, is owned by the
+  helper's uid (root) and not group- or other-writable, so only root
+  (pacman) can have made an entry in it;
+- the name is exactly `download-` plus six ASCII letters or digits;
+- `fstatat(AT_SYMLINK_NOFOLLOW)` on the open cache dir shows a directory
+  (not a symlink, not a file);
+- it has not changed for an hour (a download in progress changes its
+  folder; one pacman made after the lock check is new);
+- pacman's `db.lck` doesn't exist, checked right before;
+- and `unlinkat(AT_REMOVEDIR)` on the open cache dir succeeds: rmdir
+  semantics, so a folder that is not empty stays, and nothing is ever
+  removed recursively.
+
+Each folder removed is one line of the part's output ("Removed …"), and so
+is each candidate left alone, with the reason ("Left … alone: not empty"),
+so the red line `-Sc` still prints for it has its explanation above it.
+None of this changes the part's result, which is `-Sc`'s.
 
 Every name list is preceded by `--`. Every command is run by absolute path
 (`/usr/bin/…`), never through PATH or a shell. stdin is `/dev/null`.

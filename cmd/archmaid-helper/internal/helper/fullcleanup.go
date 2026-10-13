@@ -89,7 +89,8 @@ const (
 // tmpfiles clean, journal vacuum, pacman -Qk. pacman -Sc (--uninstalled)
 // drops the cached packages of what is no longer installed — what yay -Sc
 // ran through sudo — after the orphan removal, so the orphans' packages go
-// too. The orphan removal goes first, right after
+// too; its part first removes the empty download folders interrupted
+// pacman downloads left in the cache (leftovers.go). The orphan removal goes first, right after
 // the lock check, while the plan the user confirmed is freshest. Each part
 // starts with a progress event and ends with a done event, both naming its
 // part. Parts are independent, so a failing one does not stop the rest.
@@ -135,10 +136,21 @@ func runFullCleanup(s *session, args []string) int {
 		n, of := i+1, len(steps)
 		s.part = st.part
 		code, msg := ExitOK, ""
-		if st.part == PartRemoveOrphans {
+		switch st.part {
+		case PartRemoveOrphans:
 			code, msg = s.removeOrphans(n, of, c.orphans)
-		} else if ok, m := s.step(n, of, st.label, st.argv, st.okExits...); !ok {
-			code, msg = ExitFailed, m
+		case PartCleanUninstalled:
+			// First the empty folders interrupted downloads left, which
+			// -Sc would report as errors (leftovers.go).
+			s.progress(n, of, st.label)
+			s.tidyDownloadLeftovers()
+			if ok, m := s.exec(st.label, st.argv, st.okExits...); !ok {
+				code, msg = ExitFailed, m
+			}
+		default:
+			if ok, m := s.step(n, of, st.label, st.argv, st.okExits...); !ok {
+				code, msg = ExitFailed, m
+			}
 		}
 		s.em.Done(n, of, st.part, code, msg)
 		s.part = ""

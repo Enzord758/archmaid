@@ -19,8 +19,19 @@ import (
 
 // colourRunner is a pacman that colours as the real one does into a
 // pipe: only with --color always. Every relayed line also carries a
-// title (OSC) and a cursor move, which must never get through.
-type colourRunner struct{ anyRunner }
+// title (OSC) and a cursor move, which must never get through. Its
+// pacman-conf names cache as pacman's one cache dir.
+type colourRunner struct {
+	anyRunner
+	cache string
+}
+
+func (r colourRunner) Query(argv []string) (string, string, int, error) {
+	if len(argv) == 2 && argv[0] == helper.PacmanConf && argv[1] == "CacheDir" {
+		return r.cache + "/\n", "", 0, nil
+	}
+	return r.anyRunner.Query(argv)
+}
 
 func (colourRunner) Stream(argv []string, line func(stream, text string)) (int, error) {
 	if len(argv) < 2 || argv[0] != helper.Pacman {
@@ -59,8 +70,19 @@ func TestHelperColourReachesTheClient(t *testing.T) {
 	}
 	var out, errOut bytes.Buffer
 	dir := t.TempDir()
+	// The cache holds an empty folder an interrupted download left; the
+	// line saying it was removed reaches the client plain.
+	cache := filepath.Join(dir, "pkg")
+	leftover := filepath.Join(cache, "download-Clr123")
+	if err := os.MkdirAll(leftover, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-2 * time.Hour)
+	if err := os.Chtimes(leftover, old, old); err != nil {
+		t.Fatal(err)
+	}
 	if code := helper.Run(helperArgs(t, argv), helper.Options{
-		Runner: colourRunner{}, Stdout: &out, Stderr: &errOut, Euid: 1000, Dev: true,
+		Runner: colourRunner{cache: cache}, Stdout: &out, Stderr: &errOut, Euid: 1000, Dev: true,
 		LockPath: filepath.Join(dir, "lock"), PacmanDBLock: filepath.Join(dir, "db.lck"),
 	}); code != helper.ExitOK {
 		t.Fatalf("helper exit %d: %s", code, errOut.String())
@@ -80,6 +102,7 @@ func TestHelperColourReachesTheClient(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	coloured := []string{
+		"Removed " + leftover + ": an empty folder an interrupted pacman download left behind",
 		"\x1b[1;34m::\x1b[0m\x1b[1m pacman -Sc\x1b[0m",
 		"plain systemd-tmpfiles",
 		"plain journalctl",

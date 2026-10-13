@@ -18,7 +18,8 @@ import (
 //     --print, -Q, -Si, -Qk -- pkg, -Sp) and the check-files verb's -Qk,
 //     whose summary lines become the check event;
 //   - paccache (a tty check only), systemd-tmpfiles and journalctl (no
-//     --color option: one would fail the part) and systemctl get no flag,
+//     --color option: one would fail the part), systemctl and pacman-conf
+//     (no colour at all; its CacheDir paths are parsed) get no flag,
 //     and the environment stays exactly ChildEnv, TERM=dumb included, so
 //     systemctl show/cat, which disable-unit's denylist vetting parses,
 //     stay plain.
@@ -84,6 +85,7 @@ func TestColourPerCall(t *testing.T) {
 			queries: []call{
 				{"/usr/bin/pacman -Qdtq", "never"},
 				{"/usr/bin/pacman -Rs --print --print-format %n %v -- a", "never"},
+				{"/usr/bin/pacman-conf CacheDir", ""}, // the download leftovers' tidy: plain paths, no colour option
 			},
 			streams: []call{
 				{"/usr/bin/pacman -Rns --noconfirm -- a", "always"},
@@ -185,7 +187,7 @@ func TestEveryQueryIsColourless(t *testing.T) {
 		}
 	}
 	for _, argv := range [][]string{paccacheArgv("3"), journalArgv("2weeks"), cleanTmpArgv(), disableArgv([]string{"a.service"}),
-		unitShowArgv("a.service"), unitCatArgv("a.service")} {
+		unitShowArgv("a.service"), unitCatArgv("a.service"), cacheDirArgv()} {
 		if slices.Contains(argv, "--color") {
 			t.Errorf("%q has --color: %s has no such option", argv, argv[0])
 		}

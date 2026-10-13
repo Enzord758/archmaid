@@ -32,6 +32,9 @@ type fakeRunner struct {
 	streams [][]string
 	// streamOut is printed (stdout) by every Stream call.
 	streamOut string
+	// onStream, if set, is called with every Stream argv before its reply,
+	// so a test can look at (or change) the world as the command starts.
+	onStream func(argv []string)
 }
 
 func newFake() *fakeRunner { return &fakeRunner{replies: map[string]reply{}} }
@@ -74,7 +77,11 @@ func (f *fakeRunner) Stream(argv []string, line func(stream, text string)) (int,
 	f.mu.Lock()
 	f.streams = append(f.streams, slices.Clone(argv))
 	r := f.answer(argv)
+	hook := f.onStream
 	f.mu.Unlock()
+	if hook != nil {
+		hook(argv)
+	}
 	if r.fail != nil {
 		return -1, r.fail
 	}

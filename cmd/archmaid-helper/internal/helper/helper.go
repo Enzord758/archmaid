@@ -194,6 +194,12 @@ func (s *session) skip(name, reason string) {
 // succeeded. okExits lists exit codes that count as success besides 0.
 func (s *session) step(n, of int, label string, argv []string, okExits ...int) (bool, string) {
 	s.progress(n, of, label)
+	return s.exec(label, argv, okExits...)
+}
+
+// exec is step without its progress event, for a step that writes lines
+// of its own between the two (full-cleanup's clean-uninstalled).
+func (s *session) exec(label string, argv []string, okExits ...int) (bool, string) {
 	exit, err := s.o.Runner.Stream(argv, s.em.Line)
 	if err != nil {
 		return false, fmt.Sprintf("%s: %v", label, err)

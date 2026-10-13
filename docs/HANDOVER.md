@@ -639,6 +639,25 @@ comments and `git log`; this is the "read before you touch it" list.
   `TestOnlyTopgradeAsksUnderPolkit`, the Driver's
   `TestFullCleanupPolkitOneDialog` (no sudo) and the GUI harness's tty
   case (one askpass dialog) hold it.
+- **The helper's `pacman -Sc` part removes pacman's empty download
+  leftovers first (task #116).** pacman 7 downloads as its `DownloadUser`
+  into a `download-XXXXXX` folder in the cache, and an interrupted
+  download leaves it; `-Sc` then printed one red `error: could not open
+  file …/download-XXXXXX` per folder on a clean run (Dev 5, VM round b8).
+  `clean-uninstalled` (`helper.tidyDownloadLeftovers`, `leftovers.go`)
+  now rmdirs only what it can prove abandoned: a direct child of a cache
+  dir `pacman-conf CacheDir` names (never the caller's path), that dir
+  opened `O_NOFOLLOW` and only root-writable, the exact mkdtemp name,
+  `fstatat(AT_SYMLINK_NOFOLLOW)` a directory, unchanged for an hour, no
+  `db.lck`, and `unlinkat(AT_REMOVEDIR)` (empty or nothing, never
+  recursive). One line per folder removed or left alone; the part's
+  result stays `-Sc`'s. Keep it rmdir-only and fd-relative: no path walk,
+  no `RemoveAll`, no path from the client. A non-empty leftover (a
+  `.part` inside) is left, and `-Sc` still prints its line. The TUI is
+  unchanged: its `yay -Sc` runs pacman through sudo, which can't do this
+  without a new root command. Tests: `leftovers_test.go` (every negative
+  named by the note it gets), `TestHelperColourReachesTheClient` (the
+  line reaches the client plain).
 - **Orphans are found after the update, by an in-process step.** The probe
   (`findOrphans`, `internal/actions`) runs `pacman -Qdtq` once topgrade is
   done — an upgrade orphans packages of its own, and the list `-Rns --noconfirm` acts on must be
