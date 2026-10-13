@@ -457,3 +457,54 @@ func TestTopgradeRunsSysbin(t *testing.T) {
 		t.Errorf("ran from PATH instead of internal/sysbin:\n%s", b)
 	}
 }
+
+// A PATH with the shadow's dir twice (the session's PATH already had it
+// and the launcher put it first again), or once through a symlinked dir,
+// names the file once, in the log and in the step's output (#144a).
+func TestPathGuardNamesOneFileOnce(t *testing.T) {
+	shadow := dirWith(t, "doas", 0o755)
+	alias := filepath.Join(t.TempDir(), "alias")
+	if err := os.Symlink(shadow, alias); err != nil {
+		t.Fatal(err)
+	}
+	g := newGuardRig(t, []string{shadow, shadow, alias}, []string{shadow})
+	requireOff(t, g, filepath.Join(shadow, "doas"))
+	if log := g.topgradeLog(); strings.Contains(log, " and ") || strings.Count(log, "doas") != 1 {
+		t.Errorf("the file is named more than once in the log:\n%s", log)
+	}
+	if line := g.lines[0]; strings.Count(line, "doas") != 1 {
+		t.Errorf("the file is named more than once in the output line: %q", line)
+	}
+}
+
+// namesOf names a file once: the same path, or the same file by inode.
+func TestPathGuardNamesOfDistinct(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	if err := os.WriteFile(a, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(a, b); err != nil {
+		t.Fatal(err)
+	}
+	sh := func(ps ...string) []privilege.Shadow {
+		var out []privilege.Shadow
+		for _, p := range ps {
+			out = append(out, privilege.Shadow{Path: p})
+		}
+		return out
+	}
+	for _, c := range []struct {
+		in   []privilege.Shadow
+		want string
+	}{
+		{sh(a, a), a},
+		{sh(a, b), a},
+		{sh("/x/sudo", "/x/sudo", a), "/x/sudo and " + a},
+		{[]privilege.Shadow{{Path: "rel", Relative: true}, {Path: "rel", Relative: true}}, `the relative PATH entry "rel"`},
+	} {
+		if got := namesOf(c.in); got != c.want {
+			t.Errorf("namesOf(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package driver
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -95,6 +96,7 @@ func scanPath(path string, max time.Duration) (shadows []privilege.Shadow, done 
 // namesOf names shadows for one line: the first pathShadowsMax, then how
 // many more, each sanitized (a file name can hold anything).
 func namesOf(shadows []privilege.Shadow) string {
+	shadows = distinctShadows(shadows)
 	var names []string
 	for i, s := range shadows {
 		if i == pathShadowsMax {
@@ -107,4 +109,35 @@ func namesOf(shadows []privilege.Shadow) string {
 		return names[0]
 	}
 	return strings.Join(names[:len(names)-1], ", ") + " and " + names[len(names)-1]
+}
+
+// distinctShadows drops what names a shadow already listed: the same path
+// (a PATH with a directory twice finds its file twice) or the same file
+// by device and inode (a symlinked directory, a hard link). Order kept.
+func distinctShadows(shadows []privilege.Shadow) []privilege.Shadow {
+	var out []privilege.Shadow
+	var infos []os.FileInfo // out's files by position (nil: relative, or gone)
+	seen := map[string]bool{}
+next:
+	for _, s := range shadows {
+		key := fmt.Sprintf("%t|%s", s.Relative, s.Path)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		var fi os.FileInfo
+		if !s.Relative {
+			fi, _ = os.Lstat(s.Path)
+		}
+		if fi != nil {
+			for _, o := range infos {
+				if o != nil && os.SameFile(o, fi) {
+					continue next
+				}
+			}
+		}
+		out = append(out, s)
+		infos = append(infos, fi)
+	}
+	return out
 }
