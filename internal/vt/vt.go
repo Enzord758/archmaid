@@ -12,7 +12,10 @@
 // cell and writes back as canonical SGR. Every other escape (OSC, DCS and
 // the other strings, private CSI such as "?25l" or "?1049h", absolute
 // positioning, mouse) is dropped, as are C1 controls, hidden format
-// characters (sanitize.Hidden) and SGR conceal. Invalid UTF-8 becomes
+// characters (sanitize.Hidden) and SGR conceal. A string (OSC, DCS, SOS,
+// PM, APC) its child never terminates ends at a newline, or after
+// maxString bytes, and what follows is output again: one unterminated
+// "ESC ]" doesn't swallow the rest of a step. Invalid UTF-8 becomes
 // U+FFFD.
 //
 // Everything is bounded, whatever the stream: the cursor reaches only the
@@ -54,6 +57,10 @@ const (
 	// maxCSI is the longest control sequence kept for parsing; a longer
 	// one is consumed and ignored.
 	maxCSI = 256
+	// maxString is the longest string (OSC, DCS, SOS, PM, APC) dropped
+	// as one: past it, an unterminated string has ended and its bytes are
+	// output (review #135).
+	maxString = 4096
 	// maxParam caps one numeric parameter.
 	maxParam = 1 << 16
 	// tabWidth is the distance between tab stops.
@@ -202,6 +209,7 @@ type Screen struct {
 	csiLong  bool
 	osc      bool // the string is an OSC (BEL ends it)
 	strC2    bool // the string's last byte was 0xC2 (a UTF-8 C1 ST may follow)
+	strN     int  // the string's bytes so far (maxString)
 	partial  [utf8.UTFMax]byte
 	npartial int
 
@@ -400,7 +408,7 @@ func (s *Screen) escByte(b byte) {
 	case b == '[':
 		s.state, s.csi, s.csiLong = stCSI, s.csi[:0], false
 	case b == ']' || b == 'P' || b == 'X' || b == '^' || b == '_':
-		s.state, s.osc, s.strC2 = stString, b == ']', false
+		s.state, s.osc, s.strC2, s.strN = stString, b == ']', false, 0
 	case b < 0x20:
 		s.controlInSeq(b)
 	case b >= 0x20 && b <= 0x2f:
@@ -449,6 +457,14 @@ func (s *Screen) stringByte(b byte) {
 		s.state = stGround
 	case b == 0x9c && s.strC2: // C1 ST, UTF-8 encoded
 		s.state = stGround
+	case b == '\n': // never terminated: it ends with its line
+		s.state = stGround
+		s.control(b)
+	default:
+		s.strN++
+		if s.strN >= maxString { // never terminated: what follows is output
+			s.state = stGround
+		}
 	}
 	s.strC2 = b == 0xc2
 }
@@ -776,14 +792,21 @@ func (s *Screen) eraseChars(n int) {
 	s.touch(s.base + s.r)
 }
 
+// deleteChars and insertChars shift the rest of the line in place. A wide
+// rune can be split only where cells go or come (the cursor, the end of
+// what is deleted, the cut at MaxCols), so only there is it blanked
+// (unsplit): the work per sequence is one move of the line, with no
+// rune-width lookups (review #135: a scan of the whole line per "ESC[P"
+// cost 25 µs per input byte).
 func (s *Screen) deleteChars(n int) {
 	if s.r >= len(s.win) || s.c >= len(s.win[s.r]) {
 		return
 	}
 	row := s.win[s.r]
 	end := min(s.c+n, len(row))
-	row = append(row[:s.c], row[end:]...)
-	s.win[s.r] = s.fixWide(row)
+	s.unsplit(row, s.c)
+	s.unsplit(row, end)
+	s.win[s.r] = append(row[:s.c], row[end:]...)
 	s.touch(s.base + s.r)
 }
 
@@ -793,30 +816,17 @@ func (s *Screen) insertChars(n int) {
 	}
 	row := s.win[s.r]
 	n = min(n, MaxCols-s.c)
-	keep := min(len(row), MaxCols-n)
-	tail := append([]cell(nil), row[s.c:keep]...)
-	row = grow(row[:s.c], s.c+n)
+	keep := min(len(row), MaxCols-n) // cells past it are pushed off the line
+	s.unsplit(row, s.c)
+	s.unsplit(row, keep)
+	row = grow(row[:keep], keep+n)
+	copy(row[s.c+n:], row[s.c:keep])
 	b := s.blank()
 	for i := s.c; i < s.c+n; i++ {
 		row[i] = b
 	}
-	row = append(row, tail...)
-	s.win[s.r] = s.fixWide(row)
+	s.win[s.r] = row
 	s.touch(s.base + s.r)
-}
-
-// fixWide blanks any half of a wide rune that lost its other half.
-func (s *Screen) fixWide(row []cell) []cell {
-	for i := range row {
-		head := row[i].r > 0 && s.width.RuneWidth(row[i].r) == 2
-		switch {
-		case row[i].r == cont && (i == 0 || row[i-1].r <= 0 || s.width.RuneWidth(row[i-1].r) != 2):
-			row[i] = cell{}
-		case head && (i+1 >= len(row) || row[i+1].r != cont):
-			row[i] = cell{}
-		}
-	}
-	return row
 }
 
 // render is row as text with canonical SGR: trailing blanks that don't
@@ -950,7 +960,9 @@ func (s *Screen) sgr(params []byte) {
 		// 8 (conceal) and anything unknown: ignored
 	}
 	raw := s.curRaw
-	switch seq := "\x1b[" + string(params) + "m"; {
+	// conceal (8, 08…) never reaches a line, not even inside a sequence
+	// that changes something else
+	switch seq := sanitize.String("\x1b["+string(params)+"m", sanitize.KeepSGR); {
 	case st == s.cur:
 		// changes nothing: not kept
 	case st == style{}:

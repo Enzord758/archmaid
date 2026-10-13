@@ -105,10 +105,14 @@ as before):
   (`"\x1b[1m\x1b[34m"` stays that), so a line that wasn't redrawn comes out
   byte for byte as before and #110's colour tests pass unchanged; a pen whose
   text grows past 256 bytes becomes its canonical SGR. An SGR that changes
-  nothing is not kept; conceal is never kept (as sanitize). Every other
+  nothing is not kept; conceal is never kept (as sanitize), not even
+  inside a sequence that changes something else (`ESC[8;1m` keeps only the
+  bold). Every other
   escape (OSC, DCS/SOS/PM/APC,
   private CSI like `?25l`, `?1049h`, mouse, absolute positioning `ESC[H`) is
-  dropped. Invalid UTF-8 → U+FFFD; C1 and hidden format characters are
+  dropped. A string (OSC, DCS/SOS/PM/APC) the child never terminates ends
+  at a newline, or after 4096 bytes, and what follows is output again
+  (review #135: one unterminated `ESC ]` swallowed the rest of the step). Invalid UTF-8 → U+FFFD; C1 and hidden format characters are
   dropped (sanitize's set). Wide runes take two cells.
 - **Bounds:** the cursor reaches only the last 64 lines of the current
   child's output (a fresh model per child: never an earlier step), a line
@@ -117,8 +121,16 @@ as before):
   pens (one compaction per 64 new lines, then new ones draw plain), a
   control sequence is parsed from at most 256 bytes (longer ones are
   consumed and ignored), and at most 128 lines wait behind a held-back
-  redraw before a flush is forced. Fuzzed (`FuzzScreen`): the caps hold and
-  any split of the input into writes and flushes ends as one flush would.
+  redraw before a flush is forced. Fuzzed (`FuzzScreen`): the caps hold,
+  no wide rune is ever left half, and any split of the input into writes
+  and flushes ends as one flush would.
+- **Cost (review #135, F5):** the dearest input is a line-wide shift
+  (`ESC[P`, `ESC[@`) or a fill (EL, ECH with a background) of a full
+  8192-cell line per 3–4 bytes: a move of the line, no per-cell lookups,
+  about 0.16 µs per input byte (6 MB/s, `BenchmarkScreenDCHICH`; a
+  whole-line rune-width scan per DCH/ICH made it 25 µs per byte before).
+  Only the child's own output pays it, and the pty holds the child back
+  while archmaid catches up.
 - No autowrap: a logical line stays one line; the view wraps it.
 
 It emits **rewrites**: `(replace n, lines)` = the step's last n delivered

@@ -83,6 +83,8 @@ func TestLineSemantics(t *testing.T) {
 		{"OSC title and clipboard dropped", []string{"\x1b]0;title\x07x\x1b]52;c;aGk=\x1b\\y\n"}, []string{"xy"}},
 		{"private CSI dropped", []string{"\x1b[?25l\x1b[?2026hok\x1b[?2026l\x1b[?25h\n"}, []string{"ok"}},
 		{"DCS dropped", []string{"\x1bPq#0;2;0;0;0\x1b\\z\n"}, []string{"z"}},
+		{"an unterminated OSC ends with its line", []string{"a\x1b]8;;https://x", "\nb\n"}, []string{"a", "b"}},
+		{"unterminated DCS, SOS, PM, APC end with their line", []string{"1\x1bPq\n2\x1bXs\n3\x1b^p\n4\x1b_a\n5\n"}, []string{"1", "2", "3", "4", "5"}},
 		{"split escape across writes", []string{"x\n\x1b", "[", "1", "A", "y\n"}, []string{"y"}},
 		{"split rune across writes", []string{"\xe2", "\xa0", "\x8b spin\n"}, []string{"⠋ spin"}},
 		{"invalid UTF-8", []string{"a\xffb\n"}, []string{"a�b"}},
@@ -114,6 +116,7 @@ func TestSGR(t *testing.T) {
 		{"\x1b[0;33my\x1b[0;34mb\n", "\x1b[0;33my\x1b[0;34mb\x1b[0m"},          // one that resets itself
 		{strings.Repeat("\x1b[1m", 100) + "L\n", "\x1b[1mL\x1b[0m"},            // what changes nothing is not kept
 		{"\x1b[8mhidden\x1b[28m\n", "hidden"},                                  // conceal is never kept
+		{"\x1b[8;1mB\x1b[08;31mr\n", "\x1b[1mB\x1b[31mr\x1b[0m"},               // nor with another change
 		{"\x1b[7m  \x1b[0m\n", "\x1b[7m  \x1b[0m"},                             // reverse blanks show
 		{"x\x1b[41m\x1b[K\x1b[0m\n", "x"},                                      // EL with no cells to fill
 		{"ab\x1b[44m\x1b[1G\x1b[1K\n", "\x1b[0;44m \x1b[0mb"},                  // an erase shows the background
@@ -266,17 +269,47 @@ func TestBounds(t *testing.T) {
 	if len(s.styles) > MaxStyles {
 		t.Fatalf("%d styles kept", len(s.styles))
 	}
-	// an endless CSI and an endless OSC
+	// an endless CSI and an endless OSC: the OSC is dropped up to
+	// maxString bytes, then its bytes are output (TestUnterminatedString)
 	s.Write([]byte("\x1b[" + strings.Repeat("1;", 1<<16) + "mA\n"))
 	s.Write([]byte("\x1b]" + strings.Repeat("o", 1<<16)))
 	s.Write([]byte("\aB\n"))
 	_, lines = s.Flush(false)
-	if got := []string{sanitize.String(lines[0], sanitize.Plain), lines[1]}; !slices.Equal(got, []string{"A", "B"}) {
+	if got := []string{sanitize.String(lines[0], sanitize.Plain), lines[1]}; !slices.Equal(got, []string{"A", strings.Repeat("o", MaxCols)}) {
 		t.Fatalf("after long sequences: %q", lines)
 	}
 	if cap(s.csi) > 2*maxCSI {
 		t.Fatalf("CSI buffer grew to %d", cap(s.csi))
 	}
+}
+
+// TestUnterminatedString (review #135): a string (OSC, DCS, SOS, PM,
+// APC) the child never terminates is dropped up to maxString bytes, split
+// across writes or not, and what follows is output again. Before, one
+// "ESC ]" swallowed the rest of the step, on the Run page and in its log.
+func TestUnterminatedString(t *testing.T) {
+	for _, intro := range []string{"\x1b]", "\x1bP", "\x1bX", "\x1b^", "\x1b_"} {
+		body := strings.Repeat("x", maxString+100)
+		got := final(t, true, "a\n"+intro+body[:1000], body[1000:], "tail\nnext\n")
+		if want := []string{"a", strings.Repeat("x", 100) + "tail", "next"}; !slices.Equal(got, want) {
+			t.Errorf("%q: got %q…, want %q…", intro, head(got), head(want))
+		}
+	}
+	// a terminated string as long as the cap is still dropped whole
+	if got := final(t, true, "\x1b]0;"+strings.Repeat("t", maxString-3)+"\aok\n"); !slices.Equal(got, []string{"ok"}) {
+		t.Errorf("a terminated string just under the cap: %q", head(got))
+	}
+}
+
+func head(lines []string) []string {
+	out := make([]string, 0, 4)
+	for _, l := range lines[:min(len(lines), 4)] {
+		if len(l) > 40 {
+			l = l[:20] + "…" + l[len(l)-20:]
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // TestNoNewlineForever: output that never ends a line, rewritten forever,
@@ -315,6 +348,9 @@ func checkInvariants(t *testing.T, data []byte, seed uint64) {
 			if len(row) > MaxCols {
 				t.Fatalf("row of %d cells", len(row))
 			}
+			if i := halfWide(s, row); i >= 0 {
+				t.Fatalf("cell %d of %q is half a wide rune", i, s.render(row))
+			}
 		}
 		if s.r < 0 || s.r > len(s.win) || s.c < 0 || s.c > MaxCols {
 			t.Fatalf("cursor %d,%d outside %d rows", s.r, s.c, len(s.win))
@@ -345,11 +381,51 @@ func checkInvariants(t *testing.T, data []byte, seed uint64) {
 	}
 }
 
+// halfWide is the first cell of row that is half of a wide rune without
+// its other half, or -1: every wide rune is its head and a cont cell.
+func halfWide(s *Screen, row []cell) int {
+	wide := func(i int) bool { return row[i].r > 0 && s.width.RuneWidth(row[i].r) == 2 }
+	for i := range row {
+		switch {
+		case row[i].r == cont && (i == 0 || !wide(i-1)):
+			return i
+		case wide(i) && (i+1 >= len(row) || row[i+1].r != cont):
+			return i
+		}
+	}
+	return -1
+}
+
+// TestDCHICHKeepWideRunesWhole: deleting or inserting cells keeps every
+// wide rune whole or blanks both halves: where the cells go or come, and
+// where the line is cut at MaxCols.
+func TestDCHICHKeepWideRunesWhole(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"delete from inside a wide rune", "日本x\x1b[2G\x1b[2P\n", "  x"}, // not "日x": 日 never takes 本's second half
+		{"delete up to inside a wide rune", "a日本\x1b[1G\x1b[2P\n", " 本"},
+		{"insert inside a wide rune", "日本\x1b[2G\x1b[2@\n", "    本"},
+		{"insert before a wide rune", "a日\x1b[2G\x1b[1@\n", "a 日"},
+	}
+	for _, c := range cases {
+		if got := final(t, true, c.in); len(got) != 1 || got[0] != c.want {
+			t.Errorf("%s: %q gives %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+	// a full line of wide runes pushed one cell right: the last rune
+	// loses its second half off the line, and is blanked
+	s := New()
+	s.Write([]byte(strings.Repeat("日", MaxCols/2) + "\r\x1b[@"))
+	row := s.win[s.r]
+	if len(row) != MaxCols || row[0] != (cell{}) || row[1].r != '日' || row[MaxCols-1] != (cell{}) || halfWide(s, row) >= 0 {
+		t.Errorf("a full line after ICH: %d cells, first %v %v, last %v, half at %d", len(row), row[0], row[1], row[MaxCols-1], halfWide(s, row))
+	}
+}
+
 func TestInvariantsRandom(t *testing.T) {
 	alphabet := []string{"a", "bc", "日", "⠋", "\n", "\r", "\b", "\t", "\x1b[A", "\x1b[3A", "\x1b[B", "\x1b[2C", "\x1b[D",
 		"\x1b[1G", "\x1b[K", "\x1b[1K", "\x1b[2K", "\x1b[J", "\x1b[1J", "\x1b[2X", "\x1b[P", "\x1b[3@", "\x1b7", "\x1b8",
 		"\x1bM", "\x1bD", "\x1bE", "\x1b[s", "\x1b[u", "\x1b[1;31m", "\x1b[0m", "\x1b[48;5;4m", "\x1b[38;2;1;2;3m",
-		"\x1b]0;t\a", "\x1b[?25l", "\xff", "\xe2\xa0", "\x1b", "\x1b[", "\x9b", "‮", "\x1b[99E", "\x1b[99F"}
+		"\x1b]0;t\a", "\x1b]8;;u", "\x1bPq", "\x1b[08;1m", "\x1b[?25l", "\xff", "\xe2\xa0", "\x1b", "\x1b[", "\x9b", "‮", "\x1b[99E", "\x1b[99F"}
 	for seed := range uint64(300) {
 		rng := rand.New(rand.NewPCG(seed, 2))
 		var b strings.Builder
@@ -365,7 +441,8 @@ func TestInvariantsRandom(t *testing.T) {
 
 // FuzzScreen: the same invariants for any bytes.
 func FuzzScreen(f *testing.F) {
-	for _, s := range []string{"a\nb", "x\r\x1b[K\x1b[1A", "\x1b[38;2;1;2;3mz\x1b[0m\n", "\x1b]0;x\a\x1bP\x1b\\", "日本\x1b[1D\x1b[@", "\xe2\xa0\x8b\r"} {
+	for _, s := range []string{"a\nb", "x\r\x1b[K\x1b[1A", "\x1b[38;2;1;2;3mz\x1b[0m\n", "\x1b]0;x\a\x1bP\x1b\\", "日本\x1b[1D\x1b[@", "\xe2\xa0\x8b\r",
+		"a\x1b]8;;https://x\nb\n", "\x1b_" + strings.Repeat("a", maxString+8) + "\n"} {
 		f.Add([]byte(s), uint64(1))
 	}
 	f.Fuzz(func(t *testing.T, data []byte, seed uint64) {
@@ -381,5 +458,19 @@ func BenchmarkScreenPlainLines(b *testing.B) {
 		s := New()
 		s.Write(data)
 		s.Flush(false)
+	}
+}
+
+// BenchmarkScreenDCHICH (review #135): the costliest input per byte, a
+// full line (wide runes, so the halves must stay whole) under insert and
+// delete at its start: 7 bytes shift the whole line each way.
+func BenchmarkScreenDCHICH(b *testing.B) {
+	full := []byte(strings.Repeat("日x", MaxCols/3) + "\r")
+	data := []byte(strings.Repeat("\x1b[@\x1b[P\r", 1000))
+	b.SetBytes(int64(len(data)))
+	for b.Loop() {
+		s := New()
+		s.Write(full)
+		s.Write(data)
 	}
 }
