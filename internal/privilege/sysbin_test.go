@@ -61,7 +61,7 @@ func TestSudoTicketRunsSysbin(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "sudo -n -v\n" +
-		"su -s /usr/bin/true " + self.Username + "\n" + "sudo -S -v\n" +
+		"su -s /usr/bin/true " + self.Username + "\n" + "sudo -S -v\n" + "sudo -n -v\n" + // the ticket check
 		"sudo -n -v\n" +
 		"sudo -n -k\n"
 	if got := readLog(t, calls); got != want {

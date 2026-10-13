@@ -33,6 +33,10 @@ type tuiEngineTarget struct {
 	seen    []steps.Status
 	flags   []tt.Step
 	aborted bool // the Aborted line was recorded
+	// cancelledNotice: Finished{OutcomeCancelled} came with a Notice up (a
+	// refused run, e.g. sudo kept no ticket): the screen says notice, the
+	// outcome is cancelled.
+	cancelledNotice bool
 }
 
 // newTUIEngineTarget starts a target on a fresh model at 100×40 with the
@@ -120,6 +124,8 @@ func (tg *tuiEngineTarget) deliver(evs []engine.Event, launches int) {
 			inserted = ev.Index
 		case engine.OutputReport:
 			report = ev.Text
+		case engine.Finished:
+			tg.cancelledNotice = ev.Outcome == engine.OutcomeCancelled
 		}
 	}
 	tg.observe(out, inserted)
@@ -282,6 +288,8 @@ func (tg *tuiEngineTarget) Outcome() (tt.Outcome, error) {
 		out.Kind = "aborted"
 	case tg.m.screen == screenSummary:
 		out.Kind = "completed"
+	case tg.m.screen == screenNotice && tg.cancelledNotice:
+		out.Kind = "cancelled"
 	case tg.m.screen == screenNotice:
 		out.Kind = "notice"
 	case tg.m.screen == screenAudit:

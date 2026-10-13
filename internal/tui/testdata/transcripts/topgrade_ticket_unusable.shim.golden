@@ -1,0 +1,8 @@
+action "Run topgrade (system update)"
+exec  sudo -n -v
+auth  password -> <correct>
+exec  su -s /usr/bin/true $USER
+exec  sudo -S -v
+exec  sudo -n -v
+note  "sudo didn't keep your password for this terminal (sudo's ticket isn't reusable here, e.g. timestamp_timeout=0). topgrade and yay would then ask for it directly on the terminal, outside archmaid. Run this from archmaid-gui, or allow sudo to keep the ticket."
+end   outcome=cancelled errs=0 skipped=0

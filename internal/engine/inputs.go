@@ -23,10 +23,16 @@ type ProbeDone struct{ Cached bool }
 
 // AuthDone answers Authenticate. Detail is a message worth showing
 // verbatim (a lockout notice), or "".
+//
+// NoTicket: the password was right but sudo kept no ticket another sudo can
+// reuse (privilege.ErrNoTicket); OK is false, Detail says why, and the run
+// ends before any step starts, with no attempt counted: AuthResolved, a
+// Notice with Detail, then Finished{OutcomeCancelled}.
 type AuthDone struct {
-	OK     bool
-	Detail string
-	Err    error
+	OK       bool
+	Detail   string
+	Err      error
+	NoTicket bool
 }
 
 // FaillockRead answers ReadFaillock (see FaillockState); Err if the count

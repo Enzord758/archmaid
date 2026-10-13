@@ -132,6 +132,15 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 		s.startQueue(o)
 		return
 	}
+	if in.NoTicket {
+		// Right password, unusable ticket: the sudo steps (topgrade's and
+		// yay's own sudo) would prompt on the raw tty. Nothing has run.
+		r.attempts = 0
+		o.event(AuthResolved{})
+		o.event(Notice{Text: sanitize.String(in.Detail, sanitize.Plain)})
+		s.finish(o, OutcomeCancelled)
+		return
+	}
 	r.attempts++
 	left, detail := maxAttempts-r.attempts, sanitize.OneLine(in.Detail)
 	o.event(AuthResolved{AttemptsLeft: left, Detail: detail})

@@ -163,6 +163,38 @@ func TestSessionThreeWrongPasswords(t *testing.T) {
 	enginetest.CheckContract(t, h.evs)
 }
 
+// A right password whose sudo ticket can't be reused (privilege.ErrNoTicket)
+// refuses the run: no queue, no step, no keep-alive, no attempt counted, the
+// message as a Notice, then Finished cancelled.
+func TestSessionNoTicketRefusesTheRun(t *testing.T) {
+	h := newHarness(t, Options{}, sudoQueue())
+	h.toPrompt("q")
+	h.password("hunter2")
+	o := h.handle(AuthDone{Detail: "sudo kept no ticket", Err: errors.New("no ticket"), NoTicket: true})
+	if got := event[AuthResolved](t, o); got != (AuthResolved{}) {
+		t.Errorf("AuthResolved = %+v", got)
+	}
+	if got := event[Notice](t, o); got.Text != "sudo kept no ticket" {
+		t.Errorf("Notice = %+v", got)
+	}
+	if fin := event[Finished](t, o); fin.Outcome != OutcomeCancelled {
+		t.Errorf("Finished = %+v", fin)
+	}
+	for _, ev := range o.Events {
+		switch ev.(type) {
+		case QueueStarted, StepStarted, NeedsPassword:
+			t.Errorf("event %T after a refused run", ev)
+		}
+	}
+	for _, ef := range o.Effects {
+		switch ef.(type) {
+		case StartStep, KeepAlive:
+			t.Errorf("effect %T after a refused run", ef)
+		}
+	}
+	enginetest.CheckContract(t, h.evs)
+}
+
 func TestSessionPasswordFaillock(t *testing.T) {
 	unlock := t0.Add(10 * time.Minute)
 	for _, c := range []struct {

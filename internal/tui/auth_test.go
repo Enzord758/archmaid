@@ -83,8 +83,8 @@ func TestAuthCorrectPasswordMintsTicket(t *testing.T) {
 	if err != nil {
 		t.Fatal("sudo was not invoked after successful validation")
 	}
-	if got := strings.TrimSpace(string(argv)); got != "-S -v" {
-		t.Fatalf("sudo argv = %q, want -S -v", got)
+	if got := strings.TrimSpace(string(argv)); got != "-n -v" { // the last call: the ticket check after -S -v
+		t.Fatalf("sudo argv = %q, want -n -v", got)
 	}
 }
 

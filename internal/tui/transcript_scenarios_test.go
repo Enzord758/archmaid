@@ -253,6 +253,20 @@ echo python-oldthing`}}, sh["pacman"]...)
 			Answer{"password", "", "correct"})
 	}},
 
+	{"topgrade_ticket_unusable.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		// The password is right, but sudo keeps no ticket (timestamp_timeout=0):
+		// the run is refused before any step, and topgrade is never started
+		// (its sudo would prompt on the terminal).
+		transcriptEnv(t, false)
+		shimLog := installShims(t, Shims{
+			"sudo":     sudoRulesNoTicket(),
+			"su":       suRules(),
+			"topgrade": {{Prefix: "-y", Out: topgradeOK}},
+		})
+		return record(t, mk, shimLog, "Run topgrade",
+			Answer{"password", "", "correct"})
+	}},
+
 	// ── Repair broken packages ───────────────────────────────────────────────
 
 	// The user scan flags amd-ucode (a file under the 0700 /boot) besides the
@@ -452,12 +466,24 @@ func pacmanRules(orphans, cascade, foreign string) []Rule {
 
 // sudoRules: the cache probe (-n -v) succeeds when cached; anything else —
 // `-S -v`, every `-A <step>` — exits 0 unless extra says otherwise.
+//
+// Uncached, the probe fails until `-S -v` has minted the ticket (a marker
+// file next to the shim log), after which it succeeds like a real ticket's
+// `sudo -n -v`: the check Authenticate makes right after priming.
 func sudoRules(cached bool, extra ...Rule) []Rule {
 	probe := Rule{Prefix: "-n -v"}
-	if !cached {
-		probe.Exit = 1
+	if cached {
+		return append([]Rule{probe}, extra...)
 	}
-	return append([]Rule{probe}, extra...)
+	probe.Script = `[ -e "${ARCHMAID_SHIM_LOG%/*}/primed" ] || exit 1`
+	prime := Rule{Prefix: "-S -v", Script: `: > "${ARCHMAID_SHIM_LOG%/*}/primed"`}
+	return append([]Rule{prime, probe}, extra...)
+}
+
+// sudoRulesNoTicket is a sudo that accepts `-S -v` but keeps no ticket
+// (timestamp_timeout=0): every `-n -v` fails.
+func sudoRulesNoTicket() []Rule {
+	return []Rule{{Prefix: "-n -v", Exit: 1}}
 }
 
 // repairPacmanRules answers Repair's user scan: -Qq lists installed (space

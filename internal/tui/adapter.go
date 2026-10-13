@@ -348,7 +348,9 @@ func (m *model) finished(ev engine.Finished) tea.Cmd {
 	case engine.OutcomeCancelled:
 		m.password.Reset()
 		m.pwErr = ""
-		m.screen = screenMenu
+		if m.screen != screenNotice { // a refused run keeps its notice up
+			m.screen = screenMenu
+		}
 	case engine.OutcomeReport:
 		if m.screen == screenAudit {
 			m.screen = screenMenu // dismissed

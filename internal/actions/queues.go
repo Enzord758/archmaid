@@ -25,7 +25,12 @@ func fullCleanupSteps(env Env) []steps.Step {
 		// Then topgrade: update the system, then clean up the result. It's
 		// also non-destructive and abortable, so it doubles as a soft buffer
 		// before the destructive steps begin. NeedsPriv so credentials are
-		// primed + kept alive — topgrade shells out to sudo pacman itself.
+		// primed + kept alive — topgrade shells out to sudo pacman itself,
+		// and that sudo reads the primed ticket. The TUI checks the ticket is
+		// reusable right after priming (privilege.Sudo.Authenticate: `sudo -n -v`)
+		// and refuses the run when it is not; topgrade's and yay's own sudo
+		// can still prompt on the tty if the ticket lapses mid-run (suspend,
+		// `sudo -k`).
 		// AlwaysLog: it changes more than any other step (a full system
 		// upgrade), so its output is kept even when it succeeds.
 		//
@@ -172,8 +177,10 @@ func topgradeSteps(env Env) []steps.Step {
 		// maintainer change must be able to stop the update (see Env.AuditStep).
 		env.AuditStep(),
 		// NeedsPriv: topgrade shells out to sudo internally, so prime +
-		// keep-alive credentials (otherwise its sudo prompt lands raw on the
-		// terminal).
+		// keep-alive credentials. Its sudo reads the primed ticket, which the
+		// TUI verifies is reusable before the run starts (a ticket that is not,
+		// e.g. timestamp_timeout=0, refuses the run); if the ticket lapses
+		// mid-run (suspend, `sudo -k`) its sudo can still prompt on the tty.
 		{
 			ID:    steps.IDTopgrade,
 			Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",

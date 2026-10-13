@@ -21,6 +21,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/enginetest"
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -568,7 +569,7 @@ func (tg *sessionTarget) effect(e engine.Effect) {
 		priv := privileged()
 		tg.work = append(tg.work, func() []engine.Input {
 			detail, err := priv.Authenticate(context.Background(), string(e.Password))
-			return []engine.Input{engine.AuthDone{OK: err == nil, Detail: detail, Err: err}}
+			return []engine.Input{engine.AuthDone{OK: err == nil, Detail: detail, Err: err, NoTicket: errors.Is(err, privilege.ErrNoTicket)}}
 		})
 	case engine.ReadFaillock:
 		// Never the real tally: the shimmed su keeps no count.

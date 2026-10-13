@@ -48,8 +48,8 @@ func shimAuth(t *testing.T, suExit, sudoExit int, sudoErr string) string {
 		"su":   "exit " + strconv.Itoa(suExit) + "\n",
 		"sudo": "printf '%s' '" + sudoErr + "' >&2\nexit " + strconv.Itoa(sudoExit) + "\n",
 	} {
-		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"" + dir + "/" + name + ".called\"\n" +
-			"IFS= read -r line; printf '%s' \"$line\" > \"" + dir + "/" + name + ".stdin\"\n" + tail
+		script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + dir + "/" + name + ".called\"\n" +
+			"IFS= read -r line; printf '%s' \"$line\" >> \"" + dir + "/" + name + ".stdin\"\n" + tail
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -117,11 +117,32 @@ func TestAuthenticateCorrectPasswordMintsTicket(t *testing.T) {
 	if detail, err := (Sudo{}).Authenticate(context.Background(), "right"); err != nil || detail != "" {
 		t.Fatalf("Authenticate = %q, %v; want success", detail, err)
 	}
-	if argv, ok := called(t, dir, "sudo"); !ok || argv != "-S -v" {
-		t.Fatalf("sudo argv = %q (ran %v), want -S -v", argv, ok)
+	// -S -v mints the ticket; -n -v then checks it can be reused.
+	if argv, ok := called(t, dir, "sudo"); !ok || argv != "-S -v\n-n -v" {
+		t.Fatalf("sudo argv = %q (ran %v), want -S -v, then -n -v", argv, ok)
 	}
 	if got := stdinOf(t, dir, "sudo"); got != "right" {
 		t.Fatalf("sudo read %q on stdin, want the password", got)
+	}
+}
+
+// TestAuthenticateRefusesAnUnreusableTicket: the password is right and
+// `sudo -S -v` succeeds, but `sudo -n -v` fails (timestamp_timeout=0,
+// timestamp_type=ppid ...): ErrNoTicket with the user-facing message, so the
+// run does not start and nothing prompts on the terminal later.
+func TestAuthenticateRefusesAnUnreusableTicket(t *testing.T) {
+	dir := shimAuth(t, 0, 0, "")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"" + dir + "/sudo.called\"\n" +
+		"case \"$*\" in -n*) exit 1;; esac\nIFS= read -r line\nexit 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "sudo"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := (Sudo{}).Authenticate(context.Background(), "right")
+	if !errors.Is(err, ErrNoTicket) || detail != NoTicketMessage {
+		t.Fatalf("Authenticate = %q, %v; want NoTicketMessage and ErrNoTicket", detail, err)
+	}
+	if argv, _ := called(t, dir, "sudo"); argv != "-S -v\n-n -v" {
+		t.Fatalf("sudo argv = %q, want -S -v, then -n -v (never a prompting call)", argv)
 	}
 }
 

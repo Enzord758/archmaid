@@ -218,11 +218,22 @@ comments and `git log`; this is the "read before you touch it" list.
   popup, and again by `Answer`): sudo reads one line, so it would get a
   different password than su checked. `Answer` is the only way a password
   reaches an askpass connection; don't add another.
-- **Nothing may prompt on the raw tty.** Sudo steps run `sudo -A`, and
-  `SUDO_ASKPASS` routes any re-prompt back into the TUI as a popup. The password
+- **Nothing may prompt on the raw tty, as far as archmaid's own sudo goes.**
+  Sudo steps run `sudo -A`, and `SUDO_ASKPASS` routes any re-prompt back into
+  the TUI as a popup. topgrade's and yay's own sudo are not archmaid's: they
+  read the primed ticket, so the TUI's guarantee depends on a reusable ticket.
+  `Sudo.Authenticate` verifies it right after `sudo -S -v` with `sudo -n -v`
+  (never prompts, never counts toward faillock); on failure
+  (`timestamp_timeout=0`, `timestamp_type=ppid`, ...) it returns
+  `privilege.ErrNoTicket`, the Driver sets `AuthDone.NoTicket`, and the Session
+  ends the run before any step with a Notice (`privilege.NoTicketMessage`:
+  run from archmaid-gui, or let sudo keep the ticket), no attempt counted.
+  What the check cannot cover: if the ticket lapses mid-run (suspend, a step's
+  `sudo -k`), topgrade's and yay's sudo can still prompt on the tty. The GUI
+  is unaffected: its children have no tty and use askpass. The password
   is passed straight through, never stored or logged, and never kept in a
   struct that outlives the call (`privilege.Request` holds no password).
-  `sudo -n -v` is only the cache probe and the 60 s keep-alive
+  `sudo -n -v` is only the cache probe, the ticket check and the 60 s keep-alive
   (`Sudo.Probe`, `Sudo.Refresh`).
 - **The TUI drops its sudo ticket on exit (owner's decision M1).** `main`
   calls `tui.DropSudoTicket` after `Finish` on every path: `sudo -n -k`

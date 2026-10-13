@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/helperclient"
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -24,7 +26,8 @@ func (d *Driver) effect(e engine.Effect) {
 		pw := string(e.Password) // only in this closure, for privilege
 		d.work(func() engine.Input {
 			detail, err := d.cfg.Priv.Authenticate(d.root, pw)
-			return engine.AuthDone{OK: err == nil, Detail: detail, Err: err}
+			return engine.AuthDone{OK: err == nil, Detail: detail, Err: err,
+				NoTicket: errors.Is(err, privilege.ErrNoTicket)}
 		})
 	case engine.KeepAlive:
 		d.setKeepAlive(e.On)

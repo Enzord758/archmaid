@@ -19,6 +19,8 @@ package privilege
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -84,8 +86,27 @@ func (Sudo) Authenticate(ctx context.Context, pw string) (detail string, err err
 	if err := cmd.Run(); err != nil {
 		return lockoutNotice(stderr.String()), err
 	}
+	// The ticket just minted has to be reusable: topgrade's and yay's own
+	// sudo reads it, and without one they would prompt on the terminal,
+	// outside archmaid. `sudo -n -v` never prompts and never counts toward
+	// faillock; it fails with timestamp_timeout=0, timestamp_type=ppid (the
+	// ticket is bound to the sudo that minted it), or anything else that
+	// keeps the ticket from being reused.
+	if err := exec.CommandContext(ctx, sysbin.Sudo, "-n", "-v").Run(); err != nil {
+		return NoTicketMessage, fmt.Errorf("%w: %v", ErrNoTicket, err)
+	}
 	return "", nil
 }
+
+// ErrNoTicket is Authenticate's error when the password was right but sudo
+// did not keep a ticket another sudo can reuse (see Authenticate). The run
+// must not start: the sudo steps would prompt on the terminal.
+var ErrNoTicket = errors.New("privilege: sudo's ticket is not reusable")
+
+// NoTicketMessage is what the user is told when ErrNoTicket refuses a run.
+const NoTicketMessage = "sudo didn't keep your password for this terminal (sudo's ticket isn't reusable here, " +
+	"e.g. timestamp_timeout=0). topgrade and yay would then ask for it directly on the terminal, outside " +
+	"archmaid. Run this from archmaid-gui, or allow sudo to keep the ticket."
 
 // Refresh runs `sudo -n -v`, extending the cached ticket non-interactively —
 // the keep-alive that stops a long step (topgrade) from letting it lapse. A

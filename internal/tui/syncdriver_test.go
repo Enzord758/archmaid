@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -210,7 +211,7 @@ func (d *syncDriver) effect(e engine.Effect) {
 		priv, pw := d.deps.Priv, string(e.Password)
 		d.work = append(d.work, func() []engine.Input {
 			detail, err := priv.Authenticate(context.Background(), pw)
-			return []engine.Input{engine.AuthDone{OK: err == nil, Detail: detail, Err: err}}
+			return []engine.Input{engine.AuthDone{OK: err == nil, Detail: detail, Err: err, NoTicket: errors.Is(err, privilege.ErrNoTicket)}}
 		})
 	case engine.ReadFaillock:
 		read := d.deps.Faillock
