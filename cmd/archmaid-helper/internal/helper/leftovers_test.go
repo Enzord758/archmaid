@@ -390,3 +390,58 @@ func TestNoTidyWithoutUninstalled(t *testing.T) {
 		t.Errorf("pacman-conf was asked without --uninstalled: %q", q)
 	}
 }
+
+// TestDownloadLeftoversCacheDirNotADir (review #118): a cache "dir" that
+// is a file is refused by the open itself (O_DIRECTORY), before it is
+// stat'ed or read. Without O_DIRECTORY root would open whatever the path
+// names: a FIFO blocks the helper until a writer comes, a device node's
+// open can have side effects (a tape rewinds). Only the file case is
+// tested: a FIFO would hang the mutated build instead of failing it.
+func TestDownloadLeftoversCacheDirNotADir(t *testing.T) {
+	dir, f := fakeCache(t)
+	file := filepath.Join(dir, "not-a-dir")
+	writeFile(t, file)
+	f.on(cacheDirQuery, reply{out: file + "\n"})
+	o, out := rootOpts(t, f)
+	checkNote(t, runCleanUninstalled(t, o, out), "Left "+file+" alone: not a directory (or a symlink)")
+}
+
+// TestDownloadLeftoversCacheDirsDeduplicated (review #118): pacman-conf
+// naming one dir twice (with and without its trailing slash) tidies it,
+// and says so, once.
+func TestDownloadLeftoversCacheDirsDeduplicated(t *testing.T) {
+	_, f := fakeCache(t)
+	missing := filepath.Join(t.TempDir(), "missing")
+	f.on(cacheDirQuery, reply{out: missing + "/\n" + missing + "\n"})
+	o, out := rootOpts(t, f)
+	checkNote(t, runCleanUninstalled(t, o, out), "Left "+missing+" alone: ")
+}
+
+// TestDownloadLeftoversLinesSanitized (review #118): the tidy's lines
+// carry a path pacman-conf printed, and cacheDirs refuses only C0
+// controls and DEL in it. A C1 control or a bidi override in that path
+// never reaches the client: every tidy line goes through the Emitter's
+// sanitizer like a child's output line.
+func TestDownloadLeftoversLinesSanitized(t *testing.T) {
+	_, f := fakeCache(t)
+	dir := filepath.Join(t.TempDir(), "pkg‮\u009b31m")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := leftover(t, dir, "download-Bid123")
+	f.on(cacheDirQuery, reply{out: dir + "/\n"})
+	o, out := rootOpts(t, f)
+	lines := runCleanUninstalled(t, o, out)
+	if exists(p) {
+		t.Errorf("%q is still there:\n%s", p, out)
+	}
+	if len(lines) != 1 || !strings.HasPrefix(lines[0], "Removed ") {
+		t.Fatalf("want one Removed line, got %q", lines)
+	}
+	if strings.ContainsAny(lines[0], "‮\u009b") || !strings.Contains(lines[0], "pkg31m/download-Bid123") {
+		t.Errorf("line not sanitized: %q", lines[0])
+	}
+	if strings.ContainsAny(out.String(), "‮\u009b") {
+		t.Errorf("raw output carries the control or bidi character:\n%q", out)
+	}
+}
