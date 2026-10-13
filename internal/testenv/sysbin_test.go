@@ -152,7 +152,8 @@ var bareNames = []string{"su", "sudo", "sudo-rs", "pkexec", "pkttyagent", "runus
 
 // bareAllowed are the bare-name call arguments that run nothing, and why.
 var bareAllowed = map[string]string{
-	`gui/internal/ui/overview.go:privTag("sudo")`: "a plan row's privilege tag, a label; runs nothing",
+	`gui/internal/ui/overview.go:privTag("sudo")`:     "a plan row's privilege tag, a label; runs nothing",
+	`internal/privilege/pathguard.go:Join(…, "sudo")`: "the PATH guard's stat of a dir's sudo; runs nothing",
 }
 
 // TestNoBarePrivilegedExec: no product Go file passes a privileged

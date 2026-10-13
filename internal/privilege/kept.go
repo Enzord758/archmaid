@@ -120,8 +120,20 @@ func (k *KeptPassword) Wipe() {
 }
 
 // Fail is Wipe for a password that was rejected: it is gone, and nothing
-// is kept for the rest of the run.
+// is kept for the rest of the run. The PATH guard (pathguard.go) uses it
+// too: a run whose sudo could be stood in for keeps nothing.
 func (k *KeptPassword) Fail() { k.Wipe() }
+
+// Spent reports whether nothing more can be kept this run (Wipe, Fail, or
+// the zero value, which keeps nothing).
+func (k *KeptPassword) Spent() bool {
+	if k == nil {
+		return true
+	}
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	return k.spent || k.max <= 0
+}
 
 func (k *KeptPassword) wipeLocked() {
 	if k.timer != nil {

@@ -187,6 +187,7 @@ func (d *Driver) startStep(e engine.StartStep) {
 	opts := proc.Options{DryRun: e.Env.DryRun, WaitDelay: d.cfg.WaitDelay, KillGrace: d.cfg.KillGrace, Detach: d.cfg.Detach}
 	spec := d.cfg.Priv.Command(st.Argv, st.NeedsPriv)
 	spec.ExtraEnv = st.Env // the step's own variables (topgrade's colour), for its child only
+	d.guardPath(e, spec)   // the kept password's PATH guard (pathguard.go)
 	c := proc.New(opts).Start(spec, ch, nil)
 	if c != nil {
 		d.children[e.Seq] = c
