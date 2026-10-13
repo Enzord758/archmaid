@@ -84,6 +84,8 @@ func TestDefaultOptionsAreTheRealThing(t *testing.T) {
 		t.Errorf("lock paths %q, %q", o.LockPath, o.PacmanDBLock)
 	case o.Dev || o.CallerUID != "":
 		t.Errorf("main's fields set: %+v", o)
+	case o.now != nil || o.underPacmanLock != nil:
+		t.Error("the tidy's test seams are set: the clock must be the real one, nothing may run under pacman's lock")
 	}
 }
 

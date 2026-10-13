@@ -158,7 +158,7 @@ this order, each named by the verb it stands for (`clean-uninstalled` has a name
 1. `remove-orphans`: remove-orphans `H` (only with `--orphans`; a stale plan is skipped and reported, not run). First, right after the lock check, while the confirmed plan is freshest
 2. `paccache`: `paccache -r -k N`
 3. `paccache-wipe`: `paccache -r -k 0` (only with `--wipe`)
-4. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog. Before `-Sc` it removes the empty `download-XXXXXX` folders interrupted pacman downloads left in the cache, which `-Sc` would otherwise report one red `error: could not open file …` line each for (see "Download leftovers" below)
+4. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog. Before `-Sc`, holding pacman's own `db.lck`, it removes the empty `download-XXXXXX` folders pacman left in the cache (after an interrupted download, and after every transaction that downloaded nothing), which `-Sc` would otherwise report one red `error: could not open file …` line each for (see "Download leftovers" below)
 5. `clean-tmp`: `systemd-tmpfiles --clean`
 6. `vacuum-journal`: `journalctl --vacuum-time=D`
 7. `check-files`: `pacman -Qk --color always` (relayed only, no `check` event here; the `check-files` verb's own `-Qk` runs with `--color never`)
@@ -174,9 +174,15 @@ checks it.
 
 **Download leftovers.** pacman 7 downloads as its `DownloadUser` into a
 `download-XXXXXX` folder (libalpm's `mkdtemp`) in the first writable cache
-dir and removes it afterwards; an interrupted download leaves it behind.
-The `clean-uninstalled` part removes such a folder, as root, only when all
-of this holds, and leaves everything else alone:
+dir, and removes it only at the end of an actual download. So an
+interrupted download leaves it behind, and so does every transaction that
+had nothing to download: in libalpm 7.1, `download_files` (`sync.c`) makes
+the folder before it looks for files to fetch and, finding none, only frees
+its name. yay's `pacman -U` of a built AUR package, or a `-Syu` whose
+packages were all cached, leaves one each, so Full Cleanup's own topgrade
+leaves fresh ones on most runs. The `clean-uninstalled` part removes such a
+folder, as root, only when all of this holds, and leaves everything else
+alone:
 
 - it is a direct child of a cache dir `pacman-conf CacheDir` names
   (`/usr/bin/pacman-conf`, pacman's own reading of `pacman.conf`; never a
@@ -185,19 +191,64 @@ of this holds, and leaves everything else alone:
   helper's uid (root) and not group- or other-writable, so only root
   (pacman) can have made an entry in it;
 - the name is exactly `download-` plus six ASCII letters or digits;
-- `fstatat(AT_SYMLINK_NOFOLLOW)` on the open cache dir shows a directory
-  (not a symlink, not a file);
-- it has not changed for an hour (a download in progress changes its
-  folder; one pacman made after the lock check is new);
-- pacman's `db.lck` doesn't exist, checked right before;
+- the helper holds **pacman's own lock** while it removes: it creates
+  `/var/lib/pacman/db.lck` exactly as libalpm does (`_alpm_handle_lock`:
+  `open(O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC, 0000)`, nothing written in it),
+  so no pacman that locks can run meanwhile; if the lock exists, pacman is
+  running, nothing is touched and the lock is left as it is ("Left pacman's
+  download folders alone: busy: pacman is running");
+- under that lock, `fstatat(AT_SYMLINK_NOFOLLOW)` on the open cache dir
+  shows a directory (not a symlink, not a file), unchanged for 2 minutes by
+  the later of its mtime and its ctime (which, unlike mtime, no `touch` can set back);
 - and `unlinkat(AT_REMOVEDIR)` on the open cache dir succeeds: rmdir
   semantics, so a folder that is not empty stays, and nothing is ever
   removed recursively.
 
+*The lock and the 2-minute floor.* The hold is as short as it can be:
+pacman-conf runs, and every cache dir is opened, checked and read, before
+the lock; under it there are only `fstatat` and `unlinkat` on those open
+dirs (no command, no output, since a write to the client's pipe can
+block), and the lock is removed right after, on every path: a return, an
+error or a panic (a deferred release). The release removes the path only
+while it is still the file the helper made (same device and inode), so a
+lock someone else made meanwhile stays. The helper catches and drops
+`SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT` and the rest for its whole run
+(see Hardening), so no signal a user or a dying GUI can send ends it inside
+the hold. Left are root's `SIGKILL` (an admin, the OOM killer, the
+shutdown's final kill), a Go runtime fatal error and a power loss, inside a
+window of microseconds per folder; pacman, which holds the same lock for
+minutes, has exactly the same exposure. A lock left that way is pacman's
+usual stale `db.lck`: once no pacman is running, `sudo rm
+/var/lib/pacman/db.lck`. A failed release says so in its own line.
+
+The lock alone would allow dropping the age rule for every folder libalpm
+makes inside a transaction (`download_files` runs in `alpm_trans_commit`,
+which requires the lock). Not every folder is made that way, though:
+`pacman -U <url>` fetches through `alpm_fetch_pkgurl` *before* its
+`trans_init` (`src/pacman/upgrade.c`), so it makes its folder in the cache
+with no `db.lck`; so does a libalpm user with another `DBPath` and the same
+cache (`checkupdates -d` run as root), and pacman itself if `pacman.conf`'s
+`DBPath` isn't `/var/lib/pacman/`. Such a folder is empty only between its
+`mkdtemp` and the first `.part` file, which libalpm opens before the
+transfer starts (`curl_add_payload`): milliseconds, or seconds if looking
+up the download user is slow. The 2-minute floor covers that with a wide
+margin, and if it is ever beaten, one download fails before pacman changes
+anything. A leftover from earlier in the same run is still removed, as soon
+as it is 2 minutes old.
+
 Each folder removed is one line of the part's output ("Removed …"), and so
-is each candidate left alone, with the reason ("Left … alone: not empty"),
-so the red line `-Sc` still prints for it has its explanation above it.
-None of this changes the part's result, which is `-Sc`'s.
+is each candidate left alone, with the reason, so the red line `-Sc` still
+prints for it has its explanation above it. A folder that isn't empty holds
+an interrupted download's partial files, and its line says how to delete
+it by hand: once no pacman is running (no `db.lck`), `sudo rm -r --
+'<the folder>'`. None of this changes the part's result, which is `-Sc`'s.
+The front ends' preview doesn't show the tidy: the step shows `pacman -Sc
+--noconfirm`, and a dry run names the part.
+
+Not done, a note for later: the cache dirs are opened by path, and only
+the last component refuses a symlink (`O_NOFOLLOW`). `openat2` with
+`RESOLVE_NO_SYMLINKS` would refuse one anywhere in the path; every parent
+of a cache dir is root's to change anyway, so it isn't needed here.
 
 Every name list is preceded by `--`. Every command is run by absolute path
 (`/usr/bin/…`), never through PATH or a shell. stdin is `/dev/null`.
@@ -252,7 +303,7 @@ field is not a schema break; changing or removing one bumps `v`.
 | 2 | bad usage or input |
 | 3 | state changed since the user confirmed (orphan plan hash mismatch), or `repair` has nothing it may reinstall because the repos have a different version, or reinstalling would pull in or upgrade other packages (update the system first) |
 | 4 | refused: denylisted unit, a running `Also=` unit or trigger (or an enabled trigger left behind), not root, no `PKEXEC_UID`/`SUDO_UID`, wrong install path/ownership/mode, or a devhelper build run as root |
-| 5 | busy: `/run/archmaid-helper.lock` is held, or `/var/lib/pacman/db.lck` exists (checked only for verbs that run pacman/paccache mutations) |
+| 5 | busy: `/run/archmaid-helper.lock` is held, or `/var/lib/pacman/db.lck` exists (checked only for verbs that run pacman/paccache mutations; `full-cleanup`'s download-leftovers tidy also takes `db.lck` itself for a moment, see "Download leftovers") |
 
 ## Hardening
 
@@ -338,7 +389,7 @@ In order, before anything else:
   disable a non-denylisted unit the user depends on. (System updates are not a
   helper verb: topgrade is archmaid's only update path, in the TUI and the
   GUI alike.)
-- Denial of service by holding the lock or `db.lck`.
+- Denial of service by holding the lock or `db.lck`. (A helper killed with `SIGKILL` inside its download-leftovers tidy leaves `db.lck` behind, like a killed pacman; see "Download leftovers".)
 
 ## Development
 
@@ -351,7 +402,8 @@ go build -tags devhelper -o /tmp/ah ./cmd/archmaid-helper && /tmp/ah plan-orphan
 ```
 
 All seams are on `helper.Options`: `Runner`, `Euid`, `CallerUID`, `Exe`,
-`Stat`, `LockPath`, `PacmanDBLock` and `Dev`. The tests use a fake runner that
+`Stat`, `LockPath`, `PacmanDBLock` and `Dev`, and, unexported, the
+download-leftovers tidy's clock and a probe called under pacman's lock. The tests use a fake runner that
 records argv and never executes anything. The only real processes in the tests
 are `/bin/sh`, `/usr/bin/env`, `/usr/bin/cat` and the test binary re-executed,
 which exercise the exec runner, the process hardening and the signal handling.

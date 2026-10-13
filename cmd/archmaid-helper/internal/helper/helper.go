@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Version is reported in the start event.
@@ -60,6 +61,12 @@ type Options struct {
 	PacmanDBLock string
 	// Dev is set by the devhelper build tag: refuse root, skip the install check.
 	Dev bool
+
+	// Test seams of the download-leftovers tidy (leftovers.go); nil in
+	// production. now is its clock (nil: time.Now); underPacmanLock is
+	// called with each candidate's name while pacman's lock is held.
+	now             func() time.Time
+	underPacmanLock func(name string)
 }
 
 // DefaultOptions returns the production seams (everything but CallerUID,

@@ -70,15 +70,13 @@ func TestHelperColourReachesTheClient(t *testing.T) {
 	}
 	var out, errOut bytes.Buffer
 	dir := t.TempDir()
-	// The cache holds an empty folder an interrupted download left; the
-	// line saying it was removed reaches the client plain.
+	// The cache holds an empty download folder pacman left; the line
+	// saying why the tidy left it alone (made just now: its ctime, which
+	// a test can't set back) reaches the client plain. That it is removed
+	// once old enough is the helper package's test (leftovers_test.go).
 	cache := filepath.Join(dir, "pkg")
 	leftover := filepath.Join(cache, "download-Clr123")
 	if err := os.MkdirAll(leftover, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	old := time.Now().Add(-2 * time.Hour)
-	if err := os.Chtimes(leftover, old, old); err != nil {
 		t.Fatal(err)
 	}
 	if code := helper.Run(helperArgs(t, argv), helper.Options{
@@ -102,7 +100,7 @@ func TestHelperColourReachesTheClient(t *testing.T) {
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	coloured := []string{
-		"Removed " + leftover + ": an empty folder an interrupted pacman download left behind",
+		"Left " + leftover + " alone: changed within the last 2 minutes, so a download may be starting in it",
 		"\x1b[1;34m::\x1b[0m\x1b[1m pacman -Sc\x1b[0m",
 		"plain systemd-tmpfiles",
 		"plain journalctl",

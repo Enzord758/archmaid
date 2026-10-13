@@ -640,24 +640,49 @@ comments and `git log`; this is the "read before you touch it" list.
   `TestFullCleanupPolkitOneDialog` (no sudo) and the GUI harness's tty
   case (one askpass dialog) hold it.
 - **The helper's `pacman -Sc` part removes pacman's empty download
-  leftovers first (task #116).** pacman 7 downloads as its `DownloadUser`
-  into a `download-XXXXXX` folder in the cache, and an interrupted
-  download leaves it; `-Sc` then printed one red `error: could not open
-  file …/download-XXXXXX` per folder on a clean run (Dev 5, VM round b8).
+  leftovers first, under pacman's own lock (tasks #116, #122).** pacman 7
+  downloads as its `DownloadUser` into a `download-XXXXXX` folder in the
+  cache and removes it only after an actual download: an interrupted one
+  leaves it, and so does every transaction that downloaded nothing
+  (libalpm 7.1's `download_files` makes it before it knows; yay's
+  `pacman -U` of a built AUR package, a `-Syu` with everything cached).
+  `-Sc` then printed one red `error: could not open file
+  …/download-XXXXXX` per folder, and Full Cleanup's own topgrade leaves
+  fresh ones on most runs (Dev 5, VM rounds b8 and 8b).
   `clean-uninstalled` (`helper.tidyDownloadLeftovers`, `leftovers.go`)
-  now rmdirs only what it can prove abandoned: a direct child of a cache
-  dir `pacman-conf CacheDir` names (never the caller's path), that dir
-  opened `O_NOFOLLOW` and only root-writable, the exact mkdtemp name,
-  `fstatat(AT_SYMLINK_NOFOLLOW)` a directory, unchanged for an hour, no
-  `db.lck`, and `unlinkat(AT_REMOVEDIR)` (empty or nothing, never
-  recursive). One line per folder removed or left alone; the part's
-  result stays `-Sc`'s. Keep it rmdir-only and fd-relative: no path walk,
-  no `RemoveAll`, no path from the client. A non-empty leftover (a
-  `.part` inside) is left, and `-Sc` still prints its line. The TUI is
+  rmdirs only what it can prove abandoned: a direct child of a cache dir
+  `pacman-conf CacheDir` names (never the caller's path), that dir opened
+  `O_NOFOLLOW` and only root-writable, the exact mkdtemp name, and, while
+  the helper holds `db.lck` (`holdPacmanLock`: created as libalpm does,
+  `O_WRONLY|O_CREAT|O_EXCL|O_CLOEXEC`, mode 0000, empty; an existing lock
+  means nothing is touched), `fstatat(AT_SYMLINK_NOFOLLOW)` a directory
+  unchanged for 2 minutes by max(mtime, ctime) and `unlinkat(AT_REMOVEDIR)`
+  (empty or nothing, never recursive). The floor stays because not every
+  folder is made under the lock: `pacman -U <url>` fetches before its
+  `trans_init`, and a libalpm user with another `DBPath` locks elsewhere;
+  such a folder is empty for milliseconds, and a lost race only fails that
+  download. Keep the hold short and safe: pacman-conf, the opens and the
+  readdir before it; only `fstatat`/`unlinkat` under it (no exec, no
+  output: a pipe write can block); the release deferred (return, error,
+  panic) and by inode; the lines after it. A stale `db.lck` blocks every
+  pacman, so the hold relies on `catchSignals` (main.go) dropping every
+  catchable signal: `TestCaughtSignalsCoverThePacmanLockHold` ties them.
+  What is left is root's SIGKILL, a runtime fatal error or a power loss
+  inside microseconds, pacman's own exposure. One line per folder removed
+  or left alone; a non-empty one (a `.part` inside) is left, `-Sc` still
+  prints its line, and ours says how to delete it by hand once no pacman
+  runs. The part's result stays `-Sc`'s. **The preview doesn't show the
+  tidy**: the step shows `pacman -Sc --noconfirm` and a dry run names
+  the part. The lock path is the helper's fixed `/var/lib/pacman/db.lck`
+  (like its other `db.lck` checks), not `pacman-conf DBPath`. Keep it
+  rmdir-only and fd-relative: no path walk, no `RemoveAll`, no path from
+  the client; `openat2(RESOLVE_NO_SYMLINKS)` for the cache dir's parents
+  is a documented note, not built (they are root's). The TUI is
   unchanged: its `yay -Sc` runs pacman through sudo, which can't do this
   without a new root command. Tests: `leftovers_test.go` (every negative
-  named by the note it gets), `TestHelperColourReachesTheClient` (the
-  line reaches the client plain).
+  named by the note it gets; the lock held under a probe, released on
+  success, error and panic, an existing lock left as it was),
+  `TestHelperColourReachesTheClient` (the line reaches the client plain).
 - **Orphans are found after the update, by an in-process step.** The probe
   (`findOrphans`, `internal/actions`) runs `pacman -Qdtq` once topgrade is
   done — an upgrade orphans packages of its own, and the list `-Rns --noconfirm` acts on must be

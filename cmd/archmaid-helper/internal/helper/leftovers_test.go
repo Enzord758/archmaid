@@ -14,14 +14,21 @@ import (
 
 // Full Cleanup's clean-uninstalled part (pacman -Sc) printed one red
 // "error: could not open file <cache>/download-XXXXXX" per empty folder
-// an interrupted pacman 7 download had left in the cache (its DownloadUser
-// downloads into mkdtemp's download-XXXXXX). The part now removes those
-// folders first, as root, only when that is provably safe: a direct child
-// of a cache dir pacman-conf names, only this uid can write to, named
-// download- plus six mkdtemp characters, a real directory (fstatat with
-// AT_SYMLINK_NOFOLLOW), unchanged for an hour, removed with rmdir
-// semantics only (unlinkat AT_REMOVEDIR: empty or nothing), and never
-// while pacman's db.lck exists. Each removal is one line.
+// pacman 7 had left in the cache (its DownloadUser downloads into
+// mkdtemp's download-XXXXXX, which libalpm leaves behind after an
+// interrupted download and after every transaction that downloaded
+// nothing). The part now removes those folders first, as root, only when
+// that is provably safe: a direct child of a cache dir pacman-conf names,
+// only this uid can write to, named download- plus six mkdtemp
+// characters, and, while the helper holds pacman's own db.lck (an
+// existing one means nothing is touched), a real directory (fstatat with
+// AT_SYMLINK_NOFOLLOW) unchanged for 2 minutes by the later of its mtime
+// and ctime, removed with rmdir semantics only (unlinkat AT_REMOVEDIR:
+// empty or nothing). Each removal is one line.
+//
+// A test can't set a ctime back, so every folder a test makes was changed
+// "now"; tidyOpts runs the helper's clock an hour ahead instead (clock
+// sets another lead).
 
 // cacheDirQuery is how the helper asks pacman which cache dirs it uses.
 var cacheDirQuery = cacheDirArgv()
@@ -44,8 +51,9 @@ func fakeCache(t *testing.T) (string, *fakeRunner) {
 	return dir, f
 }
 
-// leftover makes an empty folder name in dir, last changed two hours ago,
-// as an interrupted download leaves it.
+// leftover makes an empty folder name in dir, as pacman leaves it: its
+// mtime two hours ago, its ctime now (tidyOpts' clock makes that an hour
+// ago).
 func leftover(t *testing.T, dir, name string) string {
 	t.Helper()
 	p := filepath.Join(dir, name)
@@ -56,13 +64,28 @@ func leftover(t *testing.T, dir, name string) string {
 	return p
 }
 
-// age sets p's times to d ago (a negative d: in the future).
+// age sets p's atime and mtime to d ago (a negative d: in the future);
+// its ctime becomes now.
 func age(t *testing.T, p string, d time.Duration) {
 	t.Helper()
 	old := time.Now().Add(-d)
 	if err := os.Chtimes(p, old, old); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// tidyOpts is rootOpts with the helper's clock an hour ahead of the real
+// one, so every folder the test made is an hour old by its ctime.
+func tidyOpts(t *testing.T, r Runner) (Options, *bytes.Buffer) {
+	t.Helper()
+	o, out := rootOpts(t, r)
+	clock(&o, time.Hour)
+	return o, out
+}
+
+// clock runs o's clock d ahead of the real one.
+func clock(o *Options, d time.Duration) {
+	o.now = func() time.Time { return time.Now().Add(d) }
 }
 
 func writeFile(t *testing.T, p string) {
@@ -119,7 +142,7 @@ func TestFullCleanupRemovesDownloadLeftovers(t *testing.T) {
 			atSc = append(atSc, !exists(a) && !exists(b))
 		}
 	}
-	o, out := rootOpts(t, f)
+	o, out := tidyOpts(t, f)
 	lines := runCleanUninstalled(t, o, out)
 
 	if exists(a) || exists(b) {
@@ -132,8 +155,8 @@ func TestFullCleanupRemovesDownloadLeftovers(t *testing.T) {
 		t.Fatalf("pacman -Sc ran %d time(s), leftovers gone before it: %v", len(atSc), atSc)
 	}
 	want := []string{
-		"Removed " + a + ": an empty folder an interrupted pacman download left behind",
-		"Removed " + b + ": an empty folder an interrupted pacman download left behind",
+		"Removed " + a + ": an empty folder a pacman download left behind",
+		"Removed " + b + ": an empty folder a pacman download left behind",
 	}
 	slices.Sort(lines)
 	if !slices.Equal(lines, want) {
@@ -174,6 +197,7 @@ func TestDownloadLeftoversLeftAlone(t *testing.T) {
 		setup func(t *testing.T, dir string) []string // returns paths that must survive
 		lock  bool                                    // pacman's db.lck appears once the run is under way
 		note  string                                  // the one line saying why; "" no line at all
+		ahead time.Duration                           // the helper's clock ahead of the real one; 0: tidyOpts' hour
 	}{
 		{"symlink to an empty dir", func(t *testing.T, dir string) []string {
 			target := leftover(t, t.TempDir(), "download-Tgt123")
@@ -182,27 +206,27 @@ func TestDownloadLeftoversLeftAlone(t *testing.T) {
 				t.Fatal(err)
 			}
 			return []string{link, target}
-		}, false, "download-Sym123 alone: a symlink, not a folder"},
+		}, false, "download-Sym123 alone: a symlink, not a folder", 0},
 		{"dangling symlink", func(t *testing.T, dir string) []string {
 			link := filepath.Join(dir, "download-Dng123")
 			if err := os.Symlink(filepath.Join(dir, "nowhere"), link); err != nil {
 				t.Fatal(err)
 			}
 			return []string{link}
-		}, false, "download-Dng123 alone: a symlink, not a folder"},
+		}, false, "download-Dng123 alone: a symlink, not a folder", 0},
 		{"non-empty dir", func(t *testing.T, dir string) []string {
 			p := leftover(t, dir, "download-Ful123")
 			part := filepath.Join(p, "foo-1-1-x86_64.pkg.tar.zst.part")
 			writeFile(t, part)
 			age(t, p, 2*time.Hour)
 			return []string{p, part}
-		}, false, "download-Ful123 alone: not empty"},
+		}, false, "download-Ful123 alone: not empty (an interrupted download's partial files)", 0},
 		{"file", func(t *testing.T, dir string) []string {
 			p := filepath.Join(dir, "download-Fil123")
 			writeFile(t, p)
 			age(t, p, 2*time.Hour)
 			return []string{p}
-		}, false, "download-Fil123 alone: not a folder"},
+		}, false, "download-Fil123 alone: not a folder", 0},
 		{"wrong names", func(t *testing.T, dir string) []string {
 			var keep []string
 			for _, n := range []string{"download-abc12", "download-abc1234", "download-ab_123", "download-ab-123",
@@ -211,33 +235,41 @@ func TestDownloadLeftoversLeftAlone(t *testing.T) {
 				keep = append(keep, leftover(t, dir, n))
 			}
 			return keep
-		}, false, ""},
-		{"changed within the hour", func(t *testing.T, dir string) []string {
-			p := leftover(t, dir, "download-New123")
-			age(t, p, 50*time.Minute)
+		}, false, "", 0},
+		{"made within the last 2 minutes", func(t *testing.T, dir string) []string {
+			p := filepath.Join(dir, "download-New123")
+			if err := os.Mkdir(p, 0o755); err != nil {
+				t.Fatal(err)
+			}
 			return []string{p}
-		}, false, "download-New123 alone: changed within the last hour"},
+		}, false, "download-New123 alone: changed within the last 2 minutes, so a download may be starting in it", 90 * time.Second},
+		{"mtime set back, ctime within 2 minutes", func(t *testing.T, dir string) []string {
+			return []string{leftover(t, dir, "download-Ctm123")} // mtime 2 h ago
+		}, false, "download-Ctm123 alone: changed within the last 2 minutes", 90 * time.Second},
 		{"changed in the future", func(t *testing.T, dir string) []string {
 			p := leftover(t, dir, "download-Fut123")
 			age(t, p, -2*time.Hour)
 			return []string{p}
-		}, false, "download-Fut123 alone: changed within the last hour"},
+		}, false, "download-Fut123 alone: changed within the last 2 minutes", 0},
 		{"pacman's lock present", func(t *testing.T, dir string) []string {
 			return []string{leftover(t, dir, "download-Lck123")}
-		}, true, "Left pacman's download folders alone: busy: pacman is running"},
+		}, true, "Left pacman's download folders alone: busy: pacman is running", 0},
 		{"nested one level down", func(t *testing.T, dir string) []string {
 			sub := filepath.Join(dir, "sub")
 			if err := os.Mkdir(sub, 0o755); err != nil {
 				t.Fatal(err)
 			}
 			return []string{leftover(t, sub, "download-Nst123")}
-		}, false, ""},
+		}, false, "", 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			dir, f := fakeCache(t)
 			keep := c.setup(t, dir)
-			o, out := rootOpts(t, f)
+			o, out := tidyOpts(t, f)
+			if c.ahead != 0 {
+				clock(&o, c.ahead)
+			}
 			ran := false
 			f.onStream = func(argv []string) {
 				if c.lock && argv[0] == Paccache {
@@ -336,7 +368,7 @@ func TestDownloadLeftoversCacheDirChecked(t *testing.T) {
 			if c.setup != nil {
 				c.setup(t, dir)
 			}
-			o, out := rootOpts(t, f)
+			o, out := tidyOpts(t, f)
 			ran := false
 			f.onStream = func(argv []string) { ran = ran || slices.Contains(argv, "-Sc") }
 			checkNote(t, runCleanUninstalled(t, o, out), c.note)
@@ -362,7 +394,7 @@ func TestDownloadLeftoversEveryCacheDir(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing")
 	gone := []string{leftover(t, one, "download-One123"), leftover(t, two, "download-Two123")}
 	f.on(cacheDirQuery, reply{out: one + "/\n" + missing + "/\n" + two + "/\n" + one + "\n"})
-	o, out := rootOpts(t, f)
+	o, out := tidyOpts(t, f)
 	lines := runCleanUninstalled(t, o, out)
 	for _, p := range gone {
 		if exists(p) {
@@ -379,7 +411,7 @@ func TestDownloadLeftoversEveryCacheDir(t *testing.T) {
 func TestNoTidyWithoutUninstalled(t *testing.T) {
 	dir, f := fakeCache(t)
 	p := leftover(t, dir, "download-Off123")
-	o, out := rootOpts(t, f)
+	o, out := tidyOpts(t, f)
 	if code := Run([]string{"full-cleanup", "--keep", "3", "--journal", "2weeks"}, o); code != ExitOK {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
@@ -402,7 +434,7 @@ func TestDownloadLeftoversCacheDirNotADir(t *testing.T) {
 	file := filepath.Join(dir, "not-a-dir")
 	writeFile(t, file)
 	f.on(cacheDirQuery, reply{out: file + "\n"})
-	o, out := rootOpts(t, f)
+	o, out := tidyOpts(t, f)
 	checkNote(t, runCleanUninstalled(t, o, out), "Left "+file+" alone: not a directory (or a symlink)")
 }
 
@@ -413,7 +445,7 @@ func TestDownloadLeftoversCacheDirsDeduplicated(t *testing.T) {
 	_, f := fakeCache(t)
 	missing := filepath.Join(t.TempDir(), "missing")
 	f.on(cacheDirQuery, reply{out: missing + "/\n" + missing + "\n"})
-	o, out := rootOpts(t, f)
+	o, out := tidyOpts(t, f)
 	checkNote(t, runCleanUninstalled(t, o, out), "Left "+missing+" alone: ")
 }
 
@@ -430,7 +462,7 @@ func TestDownloadLeftoversLinesSanitized(t *testing.T) {
 	}
 	p := leftover(t, dir, "download-Bid123")
 	f.on(cacheDirQuery, reply{out: dir + "/\n"})
-	o, out := rootOpts(t, f)
+	o, out := tidyOpts(t, f)
 	lines := runCleanUninstalled(t, o, out)
 	if exists(p) {
 		t.Errorf("%q is still there:\n%s", p, out)
@@ -443,5 +475,259 @@ func TestDownloadLeftoversLinesSanitized(t *testing.T) {
 	}
 	if strings.ContainsAny(out.String(), "‮\u009b") {
 		t.Errorf("raw output carries the control or bidi character:\n%q", out)
+	}
+}
+
+// TestDownloadLeftoverFromTheSameRunRemoved (task #122, VM round 8b):
+// Full Cleanup runs topgrade before the helper, and libalpm leaves an
+// empty download-XXXXXX behind for every transaction that had nothing to
+// download (yay's pacman -U of a built AUR package, a -Syu whose
+// packages were all cached). A leftover a few minutes old, from this very
+// run, is removed: with pacman's lock held no pacman can be using it.
+func TestDownloadLeftoverFromTheSameRunRemoved(t *testing.T) {
+	dir, f := fakeCache(t)
+	p := filepath.Join(dir, "download-ltip4y")
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o, out := tidyOpts(t, f)
+	clock(&o, 5*time.Minute) // made 5 minutes ago, by topgrade's pacman
+	lines := runCleanUninstalled(t, o, out)
+	if exists(p) {
+		t.Errorf("the leftover from this run is still there:\n%s", strings.Join(lines, "\n"))
+	}
+	checkNote(t, lines, "Removed "+p+": ")
+}
+
+// lockSeen is what a probe saw of pacman's lock while the tidy ran.
+type lockSeen struct {
+	exists bool
+	mode   os.FileMode
+	size   int64
+}
+
+func seeLock(path string) lockSeen {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return lockSeen{}
+	}
+	return lockSeen{exists: true, mode: fi.Mode(), size: fi.Size()}
+}
+
+// TestTidyHoldsPacmanLock (task #122): every removal runs while the helper
+// holds pacman's db.lck, made the way libalpm makes it (a new, empty,
+// mode-0000 regular file); it is gone again before pacman -Sc starts
+// (which takes the same lock itself) and when the run ends.
+func TestTidyHoldsPacmanLock(t *testing.T) {
+	dir, f := fakeCache(t)
+	a := leftover(t, dir, "download-HldAa1")
+	b := leftover(t, dir, "download-HldBb2")
+	o, out := tidyOpts(t, f)
+	var seen []string
+	o.underPacmanLock = func(name string) {
+		if l := seeLock(o.PacmanDBLock); l != (lockSeen{exists: true, mode: 0}) {
+			t.Errorf("under the lock for %s: %+v, want an empty mode-0000 file", name, l)
+		}
+		seen = append(seen, name)
+	}
+	var atExec []bool // did the lock exist when each command started?
+	f.onStream = func(argv []string) { atExec = append(atExec, exists(o.PacmanDBLock)) }
+	lines := runCleanUninstalled(t, o, out)
+	slices.Sort(seen)
+	if !slices.Equal(seen, []string{"download-HldAa1", "download-HldBb2"}) {
+		t.Errorf("probed under the lock: %q", seen)
+	}
+	if exists(a) || exists(b) || len(lines) != 2 {
+		t.Errorf("the leftovers were not both removed:\n%s", strings.Join(lines, "\n"))
+	}
+	if slices.Contains(atExec, true) {
+		t.Errorf("pacman's lock existed when a command started (%v): the hold ran over an exec", atExec)
+	}
+	if exists(o.PacmanDBLock) {
+		t.Error("pacman's lock is still there after the run")
+	}
+}
+
+// TestTidyTakesNoLockWithoutCandidates: no folder named like a leftover,
+// no lock taken, so an existing lock gets no "pacman is running" line.
+func TestTidyTakesNoLockWithoutCandidates(t *testing.T) {
+	dir, f := fakeCache(t)
+	writeFile(t, filepath.Join(dir, "foo-1-1-x86_64.pkg.tar.zst"))
+	o, out := tidyOpts(t, f)
+	o.underPacmanLock = func(name string) { t.Errorf("probed %s with nothing to remove", name) }
+	f.onStream = func(argv []string) {
+		if argv[0] == Paccache {
+			writeFile(t, o.PacmanDBLock)
+		}
+	}
+	checkNote(t, runCleanUninstalled(t, o, out), "")
+}
+
+// TestTidyLeavesAnExistingLock: pacman's lock (a file, or a symlink, even
+// a dangling one: O_EXCL never follows it) existing when the tidy starts
+// means pacman is running: nothing is touched, and the lock is left exactly
+// as it was.
+func TestTidyLeavesAnExistingLock(t *testing.T) {
+	for _, kind := range []string{"file", "dangling symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			dir, f := fakeCache(t)
+			p := leftover(t, dir, "download-Exs123")
+			o, out := tidyOpts(t, f)
+			target := filepath.Join(t.TempDir(), "target")
+			o.underPacmanLock = func(name string) { t.Errorf("probed %s under someone else's lock", name) }
+			var before os.FileInfo
+			f.onStream = func(argv []string) {
+				if argv[0] != Paccache {
+					return
+				}
+				// pacman starts after the helper's own check at its start
+				if kind == "file" {
+					if err := os.WriteFile(o.PacmanDBLock, []byte("pacman's"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+				} else if err := os.Symlink(target, o.PacmanDBLock); err != nil {
+					t.Fatal(err)
+				}
+				var err error
+				if before, err = os.Lstat(o.PacmanDBLock); err != nil {
+					t.Fatal(err)
+				}
+			}
+			checkNote(t, runCleanUninstalled(t, o, out), "Left pacman's download folders alone: busy: pacman is running ("+o.PacmanDBLock+" exists)")
+			if !exists(p) {
+				t.Error("the leftover was removed under pacman's lock")
+			}
+			after, err := os.Lstat(o.PacmanDBLock)
+			if err != nil || !os.SameFile(before, after) || after.Size() != before.Size() || after.Mode() != before.Mode() {
+				t.Errorf("pacman's lock was changed: before %v, after %v, %v", before, after, err)
+			}
+			if exists(target) {
+				t.Error("the lock's symlink was followed: its target exists")
+			}
+		})
+	}
+}
+
+// TestTidyRemovesTheLockOnError: a removal that fails (rmdir refused)
+// still ends with the lock removed.
+func TestTidyRemovesTheLockOnError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root may rmdir in a read-only dir")
+	}
+	dir, f := fakeCache(t)
+	p := leftover(t, dir, "download-Err123")
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	o, out := tidyOpts(t, f)
+	held := false
+	o.underPacmanLock = func(string) { held = exists(o.PacmanDBLock) }
+	checkNote(t, runCleanUninstalled(t, o, out), "download-Err123 alone: permission denied")
+	if !held || !exists(p) {
+		t.Errorf("held %v, leftover still there %v", held, exists(p))
+	}
+	if exists(o.PacmanDBLock) {
+		t.Error("pacman's lock is still there after a failed removal")
+	}
+}
+
+// TestTidyRemovesTheLockOnPanic: a panic under the lock unwinds through
+// the release, so the lock is gone even then.
+func TestTidyRemovesTheLockOnPanic(t *testing.T) {
+	dir, f := fakeCache(t)
+	p := leftover(t, dir, "download-Pnc123")
+	o, _ := tidyOpts(t, f)
+	held := false
+	o.underPacmanLock = func(string) {
+		held = exists(o.PacmanDBLock)
+		panic("under the lock")
+	}
+	func() {
+		defer func() {
+			if r := recover(); r != "under the lock" {
+				t.Errorf("recovered %v, want the probe's panic", r)
+			}
+		}()
+		Run([]string{"full-cleanup", "--keep", "3", "--uninstalled", "--journal", "2weeks"}, o)
+	}()
+	if !held {
+		t.Error("the probe did not run under the lock")
+	}
+	if exists(o.PacmanDBLock) {
+		t.Error("pacman's lock is still there after a panic under it")
+	}
+	if !exists(p) {
+		t.Error("the leftover was removed although the panic came first")
+	}
+}
+
+// TestTidyLockReleaseChecksItsOwn: the release removes the lock only
+// while the path is still the file the tidy made. Removed by someone else
+// (root ran rm on it), it says so; replaced (and a new pacman made its own),
+// the new lock stays. Either way the line comes before the removals' lines.
+func TestTidyLockReleaseChecksItsOwn(t *testing.T) {
+	for _, c := range []struct {
+		name, note string
+		replace    bool
+	}{
+		{"removed", "which the tidy took, is gone", false},
+		{"replaced", "was replaced while the tidy held it; left the new one alone", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir, f := fakeCache(t)
+			p := leftover(t, dir, "download-Rel123")
+			o, out := tidyOpts(t, f)
+			o.underPacmanLock = func(string) {
+				if err := os.Remove(o.PacmanDBLock); err != nil {
+					t.Fatal(err)
+				}
+				if c.replace {
+					writeFile(t, o.PacmanDBLock)
+				}
+			}
+			var atSc []bool
+			f.onStream = func(argv []string) {
+				if slices.Contains(argv, "-Sc") {
+					atSc = append(atSc, exists(o.PacmanDBLock))
+				}
+			}
+			lines := runCleanUninstalled(t, o, out)
+			if len(lines) != 2 || !strings.Contains(lines[0], "pacman's lock "+o.PacmanDBLock) ||
+				!strings.Contains(lines[0], c.note) || !strings.HasPrefix(lines[1], "Removed "+p+": ") {
+				t.Errorf("want the lock's line, then the removal:\n%s", strings.Join(lines, "\n"))
+			}
+			if exists(o.PacmanDBLock) != c.replace {
+				t.Errorf("lock exists after the run: %v, want %v", exists(o.PacmanDBLock), c.replace)
+			}
+			if !slices.Equal(atSc, []bool{c.replace}) {
+				t.Errorf("lock at pacman -Sc: %v", atSc)
+			}
+		})
+	}
+}
+
+// TestTidyNotEmptyHint (#121): a leftover with something in it stays, and
+// its line says how to delete it by hand, safely: only while no pacman
+// runs, by its exact path, quoted for the shell.
+func TestTidyNotEmptyHint(t *testing.T) {
+	_, f := fakeCache(t)
+	dir := filepath.Join(t.TempDir(), "it's pkg")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.on(cacheDirQuery, reply{out: dir + "/\n"})
+	p := leftover(t, dir, "download-Hnt123")
+	writeFile(t, filepath.Join(p, "foo-1-1-x86_64.pkg.tar.zst.part"))
+	o, out := tidyOpts(t, f)
+	want := "Left " + p + " alone: not empty (an interrupted download's partial files); to delete it by hand, " +
+		"first make sure no pacman is running (" + o.PacmanDBLock + " doesn't exist), then: sudo rm -r -- '" +
+		strings.ReplaceAll(p, "'", `'\''`) + "'"
+	lines := runCleanUninstalled(t, o, out)
+	if len(lines) != 1 || lines[0] != want {
+		t.Errorf("lines\n got %q\nwant %q", lines, want)
+	}
+	if !exists(p) {
+		t.Error("a non-empty leftover was removed")
 	}
 }

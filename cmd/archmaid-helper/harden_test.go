@@ -153,6 +153,21 @@ func TestCatchSignalsSurvivesClosedStdout(t *testing.T) {
 	}
 }
 
+// TestCaughtSignalsCoverThePacmanLockHold (task #122): the leftovers tidy
+// holds pacman's db.lck, and a helper ended inside that hold would leave
+// it behind and block every later pacman. What makes the hold safe from a
+// user's (or a dying GUI's) signal is catchSignals: every signal that
+// would end or stop the helper, short of root's SIGKILL and SIGSTOP, must
+// stay in caughtSignals (helper.holdPacmanLock's comment relies on it).
+func TestCaughtSignalsCoverThePacmanLockHold(t *testing.T) {
+	for _, sig := range []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT,
+		syscall.SIGPIPE, syscall.SIGTSTP, syscall.SIGTTIN, syscall.SIGTTOU} {
+		if !slices.Contains(caughtSignals, sig) {
+			t.Errorf("%v is not caught: it would end the helper inside the pacman lock hold", sig)
+		}
+	}
+}
+
 func TestHardenProcess(t *testing.T) {
 	exe, err := os.Executable()
 	if err != nil {
