@@ -31,15 +31,23 @@ child a pty slave as fd 1 and fd 2; fd 0 stays `/dev/null`. The child keeps
 - `isatty(1)` and `isatty(2)` are true: tools turn on colour, bars and read
   the width from `TIOCGWINSZ`.
 - The child leads a session with **no controlling terminal**: inheriting a
-  tty fd does not make it one (only `open()` of a tty by a session leader
-  without `O_NOCTTY`, or `TIOCSCTTY`, does). So `/dev/tty` can't be opened
-  (ENXIO) and `tty_nr` in `/proc/<pid>/stat` is 0.
-- The slave is opened from the master with `TIOCGPTPEER` (no path lookup)
-  and then put in **exclusive mode (`TIOCEXCL`)**: no process without
-  `CAP_SYS_ADMIN` can open `/dev/pts/N` again, so nothing under the step can
-  re-open it by name and so acquire it as a controlling terminal (a session
-  leader's plain `open()` would). Root (sudo's pacman) could; nothing there
-  does.
+  tty fd does not make it one (only a session leader's `open()` of a tty
+  for reading without `O_NOCTTY`, or its `TIOCSCTTY` on an fd that can
+  read, does). So `/dev/tty` can't be opened (ENXIO) and `tty_nr` in
+  `/proc/<pid>/stat` is 0.
+- The slave is opened from the master with `TIOCGPTPEER` (no path lookup),
+  **write-only** and `O_NOCTTY`, and its `/dev/pts/N` is made **mode 0200**
+  (review #135). So nothing under the step can take it as a controlling
+  terminal: `TIOCSCTTY` on fd 1 or 2 is EPERM (it needs read access), a
+  write-only open by name gives no controlling terminal even without
+  `O_NOCTTY`, and an open for reading by name is EACCES (the mode). A read
+  of fd 1 or 2 fails at once (EBADF), so a pager reading its keys from
+  stderr gives up instead of waiting forever. Opens for writing by name
+  (`>/dev/stderr`, `>/proc/self/fd/1`) work as on any terminal. Root
+  (sudo's pacman) passes the mode; nothing there opens a terminal by name
+  as a session leader. (#129 made the slave exclusive, `TIOCEXCL`, instead:
+  that refused those redirections with EBUSY, and left the inherited fds
+  readable and `TIOCSCTTY`-able.)
 - **sudo** finds its tty from `tty_nr` (`/proc/self/stat`), then tries
   `/dev/tty`: both say "none", exactly as with the pipe. So the sudo path is
   unchanged: it asks through `SUDO_ASKPASS`, or with `-n` not at all; its

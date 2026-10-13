@@ -96,14 +96,15 @@ func TestPtyNotInheritedByOtherChildren(t *testing.T) {
 
 const envPtyProbe = "ARCHMAID_PTY_PROBE"
 
-// TestPtyProbeChild is not a test on its own: TestPtyNeverAnswers and
-// TestPtyOutputOnly start the test binary with envPtyProbe set as the
-// pty's child (a session leader, as every step's child), and it reports
-// what it could do with its streams.
+// TestPtyProbeChild is not a test on its own: TestPtyNeverAnswers,
+// TestPtyOutputOnly, TestPtyPagerReadFailsAtOnce and
+// TestPtyReopenByNameNeverControls start the test binary with envPtyProbe
+// set as the pty's child (a session leader, as every step's child), and it
+// reports what it could do with its streams.
 func TestPtyProbeChild(t *testing.T) {
 	switch os.Getenv(envPtyProbe) {
 	case "":
-		t.Skip("run by TestPtyNeverAnswers and TestPtyOutputOnly")
+		t.Skip("run by the TestPty tests that name it")
 	case "answer":
 		// Ask the terminal what a real one answers on its input: the
 		// cursor position (DSR 6), the device attributes (DA1, DA2), the
@@ -123,6 +124,46 @@ func TestPtyProbeChild(t *testing.T) {
 			fmt.Println("tty_nr=" + f[4])
 		}
 		fmt.Println("read2=" + readNow(2))
+	case "pager":
+		// What less does when /dev/tty fails: wait for a key on fd 2.
+		read2 := "nothing"
+		if err := unix.SetNonblock(2, false); err != nil {
+			read2 = err.Error()
+		} else if n, err := unix.Read(2, make([]byte, 1)); err != nil {
+			read2 = err.Error()
+		} else {
+			read2 = fmt.Sprintf("%d bytes", n)
+		}
+		fmt.Println("read2=" + read2)
+	case "reopen":
+		// The pty again by name, as a session leader with no controlling
+		// terminal: for reading and writing, and for writing without
+		// O_NOCTTY (the open that would make it the controlling terminal
+		// if it could read).
+		for _, o := range []struct {
+			name  string
+			flags int
+		}{{"rdwr", unix.O_RDWR}, {"wronly", unix.O_WRONLY}} {
+			res := "ok"
+			if fd, err := unix.Open("/proc/self/fd/1", o.flags|unix.O_CLOEXEC, 0); err != nil {
+				res = err.Error()
+			} else {
+				unix.Close(fd) // a controlling terminal it made would stay
+			}
+			fmt.Println(o.name + "=" + res)
+		}
+		stat, _ := os.ReadFile("/proc/self/stat")
+		_, rest, _ := strings.Cut(string(stat), ") ")
+		if f := strings.Fields(rest); len(f) > 4 {
+			fmt.Println("tty_nr=" + f[4])
+		}
+		devtty := "ok"
+		if fd, err := unix.Open("/dev/tty", unix.O_RDWR|unix.O_CLOEXEC, 0); err != nil {
+			devtty = err.Error()
+		} else {
+			unix.Close(fd)
+		}
+		fmt.Println("devtty=" + devtty)
 	}
 }
 
@@ -145,11 +186,15 @@ func readNow(fd int) string {
 	return fmt.Sprintf("data %q", buf[:n])
 }
 
+// probeSpec runs TestPtyProbeChild in mode.
+func probeSpec(mode string) Spec {
+	return Spec{Name: os.Args[0], Args: []string{"-test.run=^TestPtyProbeChild$", "-test.count=1"}, ExtraEnv: []string{envPtyProbe + "=" + mode}}
+}
+
 func probe(t *testing.T, mode string) []string {
 	t.Helper()
 	ch := make(chan Msg, 64)
-	spec := Spec{Name: os.Args[0], Args: []string{"-test.run=^TestPtyProbeChild$", "-test.count=1"}, ExtraEnv: []string{envPtyProbe + "=" + mode}}
-	if c := New(Options{Detach: true, Pty: true, KillGrace: time.Second}).Start(spec, ch, nil); c == nil {
+	if c := New(Options{Detach: true, Pty: true, KillGrace: time.Second}).Start(probeSpec(mode), ch, nil); c == nil {
 		t.Fatal("did not start")
 	}
 	lines, err := drain(t, ch)
@@ -179,16 +224,13 @@ func TestPtyNeverAnswers(t *testing.T) {
 // the "output only" rule is the kernel's, not a convention: a session
 // leader can't make it its controlling terminal with TIOCSCTTY (which
 // needs read access; with it, tty_nr would name the pty, and a sudo
-// started below — setuid root, so TIOCEXCL doesn't stop its open of
-// /dev/tty — would prompt on it and wait for a password archmaid never
+// started below (setuid root, so no mode or exclusive flag stops its open of
+// /dev/tty) would prompt on it and wait for a password archmaid never
 // writes), and a tool that reads its keys from stderr when /dev/tty
 // fails (less, more) gets an error instead of waiting forever. Shell
 // redirections to /dev/stdout and /dev/stderr, which open the slave again
-// by name, keep working (TIOCEXCL refuses them: EBUSY).
+// by name, keep working (TIOCEXCL, the slave exclusive, refused them: EBUSY).
 func TestPtyOutputOnly(t *testing.T) {
-	t.Skip("KNOWN BUG (review #135, should-fix): the slave is opened O_RDWR and exclusive (TIOCEXCL): a session " +
-		"leader's TIOCSCTTY on fd 1 succeeds, fd 2 is readable (a read waits forever), and `> /dev/stderr` fails " +
-		"with EBUSY; remove this Skip with the fix (and pty_test.go's reopen=refused)")
 	lines := probe(t, "own")
 	for _, want := range []string{"sctty=operation not permitted", "tty_nr=0", "read2=bad file descriptor"} {
 		if !slices.Contains(lines, want) {

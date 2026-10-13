@@ -12,9 +12,11 @@ import (
 // ptyFacts is what a child under Options.Pty sees, one fact per line. The
 // pty is its output, never its controlling terminal: stdin is not a tty,
 // /dev/tty can't be opened, tty_nr (the 5th field after the command name
-// in /proc/<pid>/stat, what sudo reads for its tty) is 0, and its own
-// /dev/pts/N can't be opened again by name (TIOCEXCL), the one way a
-// session leader would take it as its controlling terminal.
+// in /proc/<pid>/stat, what sudo reads for its tty) is 0. Its own
+// /dev/pts/N opens again by name for writing (reopen=ok), as every
+// `>/dev/stderr` does: the slave is write-only and mode 0200, and a
+// write-only open never makes a terminal the controlling one
+// (TestPtyReopenByNameNeverControls).
 const ptyFacts = `
 [ -t 0 ] && echo fd0=tty || echo fd0=notty
 [ -t 1 ] && echo fd1=tty || echo fd1=notty
@@ -42,9 +44,56 @@ func TestPtyIsOutputNotControllingTerminal(t *testing.T) {
 		t.Fatal(err, lines)
 	}
 	want := []string{"fd0=notty", "fd1=tty", "fd2=tty", "devtty=fails", "tty_nr=0", "session_leader=yes",
-		"stdout=pts", "reopen=refused", "size=50 132", "TERM=xterm-256color"}
+		"stdout=pts", "reopen=ok", "size=50 132", "TERM=xterm-256color"}
 	if !slices.Equal(lines, want) {
 		t.Fatalf("the child saw\n%q\nwant\n%q", lines, want)
+	}
+}
+
+// TestPtyPagerReadFailsAtOnce (review #135): a tool that waits for a key
+// on fd 2 when /dev/tty fails (less, or git and journalctl paging into
+// it) gets EBADF at once: the slave is write-only. Readable, the read
+// waited forever (archmaid never writes into the pty) and so did the step.
+func TestPtyPagerReadFailsAtOnce(t *testing.T) {
+	ch := make(chan Msg, 64)
+	c := New(Options{Detach: true, Pty: true, KillGrace: time.Second}).Start(probeSpec("pager"), ch, nil)
+	if c == nil {
+		t.Fatal("did not start")
+	}
+	var lines []string
+	timeout := time.After(3 * time.Second)
+	for {
+		select {
+		case m := <-ch:
+			if !m.Done {
+				lines = append(lines, m.Line)
+				continue
+			}
+			if !slices.Contains(lines, "read2=bad file descriptor") {
+				t.Fatalf("the child's read of fd 2: %q (err %v), want EBADF", lines, m.Err)
+			}
+			return
+		case <-timeout:
+			c.KillGroup()
+			_, _ = drain(t, ch)
+			t.Fatalf("the child's read of fd 2 still waits after 3 s (it said %q)", lines)
+		}
+	}
+}
+
+// TestPtyReopenByNameNeverControls (review #135): a session leader with
+// no controlling terminal that opens its pty again by name can't take it:
+// for reading, the slave's mode (0200) refuses the open, and a write-only
+// open, even without O_NOCTTY, never makes it the controlling terminal
+// (the kernel wants read access for that). /dev/tty still fails.
+func TestPtyReopenByNameNeverControls(t *testing.T) {
+	lines := probe(t, "reopen")
+	// (The test binary adds its own lines: PASS, and a coverage figure
+	// under -cover.)
+	for _, want := range []string{"rdwr=permission denied", "wronly=ok", "tty_nr=0", "devtty=no such device or address"} {
+		if !slices.Contains(lines, want) {
+			t.Errorf("the child saw %q, want %q among them", lines, want)
+		}
 	}
 }
 

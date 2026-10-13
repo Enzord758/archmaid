@@ -320,7 +320,13 @@ printf '{"v":1,"t":"result","ok":true,"code":0,"child_exit":0,"skipped":[]}\n'
 	// So the shim refuses to run with one at all. It looks where sudo
 	// does: its tty from tty_nr in /proc/self/stat (0: none), then
 	// /dev/tty; and at its stdin. Its stdout and stderr may be the step's
-	// pty (#129): a terminal for output, never a controlling one.
+	// pty (#129): a terminal for output, never a controlling one. Had the
+	// step's child taken that pty as its controlling terminal, tty_nr
+	// would name it and /dev/tty would open, and either check refuses.
+	// (While the slave was exclusive, TIOCEXCL, /dev/tty failed with EBUSY
+	// even then and only tty_nr caught it. Now that the slave is
+	// write-only, Setctty on it fails the child's start with EPERM, so the
+	// run doesn't complete.)
 	sudo := `#!/bin/sh
 printf '%s\n' "$*" >> ` + q(dir+"/sudo.log") + `
 ttynr=$(p=') '; read -r s </proc/$$/stat; set -- ${s##*"$p"}; echo "$5")

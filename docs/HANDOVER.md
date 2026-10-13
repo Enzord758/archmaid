@@ -167,15 +167,32 @@ comments and `git log`; this is the "read before you touch it" list.
   slave as stdout and stderr, so tools colour and draw progress bars as in
   a terminal, as wide as the Run view (`ui.TermCols`). It is never the
   child's controlling terminal: Setsid stays and nothing sets `Setctty` or
-  `TIOCSCTTY` (an inherited tty fd doesn't make one); the slave is opened
-  from the master (`TIOCGPTPEER`) and made exclusive (`TIOCEXCL`), so
-  nothing under the step can re-open `/dev/pts/N` by name, the one way a
-  session leader would take it; stdin stays `/dev/null`. So `/dev/tty`
-  fails (ENXIO) and `tty_nr` is 0, which is where sudo looks for its tty:
-  it still prompts only through `SUDO_ASKPASS`. `TestPtyIsOutputNotControllingTerminal`
+  `TIOCSCTTY` (an inherited tty fd doesn't make one); stdin stays
+  `/dev/null`. The rules that keep the step from taking the pty (review
+  #135) are three: the slave is opened from the master (`TIOCGPTPEER`)
+  **write-only** and `O_NOCTTY`, and its `/dev/pts/N` is **mode 0200**. The
+  kernel makes a tty the controlling one only for a session leader that
+  can read it (`TIOCSCTTY` on fd 1 is EPERM; an open by name without
+  `O_NOCTTY` gives no terminal when it is write-only, and an open for
+  reading is EACCES by the mode), and a read of fd 1 or 2 fails at once
+  (EBADF), so a pager that reads its keys from fd 2 when `/dev/tty` fails
+  (less; git or journalctl with stdout a terminal) gives up instead of
+  hanging the step. Writes by name keep working: `>/dev/stderr`,
+  `>/dev/stdout`, `>/proc/self/fd/1` (scripts, PKGBUILD builds under
+  yay). Don't make the slave exclusive (`TIOCEXCL`): #129 did, and every
+  one of those redirections failed with EBUSY. Root (sudo's pacman) passes
+  the mode; nothing there opens a terminal by name as a session leader.
+  So `/dev/tty` fails (ENXIO) and `tty_nr` is 0, which is where sudo looks
+  for its tty: it still prompts only through `SUDO_ASKPASS`.
+  `TestPtyIsOutputNotControllingTerminal`, `TestPtyOutputOnly`,
+  `TestPtyReopenByNameNeverControls`, `TestPtyPagerReadFailsAtOnce`
   (proc), `TestRunPagePty` (realdriver) and the harness's sudo shim
   (`real-tty`: refuses `tty_nr != 0`, a tty stdin or an openable `/dev/tty`)
-  hold it. The pty is only in `internal/proc/pty.go` and only `Start` opens
+  hold it. **Residual (review #135, F3):** when sudo can't read
+  `/proc/self/stat` it falls back to `ttyname()` of fd 0, 1 and 2, finds
+  the pty on fd 1 and records it as the user's tty (in its log line and
+  its time stamp). The prompt still goes through the askpass: `/dev/tty`
+  can't be opened. The pty is only in `internal/proc/pty.go` and only `Start` opens
   it (`TestChildrenNeverRunOnATerminal`): `Query`'s parsed commands keep
   pipes. The TUI never gets it (`TestTUIDoesNotDetach`). A tool that asks
   for a key once stdout is a terminal (topgrade's "Retry?" after a failed
