@@ -455,8 +455,10 @@ comments and `git log`; this is the "read before you touch it" list.
     `testenv.Run`, and a variable `Run` set would not cross the exec), so
     `PATH`'s traps and shims decide exactly as before; `Run` refuses to
     start with one absolute. The e2e harness builds the real binary with
-    them bare (`-ldflags -X`, checked with `go version -m` before any
-    tape); `check.sh` fails a PKGBUILD or cover build that names
+    them bare (`-ldflags -X`; before any tape it reads the values the
+    binary links with `scripts/sysbinvals`, from the ELF file, never
+    running it, since `-trimpath` keeps `-ldflags` out of `go version
+    -m`); `check.sh` fails a PKGBUILD or cover build that names
     `sysbin`, and a main package that links `testenv`. Guards:
     `TestNoBarePrivilegedExec` (no bare privileged name as an exec call's
     program in product code), `TestSysbinDefaultsAbsolute`,

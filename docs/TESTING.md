@@ -624,8 +624,9 @@ test can delete your files or need root.
    outside `PATH` (`testenv.UseSysbin`) with decoys first on `PATH`
    (`testenv.Decoys`), and must not run in parallel. The e2e harness
    builds the real binary with them bare (`-ldflags -X`, which
-   `TestE2EBuildsBareSysbin` keeps complete and `run.sh` checks with
-   `go version -m`); `check.sh` fails a main package that links
+   `TestE2EBuildsBareSysbin` keeps complete; before any tape `run.sh`
+   reads the values the binary links with `scripts/sysbinvals`, which
+   reads the ELF file and runs nothing); `check.sh` fails a main package that links
    `internal/testenv` (its init would make the product trust `PATH` again)
    and a PKGBUILD or cover build that names `sysbin`.
    `TestNoBarePrivilegedExec` keeps the bare names out of every exec call in

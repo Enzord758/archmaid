@@ -42,9 +42,18 @@ if [[ -n "$COVER_DIR" ]]; then
 else
 	go build -trimpath -ldflags "$SYSBIN_LDFLAGS" -o archmaid .
 fi
-# The binary's build info records the flags: refuse to drive one without them.
-go version -m archmaid | grep -qF -- "$SYSBIN.Sudo=sudo" ||
-	{ echo "FAIL: ./archmaid wasn't built with the bare sysbin names; it would run the real /usr/bin/sudo"; exit 1; }
+# Refuse to drive a binary whose sysbin paths aren't the bare names: read
+# what it links (scripts/sysbinvals reads the ELF file, it never runs it;
+# -trimpath keeps -ldflags out of `go version -m`). The TUI links Su, Sudo,
+# Pkexec and Topgrade (Pkttyagent is the GUI's).
+SYSBIN_VALS="$(go run ../../scripts/sysbinvals archmaid)" ||
+	{ echo "FAIL: can't read ./archmaid's sysbin paths"; exit 1; }
+grep -qx 'Sudo=sudo' <<<"$SYSBIN_VALS" ||
+	{ echo "FAIL: ./archmaid has no bare sysbin.Sudo; it would run the real /usr/bin/sudo"; exit 1; }
+if grep -v -E '^([A-Za-z]+)=[a-z]+$' <<<"$SYSBIN_VALS"; then
+	echo "FAIL: ./archmaid links an absolute sysbin path (above); it would run the real program, not the shim"
+	exit 1
+fi
 
 # The privileged binaries match internal/testenv's traps (su, sudo, pkexec,
 # runuser, faillock): none may run for real, and calling any is a failure.
