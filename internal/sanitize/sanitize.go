@@ -121,6 +121,11 @@ func String(s string, mode Mode) string {
 	return string(out)
 }
 
+// Hidden reports whether String removes r as text that could hide or
+// reorder what the reader sees (see dropRune), for a filter that works rune
+// by rune (internal/vt). C0 and C1 controls are not included.
+func Hidden(r rune) bool { return dropRune(r) }
+
 // dropRune reports whether r is removed from the text: a Unicode format
 // character (Cf), U+2028/U+2029 (line and paragraph separator: terminals don't
 // break lines on them, so they are dropped rather than mapped to "\n", which
