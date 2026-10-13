@@ -58,8 +58,10 @@ var bareWord = func() *regexp.Regexp {
 
 // bareConstAllowed are the constants (package path.Name) whose value is a
 // bareNames name but that are never a program to run, wherever they are
-// passed, and why. bareConstUsed records which ones a scan met (for the
-// stale check in TestNoBarePrivilegedExec).
+// compared or logged; as the program of an exec-like call (exec.Command,
+// CommandContext, syscall.Exec, proc.Spec{Name}, exec.Cmd{Path}) they are
+// flagged like any other (#140). bareConstUsed records which ones a scan
+// met (for the stale check in TestNoBarePrivilegedExec).
 var (
 	bareConstAllowed = map[string]string{
 		modulePath + "/internal/steps.IDTopgrade": "the topgrade step's ID, a key compared, looked up and logged; the step's program is its Argv, which privilege.Sudo.Command runs from sysbin",
@@ -260,14 +262,16 @@ func bareScan(fset *token.FileSet, path string, files []*ast.File, im types.Impo
 		}
 		return id, info.Uses[id]
 	}
-	bare := func(e ast.Expr) (string, bool) {
+	// prog is true where e is the program of an exec-like call or literal:
+	// there bareConstAllowed exempts nothing.
+	bare := func(e ast.Expr, prog bool) (string, bool) {
 		id, o := named(e)
 		if s, ok := str(e); ok {
 			if !isString(info.Types[e].Type) || !slices.Contains(bareNames, s) {
 				return "", false
 			}
 			if c, isConst := o.(*types.Const); isConst {
-				if q := c.Pkg().Path() + "." + c.Name(); bareConstAllowed[q] != "" {
+				if q := c.Pkg().Path() + "." + c.Name(); !prog && bareConstAllowed[q] != "" {
 					bareConstUsed[q] = true
 					return "", false
 				}
@@ -295,6 +299,11 @@ func bareScan(fset *token.FileSet, path string, files []*ast.File, im types.Impo
 		}
 		return "?"
 	}
+	// The calls and literals that run their program: exec.Command(name…),
+	// exec.CommandContext(ctx, name…), syscall.Exec(path…), proc.Spec{Name},
+	// exec.Cmd{Path}. A bareConstAllowed constant is no exemption there.
+	execCalls := []string{"Command", "CommandContext", "Exec"}
+	execLits := []string{"Spec", "Cmd"}
 	var out []bareHit
 	add := func(n ast.Node, desc string) {
 		out = append(out, bareHit{file: fset.Position(n.Pos()).Filename, pos: n.Pos(), desc: desc})
@@ -307,7 +316,7 @@ func bareScan(fset *token.FileSet, path string, files []*ast.File, im types.Impo
 					if i > 1 || info.Types[n.Fun].IsType() { // a conversion runs nothing
 						break
 					}
-					if s, ok := bare(a); ok {
+					if s, ok := bare(a, slices.Contains(execCalls, name(n.Fun))); ok {
 						pre := ""
 						if i == 1 {
 							pre = "…, "
@@ -325,7 +334,7 @@ func bareScan(fset *token.FileSet, path string, files []*ast.File, im types.Impo
 						continue
 					}
 					if k, ok := kv.Key.(*ast.Ident); ok && (k.Name == "Name" || k.Name == "Path") {
-						if s, ok := bare(kv.Value); ok {
+						if s, ok := bare(kv.Value, slices.Contains(execLits, name(n.Type))); ok {
 							add(n, name(n.Type)+"{"+k.Name+": "+s+"}")
 						}
 					}

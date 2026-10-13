@@ -278,6 +278,50 @@ func TestBarePrivilegedCallsFolds(t *testing.T) {
 	}
 }
 
+// TestBareConstAllowedNotAsProgram (#140, review #139): the topgrade step's
+// ID is exempt as a key, not as a program: passed to exec.Command, as
+// proc.Spec's Name or exec.Cmd's Path it is flagged, while a compare and a
+// log of it stay clean.
+func TestBareConstAllowedNotAsProgram(t *testing.T) {
+	root := t.TempDir()
+	write := func(rel, src string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, rel), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("internal/steps/steps.go", "package steps\nconst IDTopgrade = \"topgrade\"\n")
+	write("internal/x/x.go", "package x\n"+
+		"import \""+modulePath+"/internal/steps\"\n"+
+		"func f(id string) {\n"+
+		"\t_ = id == steps.IDTopgrade\n"+
+		"\tlog.Println(\"step\", steps.IDTopgrade)\n"+
+		"\texec.Command(steps.IDTopgrade)\n"+
+		"\texec.CommandContext(ctx, steps.IDTopgrade, \"-y\")\n"+
+		"\tsyscall.Exec(steps.IDTopgrade, nil, nil)\n"+
+		"\t_ = proc.Spec{Name: steps.IDTopgrade}\n"+
+		"\t_ = exec.Cmd{Path: steps.IDTopgrade}\n"+
+		"}\n")
+	hits, err := bareModuleScan(root, []string{"internal/steps/steps.go", "internal/x/x.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, h := range hits {
+		got = append(got, h.desc)
+	}
+	want := []string{
+		`Command(IDTopgrade: "topgrade")`, `CommandContext(…, IDTopgrade: "topgrade")`, `Exec(IDTopgrade: "topgrade")`,
+		`Spec{Name: IDTopgrade: "topgrade"}`, `Cmd{Path: IDTopgrade: "topgrade"}`,
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q,\nwant %q", got, want)
+	}
+}
+
 // TestE2EBuildsBareSysbin: the e2e harness drives the real binary, whose
 // sysbin paths are absolute, with its shims on PATH; it must build it with
 // every one of them set back to its bare name, or a tape (the sudo probe,

@@ -100,8 +100,22 @@ if compgen -G 'internal/*/*.go' >/dev/null; then
 		echo "FAIL: internal/frontend is missing; the layering rule below names it"
 		exit 1
 	}
-	for pkg in $(go list ./internal/...); do
-		deps="$(go list -deps -test "$pkg")"
+	# The lists are captured before they are looped or grepped: a go list
+	# that fails (or lists nothing) fails the gate, where a for loop over
+	# $(go list) or a pipe into grep reads it as "nothing to check".
+	ipkgs="$(go list ./internal/...)" || {
+		echo "FAIL: go list ./internal/... failed; can't check the layering"
+		exit 1
+	}
+	if [[ -z "$ipkgs" ]]; then
+		echo "FAIL: go list ./internal/... found no package; can't check the layering"
+		exit 1
+	fi
+	for pkg in $ipkgs; do
+		deps="$(go list -deps -test "$pkg")" || {
+			echo "FAIL: go list -deps -test $pkg failed; can't check the layering"
+			exit 1
+		}
 		if [[ "$pkg" != */internal/tui ]] && grep -q '^github.com/charmbracelet/' <<<"$deps"; then
 			echo "FAIL: $pkg imports github.com/charmbracelet/* (only internal/tui may)"
 			exit 1
@@ -116,9 +130,20 @@ fi
 # internal/tui (tui.Run), so no package under cmd/ may import charmbracelet
 # itself, in its code or its tests. (Its deps include it through
 # internal/tui, so this checks direct imports.)
-for pkg in $(go list ./cmd/...); do
-	if go list -f '{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' "$pkg" |
-		grep -q '^github.com/charmbracelet/'; then
+cpkgs="$(go list ./cmd/...)" || {
+	echo "FAIL: go list ./cmd/... failed; can't check the commands' imports"
+	exit 1
+}
+if [[ -z "$cpkgs" ]]; then
+	echo "FAIL: go list ./cmd/... found no package; can't check the commands' imports"
+	exit 1
+fi
+for pkg in $cpkgs; do
+	imports="$(go list -f '{{join .Imports "\n"}}{{"\n"}}{{join .TestImports "\n"}}{{"\n"}}{{join .XTestImports "\n"}}' "$pkg")" || {
+		echo "FAIL: go list of $pkg's imports failed; can't check them"
+		exit 1
+	}
+	if grep -q '^github.com/charmbracelet/' <<<"$imports"; then
 		echo "FAIL: $pkg imports github.com/charmbracelet/* directly (only internal/tui may)"
 		exit 1
 	fi
@@ -156,6 +181,13 @@ done
 # (-ldflags -X): the package, the owner's own build (install.sh, into
 # ~/.local/bin) and the VM's cover builds keep /usr/bin. The package and
 # install.sh set no variable at all (the cover build sets coverdir's).
+# A missing or renamed file would read as clean to grep: each must exist.
+for f in packaging/arch/PKGBUILD install.sh scripts/cover-build.sh; do
+	test -f "$f" || {
+		echo "FAIL: $f is missing; the build-flag checks below read it"
+		exit 1
+	}
+done
 if grep -nE -- 'sysbin' packaging/arch/PKGBUILD install.sh scripts/cover-build.sh; then
 	echo "FAIL: a product or cover build names internal/sysbin; its /usr/bin paths must stay as built (only cmd/archmaid/e2e/run.sh sets them bare)"
 	exit 1
