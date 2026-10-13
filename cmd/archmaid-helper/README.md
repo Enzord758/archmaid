@@ -45,11 +45,12 @@ relayed gets `--color always`: `-Rns` (remove-orphans), `-S` (repair),
 sequences (see Output). A pacman whose output the helper parses gets
 `--color never`: every query (`-Qq`, `-Qdtq`, `-Rs --print`, `-Q`, `-Si`,
 `-Qk -- pkg`, `-Sp`) and the `check-files` verb's own `-Qk`, whose summary
-lines make the `check` event. paccache colours only on a terminal, and
-`systemd-tmpfiles`, `journalctl` and `systemctl` get no colour switch:
-the first two have no `--color` option, and the environment stays
-`TERM=dumb` without `SYSTEMD_COLORS`, because `disable-unit` parses
-`systemctl cat`, which with colour on wraps `[Install]` and every
+lines make the `check` event. paccache colours only on a terminal. The
+relayed systemd calls (`systemd-tmpfiles --clean`, `journalctl --vacuum-time`,
+`systemctl disable --now`) get `SYSTEMD_COLORS=1` in their own environment
+(`CallEnv`); every other call, `systemctl show`/`cat` above all, stays on
+plain `ChildEnv`, because `disable-unit` parses `systemctl cat`, which with
+colour on wraps `[Install]` and every
 directive in SGR. The values are constants; the caller has no say.
 
 Action ids are `org.archmaid.helper.<verb>` (see

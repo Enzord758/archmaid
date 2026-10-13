@@ -19,10 +19,11 @@ import (
 //     whose summary lines become the check event;
 //   - paccache (a tty check only), systemd-tmpfiles and journalctl (no
 //     --color option: one would fail the part), systemctl and pacman-conf
-//     (no colour at all; its CacheDir paths are parsed) get no flag,
-//     and the environment stays exactly ChildEnv, TERM=dumb included, so
-//     systemctl show/cat, which disable-unit's denylist vetting parses,
-//     stay plain.
+//     (no colour at all; its CacheDir paths are parsed) get no flag.
+//     The environment is ChildEnv, TERM=dumb included, except for the
+//     relayed systemd calls, which add SYSTEMD_COLORS=1 (CallEnv, task
+//     #133; systemdcolour_test.go), so systemctl show/cat, which
+//     disable-unit's denylist vetting parses, stay plain.
 
 // colourWhen is argv's `--color <when>`, or "" when it has none. A pair
 // after `--` (a name) doesn't count; one before it must come only once.

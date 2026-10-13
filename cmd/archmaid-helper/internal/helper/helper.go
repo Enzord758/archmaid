@@ -248,9 +248,10 @@ func noArgs(s *session, verb string, args []string) bool {
 // events keep the SGR (Emitter.Line); a pacman whose output the helper
 // parses gets colourNever, so a parsed line never holds an escape: every
 // Query, and the check-files verb's -Qk, whose summary lines become the
-// check event. paccache colours only on a terminal, systemd-tmpfiles and
-// journalctl have no colour option (one would fail the call), and the
-// environment stays ChildEnv: see there for why TERM stays dumb.
+// check event. paccache colours only on a terminal; systemd-tmpfiles and
+// journalctl have no colour option (one would fail the call), so the
+// relayed systemd calls get SYSTEMD_COLORS=1 in their own env (CallEnv,
+// task #133) and nothing else does: see ChildEnv for why TERM stays dumb.
 var (
 	colourAlways = []string{"--color", "always"}
 	colourNever  = []string{"--color", "never"}

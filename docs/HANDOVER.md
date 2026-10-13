@@ -920,13 +920,24 @@ comments and `git log`; this is the "read before you touch it" list.
   parses `systemctl show`/`cat`: with colour on, `systemctl cat` wraps
   `[Install]` and every directive in SGR (systemd's `cat_file`), so
   `parseInstall` would never see the section and the Alias=/WantedBy=/
-  Also= denylist checks would pass by default. `systemd-tmpfiles` and
-  `journalctl` have no `--color` option (one would fail the part), and
-  paccache can't be forced: those stay plain (see the decision under
-  Open items). Tests: `TestColourPerCall`, `TestEveryQueryIsColourless`,
+  Also= denylist checks would pass by default.
+  **Systemd's colour, per call (task #133, the owner said yes).**
+  `helper.CallEnv(argv)` (runner.go; `command` uses it for Query and
+  Stream) is `ChildEnv` plus `SYSTEMD_COLORS=1` for an allowlist of exact
+  argv shapes whose output is only relayed: `systemd-tmpfiles --clean`,
+  `journalctl --vacuum-*`, `systemctl disable --now -- ...`. Everything
+  else (`systemctl show/cat/list-unit-files`, all pacman, paccache,
+  pacman-conf) keeps plain `ChildEnv`; TERM stays dumb. The line events keep
+  the SGR as before; the client still filters it and drops it under
+  `NO_COLOR`; logs stay plain. paccache can't be forced (a tty check), and
+  `pacman -Qk` already has `--color always`. A new relayed systemd call
+  must be added to `relayedSystemd` by hand: forgetting it only costs
+  colour, the other way round would fail a vetting open. Tests:
+  `TestSystemdColoursOnlyForRelayedCalls`, `TestSystemdColoursReachTheRunner`
+  (helper), `TestHelperColourReachesTheClient` (SGR through to the client,
+  other escapes gone, `NO_COLOR` strips it). Other tests: `TestColourPerCall`, `TestEveryQueryIsColourless`,
   `TestChildEnvStaysDumb`, `TestLineKeepsOnlySGR`, `TestSanitizeLine`
-  (helper), `TestHelperColourReachesTheClient` (helper to client),
-  `TestLineColour` (client), `TestRunPageHelperColour` (the GUI's Run
+  (helper), `TestLineColour` (client), `TestRunPageHelperColour` (the GUI's Run
   page coloured, every log plain).
   **The user side follows the same rule (task #114).** Every user-side
   pacman whose output archmaid parses gets `--color never` after its
@@ -1286,18 +1297,9 @@ to:
   archmaid-gui defaults to cairo (`ui.DefaultRenderer`, only when
   `GSK_RENDERER` is unset; `TESTING.md` → GUI measurements).
 
-- **Decision for the owner: colour for the helper's systemd tools
-  (task #111). Recommendation: no.** The helper colours its pacman calls
-  (see "Colour in the run output"); `systemd-tmpfiles --clean`,
-  `journalctl --vacuum-time` and `systemctl disable --now` stay plain.
-  They have no `--color` option, so the only switch is
-  `SYSTEMD_COLORS=1`, and that may not go into `helper.ChildEnv`: the same
-  environment runs `systemctl show`/`cat`, which `disable-unit`'s denylist
-  vetting parses, and a coloured `systemctl cat` fails that vetting open.
-  Doing it safely needs a per-call environment in the helper's `Runner`
-  (its interface and `ExecRunner`, root code), for tools that print a
-  line or two ("Vacuuming done, freed …", disable's "Removed …"). The
-  gain is small and the change is in the root helper's process-start
-  code, so it is left out unless the owner wants it.
+- **Decided: colour for the helper's systemd tools (task #111 asked,
+  #133 built, the owner said yes).** See "Colour in the run output".
+  Live check still to do in the VM: the Full Cleanup tmpfiles and journal
+  rows show systemd's colours.
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.

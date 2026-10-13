@@ -34,6 +34,13 @@ func (r colourRunner) Query(argv []string) (string, string, int, error) {
 }
 
 func (colourRunner) Stream(argv []string, line func(stream, text string)) (int, error) {
+	if slices.Contains(helper.CallEnv(argv), helper.SystemdColours) {
+		// systemd's tools colour into a pipe only with SYSTEMD_COLORS in
+		// the call's env (task #133): this stand-in reads the env the
+		// helper's runner would give this argv.
+		line("out", "\x1b]0;pwned\x07\x1b[2K\x1b[1;32m"+filepath.Base(argv[0])+"\x1b[0m done")
+		return 0, nil
+	}
 	if len(argv) < 2 || argv[0] != helper.Pacman {
 		line("out", "\x1b]0;pwned\x07plain "+filepath.Base(argv[0]))
 		return 0, nil
@@ -51,8 +58,10 @@ func (colourRunner) Stream(argv []string, line func(stream, text string)) (int, 
 // full-cleanup call the GUI builds (run in-process as a dev build on
 // colourRunner) read by helperclient.Run, as the GUI's Driver reads it:
 // the pacman parts' lines reach the engine with their SGR colour and
-// nothing else (no title, no cursor move); paccache, tmpfiles and the
-// journal, which can't be asked to colour, stay plain. Under NO_COLOR the
+// nothing else (no title, no cursor move); the relayed systemd tools
+// (tmpfiles, the journal vacuum) colour as they do with SYSTEMD_COLORS in
+// their own call's env (task #133), paccache, which can't be forced, stays
+// plain. Under NO_COLOR the
 // client drops the colour (the helper's switch is a constant in it, so
 // the client is where NO_COLOR is honoured). It fails on a helper that
 // strips SGR from its line events or doesn't ask pacman for colour.
@@ -102,8 +111,8 @@ func TestHelperColourReachesTheClient(t *testing.T) {
 	coloured := []string{
 		"Left " + leftover + " alone: changed within the last 2 minutes, so a download may be starting in it",
 		"\x1b[1;34m::\x1b[0m\x1b[1m pacman -Sc\x1b[0m",
-		"plain systemd-tmpfiles",
-		"plain journalctl",
+		"\x1b[1;32msystemd-tmpfiles\x1b[0m done",
+		"\x1b[1;32mjournalctl\x1b[0m done",
 		"\x1b[1;34m::\x1b[0m\x1b[1m pacman -Qk\x1b[0m",
 	}
 	for _, noColour := range []string{"", "1"} {
@@ -136,7 +145,7 @@ func TestHelperColourReachesTheClient(t *testing.T) {
 			}
 			for _, l := range coloured {
 				if noColour != "" {
-					l = strings.NewReplacer("\x1b[1;34m", "", "\x1b[0m", "", "\x1b[1m", "").Replace(l)
+					l = strings.NewReplacer("\x1b[1;34m", "", "\x1b[0m", "", "\x1b[1m", "", "\x1b[1;32m", "").Replace(l)
 				}
 				want = append(want, l)
 			}

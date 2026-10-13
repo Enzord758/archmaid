@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 )
@@ -34,9 +35,43 @@ const (
 // section would go unseen, and with it the Alias=, WantedBy= and Also=
 // its denylist vetting checks. Hooks and install scriptlets that probe
 // the terminal (tput, ncurses) stay quiet under it too. For the same
-// reason SYSTEMD_COLORS is never set here.
+// reason SYSTEMD_COLORS is never set here: see CallEnv for the calls that
+// get it on their own.
 func ChildEnv() []string {
 	return []string{"PATH=/usr/bin", "LC_ALL=C", "TERM=dumb"}
+}
+
+// SystemdColours is the one variable CallEnv adds (systemd documents 1 and
+// true; "true" would do the same).
+const SystemdColours = "SYSTEMD_COLORS=1"
+
+// CallEnv is the environment of one call: ChildEnv, plus SYSTEMD_COLORS=1
+// for the systemd tools whose output the helper only relays, as-is, never
+// parses (task #133): systemd-tmpfiles --clean, journalctl --vacuum-time=...
+// and systemctl disable --now. They have no --color option and write to a
+// pipe, so this is their only switch. It is an allowlist of exact shapes
+// (the argv builders in helper.go): every other call, systemctl show and
+// cat above all (disable-unit's denylist vetting parses them; coloured,
+// `systemctl cat` wraps [Install] in SGR and the check would fail open),
+// keeps plain ChildEnv. TERM stays dumb either way.
+func CallEnv(argv []string) []string {
+	env := ChildEnv()
+	if relayedSystemd(argv) {
+		env = append(env, SystemdColours)
+	}
+	return env
+}
+
+func relayedSystemd(argv []string) bool {
+	switch {
+	case len(argv) == 2 && argv[0] == SystemdTmpfile:
+		return argv[1] == "--clean"
+	case len(argv) == 2 && argv[0] == Journalctl:
+		return strings.HasPrefix(argv[1], "--vacuum-")
+	case len(argv) >= 4 && argv[0] == Systemctl:
+		return argv[1] == "disable" && argv[2] == "--now" && argv[3] == "--"
+	}
+	return false
 }
 
 // Runner executes commands. It is the seam tests replace: the real one is
@@ -67,7 +102,7 @@ func command(argv []string) (*exec.Cmd, error) {
 		return nil, fmt.Errorf("refusing to run a non-absolute command: %q", argv)
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Env = ChildEnv()
+	cmd.Env = CallEnv(argv)
 	cmd.Dir = "/"
 	// A session of its own, so nothing aimed at the terminal that started
 	// the helper reaches pacman mid-transaction: not a Ctrl-C, Ctrl-\ or
