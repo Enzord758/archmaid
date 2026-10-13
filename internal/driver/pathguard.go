@@ -10,7 +10,6 @@ import (
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
-	"github.com/Enzord758/archmaid/internal/sysbin"
 )
 
 // The kept password's PATH guard (privilege.PathShadows; docs/HANDOVER.md,
@@ -27,7 +26,11 @@ import (
 // The scan reads PATH as it is when the child starts. A file put there
 // later, while the step runs, isn't seen: the guard catches a PATH that is
 // already wrong, not a process of the same user that plants one mid-run
-// (which could as well change any directory a pin would put first).
+// (which could as well change any directory a pin would put first). It is
+// deliberately not run again before each kept answer (review #134): by the
+// time a planted sudo's askpass request arrives it has exec'd the real
+// sudo, and it can have removed itself first, so a second scan sees a
+// clean PATH and the answer goes out all the same.
 
 // pathScanMax bounds the scan, which runs on the loop before the child
 // starts: a PATH entry on a hung network or FUSE mount would otherwise
@@ -53,7 +56,7 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 	d.keep.Fail()
 	what := "the check of this step's PATH didn't finish in " + pathScanMax.String()
 	if done {
-		what = "this step's PATH has something before " + sysbin.Sudo + " that could stand in for sudo: " + namesOf(shadows)
+		what = "this step's PATH has something that could stand in for sudo: " + namesOf(shadows)
 	}
 	cat := e.Step.Category
 	if !cat.Valid() {

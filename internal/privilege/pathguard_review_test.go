@@ -79,9 +79,6 @@ func TestPathShadowsOwnerPATH(t *testing.T) {
 // /usr/bin/sudo -A is then sudo started by topgrade, and the kept password
 // answers it. The same holds for a relative entry after /usr/bin.
 func TestPathShadowsSudoLikeAfterRealSudo(t *testing.T) {
-	t.Skip("KNOWN BUG (review #134, should-fix): the scan stops at the real sudo's dir for every name, so a doas, " +
-		"please or sudo-rs that /usr/bin doesn't hold, after it on PATH, isn't seen; remove this Skip with the fix " +
-		"(and the \"after the real one\" case of TestPathShadows, which pins the current behaviour)")
 	real := realSudoDir(t)
 	after := put(t, 0o755, "doas", "please", "sudo-rs")
 	got := paths(PathShadows(list(real, after, "rel")))
@@ -94,14 +91,46 @@ func TestPathShadowsSudoLikeAfterRealSudo(t *testing.T) {
 
 // TestPathShadowsEmptyPATH: PATH= (set and empty) is one empty entry to
 // glibc's execvp, bash and Rust's split_paths, which search the current
-// folder then (TestChildPATH's comment says so too, but checks it with a
-// bare sysbin.Sudo, which skips the scan). filepath.SplitList("") is no
-// entry at all, so PathShadows sees nothing.
+// folder then; filepath.SplitList("") is no entry at all, and PathShadows
+// saw nothing before #136. (TestChildPATH checks the same through
+// ChildPATH.)
 func TestPathShadowsEmptyPATH(t *testing.T) {
-	t.Skip("KNOWN BUG (review #134, nit): PathShadows(\"\") finds nothing, while execvp, bash and topgrade's which " +
-		"search the current folder for an empty PATH; remove this Skip with the fix")
 	realSudoDir(t)
-	if got := paths(PathShadows(ChildPATH(nil, []string{"PATH="}))); !slices.Equal(got, []string{"an empty PATH entry (the current folder)"}) {
-		t.Errorf("PathShadows(PATH=) = %q, want the empty entry", got)
+	if got := paths(PathShadows("")); !slices.Equal(got, []string{"an empty PATH entry (the current folder)"}) {
+		t.Errorf("PathShadows(\"\") = %q, want the empty entry", got)
+	}
+}
+
+// TestPathShadowsPerNameBoundary (#136): each name stops at the system's
+// own file of that name. The system dir holds sudo, su and run0 (a symlink
+// to systemd-run, as on Arch). Reached by another name (as /bin is
+// /usr/bin), each of them is the system's own, not a shadow; an su before
+// it counts and one after it doesn't; a user's own run0 link to the same
+// systemd-run counts before it; a doas, which the system lacks, counts
+// after it.
+func TestPathShadowsPerNameBoundary(t *testing.T) {
+	sys := realSudoDir(t)
+	if err := os.WriteFile(filepath.Join(sys, "su"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sys, "systemd-run"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("systemd-run", filepath.Join(sys, "run0")); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(t.TempDir(), "bin")
+	if err := os.Symlink(sys, alias); err != nil {
+		t.Fatal(err)
+	}
+	ownRun0 := t.TempDir()
+	if err := os.Symlink(filepath.Join(sys, "systemd-run"), filepath.Join(ownRun0, "run0")); err != nil {
+		t.Fatal(err)
+	}
+	before, after := put(t, 0o755, "su"), put(t, 0o755, "su", "doas")
+	got := paths(PathShadows(list(before, ownRun0, alias, sys, after)))
+	want := []string{filepath.Join(before, "su"), filepath.Join(ownRun0, "run0"), filepath.Join(after, "doas")}
+	if !slices.Equal(got, want) {
+		t.Errorf("PathShadows = %q, want %q", got, want)
 	}
 }

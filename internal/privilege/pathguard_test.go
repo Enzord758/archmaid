@@ -41,11 +41,11 @@ func paths(ss []Shadow) []string {
 
 func list(dirs ...string) string { return strings.Join(dirs, string(os.PathListSeparator)) }
 
-// TestPathShadows: only what comes before the real sudo's directory counts;
-// there, every name that could stand in for a way to root, as an
-// executable file or as any symlink (to /usr/bin/sudo itself too), and a
-// relative entry. A file without an execute bit, a directory, and anything
-// after the real sudo don't.
+// TestPathShadows: a name counts before the system's own file of that name
+// (the stand-in real dir holds only sudo, so every other name counts
+// wherever it is), as an executable file or as any symlink (to
+// /usr/bin/sudo itself too), and so does a relative entry. A file without
+// an execute bit, a directory, and a sudo after the real sudo don't.
 func TestPathShadows(t *testing.T) {
 	real := realSudoDir(t)
 	link := t.TempDir()
@@ -78,7 +78,12 @@ func TestPathShadows(t *testing.T) {
 	}{
 		{"nothing before", list(real, exec), nil},
 		{"an executable sudo before", list(missing, exec, real), []string{filepath.Join(exec, "sudo")}},
-		{"after the real one", list(real, exec, others, link), nil},
+		// After the real sudo's dir only a sudo is out of reach: the stand-in
+		// real dir holds no other name, so each one counts wherever it is (as
+		// doas, please and sudo-rs do on Arch, where /usr/bin lacks them).
+		{"after the real one", list(real, exec, others, link), []string{
+			filepath.Join(others, "sudo-rs"), filepath.Join(others, "doas"), filepath.Join(others, "run0"),
+			filepath.Join(others, "please"), filepath.Join(others, "su"), filepath.Join(others, "pkexec")}},
 		{"every other name", list(others, real), []string{
 			filepath.Join(others, "sudo-rs"), filepath.Join(others, "doas"), filepath.Join(others, "run0"),
 			filepath.Join(others, "please"), filepath.Join(others, "su"), filepath.Join(others, "pkexec")}},
@@ -141,10 +146,12 @@ func TestChildPATH(t *testing.T) {
 			t.Errorf("ChildPATH(%q, %q) = %q, want %q", c.env, c.extra, got, c.want)
 		}
 	}
-	// An empty PATH= is one empty entry: the current folder, relative.
-	if got := PathShadows(ChildPATH(nil, []string{"PATH="})); len(got) != 0 {
-		// sysbin.Sudo is bare here: nothing to compare against.
-		t.Errorf("bare: %q", paths(got))
+	// An empty PATH= is one empty entry: the current folder, relative. With
+	// a real sudo to compare against (a bare sysbin.Sudo skips the scan),
+	// the guard sees it.
+	realSudoDir(t)
+	if got := paths(PathShadows(ChildPATH(nil, []string{"PATH="}))); !slices.Equal(got, []string{"an empty PATH entry (the current folder)"}) {
+		t.Errorf("PathShadows(ChildPATH(PATH=)) = %q, want the empty entry", got)
 	}
 }
 

@@ -4,9 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -38,10 +40,30 @@ type guardRig struct {
 	lines []string // the step's output so far
 }
 
+// realSudoDir points sysbin.Sudo at a stand-in real sudo (never run) in a
+// dir of its own, puts a stand-in for every other privilege.ShadowNames
+// name but except there too (as /usr/bin holds su, pkexec and run0 on
+// Arch), and returns the dir. Each name's real file is then in that dir,
+// so the test's own PATH after it (testenv's su and pkexec traps, the
+// machine's /usr/bin) can't count.
+func realSudoDir(t *testing.T, except ...string) string {
+	t.Helper()
+	dir := filepath.Dir(testenv.UseSysbin(t, &sysbin.Sudo, "exit 0"))
+	for _, n := range privilege.ShadowNames {
+		if n == "sudo" || slices.Contains(except, n) {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
 func newGuardRig(t *testing.T, before, after []string) *guardRig {
 	t.Helper()
 	testenv.UseSysbin(t, &sysbin.Su, `read pw; [ "$pw" = good ]`)
-	real := filepath.Dir(testenv.UseSysbin(t, &sysbin.Sudo, "exit 0"))
+	real := realSudoDir(t)
 	path := append(append(append([]string{}, before...), real), after...)
 	t.Setenv("PATH", strings.Join(append(path, os.Getenv("PATH")), string(os.PathListSeparator)))
 	return startGuardRig(t, Deps{})
@@ -256,6 +278,22 @@ func TestPathGuardShadowAfter(t *testing.T) {
 	requireOn(t, newGuardRig(t, nil, []string{dirWith(t, "sudo", 0o755)}))
 }
 
+// A sudo-like program that the real sudo's dir doesn't hold counts after
+// it too (topgrade tries doas and please before sudo, on the whole PATH),
+// and so does a relative entry there: off. A sudo-like the real dir holds
+// is out of reach after it, as a sudo is.
+func TestPathGuardSudoLikeAfter(t *testing.T) {
+	testenv.UseSysbin(t, &sysbin.Su, `read pw; [ "$pw" = good ]`)
+	real := realSudoDir(t, "doas")
+	doas, su := dirWith(t, "doas", 0o755), dirWith(t, "su", 0o755)
+	t.Setenv("PATH", strings.Join([]string{real, su, doas, "relbin", os.Getenv("PATH")}, string(os.PathListSeparator)))
+	g := startGuardRig(t, Deps{})
+	requireOff(t, g, filepath.Join(doas, "doas"), `the relative PATH entry "relbin"`)
+	if strings.Contains(g.topgradeLog(), filepath.Join(su, "su")) {
+		t.Errorf("an su after the real dir, which holds one, was named:\n%s", g.topgradeLog())
+	}
+}
+
 // A sudo without an execute bit can't run: no effect.
 func TestPathGuardNotExecutable(t *testing.T) {
 	requireOn(t, newGuardRig(t, []string{dirWith(t, "sudo", 0o644)}, nil))
@@ -266,11 +304,11 @@ func TestPathGuardNotExecutable(t *testing.T) {
 func TestPathGuardSymlinkToRealSudo(t *testing.T) {
 	link := t.TempDir()
 	testenv.UseSysbin(t, &sysbin.Su, `read pw; [ "$pw" = good ]`)
-	real := testenv.UseSysbin(t, &sysbin.Sudo, "exit 0")
-	if err := os.Symlink(real, filepath.Join(link, "sudo")); err != nil {
+	real := realSudoDir(t)
+	if err := os.Symlink(sysbin.Sudo, filepath.Join(link, "sudo")); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", link+":"+filepath.Dir(real)+":"+os.Getenv("PATH"))
+	t.Setenv("PATH", link+":"+real+":"+os.Getenv("PATH"))
 	requireOff(t, startGuardRig(t, Deps{}), filepath.Join(link, "sudo"))
 }
 
@@ -283,7 +321,12 @@ func TestPathGuardOtherNamesAndRelative(t *testing.T) {
 }
 
 // A scan that doesn't finish in time counts as a shadow: off, saying so.
+// The test has a deadline of its own: if the cap were ignored, the loop
+// would wait on the hung scan for good, and the rig's Close with it, until
+// go test's timeout. After scanDeadline the test lets the scan go: the
+// step starts with nothing found, and the test fails at once.
 func TestPathGuardScanTimeout(t *testing.T) {
+	const scanDeadline = 8 * time.Second // under rig.next's 10 s
 	release := make(chan struct{})
 	var once sync.Once
 	free := func() { once.Do(func() { close(release) }) }
@@ -292,7 +335,15 @@ func TestPathGuardScanTimeout(t *testing.T) {
 	pathShadows = func(string) []privilege.Shadow { <-release; return nil }
 	pathScanMax = 50 * time.Millisecond
 	t.Cleanup(func() { pathShadows, pathScanMax = oldScan, oldMax })
-	requireOff(t, newGuardRig(t, nil, nil), "didn't finish in 50ms")
+	var late atomic.Bool
+	deadline := time.AfterFunc(scanDeadline, func() { late.Store(true); free() })
+	t.Cleanup(func() { deadline.Stop() })
+	g := newGuardRig(t, nil, nil)
+	t.Cleanup(free) // after the rig's: runs before its Close and leak check
+	if late.Load() {
+		t.Errorf("the step started only once the test let the hung scan go after %s: the %s cap was ignored", scanDeadline, pathScanMax)
+	}
+	requireOff(t, g, "didn't finish in 50ms")
 	free() // the abandoned scan ends now, before the rig's leak check
 }
 
@@ -309,7 +360,7 @@ func TestPathGuardBareSudo(t *testing.T) {
 // a WARN line in the topgrade log.
 func guardOff(t *testing.T, keep bool, opts engine.Options, st steps.Step) bool {
 	t.Helper()
-	real := filepath.Dir(testenv.UseSysbin(t, &sysbin.Sudo, "exit 0"))
+	real := realSudoDir(t)
 	t.Setenv("PATH", dirWith(t, "sudo", 0o755)+":"+real+":"+os.Getenv("PATH"))
 	st.Category = logstore.Topgrade
 	r := newRig(t, opts, Deps{KeepPassword: keep}, action("q", st))
@@ -348,7 +399,7 @@ func TestPathGuardOnlyWhereItMatters(t *testing.T) {
 // The guard's WARN line that can't be written is reported; the kept
 // password is off all the same.
 func TestPathGuardUnloggable(t *testing.T) {
-	real := filepath.Dir(testenv.UseSysbin(t, &sysbin.Sudo, "exit 0"))
+	real := realSudoDir(t)
 	t.Setenv("PATH", dirWith(t, "sudo", 0o755)+":"+real+":"+os.Getenv("PATH"))
 	st := shStep(steps.IDTopgrade, "true")
 	st.NeedsPriv = true

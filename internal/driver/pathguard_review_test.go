@@ -71,7 +71,7 @@ func TestPathGuardOwnerPATH(t *testing.T) {
 // own: a shadow only on the child's PATH turns keeping off, one only on
 // archmaid's doesn't.
 func TestPathGuardStepEnvPATH(t *testing.T) {
-	real := filepath.Dir(testenv.UseSysbin(t, &sysbin.Sudo, "exit 0"))
+	real := realSudoDir(t)
 	shadow := dirWith(t, "sudo", 0o755)
 	sep, orig := string(os.PathListSeparator), os.Getenv("PATH")
 	clean, dirty := real+sep+orig, shadow+sep+real+sep+orig

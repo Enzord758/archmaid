@@ -23,14 +23,16 @@ import (
 // sees who asks.
 
 // ShadowNames are the programs that, found on a step's PATH before the
-// real sudo, could stand in for it or for another way to root: sudo itself,
+// system's own file of that name (or anywhere, for a name the system
+// lacks), could stand in for sudo or for another way to root: sudo itself,
 // its rewrite, the other sudo-likes, and su and pkexec.
 var ShadowNames = []string{"sudo", "sudo-rs", "doas", "run0", "please", "su", "pkexec"}
 
 // A Shadow is what could stand in for a privileged program on a step's
-// PATH: a file named one of ShadowNames in a directory before the real
-// sudo's, or a relative PATH entry (searched from whatever directory the
-// program that looks runs in: yay builds in the package's own folder).
+// PATH: a file named one of ShadowNames in a directory before the system's
+// own file of that name (PathShadows), or a relative PATH entry (searched
+// from whatever directory the program that looks runs in: yay builds in
+// the package's own folder).
 type Shadow struct {
 	// Path is the file, or the relative PATH entry as written ("" is the
 	// current directory).
@@ -74,40 +76,72 @@ func ChildPATH(env, extra []string) string {
 }
 
 // PathShadows scans path, a PATH value, for anything that could stand in
-// for a privileged program: every directory before the first one that
-// holds sysbin.Sudo itself (a plain file, the same file) is searched for
-// ShadowNames, and a relative entry before it is one by itself. It is
-// conservative: a symlink with one of those names counts whatever it
+// for a privileged program. Each of ShadowNames has its own boundary, the
+// first directory on path that holds the system's own file of that name,
+// the same file as the one in sysbin.Sudo's directory (/usr/bin, also
+// reached as /bin or /usr/sbin): for sudo that is sysbin.Sudo itself.
+// Before its boundary, a file of that name is a shadow; from there on,
+// execvp finds the real one first. A name the system doesn't have there
+// (doas, please and sudo-rs on most Arch machines) has no boundary: it is
+// searched on the whole path, since a program that looks for it (topgrade
+// tries doas and please before sudo) finds whichever comes first. A
+// relative entry (searched from whatever directory the program that looks
+// runs in) is a shadow by itself while any name's boundary is still to
+// come, and so is an empty entry, the current directory (an empty path is
+// one: execvp, bash and Rust's split_paths search "." for PATH=).
+//
+// It is conservative: a symlink with one of those names counts whatever it
 // points at (even /usr/bin/sudo: its target can change mid-run), and so
 // does any regular file with an execute bit; a directory or a file without
-// one doesn't (execvp skips it). Without that directory on path (or
-// without sysbin.Sudo), every entry is searched. A sysbin.Sudo that is a
-// bare name (only under testenv, where PATH decides every program) leaves
-// nothing to compare against: nothing is a shadow.
+// one doesn't (execvp skips it). Without sysbin.Sudo's directory, every
+// entry is searched for every name. A sysbin.Sudo that is a bare name
+// (only under testenv, where PATH decides every program) leaves nothing to
+// compare against: nothing is a shadow.
 func PathShadows(path string) []Shadow {
-	real := sysbin.Sudo
-	if !filepath.IsAbs(real) {
+	if !filepath.IsAbs(sysbin.Sudo) {
 		return nil
 	}
-	realInfo, err := os.Stat(real)
-	if err != nil {
-		realInfo = nil
+	sysDir := filepath.Dir(sysbin.Sudo)
+	// real[i] is the system's own file named ShadowNames[i], not followed
+	// (/usr/bin/run0 is a symlink to systemd-run: the same link inode
+	// through /bin is the system's, a user's own link is not); nil when
+	// the system has none.
+	real := make([]os.FileInfo, len(ShadowNames))
+	for i, name := range ShadowNames {
+		file := filepath.Join(sysDir, name)
+		if name == "sudo" {
+			file = sysbin.Sudo
+		}
+		if fi, err := os.Lstat(file); err == nil {
+			real[i] = fi
+		}
+	}
+	passed := make([]bool, len(ShadowNames)) // past that name's boundary
+	open := len(ShadowNames)                 // names still before theirs
+	dirs := filepath.SplitList(path)
+	if path == "" {
+		dirs = []string{""} // SplitList("") is no entry; execvp's is "."
 	}
 	var out []Shadow
-	for _, dir := range filepath.SplitList(path) {
+	for _, dir := range dirs {
+		if open == 0 {
+			break
+		}
 		if !filepath.IsAbs(dir) {
 			out = append(out, Shadow{Path: dir, Relative: true})
 			continue
 		}
-		if realInfo != nil {
-			if fi, err := os.Lstat(filepath.Join(dir, "sudo")); err == nil && fi.Mode().IsRegular() && os.SameFile(fi, realInfo) {
-				break // the real sudo's directory: what follows can't shadow it
+		for i, name := range ShadowNames {
+			if passed[i] {
+				continue
 			}
-		}
-		for _, name := range ShadowNames {
 			p := filepath.Join(dir, name)
 			fi, err := os.Lstat(p)
 			if err != nil {
+				continue
+			}
+			if real[i] != nil && os.SameFile(fi, real[i]) {
+				passed[i], open = true, open-1 // the system's own: what follows can't shadow it
 				continue
 			}
 			if fi.Mode()&os.ModeSymlink != 0 || (fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0) {
