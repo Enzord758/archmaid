@@ -317,10 +317,14 @@ printf '{"v":1,"t":"result","ok":true,"code":0,"child_exit":0,"skipped":[]}\n'
 `
 	// The real sudo prefers a terminal to SUDO_ASKPASS: with a controlling
 	// terminal it would prompt there, where a GUI's user isn't looking.
-	// So the shim refuses to run with one at all.
+	// So the shim refuses to run with one at all. It looks where sudo
+	// does: its tty from tty_nr in /proc/self/stat (0: none), then
+	// /dev/tty; and at its stdin. Its stdout and stderr may be the step's
+	// pty (#129): a terminal for output, never a controlling one.
 	sudo := `#!/bin/sh
 printf '%s\n' "$*" >> ` + q(dir+"/sudo.log") + `
-if [ -t 0 ] || sh -c ': </dev/tty' 2>/dev/null; then
+ttynr=$(p=') '; read -r s </proc/$$/stat; set -- ${s##*"$p"}; echo "$5")
+if [ -t 0 ] || [ "$ttynr" != 0 ] || sh -c ': </dev/tty' 2>/dev/null; then
 	echo "sudo: would prompt on the terminal" >&2
 	echo tty >> ` + q(dir+"/sudo.tty") + `
 	exit 1

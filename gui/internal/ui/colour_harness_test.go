@@ -54,6 +54,19 @@ func TestGUIRunColour(t *testing.T) {
 		if rep.Coloured == 0 || rep.Coloured >= rep.Labels {
 			t.Errorf("%d of %d visible rows coloured, want some, not all", rep.Coloured, rep.Labels)
 		}
+		// #129: the step's pty is as wide as the Run view in columns of
+		// its font (a monospace cell is 6–12 px at the harness's sizes),
+		// and the font draws the glyphs bars and boxes are made of.
+		t.Logf("view %d px → pty %d columns; unknown glyphs %q", rep.ViewWidth, rep.TermCols, rep.Unknown)
+		if rep.TermCols < 40 || rep.TermCols*6 > rep.ViewWidth || rep.TermCols*12 < rep.ViewWidth-lineInset {
+			t.Errorf("pty %d columns for a view of %d px", rep.TermCols, rep.ViewWidth)
+		}
+		for _, u := range rep.Unknown {
+			if u == "blocks=0" || u == "box=0" || strings.HasPrefix(u, "braille=") {
+				continue
+			}
+			t.Errorf("the output's font can't draw %s", u)
+		}
 	})
 
 	t.Run("yay", func(t *testing.T) {

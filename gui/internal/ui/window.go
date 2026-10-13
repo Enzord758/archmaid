@@ -359,7 +359,7 @@ func (w *Window) redraw(c runview.Change) {
 		// queue: its page is its own, not the last run's tagged "previous".
 		r := w.model.ShowReport(w.current)
 		c.Reset, c.Inserted, c.Status = r.Reset, nil, true
-		c.Steps, c.OutRemove, c.OutAppend = r.Steps, r.OutRemove, r.OutAppend
+		c.Steps, c.OutTrim, c.OutRemove, c.OutAppend = r.Steps, r.OutTrim, r.OutRemove, r.OutAppend
 	}
 	if c.Reset {
 		// Only QueueStarted resets the model: the run's queue started.

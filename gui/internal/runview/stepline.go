@@ -47,7 +47,7 @@ func (m *Model) StepText(step string) []string {
 // seqLine is the line with sequence number seq, if the ring still holds
 // it and the view shows it.
 func (m *Model) seqLine(seq int) (Line, bool) {
-	if seq < m.viewLo || seq >= m.viewHi || seq < m.out.total-len(m.out.buf) {
+	if seq < m.viewLo || seq >= m.viewHi || seq < m.out.high-len(m.out.buf) {
 		return Line{}, false
 	}
 	e := m.out.buf[seq%len(m.out.buf)]

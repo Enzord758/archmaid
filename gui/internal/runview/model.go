@@ -194,8 +194,11 @@ type Change struct {
 	// inserts), each once.
 	Inserted []int
 	Rows     []int
-	// OutRemove lines leave the head of the output view, then OutAppend
-	// lines join its tail; after that the view holds Model.Output().
+	// OutTrim lines leave the tail of the output view (a step redrew
+	// them: OutputChunk.Replace), then OutRemove lines leave its head,
+	// then OutAppend lines join its tail; after that the view holds
+	// Model.Output().
+	OutTrim   int
 	OutRemove int
 	OutAppend []string
 	// Steps is the same output diff grouped by step, for a view that
@@ -262,6 +265,10 @@ type Model struct {
 	// view is the window [viewLo, viewHi) of the output sequence the
 	// widgets hold, as of the last Apply.
 	viewLo, viewHi int
+	// redrawn: lines from sequence number redrawFrom on were taken back
+	// off the ring (a redraw) since the last sync.
+	redrawn    bool
+	redrawFrom int
 	// base is the first sequence number the view may show: a new run
 	// moves it to the end (Clear, QueueStarted), so the page starts empty.
 	base int
@@ -280,7 +287,7 @@ func NewModel() *Model { return &Model{out: ring{buf: make([]entry, OutputCap)}}
 func (m *Model) Output() []string { return m.out.since(m.lowest()) }
 
 // lowest is the oldest sequence number the view can hold.
-func (m *Model) lowest() int { return max(m.out.total-len(m.out.buf), m.base) }
+func (m *Model) lowest() int { return max(m.out.high-len(m.out.buf), m.base) }
 
 // Clear empties the page (the owner's decision Q12): no rows and no
 // output; the last run's output is in Logs. QueueStarted does the same for
@@ -290,7 +297,7 @@ func (m *Model) Clear() Change {
 	m.Rows = m.Rows[:0]
 	m.base = m.out.total
 	c := Change{Reset: true}
-	c.OutRemove, c.OutAppend, c.Steps = m.sync()
+	c.OutTrim, c.OutRemove, c.OutAppend, c.Steps = m.sync()
 	return c
 }
 
@@ -298,7 +305,7 @@ func (m *Model) Clear() Change {
 // with its colour spans; false when i is out of range.
 func (m *Model) ViewLine(i int) (Line, bool) {
 	seq := m.viewLo + i
-	if i < 0 || seq >= m.viewHi || seq < m.out.total-len(m.out.buf) {
+	if i < 0 || seq >= m.viewHi || seq < m.out.high-len(m.out.buf) {
 		return Line{}, false
 	}
 	e := m.out.buf[seq%len(m.out.buf)]
@@ -410,12 +417,21 @@ func (m *Model) Apply(evs []engine.Event) Change {
 				m.out.push(entry{raw: head, text: head, step: ev.ID, head: true})
 			}
 		case engine.OutputChunk:
+			// A redraw takes the step's last lines back first: no more
+			// than it has of them since its last gap (redrawable).
+			k := m.redrawable(ev.ID, ev.Replace)
+			if k > 0 {
+				m.out.total -= k
+				if !m.redrawn || m.out.total < m.redrawFrom {
+					m.redrawn, m.redrawFrom = true, m.out.total
+				}
+			}
 			if ev.Dropped > 0 {
 				m.Dropped += ev.Dropped
 				note := "… " + plural.N(ev.Dropped, "line", "lines") + " not shown (they are in the log)"
-				m.out.push(entry{raw: note, text: note, step: ev.ID})
+				m.out.push(entry{raw: note, text: note, step: ev.ID, note: true})
 			}
-			m.Lines += len(ev.Lines) + ev.Dropped
+			m.Lines += len(ev.Lines) + ev.Dropped - k
 			for _, l := range ev.Lines {
 				m.out.push(entry{raw: l, text: StripSGR(l), step: ev.ID})
 			}
@@ -532,8 +548,24 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		c.Rows = append(c.Rows, i)
 	}
 	slices.Sort(c.Rows)
-	c.OutRemove, c.OutAppend, c.Steps = m.sync()
+	c.OutTrim, c.OutRemove, c.OutAppend, c.Steps = m.sync()
 	return c
+}
+
+// redrawable is how many of the newest lines a redraw of n lines of step
+// may take back: its output lines at the end of the ring, back to its
+// header line, a dropped-lines note, another step's line or the oldest the
+// view may hold.
+func (m *Model) redrawable(step string, n int) int {
+	k, low := 0, m.lowest()
+	for k < n && m.out.total-k-1 >= low {
+		e := m.out.buf[(m.out.total-k-1)%len(m.out.buf)]
+		if e.step != step || e.head || e.note {
+			break
+		}
+		k++
+	}
+	return k
 }
 
 // lastText is the last non-blank text among the newest n lines pushed (at
@@ -670,12 +702,13 @@ func doneState(s steps.Status) RowState {
 }
 
 // StepOut is one step's part of an output diff (Change.Steps): Remove
-// lines leave the head of the step's group, then Append lines (a sub-slice
-// of Change.OutAppend) join its tail. ID is the step's ID ("" for a line
-// outside any step).
+// lines leave the head of the step's group, Trim lines leave its tail (a
+// redraw), then Append lines (a sub-slice of Change.OutAppend) join its
+// tail. ID is the step's ID ("" for a line outside any step).
 type StepOut struct {
 	ID     string
 	Remove int
+	Trim   int
 	Append []string
 }
 
@@ -688,20 +721,47 @@ type run struct {
 }
 
 // sync is the output diff since the last Apply: the view drops the lines
-// that left the ring (or the run, base) and gains the new ones that are
-// still in it, so a batch bigger than OutputCap never inserts a line only
-// to remove it. grouped is the same diff by step.
-func (m *Model) sync() (remove int, add []string, grouped []StepOut) {
+// a redraw took back from its tail and the lines that left the ring (or
+// the run, base), and gains the new ones that are still in it, so a batch
+// bigger than OutputCap never inserts a line only to remove it. grouped is
+// the same diff by step.
+func (m *Model) sync() (trim, remove int, add []string, grouped []StepOut) {
 	hi := m.out.total
 	lo := min(m.lowest(), hi)
-	remove = min(max(lo-m.viewLo, 0), m.viewHi-m.viewLo)
-	from := max(m.viewHi, lo)
+	keep := m.viewHi // the view's lines below keep are unchanged
+	if m.redrawn {
+		keep = min(max(m.redrawFrom, m.viewLo), m.viewHi)
+		m.redrawn = false
+	}
+	trim = m.viewHi - keep
+	remove = min(max(lo-m.viewLo, 0), keep-m.viewLo)
+	from := max(keep, lo)
 	if from < hi {
 		add = m.out.since(from)
 	}
 	m.viewLo, m.viewHi = lo, hi
+	grouped = m.popTail(trim, grouped)
 	grouped = m.popRuns(remove, grouped)
-	return remove, add, m.pushRuns(from, add, grouped)
+	return trim, remove, add, m.pushRuns(from, add, grouped)
+}
+
+// popTail takes n lines off the tail of the view's runs and adds their
+// removal, by step, to out (a step's header line isn't in the grouped
+// diff; a redraw never takes one back).
+func (m *Model) popTail(n int, out []StepOut) []StepOut {
+	for n > 0 && len(m.runs) > m.runHead {
+		r := &m.runs[len(m.runs)-1]
+		k := min(n, r.n)
+		if !r.head {
+			out = append(out, StepOut{ID: r.step, Trim: k})
+		}
+		r.n -= k
+		n -= k
+		if r.n == 0 {
+			m.runs = m.runs[:len(m.runs)-1]
+		}
+	}
+	return out
 }
 
 // popRuns takes n lines off the head of the view's runs and adds their
@@ -749,7 +809,9 @@ func (m *Model) pushRuns(from int, add []string, out []StepOut) []StepOut {
 		} else {
 			m.runs = append(m.runs, run{step: e.step, head: e.head, n: j - i})
 		}
-		if !e.head {
+		if l := len(out) - 1; !e.head && l >= 0 && out[l].ID == e.step && out[l].Trim > 0 && out[l].Append == nil {
+			out[l].Append = add[i:j:j] // a redraw: its trim and its lines in one
+		} else if !e.head {
 			out = append(out, StepOut{ID: e.step, Append: add[i:j:j]})
 		}
 		i = j
@@ -757,10 +819,13 @@ func (m *Model) pushRuns(from int, add []string, out []StepOut) []StepOut {
 	return out
 }
 
-// ring holds the last len(buf) lines of a sequence of total lines.
+// ring holds the last len(buf) lines of a sequence of total lines. A
+// redraw takes lines back (total goes down); high is the most total has
+// been, so the lines the ring overwrote stay gone.
 type ring struct {
 	buf   []entry
 	total int
+	high  int
 }
 
 // entry is an output line: raw as it came (SGR kept) and its plain text.
@@ -771,11 +836,13 @@ type ring struct {
 type entry struct {
 	raw, text, step string
 	head            bool
+	note            bool // the "lines not shown" note of a Dropped
 }
 
 func (r *ring) push(e entry) {
 	r.buf[r.total%len(r.buf)] = e
 	r.total++
+	r.high = max(r.high, r.total)
 }
 
 // since is the text of the lines from sequence number from (still in the

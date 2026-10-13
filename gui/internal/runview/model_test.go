@@ -24,7 +24,7 @@ type view struct {
 }
 
 func (v *view) apply(m *Model, c Change) {
-	v.out = append(v.out[c.OutRemove:], c.OutAppend...)
+	v.out = append(v.out[:len(v.out)-c.OutTrim][c.OutRemove:], c.OutAppend...)
 	if c.Reset {
 		v.rows = v.rows[:0]
 		for _, r := range m.Rows {

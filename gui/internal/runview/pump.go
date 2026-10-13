@@ -137,15 +137,24 @@ func (p *Pump) run(events <-chan engine.Event) {
 // add queues ev; p.mu is held.
 func (p *Pump) add(ev engine.Event) {
 	if ch, ok := ev.(engine.OutputChunk); ok {
-		p.lines += len(ch.Lines)
 		if n := len(p.queue); n > 0 {
-			if last, ok := p.queue[n-1].(engine.OutputChunk); ok && last.ID == ch.ID && last.Index == ch.Index && ch.Dropped == 0 {
-				last.Lines = append(slices.Clip(last.Lines), ch.Lines...)
-				p.queue[n-1] = last
-				p.trim()
-				return
+			if last, ok := p.queue[n-1].(engine.OutputChunk); ok && last.ID == ch.ID && last.Index == ch.Index {
+				merged, ok := last, false
+				switch {
+				case ch.Replace > 0: // a redraw merges as one chunk when it can
+					merged, ok = engine.Rewrite(last, ch)
+				case ch.Dropped == 0:
+					merged.Lines, ok = append(slices.Clip(last.Lines), ch.Lines...), true
+				}
+				if ok {
+					p.lines += len(merged.Lines) - len(last.Lines)
+					p.queue[n-1] = merged
+					p.trim()
+					return
+				}
 			}
 		}
+		p.lines += len(ch.Lines)
 		p.queue = append(p.queue, ch)
 		p.trim()
 		return
@@ -190,8 +199,8 @@ func (p *Pump) take() (batch []engine.Event, lines int) {
 		if len(ch.Lines) > budget {
 			head := ch
 			head.Lines = ch.Lines[:budget:budget]
-			rest := ch
-			rest.Lines, rest.Dropped = ch.Lines[budget:], 0
+			rest := ch // the head carries the chunk's redraw and drop
+			rest.Lines, rest.Dropped, rest.Replace = ch.Lines[budget:], 0, 0
 			batch = append(slices.Clone(p.queue[:i]), head)
 			p.queue[i] = rest
 			p.queue = p.queue[i:]

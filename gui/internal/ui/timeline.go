@@ -164,6 +164,10 @@ func (w *Window) newRunPage() gtk.Widgetter {
 	tl.scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	tl.scroll.SetVExpand(true)
 	tl.scroll.SetHExpand(true)
+	// The view's width in columns, for the next step's pty: the list's
+	// horizontal adjustment is configured with its width at every
+	// allocation that changes it.
+	tl.scroll.HAdjustment().ConnectChanged(w.measureCols)
 
 	// Follow the newest line: scrolling up with the wheel, dragging the
 	// scrollbar or a key stops it; reaching the bottom again restarts it.
@@ -611,11 +615,19 @@ func (w *Window) output(c runview.Change) {
 			if s.lines {
 				w.outLen -= uint(k)
 				s.splice(0, k, nil)
-				if s.items == 0 {
-					s.lines, s.summary = false, ""
-					s.splice(0, 0, []string{summaryItem})
-				}
 			}
+		}
+		if k := min(o.Trim, s.n); k > 0 {
+			// a redraw: the step's last lines go, its new ones follow
+			s.n -= k
+			if s.lines {
+				w.outLen -= uint(k)
+				s.splice(s.items-k, k, nil)
+			}
+		}
+		if s.lines && s.items == 0 && len(o.Append) == 0 {
+			s.lines, s.summary = false, ""
+			s.splice(0, 0, []string{summaryItem})
 		}
 		if len(o.Append) == 0 {
 			continue

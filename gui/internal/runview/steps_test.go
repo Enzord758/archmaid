@@ -19,10 +19,10 @@ type groups map[string][]string
 func (g groups) apply(t *testing.T, outs []StepOut) {
 	t.Helper()
 	for _, o := range outs {
-		if o.Remove > len(g[o.ID]) {
-			t.Fatalf("remove %d from %q, which holds %d", o.Remove, o.ID, len(g[o.ID]))
+		if o.Remove+o.Trim > len(g[o.ID]) {
+			t.Fatalf("remove %d and trim %d from %q, which holds %d", o.Remove, o.Trim, o.ID, len(g[o.ID]))
 		}
-		g[o.ID] = append(g[o.ID][o.Remove:], o.Append...)
+		g[o.ID] = append(g[o.ID][o.Remove:len(g[o.ID])-o.Trim], o.Append...)
 		if len(g[o.ID]) == 0 {
 			delete(g, o.ID)
 		}
@@ -80,14 +80,14 @@ func TestStepGroups(t *testing.T) {
 				if r.IntN(3) == 0 {
 					c = m.Apply(evs)
 					g.apply(t, c.Steps)
-					flat = append(flat[c.OutRemove:], c.OutAppend...)
+					flat = append(flat[:len(flat)-c.OutTrim][c.OutRemove:], c.OutAppend...)
 					evs = nil
 				}
 			}
 			evs = append(evs, engine.StepDone{ID: ids[i], Index: i, Status: steps.OK})
 			c = m.Apply(evs)
 			g.apply(t, c.Steps)
-			flat = append(flat[c.OutRemove:], c.OutAppend...)
+			flat = append(flat[:len(flat)-c.OutTrim][c.OutRemove:], c.OutAppend...)
 			want := m.want()
 			if !reflect.DeepEqual(g, want) {
 				t.Fatalf("round %d after step %s: grouped view drifted from the model", round, ids[i])

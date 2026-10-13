@@ -9,6 +9,10 @@
 //     the root helper through pkexec (helperclient.Run, the Driver's
 //     default); Full Cleanup's orphan probe plans with
 //     helperclient.PlanOrphans (as the user, never through pkexec);
+//   - every user step's child (topgrade, yay -Sc, hyprpm …) writes to a
+//     pty that is never its controlling terminal (Deps.Pty), as wide as
+//     the Run view (Config.TermCols): colour and progress bars as in a
+//     terminal, while sudo still finds no terminal;
 //   - topgrade (NeedsPriv, no Verb) starts as the user, its inner sudo
 //     pointed at archmaid-gui's SUDO_ASKPASS wrapper (Deps.Priv is
 //     privilege.Sudo{Wrapper: srv.Wrapper()}): sudo's prompt reaches the
@@ -113,6 +117,11 @@ type Config struct {
 	// looked up on PATH), "-" runs without one (polkit
 	// asks through the desktop's agent).
 	TTYAgent string
+
+	// TermCols is the Run view's width in monospace columns, read as each
+	// step's child starts: its pty's width (driver.Deps.TermCols). Nil or
+	// < 1 is 80.
+	TermCols func() int
 }
 
 // Wiring makes the GUI's real Drivers. It owns the askpass Server; Close
@@ -202,7 +211,12 @@ func (w *Wiring) New(o engine.Options) engine.Driver {
 		// No child of the GUI may reach a terminal: one started from a
 		// shell still has the shell's, and sudo would prompt there.
 		Detach: true,
-		Report: w.cfg.Report,
+		// ... but its output goes to a pty of its own, never its
+		// controlling terminal (internal/proc/pty.go), so tools colour
+		// and draw progress as in a terminal, as wide as the Run view.
+		Pty:      true,
+		TermCols: w.cfg.TermCols,
+		Report:   w.cfg.Report,
 		// The widget's update count, refreshed after a topgrade run.
 		RefreshUpdates: w.cfg.RefreshUpdates,
 		// One password per run: the first the user gives answers the

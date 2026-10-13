@@ -179,6 +179,8 @@ func parseLaunch(args []string, getenv func(string) string) (launch, error) {
 func mainReal(args []string, confirm string) int {
 	wr := realdriver.Start(realdriver.Config{
 		Report: func(err error) { fmt.Fprintln(os.Stderr, "archmaid-gui:", err) },
+		// each step's pty is as wide as the Run view (termcols.go)
+		TermCols: TermCols,
 	})
 	defer wr.Close()
 	base := wr.Options()

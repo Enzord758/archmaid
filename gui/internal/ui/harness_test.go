@@ -90,13 +90,19 @@ type report struct {
 	// attributes" (pango_attr_list_to_string).
 	Labels, Coloured int
 	LineAttrs        []string
-	Pump             runview.Stats
-	RunNs            int64 // Start click → Finished applied
-	Frames           []time.Duration
-	DriverCloses     int32
-	Sent             []string // the prompt answers the Driver got
-	Buttons          []string // each confirm's "id yes/no" button labels
-	PwBodies         []string // each password dialog's body
+	// TermCols is the pty width the Run view's width gave at the end
+	// (TermCols), ViewWidth that width in px; Unknown is, per glyph group
+	// a terminal tool draws with (blocks, box, braille), how many glyphs
+	// the output's font and its fallbacks can't draw ("blocks=0").
+	TermCols, ViewWidth int
+	Unknown             []string
+	Pump                runview.Stats
+	RunNs               int64 // Start click → Finished applied
+	Frames              []time.Duration
+	DriverCloses        int32
+	Sent                []string // the prompt answers the Driver got
+	Buttons             []string // each confirm's "id yes/no" button labels
+	PwBodies            []string // each password dialog's body
 	// DriverOpts is each Driver's engine.Options, as made: dry run and
 	// the downloads Flag.
 	DriverOpts []string
@@ -773,6 +779,10 @@ func runChild(scenario, path string) int {
 				glib.TimeoutAdd(20, func() {
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
 					rep.LineAttrs = lineAttrs(&w.outView.Widget)
+					rep.TermCols, rep.ViewWidth = TermCols(), w.tl.view.Width()
+					for _, g := range [][2]string{{"blocks", "▀▄█▌▐░▒▓▏▕"}, {"box", "─━│┃╭╮╰╯├┤"}, {"braille", "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"}} {
+						rep.Unknown = append(rep.Unknown, fmt.Sprintf("%s=%d", g[0], w.outView.CreatePangoLayout(g[1]).UnknownGlyphsCount()))
+					}
 					for _, c := range []*gtk.Label{w.tl.done, w.tl.failed, w.tl.skipped, w.tl.refused} {
 						if c.IsVisible() {
 							rep.Chips = append(rep.Chips, c.Text())

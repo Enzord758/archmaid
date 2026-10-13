@@ -262,7 +262,10 @@ topgrade and yay shims that colour only when
 their switch asks; at Run topgrade's end topgrade's own lines are drawn
 with a Pango foreground and bold and the pacman lines plain, at Full
 Cleanup's end yay ran with `--color always` and its `::` is drawn in a
-colour; `real-colour-end-1.png`, `real-colour-fc-end-1.png` with
+colour; the step's pty is as wide as the Run view (`ui.TermCols`, 72
+columns for 720 px) and the output's font draws block and box glyphs,
+braille's count reported (#129);
+`real-colour-end-1.png`, `real-colour-fc-end-1.png` with
 `ARCHMAID_GUI_SHOTS`), and `real-services`, `real-services-none`, `real-services-error`
 (`TestGUIRealServices`: Disable unused services from its Overview cell,
 with a `systemctl` shim first on PATH: the fixture machine's
@@ -275,7 +278,11 @@ under `NO_COLOR`; `TestRunPageHelperColour`: a Full Cleanup whose
 pkexec shim speaks the root helper's stream with a pacman line in SGR
 colour, as the helper relays `--color always` output: the orphan row's
 line coloured, no escape in any log or `last-run.json`, no span under
-`NO_COLOR`),
+`NO_COLOR`), the pty (#129, `TestRunPagePty`: topgrade's child has
+a terminal as stdout and stderr, none as stdin, no `/dev/tty`, `tty_nr` 0,
+`TERM=xterm-256color` and `Config.TermCols` columns; its spinner, `\r`
+bar and cursor-up rewrite end as their final lines on the page and in
+`topgrade.log`),
 `Options.Validate`, a dry Full Cleanup on the real Driver without a
 display, the per-run directories and rotation (`TestRunDirs`, a topgrade
 shim first on PATH), and the audit prefetch with a blocking fake
