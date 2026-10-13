@@ -75,17 +75,18 @@ internal/privilege/kept.go	150-151	KeptPassword.wipeLocked	1	keep-exempt	yes	the
 internal/privilege/privtest/privtest.go	18-18	testOnly	1	keep-exempt	yes	panics outside a test binary
 internal/proc/detach.go	57-58	groupAlive	1	keep-exempt	no	Getpgid errors other than ESRCH (EPERM across namespaces) don't happen for our own children
 internal/testenv/cover.go	24-25	coverChildren	1	keep-exempt	no	the early return is for runs without coverage, which count nothing
-internal/testenv/testenv.go	105-105	Run	3	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
-internal/testenv/testenv.go	106-106	Run	1	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
+internal/testenv/sysbin.go	54-55	UseSysbin	1	keep-exempt	no	MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO
+internal/testenv/sysbin.go	57-58	UseSysbin	1	keep-exempt	no	MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO
+internal/testenv/sysbin.go	75-76	Decoys	1	keep-exempt	no	MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO
+internal/testenv/sysbin.go	80-81	Decoys	1	keep-exempt	no	MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO
 internal/testenv/testenv.go	107-110	Run	3	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
-internal/testenv/testenv.go	112-112	Run	1	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	126-127	mkScratch	1	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	141-143	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	147-149	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	155-157	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	162-164	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	167-169	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
-internal/testenv/testenv.go	179-181	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
+internal/testenv/testenv.go	172-174	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	186-188	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	192-194	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)
 internal/testenv/testenv.go	198-200	run	2	keep-exempt	no	setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)

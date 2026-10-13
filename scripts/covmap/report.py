@@ -115,7 +115,7 @@ def wp(b):
         return 2
     if f.startswith(('internal/tui/', 'internal/driver/', 'internal/engine/', 'internal/actions/', 'internal/logstore/', 'internal/frontend/')):
         return 3
-    if f.startswith(('internal/audit/', 'internal/downloads/', 'internal/proc/', 'internal/sanitize/', 'internal/sysstat/',
+    if f.startswith(('internal/audit/', 'internal/downloads/', 'internal/proc/', 'internal/sanitize/', 'internal/sysstat/', 'internal/vt/',
                      'gui/internal/polkitagent/', 'gui/internal/realdriver/')):
         return 4
     if f in ('gui/internal/ui/timeline.go', 'gui/internal/ui/logs.go', 'gui/internal/ui/signals.go', 'gui/internal/ui/failed.go') \
@@ -129,7 +129,7 @@ WP = {
     1: ("Test infrastructure", "testenv's post-`m.Run` checks (orphan reaper, trap report, state-guard compare) called directly inside a test, the recorder's fake targets, the contract checker's own failure paths", "architecture", False),
     2: ("Helper and privilege edge cases", "the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures", "security", True),
     3: ("Core: TUI keys, driver, engine, actions, logstore", "per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths", "architecture (driver/keep.go and the askpass bits: security)", False),
-    4: ("Leaf packages and the polkit agent", "audit/downloads write and scan error paths, proc argv forms, sanitize and sysstat edges, polkitagent and realdriver against fake agents", "performance-QA (polkitagent, realdriver, downloads: security)", True),
+    4: ("Leaf packages and the polkit agent", "audit/downloads write and scan error paths, proc argv forms, sanitize, sysstat and vt edges, polkitagent and realdriver against fake agents", "performance-QA (polkitagent, realdriver, downloads: security)", True),
     5: ("GUI logs, timeline and signals pages", "new headless scenarios: log page states (none, unreadable, empty), the timeline, signals mid-run, the failed-step view, logview and overview edges", "GUI", False),
     6: ("GUI windows, dialogs, settings, run view", "window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells", "GUI", False),
     7: ("E2E: the cover-helper check", "main and hardenProcess of the helper binary: the run.sh check of the cover helper as the user and as uid 0 in an unprivileged user namespace (both refused before anything runs)", "performance-QA with Dev 3's review (helper)", True),

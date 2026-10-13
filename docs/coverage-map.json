@@ -1,5 +1,5 @@
 {
- "base": "5cd3d64ef1edd435524dc12a90bfacf8abd55ca9",
+ "base": "3c8de0361f55889fd9e24eb129c978d4e4ace64b",
  "measured": "scripts/cover-report.sh with COVER_GUI=1: unit (cover-unit.sh) + e2e tapes + GUI headless, merged",
  "categories": {
   "A": "unit",
@@ -10,29 +10,29 @@
  },
  "totals": {
   "core": {
-   "stmts": 5545,
-   "covered": 5435,
+   "stmts": 6267,
+   "covered": 6106,
    "exempt": 66
   },
   "helper": {
-   "stmts": 902,
-   "covered": 848,
+   "stmts": 1106,
+   "covered": 1044,
    "exempt": 3
   },
   "gui": {
-   "stmts": 5269,
-   "covered": 5112,
+   "stmts": 5341,
+   "covered": 5178,
    "exempt": 31
   },
   "testonly": {
-   "stmts": 553,
-   "covered": 366,
-   "exempt": 78
+   "stmts": 585,
+   "covered": 399,
+   "exempt": 77
   },
   "all": {
-   "stmts": 12269,
-   "covered": 11761,
-   "exempt": 178
+   "stmts": 13299,
+   "covered": 12727,
+   "exempt": 177
   }
  },
  "work_packages": {
@@ -44,31 +44,31 @@
   },
   "2": {
    "name": "Helper and privilege edge cases",
-   "stmts": 0,
-   "security_stmts": 0,
+   "stmts": 8,
+   "security_stmts": 8,
    "role": "security"
   },
   "3": {
    "name": "Core: TUI keys, driver, engine, actions, logstore",
-   "stmts": 3,
+   "stmts": 4,
    "security_stmts": 0,
    "role": "architecture (driver/keep.go and the askpass bits: security)"
   },
   "4": {
    "name": "Leaf packages and the polkit agent",
-   "stmts": 78,
+   "stmts": 128,
    "security_stmts": 53,
    "role": "performance-QA (polkitagent, realdriver, downloads: security)"
   },
   "5": {
    "name": "GUI logs, timeline and signals pages",
-   "stmts": 3,
+   "stmts": 7,
    "security_stmts": 0,
    "role": "GUI"
   },
   "6": {
    "name": "GUI windows, dialogs, settings, run view",
-   "stmts": 21,
+   "stmts": 23,
    "security_stmts": 0,
    "role": "GUI"
   },
@@ -285,6 +285,72 @@
    "security": true
   },
   {
+   "file": "cmd/archmaid-helper/internal/helper/dblock.go",
+   "lines": "80-80",
+   "func": "session.lockDirSafe",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r",
+   "home": "cmd/archmaid-helper/internal/helper/*_test.go",
+   "security": true,
+   "package": 2
+  },
+  {
+   "file": "cmd/archmaid-helper/internal/helper/fullcleanup.go",
+   "lines": "148-149",
+   "func": "runFullCleanup",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r",
+   "home": "cmd/archmaid-helper/internal/helper/*_test.go",
+   "security": true,
+   "package": 2
+  },
+  {
+   "file": "cmd/archmaid-helper/internal/helper/leftovers.go",
+   "lines": "255-258",
+   "func": "scanCacheDir",
+   "stmts": 3,
+   "cat": "A",
+   "reason": "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r",
+   "home": "cmd/archmaid-helper/internal/helper/*_test.go",
+   "security": true,
+   "package": 2
+  },
+  {
+   "file": "cmd/archmaid-helper/internal/helper/leftovers.go",
+   "lines": "286-287",
+   "func": "removeLeftover",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r",
+   "home": "cmd/archmaid-helper/internal/helper/*_test.go",
+   "security": true,
+   "package": 2
+  },
+  {
+   "file": "cmd/archmaid-helper/internal/helper/leftovers.go",
+   "lines": "337-338",
+   "func": "plainPath",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r",
+   "home": "cmd/archmaid-helper/internal/helper/*_test.go",
+   "security": true,
+   "package": 2
+  },
+  {
+   "file": "cmd/archmaid-helper/internal/helper/leftovers.go",
+   "lines": "420-423",
+   "func": "releasePacmanLock",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \\r",
+   "home": "cmd/archmaid-helper/internal/helper/*_test.go",
+   "security": true,
+   "package": 2
+  },
+  {
    "file": "cmd/archmaid-helper/main.go",
    "lines": "25-26",
    "func": "main",
@@ -374,7 +440,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "163-164",
+   "lines": "165-166",
    "func": "fileIDOf",
    "stmts": 1,
    "cat": "A",
@@ -385,7 +451,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "173-174",
+   "lines": "175-176",
    "func": "fileIDOf",
    "stmts": 1,
    "cat": "A",
@@ -396,7 +462,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "282-283",
+   "lines": "287-288",
    "func": "Start",
    "stmts": 1,
    "cat": "A",
@@ -407,7 +473,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "289-290",
+   "lines": "294-295",
    "func": "Start",
    "stmts": 1,
    "cat": "A",
@@ -418,7 +484,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "293-294",
+   "lines": "298-299",
    "func": "Start",
    "stmts": 1,
    "cat": "E",
@@ -429,7 +495,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "297-300",
+   "lines": "302-305",
    "func": "Start",
    "stmts": 3,
    "cat": "A",
@@ -440,7 +506,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "303-306",
+   "lines": "308-311",
    "func": "Start",
    "stmts": 3,
    "cat": "A",
@@ -451,7 +517,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "353-356",
+   "lines": "358-361",
    "func": "Start",
    "stmts": 4,
    "cat": "A",
@@ -462,7 +528,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "365-368",
+   "lines": "370-373",
    "func": "Start",
    "stmts": 3,
    "cat": "E",
@@ -473,7 +539,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "373-373",
+   "lines": "378-378",
    "func": "Start",
    "stmts": 1,
    "cat": "A",
@@ -484,7 +550,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "374-375",
+   "lines": "379-380",
    "func": "Start",
    "stmts": 1,
    "cat": "A",
@@ -495,7 +561,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "386-386",
+   "lines": "391-391",
    "func": "discard",
    "stmts": 1,
    "cat": "A",
@@ -506,7 +572,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "407-408",
+   "lines": "412-413",
    "func": "Agent.Stop.func",
    "stmts": 2,
    "cat": "A",
@@ -517,7 +583,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "545-546",
+   "lines": "550-551",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -528,7 +594,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "571-572",
+   "lines": "576-577",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -539,7 +605,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "589-590",
+   "lines": "594-595",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -550,7 +616,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "600-600",
+   "lines": "605-605",
    "func": "Agent.drain",
    "stmts": 1,
    "cat": "A",
@@ -561,7 +627,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "613-614",
+   "lines": "618-619",
    "func": "Agent.sendEOF",
    "stmts": 1,
    "cat": "A",
@@ -572,7 +638,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "648-648",
+   "lines": "653-653",
    "func": "Prompt.Err",
    "stmts": 1,
    "cat": "A",
@@ -583,7 +649,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "690-692",
+   "lines": "695-697",
    "func": "Prompt.Answer.func",
    "stmts": 2,
    "cat": "A",
@@ -594,7 +660,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "713-714",
+   "lines": "718-719",
    "func": "Agent.waitNoEcho",
    "stmts": 1,
    "cat": "E",
@@ -605,7 +671,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "732-733",
+   "lines": "737-738",
    "func": "ioctl",
    "stmts": 1,
    "cat": "E",
@@ -616,7 +682,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "738-739",
+   "lines": "743-744",
    "func": "ioctl",
    "stmts": 1,
    "cat": "E",
@@ -627,7 +693,7 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "741-742",
+   "lines": "746-747",
    "func": "ioctl",
    "stmts": 1,
    "cat": "E",
@@ -638,20 +704,9 @@
   },
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "750-751",
+   "lines": "755-756",
    "func": "openPTY",
    "stmts": 1,
-   "cat": "E",
-   "reason": "posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail",
-   "recommend": "keep-exempt",
-   "note": "keep",
-   "security": true
-  },
-  {
-   "file": "gui/internal/polkitagent/polkitagent.go",
-   "lines": "754-756",
-   "func": "openPTY",
-   "stmts": 2,
    "cat": "E",
    "reason": "posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail",
    "recommend": "keep-exempt",
@@ -672,6 +727,17 @@
   {
    "file": "gui/internal/polkitagent/polkitagent.go",
    "lines": "764-766",
+   "func": "openPTY",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "posix_openpt/grantpt/unlockpt/TIOCGPTPEER and termios ioctls on a fresh pty don't fail",
+   "recommend": "keep-exempt",
+   "note": "keep",
+   "security": true
+  },
+  {
+   "file": "gui/internal/polkitagent/polkitagent.go",
+   "lines": "769-771",
    "func": "openPTY",
    "stmts": 2,
    "cat": "E",
@@ -748,7 +814,7 @@
   },
   {
    "file": "gui/internal/realdriver/realdriver.go",
-   "lines": "143-144",
+   "lines": "153-154",
    "func": "Start",
    "stmts": 1,
    "cat": "A",
@@ -759,7 +825,7 @@
   },
   {
    "file": "gui/internal/realdriver/realdriver.go",
-   "lines": "148-149",
+   "lines": "158-159",
    "func": "Start",
    "stmts": 1,
    "cat": "A",
@@ -770,7 +836,7 @@
   },
   {
    "file": "gui/internal/realdriver/realdriver.go",
-   "lines": "212-213",
+   "lines": "227-228",
    "func": "Wiring.New",
    "stmts": 1,
    "cat": "A",
@@ -781,7 +847,7 @@
   },
   {
    "file": "gui/internal/realdriver/realdriver.go",
-   "lines": "231-232",
+   "lines": "246-247",
    "func": "Wiring.env",
    "stmts": 1,
    "cat": "A",
@@ -946,7 +1012,7 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "183-185",
+   "lines": "185-187",
    "func": "mainReal",
    "stmts": 3,
    "cat": "B",
@@ -957,7 +1023,7 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "187-187",
+   "lines": "189-189",
    "func": "mainReal",
    "stmts": 3,
    "cat": "B",
@@ -968,7 +1034,7 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "188-190",
+   "lines": "190-192",
    "func": "mainReal",
    "stmts": 2,
    "cat": "B",
@@ -979,7 +1045,7 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "191-192",
+   "lines": "193-193",
    "func": "mainReal",
    "stmts": 1,
    "cat": "B",
@@ -990,85 +1056,8 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "198-198",
-   "func": "stubDriver.func",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
-   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "gui/internal/ui/app.go",
-   "lines": "199-199",
-   "func": "stubDriver.func",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
-   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "gui/internal/ui/app.go",
-   "lines": "199-199",
-   "func": "stubDriver.func",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
-   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "gui/internal/ui/app.go",
-   "lines": "201-201",
-   "func": "stubDriver.func",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
-   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "gui/internal/ui/app.go",
-   "lines": "202-202",
-   "func": "stubDriver.func",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
-   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "gui/internal/ui/app.go",
-   "lines": "202-202",
-   "func": "stubDriver.func",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
-   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "gui/internal/ui/app.go",
-   "lines": "204-204",
-   "func": "stubDriver",
-   "stmts": 1,
-   "cat": "B",
-   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
-   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
-   "security": false,
-   "package": 8
-  },
-  {
-   "file": "gui/internal/ui/app.go",
    "lines": "206-206",
-   "func": "stubDriver",
+   "func": "stubDriver.func",
    "stmts": 1,
    "cat": "B",
    "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
@@ -1078,8 +1067,30 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "208-208",
-   "func": "stubDriver",
+   "lines": "207-207",
+   "func": "stubDriver.func",
+   "stmts": 1,
+   "cat": "B",
+   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
+   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
+   "security": false,
+   "package": 8
+  },
+  {
+   "file": "gui/internal/ui/app.go",
+   "lines": "207-207",
+   "func": "stubDriver.func",
+   "stmts": 1,
+   "cat": "B",
+   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
+   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
+   "security": false,
+   "package": 8
+  },
+  {
+   "file": "gui/internal/ui/app.go",
+   "lines": "209-209",
+   "func": "stubDriver.func",
    "stmts": 1,
    "cat": "B",
    "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
@@ -1090,7 +1101,18 @@
   {
    "file": "gui/internal/ui/app.go",
    "lines": "210-210",
-   "func": "stubDriver",
+   "func": "stubDriver.func",
+   "stmts": 1,
+   "cat": "B",
+   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
+   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
+   "security": false,
+   "package": 8
+  },
+  {
+   "file": "gui/internal/ui/app.go",
+   "lines": "210-210",
+   "func": "stubDriver.func",
    "stmts": 1,
    "cat": "B",
    "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
@@ -1101,6 +1123,50 @@
   {
    "file": "gui/internal/ui/app.go",
    "lines": "212-212",
+   "func": "stubDriver",
+   "stmts": 1,
+   "cat": "B",
+   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
+   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
+   "security": false,
+   "package": 8
+  },
+  {
+   "file": "gui/internal/ui/app.go",
+   "lines": "214-214",
+   "func": "stubDriver",
+   "stmts": 1,
+   "cat": "B",
+   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
+   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
+   "security": false,
+   "package": 8
+  },
+  {
+   "file": "gui/internal/ui/app.go",
+   "lines": "216-216",
+   "func": "stubDriver",
+   "stmts": 1,
+   "cat": "B",
+   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
+   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
+   "security": false,
+   "package": 8
+  },
+  {
+   "file": "gui/internal/ui/app.go",
+   "lines": "218-218",
+   "func": "stubDriver",
+   "stmts": 1,
+   "cat": "B",
+   "reason": "archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself)",
+   "home": "gui/scripts/headless.sh + cover archmaid-gui (new)",
+   "security": false,
+   "package": 8
+  },
+  {
+   "file": "gui/internal/ui/app.go",
+   "lines": "220-220",
    "func": "stubDriver.func",
    "stmts": 1,
    "cat": "B",
@@ -1111,7 +1177,7 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "213-216",
+   "lines": "221-224",
    "func": "stubDriver.func",
    "stmts": 3,
    "cat": "B",
@@ -1122,7 +1188,7 @@
   },
   {
    "file": "gui/internal/ui/app.go",
-   "lines": "218-218",
+   "lines": "226-226",
    "func": "stubDriver",
    "stmts": 1,
    "cat": "B",
@@ -1455,10 +1521,54 @@
    "security": false
   },
   {
+   "file": "gui/internal/ui/termcols.go",
+   "lines": "31-32",
+   "func": "Window.measureCols",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
+   "file": "gui/internal/ui/termcols.go",
+   "lines": "36-37",
+   "func": "Window.measureCols",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 6
+  },
+  {
    "file": "gui/internal/ui/timeline.go",
    "lines": "135-136",
    "func": "Window.newRunPage.func",
    "stmts": 1,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 5
+  },
+  {
+   "file": "gui/internal/ui/timeline.go",
+   "lines": "622-623",
+   "func": "Window.output",
+   "stmts": 2,
+   "cat": "A",
+   "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
+   "home": "gui/internal/ui/harness_test.go",
+   "security": false,
+   "package": 5
+  },
+  {
+   "file": "gui/internal/ui/timeline.go",
+   "lines": "624-626",
+   "func": "Window.output",
+   "stmts": 2,
    "cat": "A",
    "reason": "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt",
    "home": "gui/internal/ui/harness_test.go",
@@ -2160,7 +2270,7 @@
   },
   {
    "file": "internal/driver/driver.go",
-   "lines": "309-310",
+   "lines": "317-318",
    "func": "currentFaillock",
    "stmts": 1,
    "cat": "E",
@@ -2171,7 +2281,7 @@
   },
   {
    "file": "internal/driver/driver.go",
-   "lines": "519-519",
+   "lines": "527-527",
    "func": "Driver.command.func",
    "stmts": 1,
    "cat": "E",
@@ -2179,6 +2289,17 @@
    "recommend": "keep-exempt",
    "note": "keep-exempt",
    "security": false
+  },
+  {
+   "file": "internal/driver/outbox.go",
+   "lines": "148-148",
+   "func": "outbox.redrawAfter",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe",
+   "home": "internal/driver/*_test.go",
+   "security": false,
+   "package": 3
   },
   {
    "file": "internal/driver/refresh.go",
@@ -2533,7 +2654,7 @@
   },
   {
    "file": "internal/privilege/kept.go",
-   "lines": "136-137",
+   "lines": "150-151",
    "func": "KeptPassword.wipeLocked",
    "stmts": 1,
    "cat": "E",
@@ -2565,8 +2686,30 @@
    "security": false
   },
   {
+   "file": "internal/proc/lines.go",
+   "lines": "114-114",
+   "func": "emitLines",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/lines.go",
+   "lines": "117-118",
+   "func": "emitLines",
+   "stmts": 2,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
    "file": "internal/proc/proc.go",
-   "lines": "86-87",
+   "lines": "85-86",
    "func": "checkSudo",
    "stmts": 1,
    "cat": "A",
@@ -2577,7 +2720,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "150-150",
+   "lines": "149-149",
    "func": "envCommand",
    "stmts": 1,
    "cat": "A",
@@ -2588,7 +2731,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "155-155",
+   "lines": "154-154",
    "func": "envCommand",
    "stmts": 1,
    "cat": "A",
@@ -2599,7 +2742,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "159-159",
+   "lines": "158-158",
    "func": "envCommand",
    "stmts": 1,
    "cat": "A",
@@ -2610,7 +2753,18 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "439-440",
+   "lines": "387-388",
+   "func": "Runner.Start",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/proc.go",
+   "lines": "475-476",
    "func": "Child.GroupStopped",
    "stmts": 1,
    "cat": "A",
@@ -2621,7 +2775,7 @@
   },
   {
    "file": "internal/proc/proc.go",
-   "lines": "462-462",
+   "lines": "498-498",
    "func": "Child.escalateGroup",
    "stmts": 1,
    "cat": "A",
@@ -2667,6 +2821,94 @@
    "file": "internal/proc/procfs.go",
    "lines": "57-58",
    "func": "readAt",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "53-54",
+   "func": "openPty",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "61-62",
+   "func": "openPty.func",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "70-72",
+   "func": "openPty",
+   "stmts": 2,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "75-78",
+   "func": "openPty",
+   "stmts": 3,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "80-83",
+   "func": "openPty",
+   "stmts": 3,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "95-96",
+   "func": "peer",
+   "stmts": 2,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "97-98",
+   "func": "peer",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
+   "home": "internal/proc/*_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/proc/pty.go",
+   "lines": "99-99",
+   "func": "peer",
    "stmts": 1,
    "cat": "A",
    "reason": "sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files",
@@ -3368,8 +3610,52 @@
    "package": 1
   },
   {
+   "file": "internal/testenv/sysbin.go",
+   "lines": "54-55",
+   "func": "UseSysbin",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed (t.Fatal)",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/sysbin.go",
+   "lines": "57-58",
+   "func": "UseSysbin",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed (t.Fatal)",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/sysbin.go",
+   "lines": "75-76",
+   "func": "Decoys",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed (t.Fatal)",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/sysbin.go",
+   "lines": "80-81",
+   "func": "Decoys",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed (t.Fatal)",
+   "security": false
+  },
+  {
    "file": "internal/testenv/testenv.go",
-   "lines": "102-102",
+   "lines": "107-110",
    "func": "Run",
    "stmts": 3,
    "cat": "E",
@@ -3380,40 +3666,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "103-103",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "104-107",
-   "func": "Run",
-   "stmts": 3,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "109-109",
-   "func": "Run",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "123-124",
+   "lines": "126-127",
    "func": "mkScratch",
    "stmts": 1,
    "cat": "E",
@@ -3424,7 +3677,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "138-140",
+   "lines": "141-143",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3435,7 +3688,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "144-146",
+   "lines": "147-149",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3446,7 +3699,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "152-154",
+   "lines": "155-157",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3457,7 +3710,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "159-161",
+   "lines": "162-164",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3468,7 +3721,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "164-166",
+   "lines": "167-169",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3479,7 +3732,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "169-171",
+   "lines": "172-174",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3490,7 +3743,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "176-178",
+   "lines": "186-188",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3501,7 +3754,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "182-184",
+   "lines": "192-194",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3512,7 +3765,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "188-190",
+   "lines": "198-200",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3523,7 +3776,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "213-215",
+   "lines": "223-225",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3534,7 +3787,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "223-226",
+   "lines": "233-236",
    "func": "run",
    "stmts": 6,
    "cat": "E",
@@ -3545,7 +3798,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "227-227",
+   "lines": "237-237",
    "func": "run",
    "stmts": 6,
    "cat": "E",
@@ -3556,7 +3809,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "228-228",
+   "lines": "238-238",
    "func": "run",
    "stmts": 1,
    "cat": "E",
@@ -3567,51 +3820,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "229-230",
-   "func": "run",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "231-232",
-   "func": "run",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "235-236",
-   "func": "run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "237-239",
-   "func": "run",
-   "stmts": 2,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "240-240",
+   "lines": "239-240",
    "func": "run",
    "stmts": 1,
    "cat": "E",
@@ -3624,6 +3833,17 @@
    "file": "internal/testenv/testenv.go",
    "lines": "241-242",
    "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "245-246",
+   "func": "run",
    "stmts": 2,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
@@ -3633,42 +3853,20 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "243-244",
-   "func": "run",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "245-245",
-   "func": "run",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "247-247",
-   "func": "run",
-   "stmts": 1,
-   "cat": "E",
-   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
-   "recommend": "keep-exempt",
-   "note": "keep: fail closed",
-   "security": false
-  },
-  {
-   "file": "internal/testenv/testenv.go",
-   "lines": "248-250",
+   "lines": "247-249",
    "func": "run",
    "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "250-250",
+   "func": "run",
+   "stmts": 1,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
    "recommend": "keep-exempt",
@@ -3679,7 +3877,7 @@
    "file": "internal/testenv/testenv.go",
    "lines": "251-252",
    "func": "run",
-   "stmts": 1,
+   "stmts": 2,
    "cat": "E",
    "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
    "recommend": "keep-exempt",
@@ -3688,7 +3886,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "253-253",
+   "lines": "253-254",
    "func": "run",
    "stmts": 1,
    "cat": "E",
@@ -3710,7 +3908,18 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "256-258",
+   "lines": "257-257",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "258-260",
    "func": "run",
    "stmts": 2,
    "cat": "E",
@@ -3721,7 +3930,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "259-259",
+   "lines": "261-262",
    "func": "run",
    "stmts": 1,
    "cat": "E",
@@ -3732,7 +3941,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "260-261",
+   "lines": "263-263",
    "func": "run",
    "stmts": 1,
    "cat": "E",
@@ -3743,7 +3952,29 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "262-262",
+   "lines": "265-265",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "266-268",
+   "func": "run",
+   "stmts": 2,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "269-269",
    "func": "run",
    "stmts": 1,
    "cat": "E",
@@ -3755,6 +3986,28 @@
   {
    "file": "internal/testenv/testenv.go",
    "lines": "270-271",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "272-272",
+   "func": "run",
+   "stmts": 1,
+   "cat": "E",
+   "reason": "setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir)",
+   "recommend": "keep-exempt",
+   "note": "keep: fail closed",
+   "security": false
+  },
+  {
+   "file": "internal/testenv/testenv.go",
+   "lines": "280-281",
    "func": "guardScript",
    "stmts": 1,
    "cat": "A",
@@ -3765,7 +4018,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "279-280",
+   "lines": "289-290",
    "func": "guardScript",
    "stmts": 1,
    "cat": "A",
@@ -3776,7 +4029,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "293-294",
+   "lines": "303-304",
    "func": "guardSnapshot",
    "stmts": 1,
    "cat": "A",
@@ -3787,7 +4040,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "302-304",
+   "lines": "312-314",
    "func": "guardCompare",
    "stmts": 2,
    "cat": "A",
@@ -3798,7 +4051,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "314-315",
+   "lines": "324-325",
    "func": "InstallTraps",
    "stmts": 1,
    "cat": "E",
@@ -3809,7 +4062,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "317-318",
+   "lines": "327-328",
    "func": "InstallTraps",
    "stmts": 1,
    "cat": "E",
@@ -3820,7 +4073,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "326-327",
+   "lines": "336-337",
    "func": "InstallTraps",
    "stmts": 1,
    "cat": "E",
@@ -3831,7 +4084,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "357-359",
+   "lines": "367-369",
    "func": "TrapInstalled",
    "stmts": 2,
    "cat": "E",
@@ -3842,7 +4095,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "383-384",
+   "lines": "393-394",
    "func": "newMarker",
    "stmts": 1,
    "cat": "E",
@@ -3853,7 +4106,7 @@
   },
   {
    "file": "internal/testenv/testenv.go",
-   "lines": "393-394",
+   "lines": "403-404",
    "func": "setChildSubreaper",
    "stmts": 1,
    "cat": "E",
@@ -4048,6 +4301,347 @@
    "recommend": "keep-exempt",
    "note": "keep-exempt",
    "security": false
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "137-139",
+   "func": "style.sgr",
+   "stmts": 2,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "158-158",
+   "func": "writeColor",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "160-160",
+   "func": "writeColor",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "318-318",
+   "func": "Screen.Write",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "320-320",
+   "func": "Screen.Write",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "323-323",
+   "func": "Screen.Write",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "391-391",
+   "func": "Screen.controlInSeq",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "407-407",
+   "func": "Screen.escByte",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "449-449",
+   "func": "Screen.stringByte",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "451-451",
+   "func": "Screen.stringByte",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "514-514",
+   "func": "Screen.param",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "516-516",
+   "func": "Screen.param",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "524-525",
+   "func": "atoi",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "570-571",
+   "func": "Screen.bound",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "643-644",
+   "func": "Screen.putASCII",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "672-673",
+   "func": "Screen.putRune",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "728-728",
+   "func": "Screen.eraseLine",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "899-900",
+   "func": "Screen.sgr",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "910-910",
+   "func": "Screen.sgr",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "914-914",
+   "func": "Screen.sgr",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "916-916",
+   "func": "Screen.sgr",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "918-918",
+   "func": "Screen.sgr",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "920-920",
+   "func": "Screen.sgr",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "922-922",
+   "func": "Screen.sgr",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "976-976",
+   "func": "extColon",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "984-984",
+   "func": "extColon",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "991-992",
+   "func": "extSemicolon",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "1005-1005",
+   "func": "extSemicolon",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "1007-1007",
+   "func": "extSemicolon",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "1013-1014",
+   "func": "indexed",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
+  },
+  {
+   "file": "internal/vt/vt.go",
+   "lines": "1021-1022",
+   "func": "rgbColor",
+   "stmts": 1,
+   "cat": "A",
+   "reason": "parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1)",
+   "home": "internal/vt/vt_test.go",
+   "security": false,
+   "package": 4
   },
   {
    "file": "gui/cmd/archmaid-gui/main.go",

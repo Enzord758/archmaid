@@ -1,6 +1,6 @@
 # Coverage exemptions (category E)
 
-Statements no test or run can reach, as measured at `5cd3d64` (178 statements in 127 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
+Statements no test or run can reach, as measured at `3c8de03` (177 statements in 128 blocks). Machine-readable copy: [`coverage-exempt.tsv`](coverage-exempt.tsv), which `scripts/covblocks -reachable -exempt` reads (`make e2e-cover` prints both figures per scope; `scripts/check.sh` prints the core figure). Why the list exists: Go has no pragma to leave a branch out of the count, so raw coverage reaches 100 % only if these branches go. The goal is **100 % of reachable statements**: covered / (total - exempt). Every exemption is one line here, in review; an entry whose lines moved, or that a test now covers, is reported as stale and takes nothing out of the denominator, so a drifting list can only lower the reachable figure, never inflate it.
 
 Refreshing: after a code change that moves a listed block, re-run the measurement (docs/coverage-map.md, "How it was measured") and `scripts/covmap/report.py`; do not edit the tsv by hand.
 
@@ -8,7 +8,7 @@ Refreshing: after a code change that moves a listed block, re-run the measuremen
 
 | Recommendation | Means | Blocks | Statements | of which security code |
 |---|---|---|---|---|
-| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 103 | 144 | 41 |
+| `keep-exempt` | the branch is right as written (defensive, fail-closed, or a platform fallback); it stays in the exempt list | 104 | 143 | 41 |
 | `make-testable` | a small seam turns it into a unit test (A): the shared atomic-write helper, or a hook between a TOCTOU check and its use | 23 | 33 | 8 |
 | `remove` | dead code: delete the branch (a reviewer confirms it cannot be reached) | 1 | 1 | 0 |
 
@@ -50,7 +50,7 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 |---|---|---|---|---|
 | `internal/audit/result.go:186-186` | `packageNames` | 1 |  | only called with the gating (high) names, never none |
 
-## `keep-exempt` (144 statements)
+## `keep-exempt` (143 statements)
 
 | Where | Function | Stmts | Security | Why it can't run |
 |---|---|---|---|---|
@@ -105,17 +105,18 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/privilege/privtest/privtest.go:18-18` | `testOnly` | 1 | yes | panics outside a test binary |
 | `internal/proc/detach.go:57-58` | `groupAlive` | 1 |  | Getpgid errors other than ESRCH (EPERM across namespaces) don't happen for our own children |
 | `internal/testenv/cover.go:24-25` | `coverChildren` | 1 |  | the early return is for runs without coverage, which count nothing |
-| `internal/testenv/testenv.go:105-105` | `Run` | 3 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:106-106` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/sysbin.go:54-55` | `UseSysbin` | 1 |  | MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO |
+| `internal/testenv/sysbin.go:57-58` | `UseSysbin` | 1 |  | MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO |
+| `internal/testenv/sysbin.go:75-76` | `Decoys` | 1 |  | MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO |
+| `internal/testenv/sysbin.go:80-81` | `Decoys` | 1 |  | MkdirAll and WriteFile into the test's own fresh t.TempDir fail only on ENOSPC/EIO |
 | `internal/testenv/testenv.go:107-110` | `Run` | 3 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:112-112` | `Run` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:126-127` | `mkScratch` | 1 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:141-143` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:147-149` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:155-157` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:162-164` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:167-169` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
-| `internal/testenv/testenv.go:179-181` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
+| `internal/testenv/testenv.go:172-174` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:186-188` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:192-194` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |
 | `internal/testenv/testenv.go:198-200` | `run` | 2 |  | setup failures (MkdirTemp, crypto/rand, PR_SET_CHILD_SUBREAPER, writing traps into a fresh temp dir) |

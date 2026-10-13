@@ -89,21 +89,21 @@ exempt list (`coverage-exempt.md`). Both come out of `scripts/covblocks
 <!-- gen:totals -->
 | Scope | Statements | Covered | Raw | Uncovered | A unit | B e2e | C vm | D owner | E exempt | Reachable (covered / (total - E)) |
 |---|---|---|---|---|---|---|---|---|---|---|
-| core | 5545 | 5435 | 98.0 % | 110 | 40 | 3 | 1 | 0 | 66 | 99.1 % (5435/5479) |
-| helper | 902 | 848 | 94.0 % | 54 | 0 | 51 | 0 | 0 | 3 | 94.3 % (848/899) |
-| gui | 5269 | 5112 | 97.0 % | 157 | 65 | 39 | 22 | 0 | 31 | 97.5 % (5112/5238) |
-| testonly | 553 | 366 | 66.1 % | 187 | 109 | 0 | 0 | 0 | 78 | 77.0 % (366/475) |
-| all | 12269 | 11761 | 95.8 % | 508 | 214 | 93 | 23 | 0 | 178 | 97.2 % (11761/12091) |
+| core | 6267 | 6106 | 97.4 % | 161 | 91 | 3 | 1 | 0 | 66 | 98.4 % (6106/6201) |
+| helper | 1106 | 1044 | 94.3 % | 62 | 8 | 51 | 0 | 0 | 3 | 94.6 % (1044/1103) |
+| gui | 5341 | 5178 | 96.9 % | 163 | 71 | 39 | 22 | 0 | 31 | 97.5 % (5178/5310) |
+| testonly | 585 | 399 | 68.2 % | 186 | 109 | 0 | 0 | 0 | 77 | 78.5 % (399/508) |
+| all | 13299 | 12727 | 95.6 % | 572 | 279 | 93 | 23 | 0 | 177 | 96.9 % (12727/13122) |
 
 Raw / reachable, cumulative:
 
 | Scope | Now (unit + e2e + GUI) | after A | after A+B | after A+B+C | after A+B+C+D (= every reachable statement) |
 |---|---|---|---|---|---|
-| core | 98.0 % / 99.1 % | 98.7 % / 99.9 % | 98.7 % / 99.9 % | 98.8 % / 100.0 % | 98.8 % / 100.0 % |
-| helper | 94.0 % / 94.3 % | 94.0 % / 94.3 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % | 99.6 % / 100.0 % |
-| gui | 97.0 % / 97.5 % | 98.2 % / 98.8 % | 98.9 % / 99.5 % | 99.4 % / 100.0 % | 99.4 % / 100.0 % |
-| testonly | 66.1 % / 77.0 % | 85.8 % / 100.0 % | 85.8 % / 100.0 % | 85.8 % / 100.0 % | 85.8 % / 100.0 % |
-| all | 95.8 % / 97.2 % | 97.6 % / 99.0 % | 98.3 % / 99.8 % | 98.5 % / 100.0 % | 98.5 % / 100.0 % |
+| core | 97.4 % / 98.4 % | 98.8 % / 99.9 % | 98.9 % / 99.9 % | 98.9 % / 100.0 % | 98.9 % / 100.0 % |
+| helper | 94.3 % / 94.6 % | 95.1 % / 95.3 % | 99.7 % / 100.0 % | 99.7 % / 100.0 % | 99.7 % / 100.0 % |
+| gui | 96.9 % / 97.5 % | 98.2 % / 98.8 % | 99.0 % / 99.5 % | 99.4 % / 100.0 % | 99.4 % / 100.0 % |
+| testonly | 68.2 % / 78.5 % | 86.8 % / 100.0 % | 86.8 % / 100.0 % | 86.8 % / 100.0 % | 86.8 % / 100.0 % |
+| all | 95.6 % / 96.9 % | 97.7 % / 99.1 % | 98.4 % / 99.8 % | 98.6 % / 100.0 % | 98.6 % / 100.0 % |
 <!-- /gen:totals -->
 
 D is 0 statements: every line the owner's checks exercise is reachable by
@@ -144,14 +144,14 @@ largest single gain.
 | # | Package | Statements | Gain (all) | Role | Security code | Covers |
 |---|---|---|---|---|---|---|
 | 1 | **Test infrastructure** (A) | 109 | +0.8 pts | architecture | no | testenv's post-`m.Run` checks (orphan reaper, trap report, state-guard compare) called directly inside a test, the recorder's fake targets, the contract checker's own failure paths. By package: `testenv` 91, `engine/enginetest` 13, `testtranscript` 5 |
-| 2 | **Helper and privilege edge cases** (A) | 0 | +0.0 pts | security | no | the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures. By package:  |
-| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 3 | +0.0 pts | architecture (driver/keep.go and the askpass bits: security) | no | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `driver` 2, `logstore` 1 |
-| 4 | **Leaf packages and the polkit agent** (A) | 78 | +0.6 pts | performance-QA (polkitagent, realdriver, downloads: security) | 53 stmts: Dev 3 reviews | audit/downloads write and scan error paths, proc argv forms, sanitize and sysstat edges, polkitagent and realdriver against fake agents. By package: `gui/polkitagent` 27, `gui/realdriver` 14, `audit` 13, `downloads` 12, `proc` 10, `sysstat` 2 |
-| 5 | **GUI logs, timeline and signals pages** (A) | 3 | +0.0 pts | GUI | no | new headless scenarios: log page states (none, unreadable, empty), the timeline, signals mid-run, the failed-step view, logview and overview edges. By package: `gui/ui` 3 |
-| 6 | **GUI windows, dialogs, settings, run view** (A) | 21 | +0.1 pts | GUI | no | window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells. By package: `gui/ui` 18, `gui/settings` 3 |
-| 7 | **E2E: the cover-helper check** (B) | 51 | +0.4 pts | performance-QA with Dev 3's review (helper) | 51 stmts: Dev 3 reviews | main and hardenProcess of the helper binary: the run.sh check of the cover helper as the user and as uid 0 in an unprivileged user namespace (both refused before anything runs). By package: `cmd/archmaid-helper` 50, `cmd/archmaid-helper/coverdir` 1 |
+| 2 | **Helper and privilege edge cases** (A) | 8 | +0.0 pts | security | 8 stmts: Dev 3 reviews | the helper's fake-runner/Stat/Exe error paths and lock edges, helperclient's malformed and failing helper output, privilege's askpass relays, faillock and kept-password failures. By package: `cmd/archmaid-helper/helper` 8 |
+| 3 | **Core: TUI keys, driver, engine, actions, logstore** (A) | 4 | +0.0 pts | architecture (driver/keep.go and the askpass bits: security) | no | per-screen key handling and Finished/PromptClosed edges in the TUI, the driver's teardown, hang-up and agent paths, combined-queue edges, discovery outputs, the log store's error paths. By package: `driver` 3, `logstore` 1 |
+| 4 | **Leaf packages and the polkit agent** (A) | 128 | +0.9 pts | performance-QA (polkitagent, realdriver, downloads: security) | 53 stmts: Dev 3 reviews | audit/downloads write and scan error paths, proc argv forms, sanitize, sysstat and vt edges, polkitagent and realdriver against fake agents. By package: `vt` 32, `proc` 28, `gui/polkitagent` 27, `gui/realdriver` 14, `audit` 13, `downloads` 12 |
+| 5 | **GUI logs, timeline and signals pages** (A) | 7 | +0.0 pts | GUI | no | new headless scenarios: log page states (none, unreadable, empty), the timeline, signals mid-run, the failed-step view, logview and overview edges. By package: `gui/ui` 7 |
+| 6 | **GUI windows, dialogs, settings, run view** (A) | 23 | +0.1 pts | GUI | no | window/dialog/settings-page scenarios, the run view's SGR and ring edges, settings.Save error paths, shell and usercache cells. By package: `gui/ui` 20, `gui/settings` 3 |
+| 7 | **E2E: the cover-helper check** (B) | 51 | +0.3 pts | performance-QA with Dev 3's review (helper) | 51 stmts: Dev 3 reviews | main and hardenProcess of the helper binary: the run.sh check of the cover helper as the user and as uid 0 in an unprivileged user namespace (both refused before anything runs). By package: `cmd/archmaid-helper` 50, `cmd/archmaid-helper/coverdir` 1 |
 | 8 | **E2E: binary entries** (B) | 42 | +0.3 pts | GUI (the TUI tape: architecture) | no | archmaid-gui's main, `--stub` with each script (headless), the TUI's error exit and the editor handover on a pty tape. By package: `gui/ui` 33, `gui/cmd/archmaid-gui` 6, `cmd/archmaid` 3 |
-| | **A and B together** | 307 | +2.5 pts | | | |
+| | **A and B together** | 372 | +2.7 pts | | | |
 <!-- /gen:workpackages -->
 
 ## The 10 most important VM (C) checks
@@ -319,17 +319,17 @@ Statements still uncovered after unit + e2e + GUI, by category.
 |---|---|---|---|---|---|
 | `cmd/archmaid-helper` |  | 50 |  |  | 1 |
 | `cmd/archmaid-helper/internal/coverdir` |  | 1 |  |  |  |
-| `cmd/archmaid-helper/internal/helper` |  |  |  |  | 2 |
+| `cmd/archmaid-helper/internal/helper` | 8 |  |  |  | 2 |
 | `cmd/archmaid` |  | 3 |  |  | 3 |
 | `gui/cmd/archmaid-gui` |  | 6 |  |  |  |
 | `gui/internal/polkitagent` | 27 |  |  |  | 15 |
 | `gui/internal/realdriver` | 14 |  |  |  |  |
 | `gui/internal/runview` |  |  |  |  | 1 |
 | `gui/internal/settings` | 3 |  |  |  | 6 |
-| `gui/internal/ui` | 21 | 33 | 22 |  | 9 |
+| `gui/internal/ui` | 27 | 33 | 22 |  | 9 |
 | `internal/audit` | 13 |  |  |  | 17 |
 | `internal/downloads` | 12 |  |  |  | 15 |
-| `internal/driver` | 2 |  |  |  | 2 |
+| `internal/driver` | 3 |  |  |  | 2 |
 | `internal/engine` |  |  |  |  | 1 |
 | `internal/engine/enginetest` | 13 |  |  |  |  |
 | `internal/engine/stub` |  |  |  |  | 1 |
@@ -339,12 +339,13 @@ Statements still uncovered after unit + e2e + GUI, by category.
 | `internal/logstore` | 1 |  |  |  | 8 |
 | `internal/privilege` |  |  |  |  | 8 |
 | `internal/privilege/privtest` |  |  |  |  | 1 |
-| `internal/proc` | 10 |  |  |  | 1 |
+| `internal/proc` | 28 |  |  |  | 1 |
 | `internal/sysstat` | 2 |  |  |  |  |
-| `internal/testenv` | 91 |  |  |  | 75 |
+| `internal/testenv` | 91 |  |  |  | 74 |
 | `internal/testtranscript` | 5 |  |  |  |  |
 | `internal/ttyguard` |  |  |  |  | 4 |
 | `internal/tui` |  |  |  |  | 5 |
+| `internal/vt` | 32 |  |  |  |  |
 <!-- /gen:packages -->
 
 ## Every uncovered block (A, B, C)
@@ -369,6 +370,17 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 |---|---|---|---|---|---|
 | `coverdir.go:26-27` | `init` | 1 | B | only a cover helper running as root sets it: verified under unshare -r with a scratch HOME (coverage-map.md, helper check); in the VM every pkexec run does | e2e (new helper check) (security: Dev 3) |
 
+#### `cmd/archmaid-helper/internal/helper`
+
+| Lines | Function | Stmts | Cat | Why | Test home |
+|---|---|---|---|---|---|
+| `dblock.go:80-80` | `session.lockDirSafe` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
+| `fullcleanup.go:148-149` | `runFullCleanup` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
+| `leftovers.go:255-258` | `scanCacheDir` | 3 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
+| `leftovers.go:286-287` | `removeLeftover` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
+| `leftovers.go:337-338` | `plainPath` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
+| `leftovers.go:420-423` | `releasePacmanLock` | 1 | A | fake Runner/Stat/Exe returning the error, a LockPath that is empty, unwritable or held, a PacmanDBLock under a 0000 dir, a > maxCapture output, a trailing \r | cmd/archmaid-helper/internal/helper/*_test.go (security: Dev 3) |
+
 #### `cmd/archmaid`
 
 | Lines | Function | Stmts | Cat | Why | Test home |
@@ -379,14 +391,14 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `polkitagent.go:163-164, 173-174` | `fileIDOf` | 2 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
-| `polkitagent.go:282-283, 289-290, 297-300, 303-306, 353-356, 373-373, 374-375` | `Start` | 14 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
-| `polkitagent.go:386-386` | `discard` | 1 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
-| `polkitagent.go:407-408` | `Agent.Stop.func` | 2 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
-| `polkitagent.go:545-546, 571-572, 589-590, 600-600` | `Agent.drain` | 4 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
-| `polkitagent.go:613-614` | `Agent.sendEOF` | 1 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
-| `polkitagent.go:648-648` | `Prompt.Err` | 1 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
-| `polkitagent.go:690-692` | `Prompt.Answer.func` | 2 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:165-166, 175-176` | `fileIDOf` | 2 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:287-288, 294-295, 302-305, 308-311, 358-361, 378-378, 379-380` | `Start` | 14 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:391-391` | `discard` | 1 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:412-413` | `Agent.Stop.func` | 2 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:550-551, 576-577, 594-595, 605-605` | `Agent.drain` | 4 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:618-619` | `Agent.sendEOF` | 1 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:653-653` | `Prompt.Err` | 1 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
+| `polkitagent.go:695-697` | `Prompt.Answer.func` | 2 | A | a fake pkttyagent (agenttest) that is missing, never registers, never turns echo off, ignores SIGTERM, or prints refusals; no subject | gui/internal/polkitagent/polkitagent_test.go (security: Dev 3) |
 
 #### `gui/internal/realdriver`
 
@@ -394,9 +406,9 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 |---|---|---|---|---|---|
 | `agent.go:59-60, 62-63, 72-73, 76-78` | `Wiring.helper.func` | 8 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
 | `agent.go:101-102, 105-106` | `Wiring.startAgent` | 2 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
-| `realdriver.go:143-144, 148-149` | `Start` | 2 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
-| `realdriver.go:212-213` | `Wiring.New` | 1 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
-| `realdriver.go:231-232` | `Wiring.env` | 1 | A | Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C) | gui/internal/realdriver/realdriver_test.go (security: Dev 3) |
+| `realdriver.go:153-154, 158-159` | `Start` | 2 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
+| `realdriver.go:227-228` | `Wiring.New` | 1 | A | a fake polkit agent that keeps ending or fails to start; no XDG_RUNTIME_DIR in Config | gui/internal/realdriver/agent_test.go (security: Dev 3) |
+| `realdriver.go:246-247` | `Wiring.env` | 1 | A | Options() with no fake PlanOrphans picks helperclient.PlanOrphans (assignment only; running it is C) | gui/internal/realdriver/realdriver_test.go (security: Dev 3) |
 
 #### `gui/internal/settings`
 
@@ -410,10 +422,10 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
 | `app.go:114-115, 116-118, 119-119, 120-121, 122-122` | `Main` | 7 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `app.go:180-181, 183-185, 187-187, 188-190, 191-192` | `mainReal` | 10 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `app.go:180-181, 185-187, 189-189, 190-192, 193-193` | `mainReal` | 10 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
 | `app.go:181-181` | `mainReal.func` | 1 | B | the binary's entry: start the cover archmaid-gui under headless.sh with a scratch HOME (a GUI e2e; the harness calls Run, not Main) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `app.go:198-198, 199-199, 199-199, 201-201, 202-202, 202-202, 212-212, 213-216` | `stubDriver.func` | 10 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
-| `app.go:204-204, 206-206, 208-208, 210-210, 218-218` | `stubDriver` | 5 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `app.go:206-206, 207-207, 207-207, 209-209, 210-210, 210-210, 220-220, 221-224` | `stubDriver.func` | 10 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
+| `app.go:212-212, 214-214, 216-216, 218-218, 226-226` | `stubDriver` | 5 | B | archmaid-gui --stub with each ARCHMAID_GUI_SCRIPT, headless (the harness builds its stub drivers itself) | gui/scripts/headless.sh + cover archmaid-gui (new) |
 | `dialogs.go:129-130, 139-140` | `Window.confirmDialog` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `failed.go:176-177` | `recordFolder` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `launcher.go:37-37, 38-39, 40-41, 46-46` | `gtkLauncher.launch` | 5 | C | GtkFileLauncher/GtkFileDialog need a desktop session with xdg-desktop-portal and a file manager; headless.sh runs without one on purpose (the VM's desktop has one) | VM desktop |
@@ -428,7 +440,9 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `settings.go:206-206, 207-208` | `Window.topgradeCard.func` | 2 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
 | `settings.go:251-252` | `Window.logFolderCard.func` | 1 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
 | `settings.go:266-267` | `Window.chooseDownloads` | 1 | C | Open folder / Choose folder through the real launcher (VM desktop); a fake launcher in the harness would make these A | VM desktop |
+| `termcols.go:31-32, 36-37` | `Window.measureCols` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `timeline.go:135-136` | `Window.newRunPage.func` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
+| `timeline.go:622-623, 624-626` | `Window.output` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `widedialog.go:158-159, 163-163` | `newWideDialog.func` | 2 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `widedialog.go:240-241` | `amDialog.naturalHeight` | 1 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
 | `widedialog.go:310-313` | `amDialog.columns.func` | 4 | A | a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt | gui/internal/ui/harness_test.go |
@@ -473,6 +487,7 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
+| `outbox.go:148-148` | `outbox.redrawAfter` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
 | `refresh.go:59-60` | `RefreshUpdates` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
 | `refresh.go:68-69` | `trimOut` | 1 | A | a hung-up agent, a closed Askpass/Agent channel, a Driver stopped with children, prefetches and asks open, a failing last-run write, an agent whose kept password fails or can't be handed on, a requester with no exe | internal/driver/*_test.go |
 
@@ -499,11 +514,16 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 
 | Lines | Function | Stmts | Cat | Why | Test home |
 |---|---|---|---|---|---|
-| `proc.go:86-87` | `checkSudo` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
-| `proc.go:150-150, 155-155, 159-159` | `envCommand` | 3 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
-| `proc.go:439-440` | `Child.GroupStopped` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
-| `proc.go:462-462` | `Child.escalateGroup` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `lines.go:114-114, 117-118` | `emitLines` | 3 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:85-86` | `checkSudo` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:149-149, 154-154, 158-158` | `envCommand` | 3 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:387-388` | `Runner.Start` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:475-476` | `Child.GroupStopped` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `proc.go:498-498` | `Child.escalateGroup` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
 | `procfs.go:40-41, 44-45, 51-52, 57-58` | `readAt` | 4 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `pty.go:53-54, 70-72, 75-78, 80-83` | `openPty` | 9 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `pty.go:61-62` | `openPty.func` | 1 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
+| `pty.go:95-96, 97-98, 99-99` | `peer` | 4 | A | sudo argv without -n/-A, env -S/--split-string/-- forms, a nil Child, a child that left its group, readAt on fake malformed/short stat files | internal/proc/*_test.go |
 
 #### `internal/sysstat`
 
@@ -523,9 +543,9 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `orphans.go:114-114, 115-115, 116-117, 118-119, 120-120, 121-122, 123-123, 125-125, 136-136, 136-136` | `leftovers.func` | 11 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:173-174, 175-176, 177-178, 179-179, 180-181, 183-183` | `hasMarker` | 8 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
 | `orphans.go:188-189, 190-191, 192-192` | `cmdline` | 4 | A | runs in every package, but after m.Run, when the testing package has already written its counters (measurement blind spot); TestRunReapsOrphans runs it in a child; a direct call inside a test counts | internal/testenv/orphan_test.go |
-| `testenv.go:270-271, 279-280` | `guardScript` | 2 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
-| `testenv.go:293-294` | `guardSnapshot` | 1 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
-| `testenv.go:302-304` | `guardCompare` | 2 | A | post-m.Run: counted only from a direct test | internal/testenv/trap_test.go |
+| `testenv.go:280-281, 289-290` | `guardScript` | 2 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
+| `testenv.go:303-304` | `guardSnapshot` | 1 | A | Run from a dir with no scripts/state-guard.sh above it; a guard script that fails | internal/testenv/trap_test.go |
+| `testenv.go:312-314` | `guardCompare` | 2 | A | post-m.Run: counted only from a direct test | internal/testenv/trap_test.go |
 | `watchdog.go:76-79` | `watchdog.stop` | 3 | A | post-m.Run in Run (counted never, after the counters are written); a direct call in a test counts | internal/testenv/trap_test.go |
 
 #### `internal/testtranscript`
@@ -536,6 +556,28 @@ belongs in. The E blocks are in [`coverage-exempt.md`](coverage-exempt.md).
 | `recorder.go:91-92, 106-107` | `Recorder.Run` | 2 | A | fake targets failing Start/Next/Reply and an odd replace list | internal/testtranscript/recorder_test.go |
 | `recorder.go:198-198` | `Recorder.event` | 1 | A | fake targets failing Start/Next/Reply and an odd replace list | internal/testtranscript/recorder_test.go |
 | `recorder.go:229-230` | `Recorder.reply` | 1 | A | fake targets failing Start/Next/Reply and an odd replace list | internal/testtranscript/recorder_test.go |
+
+#### `internal/vt`
+
+| Lines | Function | Stmts | Cat | Why | Test home |
+|---|---|---|---|---|---|
+| `vt.go:137-139` | `style.sgr` | 2 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:158-158, 160-160` | `writeColor` | 2 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:318-318, 320-320, 323-323` | `Screen.Write` | 3 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:391-391` | `Screen.controlInSeq` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:407-407` | `Screen.escByte` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:449-449, 451-451` | `Screen.stringByte` | 2 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:514-514, 516-516` | `Screen.param` | 2 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:524-525` | `atoi` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:570-571` | `Screen.bound` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:643-644` | `Screen.putASCII` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:672-673` | `Screen.putRune` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:728-728` | `Screen.eraseLine` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:899-900, 910-910, 914-914, 916-916, 918-918, 920-920, 922-922` | `Screen.sgr` | 7 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:976-976, 984-984` | `extColon` | 2 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:991-992, 1005-1005, 1007-1007` | `extSemicolon` | 3 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:1013-1014` | `indexed` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
+| `vt.go:1021-1022` | `rgbColor` | 1 | A | parser edges a byte sequence reaches (a CSI parameter past its cap, SGR 38/48 colours with missing or out-of-range parts in both the colon and the semicolon form, a control or string byte inside a sequence, the column bound, a style table at MaxStyles): a table test or FuzzScreen's corpus; vt is a pure function of its input (#129, Dev 1) | internal/vt/vt_test.go |
 
 #### `gui/cmd/archmaid-gui`
 
