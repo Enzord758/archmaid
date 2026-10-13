@@ -18,6 +18,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/helperclient/internal/seam"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
+	"github.com/Enzord758/archmaid/internal/sysbin"
 )
 
 // ErrProtocol wraps every way the helper's output can break the protocol:
@@ -104,7 +105,9 @@ func Run(ctx context.Context, seq uint64, st steps.Step, emit func(engine.Input)
 		return exited(seq, emit, Outcome{Exit: -1, Err: fmt.Errorf("helper: %w", err)})
 	}
 	defer pr.Close()
-	cmd := exec.Command(argv[0], argv[1:]...)
+	// argv[0] is Pkexec's name; the program is sysbin.Pkexec, never one
+	// found on PATH.
+	cmd := exec.Command(sysbin.Pkexec, argv[1:]...)
 	cmd.Stdout = pw
 	stderr := &tail{max: stderrMax}
 	cmd.Stderr = stderr

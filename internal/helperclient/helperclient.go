@@ -38,7 +38,9 @@ import (
 )
 
 const (
-	// Pkexec is the program Run starts, looked up on PATH.
+	// Pkexec names the program Run starts, as Argv's first word (the dry
+	// run's line, the logs). What Run executes is sysbin.Pkexec, by
+	// absolute path: a pkexec on PATH could stand in for polkit's.
 	Pkexec = "pkexec"
 	// DisableInternalAgent is pkexec's first argument: with no polkit agent
 	// for archmaid-gui (its pkttyagent, else the desktop's), pkexec exits

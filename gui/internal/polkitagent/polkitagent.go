@@ -58,6 +58,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/sysbin"
 )
 
 // ActionPrefix starts every polkit action of archmaid's root helper.
@@ -65,7 +66,8 @@ const ActionPrefix = "org.archmaid.helper."
 
 // Options configure Start.
 type Options struct {
-	// Path is pkttyagent's; "" looks it up on PATH.
+	// Path is pkttyagent's; "" is sysbin.Pkttyagent (/usr/bin/pkttyagent,
+	// never looked up on PATH).
 	Path string
 	// Pid and Start are the subject the agent registers for: the GUI's own
 	// process and its start time (proc.Info.Start, clock ticks since
@@ -278,7 +280,10 @@ func Start(opts Options) (*Agent, error) {
 	path := opts.Path
 	if path == "" {
 		var err error
-		if path, err = exec.LookPath("pkttyagent"); err != nil {
+		// sysbin.Pkttyagent, by absolute path: a pkttyagent found on
+		// PATH would read the password polkit asks for. (LookPath on a
+		// path only checks that it is executable.)
+		if path, err = exec.LookPath(sysbin.Pkttyagent); err != nil {
 			return nil, fmt.Errorf("pkttyagent isn't installed: %w", err)
 		}
 	}

@@ -131,7 +131,19 @@ for pkg in $(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./cmd/...
 		echo "FAIL: $pkg links the testing package; test helpers belong in _test.go files"
 		exit 1
 	fi
+	# testenv's init points internal/sysbin's absolute paths (su, sudo,
+	# pkexec, pkttyagent, topgrade) back at bare names that PATH decides.
+	if go list -deps "$pkg" | grep -qx 'github.com/Enzord758/archmaid/internal/testenv'; then
+		echo "FAIL: $pkg links internal/testenv, whose init makes archmaid look su and sudo up on PATH again"
+		exit 1
+	fi
 done
+# Only the e2e harness's test build sets internal/sysbin back to bare names
+# (-ldflags -X): the package and the VM's cover builds keep /usr/bin.
+if grep -nE -- 'sysbin' packaging/arch/PKGBUILD scripts/cover-build.sh; then
+	echo "FAIL: a product or cover build names internal/sysbin; its /usr/bin paths must stay as built (only cmd/archmaid/e2e/run.sh sets them bare)"
+	exit 1
+fi
 
 # A cover build (scripts/cover-build.sh) is never what gets installed: a
 # normal build of the helper doesn't link the cover-only coverdir package

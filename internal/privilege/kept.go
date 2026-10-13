@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/Enzord758/archmaid/internal/sysbin"
 )
 
 // KeptPassword is the GUI's one password for one run (docs/HANDOVER.md,
@@ -165,7 +167,7 @@ func CheckPasswordBytes(ctx context.Context, pw []byte) (detail string, err erro
 	defer clear(line)
 	copy(line, pw)
 	line[len(pw)] = '\n'
-	check := exec.CommandContext(ctx, "su", "-s", "/usr/bin/true", self.Username)
+	check := exec.CommandContext(ctx, sysbin.Su, "-s", "/usr/bin/true", self.Username)
 	check.Stdin = bytes.NewReader(line)
 	var stderr strings.Builder
 	check.Stderr = &stderr

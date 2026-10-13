@@ -14,6 +14,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
+	"github.com/Enzord758/archmaid/internal/sysbin"
 )
 
 // discoverRepair is Repair's first stage, run as the user with no sudo:
@@ -224,9 +225,9 @@ func chunkStrings(s []string, n int) [][]string {
 // missing files: root can stat into the directories the user couldn't, so the
 // false positives drop out. Only the candidates are checked, which takes ~50 ms
 // where a full scan as root took ~850. -n: the ticket is already primed, and
-// nothing may prompt on the raw tty.
+// nothing may prompt on the raw tty. sudo is sysbin.Sudo, never one on PATH.
 func brokenPackages(ctx context.Context, candidates []string) (pkgs []string, out string, err error) {
-	out, err = qkqOutput(ctx, "sudo", append([]string{"-n", "pacman", "-Qkq", "--color", "never", "--"}, candidates...)...)
+	out, err = qkqOutput(ctx, sysbin.Sudo, append([]string{"-n", "pacman", "-Qkq", "--color", "never", "--"}, candidates...)...)
 	if err != nil {
 		return nil, out, err
 	}

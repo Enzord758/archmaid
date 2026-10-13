@@ -169,6 +169,13 @@ func run(m interface{ Run() int }, made *[]string) int {
 		fmt.Fprintln(os.Stderr, "testenv:", err)
 		return 1
 	}
+	// archmaid's privileged programs are absolute in the product; here
+	// they must be bare, so PATH (the traps, a test's shims) decides
+	// (sysbin.go).
+	if err := checkSysbinBare(); err != nil {
+		fmt.Fprintln(os.Stderr, "testenv:", err)
+		return 1
+	}
 	// PATH can't catch an absolute path: point archmaid's installed
 	// programs at traps of their own until the leftovers are reaped.
 	restoreInstalled, err := TrapInstalled(trapBin, trapLog)

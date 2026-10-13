@@ -22,16 +22,29 @@ E2E="$PWD/e2e"
 # Each run writes its counters to a GOCOVERDIR inside its own scratch dir,
 # copied to DIR afterwards; merge DIR with scripts/cover-merge.sh. The tapes
 # and their assertions are the same either way.
+#
+# The product runs su, sudo, pkexec, pkttyagent and topgrade by absolute
+# path (internal/sysbin), which the shim dir on PATH can't shadow. This
+# build sets each back to its bare name, so the tapes' sudo probe and
+# Repair's root recheck reach the shims and never the real /usr/bin/sudo.
+# Only this test build does: scripts/check.sh fails a PKGBUILD or cover
+# build that names internal/sysbin, and testenv's TestE2EBuildsBareSysbin
+# keeps this list complete.
+SYSBIN=github.com/Enzord758/archmaid/internal/sysbin
+SYSBIN_LDFLAGS="-X $SYSBIN.Su=su -X $SYSBIN.Sudo=sudo -X $SYSBIN.Pkexec=pkexec -X $SYSBIN.Pkttyagent=pkttyagent -X $SYSBIN.Topgrade=topgrade"
 COVER_DIR="${E2E_COVER_DIR:-}"
 if [[ -n "$COVER_DIR" ]]; then
 	mkdir -p "$COVER_DIR"
 	COVER_DIR="$(realpath "$COVER_DIR")"
-	go build -trimpath -cover -covermode=atomic \
+	go build -trimpath -cover -covermode=atomic -ldflags "$SYSBIN_LDFLAGS" \
 		-coverpkg=github.com/Enzord758/archmaid/cmd/...,github.com/Enzord758/archmaid/internal/... \
 		-o archmaid .
 else
-	go build -trimpath -o archmaid .
+	go build -trimpath -ldflags "$SYSBIN_LDFLAGS" -o archmaid .
 fi
+# The binary's build info records the flags: refuse to drive one without them.
+go version -m archmaid | grep -qF -- "$SYSBIN.Sudo=sudo" ||
+	{ echo "FAIL: ./archmaid wasn't built with the bare sysbin names; it would run the real /usr/bin/sudo"; exit 1; }
 
 # The privileged binaries match internal/testenv's traps (su, sudo, pkexec,
 # runuser, faillock): none may run for real, and calling any is a failure.

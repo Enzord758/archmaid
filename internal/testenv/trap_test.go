@@ -325,6 +325,12 @@ func TestE2EShimsAreTrapped(t *testing.T) {
 // absoluteAllowed are the absolute paths of a trapped binary that may appear
 // as string literals, and why: none of them is ever executed.
 var absoluteAllowed = map[string]string{
+	// The product's own paths: under testenv each is its bare name again
+	// (sysbin.go's init), so the PATH traps catch it.
+	"internal/sysbin/sysbin.go:/usr/bin/su":         "sysbin.Su, bare under testenv",
+	"internal/sysbin/sysbin.go:/usr/bin/sudo":       "sysbin.Sudo, bare under testenv",
+	"internal/sysbin/sysbin.go:/usr/bin/pkexec":     "sysbin.Pkexec, bare under testenv",
+	"internal/sysbin/sysbin.go:/usr/bin/pkttyagent": "sysbin.Pkttyagent, bare under testenv",
 	"internal/privilege/askpass.go:/usr/bin/sudo":   "sudoPath: compared against the askpass peer's parent, never run",
 	"internal/proc/sudo_test.go:/usr/bin/sudo":      "CheckSudo's table: classified, never run",
 	"internal/driver/askpass_test.go:/usr/bin/sudo": "a fake /proc entry's Exe for Request.Verify, never run",

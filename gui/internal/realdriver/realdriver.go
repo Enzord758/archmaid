@@ -109,7 +109,8 @@ type Config struct {
 	Now func() time.Time
 
 	// TTYAgent is pkttyagent's path for the helper steps' polkit prompts
-	// (agent.go); "" looks it up on PATH, "-" runs without one (polkit
+	// (agent.go); "" is /usr/bin/pkttyagent (sysbin.Pkttyagent, never
+	// looked up on PATH), "-" runs without one (polkit
 	// asks through the desktop's agent).
 	TTYAgent string
 }

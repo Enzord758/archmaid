@@ -27,6 +27,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
+	"github.com/Enzord758/archmaid/internal/sysbin"
 )
 
 // Privileged is a way to run steps as root.
@@ -56,7 +57,7 @@ var _ Privileged = Sudo{}
 // Probe runs `sudo -n -v`: it succeeds only with a valid cached ticket and
 // never prompts.
 func (Sudo) Probe(ctx context.Context) bool {
-	return exec.CommandContext(ctx, "sudo", "-n", "-v").Run() == nil
+	return exec.CommandContext(ctx, sysbin.Sudo, "-n", "-v").Run() == nil
 }
 
 // Authenticate validates pw and mints the sudo ticket — in two stages,
@@ -76,7 +77,7 @@ func (Sudo) Authenticate(ctx context.Context, pw string) (detail string, err err
 	if detail, err := CheckPassword(ctx, pw); err != nil {
 		return detail, err
 	}
-	cmd := exec.CommandContext(ctx, "sudo", "-S", "-v")
+	cmd := exec.CommandContext(ctx, sysbin.Sudo, "-S", "-v")
 	cmd.Stdin = strings.NewReader(pw + "\n")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -90,7 +91,7 @@ func (Sudo) Authenticate(ctx context.Context, pw string) (detail string, err err
 // the keep-alive that stops a long step (topgrade) from letting it lapse. A
 // no-op once it has lapsed: a step's `sudo -A` then asks through askpass.
 func (Sudo) Refresh(ctx context.Context) {
-	_ = exec.CommandContext(ctx, "sudo", "-n", "-v").Run()
+	_ = exec.CommandContext(ctx, sysbin.Sudo, "-n", "-v").Run()
 }
 
 // dropTimeout bounds DropTicket: the TUI calls it on its way out, which it
@@ -101,13 +102,14 @@ const dropTimeout = 3 * time.Second
 // and kept alive, so the next sudo in that terminal asks again (the owner's
 // decision M1). It can never prompt: -n, and -k needs no password anyway;
 // SUDO_ASKPASS is dropped from its environment, stdin is /dev/null, and it
-// is bounded by dropTimeout. sudo is found on PATH like the other calls here
-// (internal/testenv traps it there). Its error is the caller's to ignore: a
-// failed drop must never block an exit.
+// is bounded by dropTimeout. sudo is sysbin.Sudo, like every other sudo and
+// su here: an absolute path, never looked up on PATH (internal/sysbin; under
+// testenv the bare name, which its traps catch). Its error is the caller's
+// to ignore: a failed drop must never block an exit.
 func DropTicket(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, dropTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "sudo", "-n", "-k")
+	cmd := exec.CommandContext(ctx, sysbin.Sudo, "-n", "-k")
 	cmd.Env = Sudo{}.Env(false)
 	cmd.WaitDelay = time.Second
 	return cmd.Run()
@@ -120,6 +122,11 @@ func DropTicket(ctx context.Context) error {
 // configured) or fail, while -n relies on the primed ticket and fails
 // cleanly without it. Any other command keeps its argv. The environment is
 // Env's. Display is argv as the step names it, without the flag.
+//
+// A step's sudo, and its topgrade (which runs sudo itself and is the only
+// program the kept password trusts to start one), run from internal/sysbin
+// by absolute path, never from PATH; the step keeps the names it gave for
+// its Display.
 func (s Sudo) Command(argv []string, needsPriv bool) proc.Spec {
 	if len(argv) == 0 {
 		return proc.Spec{}
@@ -133,7 +140,20 @@ func (s Sudo) Command(argv []string, needsPriv bool) proc.Spec {
 		}
 		args = append([]string{flag}, args...)
 	}
-	return proc.Spec{Name: name, Args: args, Env: s.Env(needsPriv), Display: display}
+	return proc.Spec{Name: program(name), Args: args, Env: s.Env(needsPriv), Display: display}
+}
+
+// program is what runs for a step's argv[0]: the privileged programs a
+// step names (sudo, topgrade) from internal/sysbin, read at the call;
+// anything else by its name.
+func program(name string) string {
+	switch name {
+	case "sudo":
+		return sysbin.Sudo
+	case "topgrade":
+		return sysbin.Topgrade
+	}
+	return name
 }
 
 // Env is the environment a step's child runs with: archmaid's own, without
@@ -157,7 +177,8 @@ func (s Sudo) Env(needsPriv bool) []string {
 }
 
 // CheckPassword validates pw as the current user's with
-// `su -s /usr/bin/true <user>`: single-shot PAM with no retry loop, and on
+// `su -s /usr/bin/true <user>` (sysbin.Su, never a su on PATH, which would
+// be handed the password): single-shot PAM with no retry loop, and on
 // Arch su's PAM stack doesn't include pam_faillock at all, so a wrong entry
 // burns nothing. -s runs true in place of the login shell, so none of the
 // user's shell startup files run (`su -c true` still had zsh read
@@ -176,7 +197,7 @@ func CheckPassword(ctx context.Context, pw string) (detail string, err error) {
 	if err != nil {
 		return "", err
 	}
-	check := exec.CommandContext(ctx, "su", "-s", "/usr/bin/true", self.Username)
+	check := exec.CommandContext(ctx, sysbin.Su, "-s", "/usr/bin/true", self.Username)
 	check.Stdin = strings.NewReader(pw + "\n")
 	var stderr bytes.Buffer
 	check.Stderr = &stderr
