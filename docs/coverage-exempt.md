@@ -88,8 +88,8 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/downloads/downloads.go:399-400` | `dirIdentity` | 1 | yes | on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail |
 | `internal/downloads/downloads.go:409-410` | `<package>` | 1 | yes | on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail |
 | `internal/downloads/downloads.go:638-638` | `inode` | 1 | yes | on Linux every os FileInfo carries a *syscall.Stat_t and Stat of an open root can't fail |
-| `internal/driver/driver.go:309-310` | `currentFaillock` | 1 |  | user.Current fails only when the uid has no passwd entry; no seam |
-| `internal/driver/driver.go:519-519` | `Driver.command.func` | 1 |  | the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's |
+| `internal/driver/driver.go:317-318` | `currentFaillock` | 1 |  | user.Current fails only when the uid has no passwd entry; no seam |
+| `internal/driver/driver.go:527-527` | `Driver.command.func` | 1 |  | the switch over the closed Command set is exhaustive; the fallthrough return is the compiler's |
 | `internal/engine/combine.go:85-85` | `Session.combineNext` | 1 |  | the guard skips a slot that is not Pending or already accepted; every caller advances r.cur past a slot it has settled or accepted, so the loop never meets one |
 | `internal/engine/stub/fullcleanup.go:93-93` | `builder.index` | 1 |  | the hand-built script only names its own steps |
 | `internal/frontend/topgrade.go:55-56` | `EnsureTopgradeConfig` | 1 |  | O_EXCL finds the file already there only if it appears between the Lstat and the open (race); the result is the same as the Lstat's |
