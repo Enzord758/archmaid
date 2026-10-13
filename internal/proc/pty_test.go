@@ -24,7 +24,7 @@ echo "tty_nr=$(sed 's/.*) //' /proc/$$/stat | cut -d' ' -f5)"
 echo "session_leader=$([ "$(sed 's/.*) //' /proc/$$/stat | cut -d' ' -f4)" = $$ ] && echo yes || echo no)"
 pts=$(readlink /proc/$$/fd/1)
 case $pts in /dev/pts/*) echo stdout=pts ;; *) echo "stdout=$pts" ;; esac
-( : >"$pts" ) 2>/dev/null && echo reopen=ok || echo reopen=refused
+case $pts in /dev/pts/*) ( : >"$pts" ) 2>/dev/null && echo reopen=ok || echo reopen=refused ;; *) echo reopen=n/a ;; esac
 echo "size=$(stty size <&2)"
 echo "TERM=$TERM"
 `

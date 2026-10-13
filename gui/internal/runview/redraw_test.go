@@ -130,6 +130,30 @@ func TestRedrawAcrossTheCap(t *testing.T) {
 	}
 }
 
+// TestRedrawShrinksAfterOverflow: a redraw whose lines a Driver partly
+// dropped leaves the ring shorter than it was, right after the ring
+// overwrote its oldest lines: those stay gone (ring.high), the view and
+// the model agree.
+func TestRedrawShrinksAfterOverflow(t *testing.T) {
+	m, v := NewModel(), &view{}
+	apply := func(evs ...engine.Event) {
+		t.Helper()
+		v.apply(m, m.Apply(evs))
+		check(t, m, v)
+	}
+	apply(plan("s"), engine.StepStarted{ID: "s", Index: 0})
+	lines := make([]string, OutputCap+5)
+	for i := range lines {
+		lines[i] = fmt.Sprint(i)
+	}
+	apply(out("s", 0, 0, lines...))
+	apply(out("s", 3, 2, "x")) // three taken back, the note and one line in
+	got := m.Output()
+	if len(got) != OutputCap-1 || got[0] != "5" || got[len(got)-1] != "x" {
+		t.Fatalf("view of %d lines from %q to %q", len(got), got[0], got[len(got)-1])
+	}
+}
+
 // TestPumpMergesRedraws: a redraw queued behind a chunk of the same step
 // merges into it (engine.Rewrite); a flush that splits a chunk keeps the
 // redraw on its first piece; a drop keeps it too.
