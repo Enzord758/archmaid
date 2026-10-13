@@ -254,7 +254,7 @@ TestStartupDeletesNothing; HANDOVER "Nothing deletes run history at startup" -->
      it flags a high finding, a named confirm appears before topgrade.
      Either answer is safe here: a dry run never saves the snapshot.
    - Every command step prints `[dry-run] would run: …` (topgrade as
-     `topgrade -y --disable hyprpm`) and ticks ✔ at once.
+     `topgrade -y --no-retry --disable hyprpm`) and ticks ✔ at once.
    - "Delete ENTIRE package cache? (can't reinstall without internet)":
      press `n`.
    - Orphans: the real, read-only query. Either "No orphaned packages.", or

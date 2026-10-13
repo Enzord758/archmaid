@@ -109,7 +109,7 @@ func TestCommandRunsSysbin(t *testing.T) {
 	}{
 		{[]string{"sudo", "paccache", "-r"}, true, sysbin.Sudo, "sudo paccache -r", []string{"-A", "paccache", "-r"}},
 		{[]string{"sudo", "pacman", "-Qkq"}, false, sysbin.Sudo, "sudo pacman -Qkq", []string{"-n", "pacman", "-Qkq"}},
-		{[]string{"topgrade", "-y"}, true, sysbin.Topgrade, "topgrade -y", []string{"-y"}},
+		{[]string{"topgrade", "-y", "--no-retry", "--disable", "hyprpm"}, true, sysbin.Topgrade, "topgrade -y --no-retry --disable hyprpm", []string{"-y", "--no-retry", "--disable", "hyprpm"}},
 		{[]string{"yay", "-Sc", "--aur"}, false, "yay", "yay -Sc --aur", []string{"-Sc", "--aur"}},
 	} {
 		spec := Sudo{Wrapper: "/run/user/1000/w"}.Command(c.argv, c.priv)

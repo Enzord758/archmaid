@@ -29,6 +29,12 @@ func fullCleanupSteps(env Env) []steps.Step {
 		// AlwaysLog: it changes more than any other step (a full system
 		// upgrade), so its output is kept even when it succeeds.
 		//
+		// --no-retry: topgrade would otherwise stop at a failed step and ask
+		// "Retry? (y)es/(N)o/(s)hell/(q)uit" on its stdin, which archmaid
+		// doesn't feed; a failed step must end the run, not hang or open a
+		// shell (topgrade 17.12.3 has the flag). Display, the dry-run text and
+		// the logs all come from this argv, so they show it too.
+		//
 		// hyprpm is excluded and run as the LAST step instead: hyprpm drops the
 		// sudo ticket on exit (NSys::root::dropSudo → sudo -k), which would kill
 		// the primed credentials mid-queue and force a re-prompt for every
@@ -36,7 +42,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 		{
 			ID:    steps.IDTopgrade,
 			Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
-			Argv: []string{"topgrade", "-y", "--disable", "hyprpm"}, NeedsPriv: true,
+			Argv: []string{"topgrade", "-y", "--no-retry", "--disable", "hyprpm"}, NeedsPriv: true,
 			Env:      topgradeColourEnv(), // colour into the pipe (colour.go)
 			Category: logstore.Topgrade, AlwaysLog: true,
 		},
@@ -171,7 +177,7 @@ func topgradeSteps(env Env) []steps.Step {
 		{
 			ID:    steps.IDTopgrade,
 			Title: "Updating system with topgrade…", LogLabel: "Topgrade completed",
-			Argv: []string{"topgrade", "-y"}, NeedsPriv: true,
+			Argv: []string{"topgrade", "-y", "--no-retry"}, NeedsPriv: true,
 			Env:      topgradeColourEnv(), // colour into the pipe (colour.go)
 			Category: logstore.Topgrade, AlwaysLog: true,
 		},

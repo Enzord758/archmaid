@@ -196,7 +196,7 @@ func TestSudoCommandFlag(t *testing.T) {
 		{"/w", []string{"sudo", "paccache", "-r"}, true, []string{"-A", "paccache", "-r"}},
 		{"", []string{"sudo", "paccache", "-r"}, true, []string{"-n", "paccache", "-r"}},
 		{"/w", []string{"sudo", "pacman", "-Qkq"}, false, []string{"-n", "pacman", "-Qkq"}},
-		{"/w", []string{"topgrade", "-y"}, true, []string{"-y"}},
+		{"/w", []string{"topgrade", "-y", "--no-retry"}, true, []string{"-y", "--no-retry"}},
 		{"/w", []string{"yay", "-n"}, false, []string{"-n"}},
 	} {
 		spec := Sudo{Wrapper: c.wrapper}.Command(c.argv, c.needsPriv)

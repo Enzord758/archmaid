@@ -4,7 +4,7 @@ exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> yes
 plan  10 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
-plan  2 "Updating system with topgrade…" argv=topgrade -y --disable hyprpm sudo alwayslog cat=topgrade
+plan  2 "Updating system with topgrade…" argv=topgrade -y --no-retry --disable hyprpm sudo alwayslog cat=topgrade
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
 plan  5 "Finding orphaned packages…" inproc cat=orphans
@@ -18,7 +18,7 @@ out   1 Couldn't reach the AUR: dial tcp 127.0.0.1:1: connect: connection refuse
 step  1 failed
 log   audit FAIL: AUR audit
 step  2 running
-exec  topgrade -y --disable hyprpm
+exec  topgrade -y --no-retry --disable hyprpm
 out   2 :: Synchronizing package databases...
 out   2 ── Summary ──
 out   2 System update: OK

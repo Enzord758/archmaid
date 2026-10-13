@@ -3,13 +3,13 @@ exec  sudo -n -v
 ask   "Run a system update with topgrade?" -> yes
 plan  2 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
-plan  2 "Updating system with topgrade…" argv=topgrade -y sudo alwayslog cat=topgrade
+plan  2 "Updating system with topgrade…" argv=topgrade -y --no-retry sudo alwayslog cat=topgrade
 step  1 running
 out   1 No foreign (AUR or locally built) packages installed — nothing to audit.
 step  1 ok
 log   audit OK: AUR audit
 step  2 running
-exec  topgrade -y
+exec  topgrade -y --no-retry
 out   2 :: Synchronizing package databases...
 out   2 ── Summary ──
 out   2 System update: OK

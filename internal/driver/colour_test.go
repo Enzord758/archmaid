@@ -38,9 +38,9 @@ func TestColourReachesTheChildren(t *testing.T) {
 				return nil
 			})
 
-			wantEnv, wantYay, wantLine := "1|-y --disable hyprpm", "-Sc --aur --noconfirm --color always", "\x1b[1;32mupdated\x1b[0m"
+			wantEnv, wantYay, wantLine := "1|-y --no-retry --disable hyprpm", "-Sc --aur --noconfirm --color always", "\x1b[1;32mupdated\x1b[0m"
 			if noColour != "" {
-				wantEnv, wantYay, wantLine = "unset|-y --disable hyprpm", "-Sc --aur --noconfirm", "updated"
+				wantEnv, wantYay, wantLine = "unset|-y --no-retry --disable hyprpm", "-Sc --aur --noconfirm", "updated"
 			}
 			if got := readFileLines(t, filepath.Join(dir, "topgrade.env")); !slices.Equal(got, []string{wantEnv}) {
 				t.Errorf("topgrade ran with CLICOLOR_FORCE|argv %q, want %q", got, wantEnv)

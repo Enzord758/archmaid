@@ -243,3 +243,29 @@ func TestEnvDefaults(t *testing.T) {
 		t.Fatalf("nil LookPath should be exec.LookPath: %v", err)
 	}
 }
+
+// TestTopgradeNeverRetries: topgrade 17.12.3 asks to retry after a failed
+// step and reads the answer from stdin, which no front end feeds. Both
+// topgrade steps (Full Cleanup's and Run topgrade's) must pass --no-retry, and
+// Full Cleanup keeps --disable hyprpm.
+func TestTopgradeNeverRetries(t *testing.T) {
+	for _, id := range []string{IDFullCleanup, IDTopgrade} {
+		a, _ := ByID(id)
+		n := 0
+		for _, s := range a.Steps(testEnv(true)) {
+			if s.ID != steps.IDTopgrade {
+				continue
+			}
+			n++
+			if s.Argv[0] != "topgrade" || !slices.Contains(s.Argv, "-y") || !slices.Contains(s.Argv, "--no-retry") {
+				t.Errorf("%s: topgrade argv = %v, want topgrade -y --no-retry", id, s.Argv)
+			}
+			if hp := slices.Contains(s.Argv, "hyprpm"); hp != (id == IDFullCleanup) {
+				t.Errorf("%s: --disable hyprpm present = %v, argv %v", id, hp, s.Argv)
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s: %d topgrade steps, want 1", id, n)
+		}
+	}
+}

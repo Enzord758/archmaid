@@ -672,7 +672,7 @@ comments and `git log`; this is the "read before you touch it" list.
   rest: a same-uid attacker who can read the process's memory can read the
   entry or the sudo child just as well.
 - **`hyprpm` runs last.** It drops the sudo ticket on exit, silently breaking the
-  keep-alive; Full Cleanup runs topgrade with `--disable hyprpm` and appends its
+  keep-alive; Full Cleanup runs topgrade with `-y --no-retry --disable hyprpm` (--no-retry: a failed step ends the run instead of asking Retry? on a stdin nobody feeds) and appends its
   own final step. `TestNoPrivilegedStepAfterHyprpm` (`internal/actions`) fails
   any action whose queue has a root step, or any in-process step (it may insert
   one, as the orphan probe does), after hyprpm.

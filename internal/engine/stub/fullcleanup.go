@@ -194,7 +194,7 @@ func fullCleanupWith(start time.Time, o fcOpts) Script {
 	b := &builder{now: start, started: start, at: map[string]time.Time{}, branches: o.branches}
 	b.plan = []engine.PlanStep{
 		{ID: steps.IDAURAudit, Title: "Auditing AUR packages…", InProc: true, AlwaysLog: true, Category: logstore.Audit},
-		{ID: steps.IDTopgrade, Title: "Updating system with topgrade…", Argv: []string{"topgrade", "-y", "--disable", "hyprpm"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Topgrade},
+		{ID: steps.IDTopgrade, Title: "Updating system with topgrade…", Argv: []string{"topgrade", "-y", "--no-retry", "--disable", "hyprpm"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Topgrade},
 		{ID: steps.IDPaccache, Verb: steps.VerbPaccache, Title: "Cleaning package cache…", Argv: []string{"sudo", "paccache", "-r"}, NeedsPriv: true, Category: logstore.Cleanup},
 		{ID: steps.IDPaccacheWipe, Verb: steps.VerbPaccacheWipe, Title: "Deleting entire package cache…", Argv: []string{"sudo", "paccache", "-rk0"}, NeedsPriv: true, Confirm: true, Optional: true, AlwaysLog: true, Category: logstore.Cleanup},
 		{ID: steps.IDOrphansProbe, Verb: steps.VerbPlanOrphans, Title: "Finding orphaned packages…", InProc: true, Category: logstore.Orphans},
