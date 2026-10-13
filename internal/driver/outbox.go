@@ -62,10 +62,25 @@ func (o *outbox) push(evs []engine.Event) {
 		if len(c.Lines) == 0 && c.Dropped == 0 {
 			continue
 		}
+		merged := false
 		if tail != nil && !tail.sealed && tail.chunk != nil && tail.chunk.ID == c.ID {
-			tail.chunk.Lines = append(tail.chunk.Lines, c.Lines...)
-			tail.chunk.Dropped += c.Dropped
-		} else {
+			before := len(tail.chunk.Lines)
+			switch {
+			case c.Replace == 0:
+				tail.chunk.Lines = append(tail.chunk.Lines, c.Lines...)
+				tail.chunk.Dropped += c.Dropped
+				merged = true
+			default:
+				var m engine.OutputChunk
+				if m, merged = engine.Rewrite(*tail.chunk, c); merged {
+					*tail.chunk = m
+				}
+			}
+			if merged {
+				o.lines[c.ID] += len(tail.chunk.Lines) - before
+			}
+		}
+		if !merged {
 			if tail != nil {
 				tail.sealed = true
 			}
@@ -73,11 +88,11 @@ func (o *outbox) push(evs []engine.Event) {
 			cp.Lines = slices.Clone(c.Lines)
 			tail = &item{chunk: &cp, at: now}
 			o.items = append(o.items, tail)
+			o.lines[c.ID] += len(c.Lines)
 		}
 		if len(tail.chunk.Lines) >= o.sealAt() {
 			tail.sealed = true
 		}
-		o.lines[c.ID] += len(c.Lines)
 		o.trim(c.ID)
 	}
 	o.mu.Unlock()
@@ -108,9 +123,29 @@ func (o *outbox) trim(id string) {
 		if len(it.chunk.Lines) > 0 {
 			break
 		}
+		if it.chunk.Replace > 0 || o.redrawAfter(i, id) {
+			// Kept, empty: its Dropped must stay where it is. A redraw
+			// removes lines before its own Dropped, so carried into the
+			// next redraw it would remove lines the consumer has in place
+			// of the ones dropped here; and this one's removal still
+			// stands.
+			i++
+			continue
+		}
 		carry = it.chunk.Dropped
 		o.items = slices.Delete(o.items, i, i+1)
 	}
+}
+
+// redrawAfter reports whether the next chunk of step id after item i is a
+// redraw (OutputChunk.Replace).
+func (o *outbox) redrawAfter(i int, id string) bool {
+	for _, it := range o.items[i+1:] {
+		if it.chunk != nil && it.chunk.ID == id {
+			return it.chunk.Replace > 0
+		}
+	}
+	return false
 }
 
 // next takes the first deliverable event, or says how long until the

@@ -31,6 +31,11 @@ func TestTUIDoesNotDetach(t *testing.T) {
 	if driverDeps(nil).Detach {
 		t.Fatal("the TUI's driver.Deps set Detach: its steps must share its session for the sudo ticket")
 	}
+	// #129: nor a pty: the TUI's children keep their pipes (proc ignores
+	// Pty without Detach anyway; the TUI asks for neither).
+	if d := driverDeps(nil); d.Pty || d.TermCols != nil {
+		t.Fatal("the TUI's driver.Deps ask for a pty: its children keep their pipes")
+	}
 }
 
 // TestDriverDepsRefreshUpdates: the binary's Driver refreshes the widget

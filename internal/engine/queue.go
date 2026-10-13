@@ -26,12 +26,16 @@ type run struct {
 	pending     []steps.Step // the plan, until QueueStarted
 	prefetch    []string     // prefetches started and not yet cancelled
 
-	queued    bool
-	plan      []slot
-	cur       int       // the step being asked about or run; -1 before the first
-	stepSeq   uint64    // the running step's StartStep, or 0
-	stepAt    time.Time // when it started
-	out       []string  // its output so far, for its log entry
+	queued  bool
+	plan    []slot
+	cur     int       // the step being asked about or run; -1 before the first
+	stepSeq uint64    // the running step's StartStep, or 0
+	stepAt  time.Time // when it started
+	out     []string  // its output so far, for its log entry
+	// childRun is how many of out's last lines came from the step's child
+	// since the engine last added a line of its own: what a child's
+	// StepOutput.Replace may replace.
+	childRun  int
 	keepAlive bool
 
 	prompt    PromptID
@@ -358,7 +362,7 @@ func (s *Session) launch(o *Output, accepted bool) {
 func (s *Session) startStep(o *Output, accepted bool) {
 	r := s.run
 	st := &r.plan[r.cur]
-	r.stepSeq, r.stepAt, r.out, r.check = s.seq(), s.now(), nil, nil
+	r.stepSeq, r.stepAt, r.out, r.check, r.childRun = s.seq(), s.now(), nil, nil, 0
 	if accepted && st.step.OnAccept != nil {
 		o.effect(RunHook{Seq: s.seq(), Step: st.step.ID, Fn: st.step.OnAccept})
 	}
@@ -402,20 +406,42 @@ func (s *Session) stepOutput(o *Output, in StepOutput) {
 	if st == nil || len(in.Lines) == 0 {
 		return
 	}
-	s.output(o, in.Lines)
+	r := s.run
+	// Replace only what the child printed since the engine's last own
+	// line; the leading lines that would have replaced older ones are new
+	// versions of lines the child can no longer reach here: dropped.
+	want := max(in.Replace, 0)
+	replace := min(want, r.childRun)
+	lines := in.Lines[min(want-replace, len(in.Lines)):]
+	if replace == 0 && len(lines) == 0 {
+		return
+	}
+	clear(r.out[len(r.out)-replace:])
+	r.out = r.out[:len(r.out)-replace]
+	r.childRun -= replace
+	r.childRun += len(s.publish(o, lines, replace))
 }
 
-// output adds lines to the running step's output and publishes them. They
-// are sanitized here whatever the Driver did: an Event never carries more
-// than SGR colour.
+// output adds lines of the engine's own to the running step's output and
+// publishes them (an in-process step's result, an askpass refusal): the
+// child's lines before them can no longer be replaced.
 func (s *Session) output(o *Output, lines []string) {
+	s.publish(o, lines, 0)
+	s.run.childRun = 0
+}
+
+// publish adds lines to the running step's output, in place of its last
+// replace lines, and publishes them. They are sanitized here whatever the
+// Driver did: an Event never carries more than SGR colour.
+func (s *Session) publish(o *Output, lines []string, replace int) []string {
 	r := s.run
 	clean := make([]string, len(lines))
 	for i, l := range lines {
 		clean[i] = sanitize.String(l, s.outMode)
 	}
 	r.out = append(r.out, clean...)
-	o.event(OutputChunk{ID: r.plan[r.cur].step.ID, Index: r.cur, Lines: clean})
+	o.event(OutputChunk{ID: r.plan[r.cur].step.ID, Index: r.cur, Lines: clean, Replace: replace})
+	return clean
 }
 
 func (s *Session) stepExited(o *Output, in StepExited) {
@@ -570,7 +596,7 @@ func (s *Session) logDone(o *Output, err error) {
 		body.WriteString(l)
 		body.WriteByte('\n')
 	}
-	r.out = nil
+	r.out, r.childRun = nil, 0
 	switch {
 	case err != nil:
 		s.log(o, st.LogCategory(), "FAIL", st.LogLabel, body.String())

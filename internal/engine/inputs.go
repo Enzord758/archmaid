@@ -50,6 +50,12 @@ type Discovered struct {
 type StepOutput struct {
 	Seq   uint64
 	Lines []string
+	// Replace is how many of the child's last lines, sent in earlier
+	// StepOutputs, Lines replace (the child redrew them: proc.Msg.Replace).
+	// The Session replaces only what the child printed since the last line
+	// it added itself, and drops as many leading Lines as it could not
+	// replace (OutputChunk). 0 appends.
+	Replace int
 }
 
 // PrivilegeGranted: the privilege backend got root for step Seq (the root

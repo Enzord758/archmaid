@@ -150,7 +150,7 @@ func (s *Session) combineStart(o *Output) {
 // startPart makes slot i the running step.
 func (s *Session) startPart(o *Output, i int) {
 	r := s.run
-	r.cur, r.stepAt, r.out, r.check = i, s.now(), nil, nil
+	r.cur, r.stepAt, r.out, r.check, r.childRun = i, s.now(), nil, nil, 0
 	r.plan[i].status = steps.Running
 	o.event(StepStarted{ID: r.plan[i].step.ID, Index: i, At: r.stepAt})
 }

@@ -85,7 +85,10 @@
 // coalesce consecutive OutputChunk events of the same step into one (the
 // lines concatenated in order, typically every 16–30 ms), and when its
 // consumer falls behind it may drop the oldest undelivered lines of a step,
-// counting them in the next chunk's Dropped. OutputChunk is the only event
+// counting them in the next chunk's Dropped. A chunk that redraws earlier
+// lines (OutputChunk.Replace) merges into the one before it as Rewrite
+// says, or is delivered as it is; dropping a redraw's leading lines keeps
+// its Replace. OutputChunk is the only event
 // a Driver may coalesce or drop. Every other event — the control events —
 // is delivered exactly once, in order, however slow the consumer: a Driver
 // buffers them without bound rather than block the Session or lose one.

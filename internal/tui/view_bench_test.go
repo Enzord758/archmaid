@@ -24,7 +24,7 @@ func BenchmarkViewRunning(b *testing.B) {
 	for i := range lines {
 		lines[i] = fmt.Sprintf("(%4d/%d) upgrading package-%d  [###########------] 64%%", i+1, len(lines), i)
 	}
-	m.appendOutput(lines)
+	m.writeOutput(0, false, lines)
 	b.ReportAllocs()
 	for b.Loop() {
 		if m.viewRunning() == "" {

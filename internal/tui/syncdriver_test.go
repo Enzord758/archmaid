@@ -299,7 +299,7 @@ func (d *syncDriver) pump(seq uint64, c *runnerChild) func() []engine.Input {
 			for i, l := range b.Lines {
 				lines[i] = sanitize.String(l, sanitize.KeepSGR)
 			}
-			ins = append(ins, engine.StepOutput{Seq: seq, Lines: lines})
+			ins = append(ins, engine.StepOutput{Seq: seq, Lines: lines, Replace: b.Replace})
 		}
 		d.mu.Lock()
 		defer d.mu.Unlock()

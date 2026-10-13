@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"slices"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/logstore"
@@ -86,6 +87,16 @@ type StepDone struct {
 // colour kept and every other escape stripped. The engine emits each line
 // once and never caps; a Driver may merge chunks and drop lines (Dropped,
 // see the package doc, Dropping and coalescing).
+//
+// A chunk may redraw lines it sent before (Replace): the child rewrote
+// them, a progress bar or a spinner. A front end then removes the step's
+// last Replace lines, shows Dropped, and appends Lines. It never removes
+// more of the step's lines than it got since its last gap (a Dropped, the
+// step's start, lines its own cap let go): what it can't remove is gone
+// already, so Lines still all go in. The engine only replaces lines of the
+// step's child (never a line it added itself, such as an askpass refusal,
+// whose older lines it keeps as they were), so Replace stays within what
+// the child printed since the last such line.
 type OutputChunk struct {
 	ID    string
 	Index int
@@ -94,6 +105,29 @@ type OutputChunk struct {
 	// before these, because its consumer fell behind. Always 0 from a
 	// Session. The log still has them.
 	Dropped int
+	// Replace is how many of the step's last lines, as sent in earlier
+	// chunks, Lines replace (len(Lines) >= Replace from a Session). 0
+	// appends, as every chunk did before #129.
+	Replace int
+}
+
+// Rewrite returns a followed by b, two chunks of the same step, as one
+// chunk, when b redraws lines (b.Replace > 0) and that can be said in one
+// chunk: b's replaced lines are all among a's, or a dropped nothing in
+// front of its lines (a.Dropped == 0), and b dropped nothing (b.Dropped ==
+// 0). ok is false otherwise; a and b are then delivered as they are. The
+// result never shares a's or b's backing arrays.
+func Rewrite(a, b OutputChunk) (merged OutputChunk, ok bool) {
+	if b.Dropped > 0 || (b.Replace > len(a.Lines) && a.Dropped > 0) {
+		return a, false
+	}
+	if b.Replace <= len(a.Lines) {
+		a.Lines = append(slices.Clip(a.Lines[:len(a.Lines)-b.Replace]), b.Lines...)
+		return a, true
+	}
+	a.Replace += b.Replace - len(a.Lines)
+	a.Lines = slices.Clone(b.Lines)
+	return a, true
 }
 
 // Aborted: the user's Abort stopped the running step at Index. It ends that

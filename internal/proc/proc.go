@@ -16,7 +16,6 @@
 package proc
 
 import (
-	"bufio"
 	"errors"
 	"io"
 	"os"
@@ -259,6 +258,17 @@ type Options struct {
 	// there, out of sight. The TUI's children must share its session (the
 	// package doc), so the TUI never sets it.
 	Detach bool
+	// Pty gives a detached child (it needs Detach; without it Pty is
+	// ignored) a pseudo-terminal as its stdout and stderr, never as its
+	// controlling terminal, and TERM=xterm-256color: tools that colour or
+	// draw progress only on a terminal do, and sudo still finds no
+	// terminal (pty.go). Cols is its width (80 when < 1); it has 50 rows.
+	// If no pty can be opened, the child gets the pipe instead.
+	Pty  bool
+	Cols int
+	// Redraw is how often, at most, lines already sent are sent again
+	// because the child redrew them (Msg.Replace); 0 is DefaultRedraw.
+	Redraw time.Duration
 }
 
 // DryRunPrefix starts the one line a dry run reports.
@@ -351,11 +361,31 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 		cmd.SysProcAttr = detachAttr()
 	}
 
-	// Fold stderr into stdout through a single pipe (the shell's `2>&1`).
-	pr, pw := io.Pipe()
-	cmd.Stdout, cmd.Stderr = pw, pw
+	// stdout and stderr are one stream: a pty (Options.Pty, detached
+	// children only) or a pipe (the shell's `2>&1`).
+	var master *os.File
+	if r.opts.Detach && r.opts.Pty {
+		m, slave, err := openPty(r.opts.Cols)
+		if err == nil {
+			master = m
+			cmd.Stdout, cmd.Stderr = slave, slave
+			cmd.Env = append(slices.Clip(cmd.Env), ptyTerm)
+			defer slave.Close() // the child has its own copy once started
+		}
+	}
+	var out io.Reader = master
+	var pw *io.PipeWriter
+	if master == nil {
+		var pr *io.PipeReader
+		pr, pw = io.Pipe()
+		cmd.Stdout, cmd.Stderr = pw, pw
+		out = pr
+	}
 
 	if err := cmd.Start(); err != nil {
+		if master != nil {
+			master.Close()
+		}
 		go func() { send(Msg{Done: true, Err: err}) }()
 		return nil
 	}
@@ -368,22 +398,17 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 	}
 
 	go func() {
-		// Scan on a goroutine so cmd.Wait can proceed. close(scanned) lets us
-		// guarantee every line is sent before the done message.
-		scanned := make(chan struct{})
+		// Read and render on goroutines so cmd.Wait can proceed;
+		// close(emitted) lets us guarantee every line is sent before the
+		// done message. emitLines keeps reading to the end of the output
+		// after an abort (send false), so the child never blocks on a
+		// write and cmd.Wait can return.
+		chunks := make(chan []byte, 4)
+		go readChunks(out, chunks)
+		emitted := make(chan struct{})
 		go func() {
-			sc := bufio.NewScanner(pr)
-			sc.Buffer(make([]byte, 0, 64*1024), 1<<20) // tolerate long lines (pacman)
-			for sc.Scan() {
-				if !send(Msg{Line: sc.Text()}) {
-					break // aborted: nobody is reading anymore
-				}
-			}
-			// Keep the pipe drained until the child is gone (aborted, or a
-			// line over the scanner's limit), so it never blocks on a write
-			// and cmd.Wait can return.
-			io.Copy(io.Discard, pr)
-			close(scanned)
+			emitLines(chunks, send, r.opts.Redraw)
+			close(emitted)
 		}()
 
 		err := cmd.Wait()
@@ -393,8 +418,19 @@ func (r Runner) Start(spec Spec, ch chan<- Msg, quit <-chan struct{}) *Child {
 			// held the pipe. The command itself succeeded.
 			err = nil
 		}
-		pw.Close() // unblocks the scanner with EOF
-		<-scanned  // all lines are on the channel before we report done
+		if master != nil {
+			// What the child left running may hold the slave as it would
+			// hold the pipe: bound the read the same way (WaitDelay).
+			if r.opts.WaitDelay > 0 {
+				_ = master.SetReadDeadline(time.Now().Add(r.opts.WaitDelay))
+			}
+		} else {
+			pw.Close() // unblocks the reader with EOF
+		}
+		<-emitted // all lines are on the channel before we report done
+		if master != nil {
+			master.Close()
+		}
 		send(Msg{Done: true, Err: err})
 	}()
 

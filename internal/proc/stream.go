@@ -3,8 +3,14 @@ package proc
 // Msg is one message on a child's output channel (see Runner.Start).
 type Msg struct {
 	Line string // a line of combined stdout+stderr (ignored when Done)
-	Done bool   // true for the final message
-	Err  error  // non-nil if the command failed (only meaningful when Done)
+	// Replace is how many of the lines sent before this one it and the
+	// lines after it replace: the child redrew them (a progress bar's
+	// carriage return, a cursor moved up). The receiver drops the last
+	// Replace lines it got, then takes Line. Lines never disappear: at
+	// least Replace lines follow, this one included. 0 appends.
+	Replace int
+	Done    bool  // true for the final message
+	Err     error // non-nil if the command failed (only meaningful when Done)
 }
 
 // BatchMax is the batch cap the TUI pumps with, and the size of a step's
@@ -15,9 +21,12 @@ const BatchMax = 256
 // done message if that was among them. Nothing follows a done on the
 // channel, so a batch never spans two children.
 type Batch struct {
-	Lines []string // raw output lines, in order (may be empty when Done)
-	Done  bool     // the child's done message ended the batch
-	Err   error    // the child's exit error (only meaningful when Done)
+	// Replace is how many lines of the batches before this one Lines
+	// replace (Msg.Replace, merged); 0 appends.
+	Replace int
+	Lines   []string // raw output lines, in order (may be empty when Done)
+	Done    bool     // the child's done message ended the batch
+	Err     error    // the child's exit error (only meaningful when Done)
 }
 
 // Next blocks for the next message on ch, then takes whatever else is already
@@ -40,6 +49,17 @@ func Next(ch <-chan Msg, quit <-chan struct{}, max int) (b Batch, ok bool) {
 		if msg.Done {
 			b.Done, b.Err = true, msg.Err
 			return b, true
+		}
+		if r := msg.Replace; r > 0 {
+			// a redraw of lines in this batch drops them here; one of
+			// lines before it becomes the batch's own Replace
+			if r <= len(b.Lines) {
+				clear(b.Lines[len(b.Lines)-r:])
+				b.Lines = b.Lines[:len(b.Lines)-r]
+			} else {
+				b.Replace += r - len(b.Lines)
+				b.Lines = b.Lines[:0]
+			}
 		}
 		b.Lines = append(b.Lines, msg.Line)
 		if len(b.Lines) >= max {

@@ -205,7 +205,7 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		m.queue[ev.Index].status = steps.Running
 		m.resetOutput()
 	case engine.OutputChunk:
-		m.appendOutput(ev.Lines)
+		m.writeOutput(ev.Replace, ev.Dropped > 0, ev.Lines)
 		if m.queue[ev.Index].plan.InProc {
 			m.output.GotoTop() // a report reads top-down; its worst findings come first
 		}

@@ -77,6 +77,14 @@ type Deps struct {
 	// Askpass. The GUI sets it; the TUI must not (its steps share its
 	// session for the sudo ticket, see internal/proc).
 	Detach bool
+	// Pty (with Detach) gives every step's child a pseudo-terminal as its
+	// output, never as its controlling terminal (proc.Options.Pty): tools
+	// colour and draw progress as in a terminal, and sudo still finds no
+	// terminal to prompt on. TermCols, read as each child starts, is its
+	// width in columns (nil or < 1: 80). Only the GUI sets them; the TUI's
+	// children keep their pipes.
+	Pty      bool
+	TermCols func() int
 
 	// Askpass delivers the askpass Server's requests ((*privilege.Server).
 	// Requests); nil means no askpass. The Driver verifies each against the

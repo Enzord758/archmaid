@@ -185,6 +185,12 @@ func (d *Driver) startStep(e engine.StartStep) {
 	}
 	ch := make(chan proc.Msg, proc.BatchMax)
 	opts := proc.Options{DryRun: e.Env.DryRun, WaitDelay: d.cfg.WaitDelay, KillGrace: d.cfg.KillGrace, Detach: d.cfg.Detach}
+	if d.cfg.Detach && d.cfg.Pty {
+		opts.Pty = true
+		if d.cfg.TermCols != nil {
+			opts.Cols = d.cfg.TermCols()
+		}
+	}
 	spec := d.cfg.Priv.Command(st.Argv, st.NeedsPriv)
 	spec.ExtraEnv = st.Env // the step's own variables (topgrade's colour), for its child only
 	d.guardPath(e, spec)   // the kept password's PATH guard (pathguard.go)
@@ -229,7 +235,7 @@ func (d *Driver) pump(seq uint64, ch <-chan proc.Msg) {
 	for {
 		b, _ := proc.Next(ch, nil, proc.BatchMax) // no quit channel: Next waits for the done
 		if len(b.Lines) > 0 {
-			d.post(msg{in: engine.StepOutput{Seq: seq, Lines: clean(b.Lines)}})
+			d.post(msg{in: engine.StepOutput{Seq: seq, Lines: clean(b.Lines), Replace: b.Replace}})
 		}
 		if b.Done {
 			d.post(msg{in: engine.StepExited{Seq: seq, Err: b.Err}})

@@ -15,7 +15,8 @@ import (
 )
 
 // drain reads ch to its done, failing t if that takes longer than 5 s, and
-// returns the lines and the done's error.
+// returns the lines (each Msg's Replace applied: the final lines) and the
+// done's error.
 func drain(t *testing.T, ch <-chan Msg) ([]string, error) {
 	t.Helper()
 	var lines []string
@@ -26,7 +27,10 @@ func drain(t *testing.T, ch <-chan Msg) ([]string, error) {
 			if msg.Done {
 				return lines, msg.Err
 			}
-			lines = append(lines, msg.Line)
+			if msg.Replace > len(lines) {
+				t.Fatalf("Replace %d of %d lines", msg.Replace, len(lines))
+			}
+			lines = append(lines[:len(lines)-msg.Replace], msg.Line)
 		case <-timeout:
 			t.Fatalf("no done after 5s (lines so far %q)", lines)
 		}

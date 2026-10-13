@@ -71,6 +71,7 @@ type realDriverTarget struct {
 	prompt     tt.Event       // the open prompt, or nil
 	promptID   engine.PromptID
 	fin        *engine.Finished
+	panes      map[int][]string // each step's output, redraws applied
 
 	mu      sync.Mutex
 	reports []error // what the Driver told Deps.Report
@@ -251,6 +252,14 @@ func (tg *realDriverTarget) take(ev engine.Event) {
 		for _, l := range ev.Lines {
 			tg.push(tt.OutputLine{Index: ev.Index, Text: l})
 		}
+		// The step's output as a front end shows it, redraws applied
+		// (OutputChunk.Replace); the transcript keeps every line sent.
+		if tg.panes == nil {
+			tg.panes = map[int][]string{}
+		}
+		p := tg.panes[ev.Index]
+		k := min(ev.Replace, len(p))
+		tg.panes[ev.Index] = append(p[:len(p)-k], ev.Lines...)
 	case engine.StepDone:
 		tg.running = -1
 		tg.push(tt.StepDone{Index: ev.Index, Status: transcriptStatus(ev.Status)})

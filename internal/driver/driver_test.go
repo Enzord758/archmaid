@@ -231,6 +231,7 @@ func TestBackpressureDropsOnlyOutput(t *testing.T) {
 	var out []string
 	ticks, dropped := 0, 0
 	next := 1 // the seq value the next delivered line should have, drops counted
+	own := 0  // lines delivered since the last gap
 	for {
 		ev, ok := r.next()
 		if !ok {
@@ -241,16 +242,26 @@ func TestBackpressureDropsOnlyOutput(t *testing.T) {
 			ticks++
 			continue
 		case engine.OutputChunk:
+			k := 0
 			if ev.ID == "seq" {
+				// A line cut at a read's end may go out unfinished and
+				// come again whole, as a redraw (OutputChunk.Replace):
+				// take back what it replaces, never past a gap.
+				k = min(ev.Replace, own)
+				next, own = next-k, own-k
+				if ev.Dropped > 0 {
+					own = 0
+				}
 				next += ev.Dropped
 				for _, l := range ev.Lines {
 					if l != strconv.Itoa(next) {
 						t.Fatalf("line %q where %d was due", l, next)
 					}
 					next++
+					own++
 				}
 			}
-			out = append(out, ev.Lines...)
+			out = append(out[:len(out)-k], ev.Lines...)
 			dropped += ev.Dropped
 			continue
 		case engine.StepStarted:

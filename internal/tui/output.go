@@ -17,6 +17,9 @@ const maxVisibleLines = 2000
 type lineTail struct {
 	lines []string
 	max   int
+	// own is how many of the last lines came in since the last gap (the
+	// step's start, lines the Driver dropped): what a redraw may replace.
+	own int
 }
 
 func newLineTail(max int) *lineTail { return &lineTail{max: max} }
@@ -39,6 +42,23 @@ func (t *lineTail) push(lines []string) (dropped int) {
 func (t *lineTail) reset() {
 	clear(t.lines)
 	t.lines = t.lines[:0]
+	t.own = 0
+}
+
+// write applies an OutputChunk: its last replace lines go (never more than
+// came in since the last gap, nor more than it holds: the rest is gone
+// already), a gap (lines the Driver dropped) follows when gap is set, then
+// lines are appended. It returns how many lines left the front.
+func (t *lineTail) write(replace int, gap bool, lines []string) (dropped int) {
+	k := min(max(replace, 0), t.own, len(t.lines))
+	clear(t.lines[len(t.lines)-k:])
+	t.lines = t.lines[:len(t.lines)-k]
+	t.own -= k
+	if gap {
+		t.own = 0
+	}
+	t.own += len(lines)
+	return t.push(lines)
 }
 
 // String is the tail as the pane shows it: every line newline-terminated.
@@ -63,14 +83,15 @@ func (m *model) resetOutput() {
 	m.output.GotoTop()
 }
 
-// appendOutput adds already-sanitized lines to the active step's output. The
-// pane follows the newest line only if it was already showing the bottom: a
-// user who scrolled up to read something keeps reading it, and when the tail
-// drops lines from the front, their position moves up with the text instead
-// of the text sliding under them.
-func (m *model) appendOutput(lines []string) {
+// writeOutput adds an OutputChunk's already-sanitized lines to the active
+// step's output, in place of the last replace lines it redraws
+// (lineTail.write). The pane follows the newest line only if it was
+// already showing the bottom: a user who scrolled up to read something
+// keeps reading it, and when the tail drops lines from the front, their
+// position moves up with the text instead of the text sliding under them.
+func (m *model) writeOutput(replace int, gap bool, lines []string) {
 	follow := m.output.AtBottom()
-	dropped := m.tail.push(lines)
+	dropped := m.tail.write(replace, gap, lines)
 	m.output.SetContent(m.tail.String())
 	switch {
 	case follow:
