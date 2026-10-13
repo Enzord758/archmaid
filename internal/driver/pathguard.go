@@ -54,6 +54,10 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 		return
 	}
 	d.keep.Fail()
+	d.keepOffWhy = "the PATH check found something that could stand in for sudo"
+	if !done {
+		d.keepOffWhy = "the PATH check didn't finish in time"
+	}
 	what := "the check of this step's PATH didn't finish in " + pathScanMax.String()
 	if done {
 		what = "this step's PATH has something that could stand in for sudo: " + namesOf(shadows)

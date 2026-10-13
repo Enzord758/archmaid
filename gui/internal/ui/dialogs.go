@@ -301,6 +301,26 @@ func (d *amDialog) itemList(title string, items []string, destructive bool) gtk.
 // (1.11), unchanged.
 const KeptNote = "archmaid keeps this password in memory for this run only. It answers topgrade's and yay's sudo and archmaid's own polkit prompts. Any other program that asks shows this dialog with its name."
 
+// KeptOffNote is what the dialog says instead of KeptNote when the Driver
+// keeps passwords but this prompt's password will not be kept (the PATH
+// guard tripped, or the kept one was refused or ran out): why, in one line
+// (NeedsPassword.KeepOff).
+func KeptOffNote(why string) string {
+	if why = sanitize.Clip(sanitize.OneLine(why), 120); why == "" {
+		why = "the kept password was refused or has run out"
+	}
+	return "archmaid is not keeping your password for this run (" + why + "), so every password prompt asks you."
+}
+
+// keptNoteFor is the note under the entry for p on a Driver that keeps the
+// password: KeptNote only when the Driver said p's password will be kept.
+func keptNoteFor(p engine.NeedsPassword) string {
+	if p.Keeps {
+		return KeptNote
+	}
+	return KeptOffNote(p.KeepOff)
+}
+
 // passwordDialog asks for the sudo password: up front (with the gate it
 // stands in for as its heading), or for sudo's askpass mid-step (naming
 // who asked). "Cancel" is CancelPrompt.
@@ -363,7 +383,7 @@ func (w *Window) passwordDialog(p engine.NeedsPassword) *amDialog {
 	if w.opts.KeepsPassword {
 		// Not muted: what the kept password answers, and that any other
 		// program asking shows this dialog, is part of the check.
-		l := dialogText(KeptNote, "am-kept")
+		l := dialogText(keptNoteFor(p), "am-kept")
 		wrapNatural(l)
 		box.Append(l)
 	}

@@ -90,6 +90,10 @@ func narrowStates(c *covEnv) {
 	dialogChecks := map[string]func(labels []string){}
 	ask := func(name string, id engine.PromptID, ev engine.Event, resp string) {
 		dry, kept := dry, kept
+		if np, ok := ev.(engine.NeedsPassword); ok {
+			np.Keeps = kept // the Driver's word that the password is kept
+			ev = np
+		}
 		var wasDry, wasKept bool
 		add(func() {
 			wasDry, wasKept = w.drvDry, w.opts.KeepsPassword

@@ -229,6 +229,14 @@ type NeedsPassword struct {
 	// one). A front end picks the dialog from these, never from Requester.
 	Polkit bool
 	Action string
+	// Keeps is set by a Driver that keeps the run's password (the GUI's)
+	// when the password given to this prompt will be kept and answer the
+	// run's later prompts. False is the safe default: a front end claims
+	// nothing is kept unless this says so. KeepOff is then, for a Driver
+	// that keeps passwords, why not (one short line, sanitized; "" when it
+	// has no better reason than that it was refused or has run out).
+	Keeps   bool
+	KeepOff string
 }
 
 // NeedsSelection opens a multi-select (the services list); answer with

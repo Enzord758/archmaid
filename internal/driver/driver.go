@@ -198,19 +198,20 @@ type Driver struct {
 	pubDone chan struct{}
 
 	// Owned by the loop.
-	local     []msg // Inputs the loop made itself (HookDone)
-	children  map[uint64]*proc.Child
-	stopped   []*proc.Child                      // Deps.Detach: children stopped, their groups to await at teardown
-	lastChild uint64                             // the newest child still running
-	cancels   map[uint64]context.CancelCauseFunc // in-process steps, discoveries, helper steps
-	prefetch  map[string]Prefetch                // running prefetches
-	asks      map[uint64]asker                   // open askpass and agent requests
-	lastAsk   uint64
-	childPriv map[uint64]bool         // running children whose step is NeedsPriv
-	helpers   map[uint64]bool         // running helper steps (polkit)
-	keep      *privilege.KeptPassword // Deps.KeepPassword; nil otherwise
-	askedBy   map[sudoKey]bool        // sudo processes that asked this run
-	keepAlive chan struct{}           // closed to stop the refresh; nil when off
+	local      []msg // Inputs the loop made itself (HookDone)
+	children   map[uint64]*proc.Child
+	stopped    []*proc.Child                      // Deps.Detach: children stopped, their groups to await at teardown
+	lastChild  uint64                             // the newest child still running
+	cancels    map[uint64]context.CancelCauseFunc // in-process steps, discoveries, helper steps
+	prefetch   map[string]Prefetch                // running prefetches
+	asks       map[uint64]asker                   // open askpass and agent requests
+	lastAsk    uint64
+	childPriv  map[uint64]bool         // running children whose step is NeedsPriv
+	helpers    map[uint64]bool         // running helper steps (polkit)
+	keep       *privilege.KeptPassword // Deps.KeepPassword; nil otherwise
+	keepOffWhy string                  // why the kept password was turned off, for the prompt (NeedsPassword.KeepOff)
+	askedBy    map[sudoKey]bool        // sudo processes that asked this run
+	keepAlive  chan struct{}           // closed to stop the refresh; nil when off
 }
 
 // msg is what reaches the loop besides Commands: an Input, or an askpass
@@ -615,6 +616,16 @@ func (d *Driver) apply(o engine.Output) {
 	}
 	for i, ev := range o.Events {
 		switch ev := ev.(type) {
+		case engine.NeedsPassword:
+			// Whether the kept password will answer is the Driver's to
+			// say (keep.go), read now, when the prompt goes out.
+			if d.cfg.KeepPassword {
+				ev.Keeps = !d.keep.Spent()
+				if !ev.Keeps {
+					ev.KeepOff = d.keepOffWhy
+				}
+				o.Events[i] = ev
+			}
 		case engine.Finished:
 			d.keep.Wipe()
 		case engine.DiscoveryResult:

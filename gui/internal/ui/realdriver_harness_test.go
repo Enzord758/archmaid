@@ -1215,6 +1215,7 @@ func smallPassword(scenario string) func(engine.NeedsPassword) engine.NeedsPassw
 		} else {
 			p.Requester = longRequester
 		}
+		p.Keeps = true // the kept-password note too: the tallest dialog
 		return p
 	}
 }
