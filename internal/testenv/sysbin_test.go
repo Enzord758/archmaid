@@ -151,32 +151,51 @@ func TestUseSysbinAndDecoys(t *testing.T) {
 var bareNames = []string{"su", "sudo", "sudo-rs", "pkexec", "pkttyagent", "runuser", "doas", "run0", "please", "topgrade"}
 
 // bareAllowed are the bare-name call arguments that run nothing, and why.
+// An entry that no longer matches a hit fails TestNoBarePrivilegedExec.
 var bareAllowed = map[string]string{
-	`gui/internal/ui/overview.go:privTag("sudo")`:     "a plan row's privilege tag, a label; runs nothing",
-	`internal/privilege/pathguard.go:Join(…, "sudo")`: "the PATH guard's stat of a dir's sudo; runs nothing",
+	`gui/internal/ui/overview.go:privTag("sudo")`:              "a plan row's privilege tag, a label; runs nothing",
+	`internal/helperclient/run.go:Errorf(…, Pkexec: "pkexec")`: "the display name in an error's text; Run executes sysbin.Pkexec",
 }
 
 // TestNoBarePrivilegedExec: no product Go file passes a privileged
 // program's bare name as the first or second argument of a call (exec's
 // Command, CommandContext and LookPath, proc.Query and any wrapper of
 // them), nor as a proc.Spec's or exec.Cmd's program: archmaid runs each
-// from internal/sysbin, by absolute path. A step's argv (sudo …, topgrade
-// …) keeps its names: privilege.Sudo.Command runs it from sysbin
-// (its TestCommandRunsSysbin).
+// from internal/sysbin, by absolute path. The argument is read as the
+// compiler reads it (go/types constant folding, bareScan), so a constant,
+// a concatenation or a typed constant counts like a literal, and so does
+// a variable given a bare name and a shell's -c script that runs one by
+// name. A step's argv (sudo …, topgrade …) keeps its names:
+// privilege.Sudo.Command runs it from sysbin (its TestCommandRunsSysbin).
 func TestNoBarePrivilegedExec(t *testing.T) {
 	root, files := moduleGoFiles(t)
+	var product []string
 	for _, rel := range files {
-		if strings.HasSuffix(rel, "_test.go") {
+		if !strings.HasSuffix(rel, "_test.go") {
+			product = append(product, rel)
+		}
+	}
+	hits, err := bareModuleScan(root, product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	used := map[string]bool{}
+	for _, h := range hits {
+		key := h.file + ":" + h.desc
+		if _, ok := bareAllowed[key]; ok {
+			used[key] = true
 			continue
 		}
-		hits, err := barePrivilegedCalls(filepath.Join(root, rel), nil)
-		if err != nil {
-			t.Fatal(err)
+		t.Errorf("%s: %s runs a privileged program by its bare name, which PATH decides; use internal/sysbin", h.file, h.desc)
+	}
+	for key := range bareAllowed {
+		if !used[key] {
+			t.Errorf("bareAllowed: %s matches no call any more; remove it", key)
 		}
-		for _, h := range hits {
-			if _, ok := bareAllowed[filepath.ToSlash(rel)+":"+h]; !ok {
-				t.Errorf("%s: %s runs a privileged program by its bare name, which PATH decides; use internal/sysbin", rel, h)
-			}
+	}
+	for c := range bareConstAllowed {
+		if !bareConstUsed[c] {
+			t.Errorf("bareConstAllowed: %s is passed nowhere any more; remove it", c)
 		}
 	}
 }
@@ -207,63 +226,56 @@ func TestBarePrivilegedCallsFinds(t *testing.T) {
 	}
 }
 
-// barePrivilegedCalls parses a Go file (src as for parser.ParseFile) and
-// describes each call whose first or second argument, and each composite
-// literal whose Name or Path field, is a bareNames literal.
-func barePrivilegedCalls(path string, src any) ([]string, error) {
-	f, err := parser.ParseFile(token.NewFileSet(), path, src, parser.SkipObjectResolution)
+// TestBarePrivilegedCallsFolds (#136, review #134 N2): the scan reads the
+// program argument as the compiler does (go/types constant folding), so a
+// constant, a concatenation and a typed constant are caught like a
+// literal; so are a variable given a bare name and a shell's -c script
+// that runs one by name. A constant of a type of its own (doas, as
+// logstore.Category's "topgrade") counts once converted to a string, the
+// form exec takes; a conversion itself runs nothing.
+func TestBarePrivilegedCallsFolds(t *testing.T) {
+	src := "package x\n" +
+		"const suName = \"su\"\n" +
+		"const (\n\tpre = \"pk\"\n\tpkName = pre + \"exec\"\n)\n" +
+		"const typedSudo string = \"sudo\"\n" +
+		"type prog string\n" +
+		"const doas prog = \"doas\"\n" +
+		"func runProg(p prog) {}\n" +
+		"var pkgSudo = \"sudo\"\n" +
+		"func f() {\n" +
+		"\texec.CommandContext(ctx, suName, \"-s\", \"/usr/bin/true\")\n" +
+		"\texec.Command(\"su\" + \"do\", \"-n\")\n" +
+		"\texec.LookPath(pkName)\n" +
+		"\texec.Command(typedSudo, \"-v\")\n" +
+		"\trunProg(doas)\n" +
+		"\texec.Command(string(doas))\n" +
+		"\t_ = proc.Spec{Name: suName}\n" +
+		"\tname := \"run0\"\n" +
+		"\texec.Command(name)\n" +
+		"\tvar later string\n" +
+		"\tlater = \"please\"\n" +
+		"\texec.Command(later, \"x\")\n" +
+		"\texec.Command(pkgSudo)\n" +
+		"\texec.Command(\"sh\", \"-c\", \"sudo pacman -Syu\")\n" +
+		"\texec.CommandContext(ctx, \"/bin/bash\", \"-ec\", \"cd /tmp && su -c true\")\n" +
+		"\texec.Command(\"sh\", \"-c\", \"pseudo sudoku; echo su-do\")\n" +
+		"\texec.Command(\"echo\", \"sudo pacman\")\n" +
+		"\tok := \"paccache\"\n" +
+		"\texec.Command(ok)\n" +
+		"\texec.Command(sysbin.Sudo, \"-n\", \"-v\")\n" +
+		"}\n"
+	got, err := barePrivilegedCalls("x.go", src)
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	bare := func(e ast.Expr) (string, bool) {
-		lit, ok := e.(*ast.BasicLit)
-		if !ok || lit.Kind != token.STRING {
-			return "", false
-		}
-		s, err := strconv.Unquote(lit.Value)
-		return s, err == nil && slices.Contains(bareNames, s)
+	want := []string{
+		`CommandContext(…, suName: "su")`, `Command("sudo")`, `LookPath(pkName: "pkexec")`, `Command(typedSudo: "sudo")`,
+		`Command("doas")`, `Spec{Name: suName: "su"}`, `Command(name: "run0")`, `Command(later: "please")`, `Command(pkgSudo: "sudo")`,
+		`Command(sh -c "sudo pacman -Syu")`, `CommandContext(/bin/bash -ec "cd /tmp && su -c true")`,
 	}
-	name := func(e ast.Expr) string {
-		switch e := e.(type) {
-		case *ast.Ident:
-			return e.Name
-		case *ast.SelectorExpr:
-			return e.Sel.Name
-		}
-		return "?"
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %q,\nwant %q", got, want)
 	}
-	var out []string
-	ast.Inspect(f, func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.CallExpr:
-			for i, a := range n.Args {
-				if i > 1 {
-					break
-				}
-				if s, ok := bare(a); ok {
-					pre := ""
-					if i == 1 {
-						pre = "…, "
-					}
-					out = append(out, name(n.Fun)+"("+pre+strconv.Quote(s)+")")
-				}
-			}
-		case *ast.CompositeLit:
-			for _, el := range n.Elts {
-				kv, ok := el.(*ast.KeyValueExpr)
-				if !ok {
-					continue
-				}
-				if k, ok := kv.Key.(*ast.Ident); ok && (k.Name == "Name" || k.Name == "Path") {
-					if s, ok := bare(kv.Value); ok {
-						out = append(out, name(n.Type)+"{"+k.Name+": "+strconv.Quote(s)+"}")
-					}
-				}
-			}
-		}
-		return true
-	})
-	return out, nil
 }
 
 // TestE2EBuildsBareSysbin: the e2e harness drives the real binary, whose
