@@ -157,7 +157,8 @@ func TestCatchSignalsSurvivesClosedStdout(t *testing.T) {
 // holds pacman's db.lck, and a helper ended inside that hold would leave
 // it behind and block every later pacman. What makes the hold safe from a
 // user's (or a dying GUI's) signal is catchSignals: every signal that
-// would end or stop the helper, short of root's SIGKILL and SIGSTOP, must
+// would end or stop the helper, short of SIGKILL and SIGSTOP (which nobody can
+// catch, and which the user can send too through the helper's user cgroup), must
 // stay in caughtSignals (helper.holdPacmanLock's comment relies on it).
 func TestCaughtSignalsCoverThePacmanLockHold(t *testing.T) {
 	for _, sig := range []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT,

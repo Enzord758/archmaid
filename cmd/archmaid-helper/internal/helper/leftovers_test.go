@@ -709,10 +709,29 @@ func TestTidyLockReleaseChecksItsOwn(t *testing.T) {
 
 // TestTidyNotEmptyHint (#121): a leftover with something in it stays, and
 // its line says how to delete it by hand, safely: only while no pacman
-// runs, by its exact path, quoted for the shell.
-func TestTidyNotEmptyHint(t *testing.T) {
+// runs, by its exact path, quoted for the shell. The command is printed
+// only for a plain-ASCII path ([A-Za-z0-9/._+-]); a name with a space or a
+// quote gets the by-hand wording and no command.
+// TestTidyNotEmptyHintOddName: see TestTidyNotEmptyHint.
+func TestTidyNotEmptyHintOddName(t *testing.T) {
 	_, f := fakeCache(t)
 	dir := filepath.Join(t.TempDir(), "it's pkg")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f.on(cacheDirQuery, reply{out: dir + "/\n"})
+	p := leftover(t, dir, "download-Hnt123")
+	writeFile(t, filepath.Join(p, "foo-1-1-x86_64.pkg.tar.zst.part"))
+	o, out := tidyOpts(t, f)
+	lines := runCleanUninstalled(t, o, out)
+	if len(lines) != 1 || strings.Contains(lines[0], "sudo rm") || !strings.Contains(lines[0], "no command is given") {
+		t.Errorf("lines %q", lines)
+	}
+}
+
+func TestTidyNotEmptyHint(t *testing.T) {
+	_, f := fakeCache(t)
+	dir := filepath.Join(t.TempDir(), "pkg+1.0_x-y")
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

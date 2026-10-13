@@ -58,9 +58,12 @@ import (
 // pacman.conf's DBPath is not the one PacmanDBLock names. Such a folder
 // is empty only from its mkdtemp to the first .part file, which
 // curl_add_payload opens before the transfer starts: milliseconds, or
-// seconds if the download user's lookup (getpwnam, NSS) is slow. The floor
-// covers that with a wide margin; and if it is ever beaten, all that
-// happens is that one download fails (its .part can't be created) and
+// seconds if the download user's lookup (getpwnam, NSS) is slow. That holds
+// for libalpm's built-in curl only. With an XferCommand (`curl ... -o %o`)
+// the file appears only when data arrives, so a lockless `pacman -U <url>`
+// can keep an empty folder for over 2 minutes. The floor covers the built-in
+// case with a wide margin; and if it is ever beaten, all that happens is
+// that one download fails (its .part can't be created) and
 // pacman stops before it changes anything.
 //
 // The hold is kept as short as possible: pacman-conf runs and every cache
@@ -299,10 +302,38 @@ func removeLeftover(dirfd int, name string, now time.Time) string {
 const reasonNotEmpty = "not empty"
 
 // notEmptyHint is the rest of a not-empty folder's line: what is in it,
-// and how to delete it by hand, safely.
+// and how to delete it by hand, safely. The command is meant to be pasted,
+// but every output line goes through SanitizeLine, which drops C1 controls,
+// bidi and format characters and replaces invalid UTF-8: a path with any of
+// those would come out naming another folder. So the command is printed
+// only for a plain path (plainPath); otherwise the line says to delete the
+// folder by hand and gives no command.
 func notEmptyHint(path, pacmanDBLock string) string {
-	return " (an interrupted download's partial files); to delete it by hand, first make sure no pacman is running (" +
-		pacmanDBLock + " doesn't exist), then: sudo rm -r -- " + shellQuote(path)
+	head := " (an interrupted download's partial files); to delete it by hand, first make sure no pacman is running (" +
+		pacmanDBLock + " doesn't exist)"
+	if !plainPath(path) {
+		return head + ", then delete that folder with its contents (its name has characters that can't be shown safely, so no command is given)"
+	}
+	return head + ", then: sudo rm -r -- " + shellQuote(path)
+}
+
+// plainPath reports whether every byte of p is in [A-Za-z0-9/._+-], the
+// only paths a hint's command is printed for: they survive SanitizeLine
+// and a paste unchanged.
+func plainPath(p string) bool {
+	if p == "" {
+		return false
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9',
+			c == '/', c == '.', c == '_', c == '+', c == '-':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // shellQuote quotes s for a POSIX shell, so a hint's command can be pasted.
@@ -320,14 +351,19 @@ func shellQuote(s string) string {
 // (the deferred release runs before the panic goes on). A stale db.lck
 // would block every later pacman ("unable to lock database"), so:
 //
-//   - nothing in fn may block for long: only fstatat/unlinkat on open dirs;
+//   - nothing in fn may block for long: only fstatat/unlinkat on open dirs
+//     (on an NFS or FUSE cache dir even those can block under the lock);
 //   - the helper catches and drops SIGINT, SIGTERM, SIGHUP, SIGQUIT,
 //     SIGTSTP and the rest for its whole run (main.go, catchSignals), so no
 //     signal a user (or the GUI going away) can send ends it inside fn;
-//   - left are root's SIGKILL (an admin, the OOM killer, the shutdown's
-//     final kill), a Go runtime fatal error and a power loss, inside a hold
-//     of microseconds per candidate. pacman itself, holding the same lock
-//     for minutes, has exactly the same exposure.
+//   - left are SIGKILL and SIGSTOP, which can't be caught: root's, but also
+//     the user's, since pkexec leaves the helper in archmaid-gui's user
+//     cgroup (cgroup.kill, cgroup.freeze, `systemctl --user` stopping the
+//     scope, a logout, systemd-oomd); the OOM killer, the shutdown's final
+//     kill, a Go runtime fatal error and a power loss. All of that inside a
+//     hold of microseconds per candidate. pacman itself, holding the same
+//     lock for minutes, has the same exposure, and so does `pacman -Sc`
+//     right after the tidy, for seconds.
 //
 // The release removes the path only while it still names the file this
 // hold made (same device and inode): if root removed the lock and a new

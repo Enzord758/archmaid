@@ -219,13 +219,12 @@ func TestTidyClockIsTheRealOneByDefault(t *testing.T) {
 // C1 controls and format characters and replaces invalid UTF-8; for a
 // cache dir with one of those in its name the command names another path.
 func TestTidyNotEmptyHintNamesTheRealPath(t *testing.T) {
-	t.Skip("KNOWN BUG (review #124, should-fix): the hint's sudo rm command passes through SanitizeLine, so for a " +
-		"cache dir with a C1 control, a format character or invalid UTF-8 it names another path; remove this Skip with the fix")
 	for _, c := range []struct{ name, dir string }{
 		{"bidi override", "pkg\u202e"},
 		{"C1 control", "pkg\u009b"},
 		{"zero-width space", "pkg\u200b"},
 		{"invalid UTF-8", "pkg\xff"},
+		{"plain", "pkg"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, f := fakeCache(t)
@@ -242,8 +241,14 @@ func TestTidyNotEmptyHintNamesTheRealPath(t *testing.T) {
 			if len(lines) != 1 {
 				t.Fatalf("want one line, got %q", lines)
 			}
-			if i := strings.Index(lines[0], "sudo rm"); i >= 0 && !strings.HasSuffix(lines[0], " -- "+shellQuote(p)) {
+			i := strings.Index(lines[0], "sudo rm")
+			if i >= 0 && !strings.HasSuffix(lines[0], " -- "+shellQuote(p)) {
 				t.Errorf("the hint's command names another path than %q:\n%q", p, lines[0][i:])
+			}
+			if plain := c.name == "plain"; plain && i < 0 {
+				t.Errorf("a plain path must still get the exact command: %q", lines[0])
+			} else if !plain && i >= 0 {
+				t.Errorf("a path with unshowable characters must get no command: %q", lines[0])
 			}
 		})
 	}

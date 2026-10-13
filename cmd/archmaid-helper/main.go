@@ -48,8 +48,11 @@ var caughtSignals = []os.Signal{
 
 // catchSignals makes the helper finish its run whatever happens to the
 // terminal or GUI that started it: every run ends with its result line.
-// The signals are caught and dropped. Only root can still stop the helper,
-// with SIGKILL.
+// The signals are caught and dropped. SIGKILL and SIGSTOP can't be caught,
+// and not only root can send them: pkexec leaves the helper in
+// archmaid-gui's user cgroup, so the user's cgroup.kill/cgroup.freeze,
+// `systemctl --user` stopping the scope, a logout or systemd-oomd can kill
+// or freeze it too.
 //
 // They are caught, not ignored (SIG_IGN), because an ignored signal stays
 // ignored across exec: pacman, its install scriptlets and hooks would all

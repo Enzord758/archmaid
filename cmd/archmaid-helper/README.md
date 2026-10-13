@@ -214,10 +214,14 @@ while it is still the file the helper made (same device and inode), so a
 lock someone else made meanwhile stays. The helper catches and drops
 `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGQUIT` and the rest for its whole run
 (see Hardening), so no signal a user or a dying GUI can send ends it inside
-the hold. Left are root's `SIGKILL` (an admin, the OOM killer, the
-shutdown's final kill), a Go runtime fatal error and a power loss, inside a
-window of microseconds per folder; pacman, which holds the same lock for
-minutes, has exactly the same exposure. A lock left that way is pacman's
+the hold. Left are `SIGKILL` and `SIGSTOP`, which can't be caught: root's, and the
+user's too, since `pkexec` leaves the helper in archmaid-gui's user cgroup
+(`cgroup.kill`, `cgroup.freeze`, `systemctl --user` stopping the scope, a
+logout, systemd-oomd); also the OOM killer, the shutdown's final kill, a Go
+runtime fatal error and a power loss, inside a window of microseconds per
+folder. pacman, which holds the same lock for minutes, has the same
+exposure, and so does `pacman -Sc` right after the tidy, for seconds. On an
+NFS or FUSE cache dir, `fstatat` and `unlinkat` under the lock can block. A lock left that way is pacman's
 usual stale `db.lck`: once no pacman is running, `sudo rm
 /var/lib/pacman/db.lck`. A failed release says so in its own line.
 
@@ -229,10 +233,12 @@ which requires the lock). Not every folder is made that way, though:
 with no `db.lck`; so does a libalpm user with another `DBPath` and the same
 cache (`checkupdates -d` run as root), and pacman itself if `pacman.conf`'s
 `DBPath` isn't `/var/lib/pacman/`. Such a folder is empty only between its
-`mkdtemp` and the first `.part` file, which libalpm opens before the
+`mkdtemp` and the first `.part` file, which libalpm's built-in curl opens before the
 transfer starts (`curl_add_payload`): milliseconds, or seconds if looking
-up the download user is slow. The 2-minute floor covers that with a wide
-margin, and if it is ever beaten, one download fails before pacman changes
+up the download user is slow. With an `XferCommand` (`curl … -o %o`) the
+file appears only when data arrives, so a lockless `pacman -U <url>` can
+keep an empty folder for over 2 minutes. The 2-minute floor covers the
+built-in case with a wide margin, and if it is ever beaten, one download fails before pacman changes
 anything. A leftover from earlier in the same run is still removed, as soon
 as it is 2 minutes old.
 
@@ -241,7 +247,9 @@ is each candidate left alone, with the reason, so the red line `-Sc` still
 prints for it has its explanation above it. A folder that isn't empty holds
 an interrupted download's partial files, and its line says how to delete
 it by hand: once no pacman is running (no `db.lck`), `sudo rm -r --
-'<the folder>'`. None of this changes the part's result, which is `-Sc`'s.
+'<the folder>'`, printed only when the whole path is plain ASCII
+`[A-Za-z0-9/._+-]` (the line is sanitized, so any other path would be
+pasted as a different one; then the line just says to delete it by hand). None of this changes the part's result, which is `-Sc`'s.
 The front ends' preview doesn't show the tidy: the step shows `pacman -Sc
 --noconfirm`, and a dry run names the part.
 
@@ -323,7 +331,7 @@ In order, before anything else:
    GUI dies, writes to stdout just fail with `EPIPE` and the helper keeps
    draining the child, so pacman is never killed mid-transaction. A Ctrl-C,
    Ctrl-\, Ctrl-Z or a closed terminal (`pkexec` from a shell) is dropped the
-   same way. Only root can stop the helper, with `SIGKILL`. They are caught
+   same way. `SIGKILL` and `SIGSTOP` can't be caught, and not only root can send them: `pkexec` leaves the helper in archmaid-gui's user cgroup, so the user's `cgroup.kill`/`cgroup.freeze`, a logout or systemd-oomd reach it too. They are caught
    (`signal.Notify`), **not** ignored: a `SIG_IGN` disposition survives exec,
    so pacman's scriptlets and hooks would start with `SIGINT`/`SIGTERM`/`SIGHUP`
    ignored, a hook's `timeout` couldn't stop a hung child, and a script's

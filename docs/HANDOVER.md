@@ -660,18 +660,27 @@ comments and `git log`; this is the "read before you touch it" list.
   (empty or nothing, never recursive). The floor stays because not every
   folder is made under the lock: `pacman -U <url>` fetches before its
   `trans_init`, and a libalpm user with another `DBPath` locks elsewhere;
-  such a folder is empty for milliseconds, and a lost race only fails that
-  download. Keep the hold short and safe: pacman-conf, the opens and the
+  such a folder is empty for milliseconds with libalpm's built-in curl
+  (with an XferCommand the file appears only when data arrives, so a
+  lockless `pacman -U <url>` can keep an empty folder for over 2 minutes),
+  and a lost race only fails that download. Keep the hold short and safe: pacman-conf, the opens and the
   readdir before it; only `fstatat`/`unlinkat` under it (no exec, no
   output: a pipe write can block); the release deferred (return, error,
   panic) and by inode; the lines after it. A stale `db.lck` blocks every
   pacman, so the hold relies on `catchSignals` (main.go) dropping every
   catchable signal: `TestCaughtSignalsCoverThePacmanLockHold` ties them.
-  What is left is root's SIGKILL, a runtime fatal error or a power loss
-  inside microseconds, pacman's own exposure. One line per folder removed
+  What is left is SIGKILL/SIGSTOP (root's, and the user's too: pkexec
+  leaves the helper in archmaid-gui's user cgroup, so `cgroup.kill`,
+  `cgroup.freeze`, `systemctl --user` stopping the scope, a logout or
+  systemd-oomd reach it), a runtime fatal error or a power loss inside
+  microseconds, pacman's own exposure (`pacman -Sc` right after has it for
+  seconds). On an NFS or FUSE cache dir `fstatat`/`unlinkat` under the lock
+  can block. One line per folder removed
   or left alone; a non-empty one (a `.part` inside) is left, `-Sc` still
   prints its line, and ours says how to delete it by hand once no pacman
-  runs. The part's result stays `-Sc`'s. **The preview doesn't show the
+  runs (with the `sudo rm -r` command only for a plain-ASCII path
+  `[A-Za-z0-9/._+-]`: the line is sanitized, and any other path would be
+  pasted as another one). The part's result stays `-Sc`'s. **The preview doesn't show the
   tidy**: the step shows `pacman -Sc --noconfirm` and a dry run names
   the part. The lock path is the helper's fixed `/var/lib/pacman/db.lck`
   (like its other `db.lck` checks), not `pacman-conf DBPath`. Keep it
