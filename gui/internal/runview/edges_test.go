@@ -78,7 +78,7 @@ func TestLoadDank16BadHexDigits(t *testing.T) {
 // dry run and without a kept password: the sudo dialog note.
 func TestGateNotesSudoOwnDialog(t *testing.T) {
 	plan := []engine.PlanStep{{ID: "x", Title: "X", NeedsPriv: true}}
-	got := GateNotes(plan, false, false)
+	got := GateNotes(plan, false, false, false)
 	want := []string{"If sudo needs your password, archmaid asks for it in its own dialog."}
 	if !slices.Equal(got, want) {
 		t.Errorf("notes %q, want %q", got, want)

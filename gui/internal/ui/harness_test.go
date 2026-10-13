@@ -1399,7 +1399,7 @@ func TestGUIFullCleanup(t *testing.T) {
 		t.Fatal("no confirm was shown")
 	}
 	for _, want := range []string{"10 steps, in this order", "01\nAuditing AUR packages…", "04\nDeleting entire package cache…\nasks\nroot",
-		"5 steps run as root, together, after one polkit authorisation", "Step 4 asks before it deletes the entire package cache."} {
+		"5 steps run as root, together, through one authorisation", "Step 4 asks before it deletes the entire package cache."} {
 		if !strings.Contains(rep.Confirms[0], want) {
 			t.Errorf("the gate lacks %q:\n%s", want, rep.Confirms[0])
 		}

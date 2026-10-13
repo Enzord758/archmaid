@@ -42,14 +42,16 @@ func PrivTag(needsPriv bool, verb string) string {
 func (r Row) PrivTag() string { return PrivTag(r.NeedsPriv, r.Verb) }
 
 // GateNotes are the notes under the gate's plan: how the root steps are
-// authorised (kept: the Driver keeps the run's password, one-password; in
-// a dry run nothing is), each step that asks before it runs, by number,
-// and the AUR gate before topgrade. The root count is the steps tagged
-// "root" (PrivTag); with the kept password the steps tagged "sudo" are
-// named beside it.
-func GateNotes(plan []engine.PlanStep, kept, dry bool) []string {
+// authorised, each step that asks before it runs, by number, and the AUR
+// gate before topgrade. polkit is the auth mode the run really uses
+// (engine.AuthPolkit: the root steps go in one helper call under one
+// authorisation; else each asks sudo), kept that the Driver keeps the
+// run's password (one password), whatever the mode (the real GUI is both;
+// in a dry run nothing is asked). The root count is the steps tagged
+// "root" (PrivTag); the steps tagged "sudo" are named beside it.
+func GateNotes(plan []engine.PlanStep, polkit, kept, dry bool) []string {
 	var notes []string
-	helper := 0    // root steps the helper runs (one polkit call)
+	helper := 0    // root steps the helper runs
 	var sudo []int // the steps that run sudo themselves, by position
 	for i, s := range plan {
 		switch PrivTag(s.NeedsPriv, s.Verb) {
@@ -65,20 +67,23 @@ func GateNotes(plan []engine.PlanStep, kept, dry bool) []string {
 	switch {
 	case dry && (helper > 0 || len(sudo) > 0):
 		notes = append(notes, DryNoPassword)
-	case helper > 0 && kept:
-		// The kept password is sudo mode: there is no combined helper call,
-		// each root step asks sudo, which takes the one kept password.
+	case helper > 0:
 		n := rootStepsSudo(helper)
+		if polkit {
+			n = rootStepsPolkit(helper)
+		}
 		if len(sudo) > 0 {
 			n += "; " + sudoSteps(plan, sudo)
 		}
-		notes = append(notes, n+". You type your password once, the first time a step needs it; archmaid keeps it for this run only.")
-	case helper > 0:
-		n := rootSteps(helper) + ", after one polkit authorisation"
-		if has(steps.IDTopgrade) {
-			n += " that comes after topgrade. If topgrade's sudo needs your password, archmaid asks for it in its own dialog."
-		} else {
+		switch {
+		case kept:
+			n += ". You type your password once, the first time a step needs it; archmaid keeps it for this run only."
+		case polkit && has(steps.IDTopgrade):
+			n += ". If topgrade's sudo needs your password, archmaid asks for it in its own dialog."
+		case polkit:
 			n += "."
+		default:
+			n += ". If sudo needs your password, archmaid asks for it in its own dialog."
 		}
 		notes = append(notes, n)
 	case len(sudo) > 0 && kept:
@@ -109,15 +114,18 @@ func GateNotes(plan []engine.PlanStep, kept, dry bool) []string {
 // a dry run runs nothing as root (Dev 5).
 const DryNoPassword = "Nothing asks for a password or authorisation in a dry run."
 
-// rootSteps is "1 step runs as root" or "{n} steps run as root, together".
-func rootSteps(n int) string {
+// rootStepsPolkit is the root count in polkit mode: "1 step runs as root,
+// through one authorisation" or "{n} steps run as root, together, through
+// one authorisation" (the Overview's kicker says "{n} root steps in one
+// authorisation").
+func rootStepsPolkit(n int) string {
 	if n == 1 {
-		return "1 step runs as root"
+		return "1 step runs as root, through one authorisation"
 	}
-	return fmt.Sprintf("%d steps run as root, together", n)
+	return fmt.Sprintf("%d steps run as root, together, through one authorisation", n)
 }
 
-// rootStepsSudo is rootSteps in sudo mode: "1 step runs as root, through
+// rootStepsSudo is the root count in sudo mode: "1 step runs as root, through
 // sudo" or "{n} steps run as root, each through sudo".
 func rootStepsSudo(n int) string {
 	if n == 1 {

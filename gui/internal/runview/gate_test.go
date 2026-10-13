@@ -23,26 +23,39 @@ func TestGateNotes(t *testing.T) {
 		{ID: steps.IDYayCache},
 	}
 	want := []string{
-		"3 steps run as root, together, after one polkit authorisation that comes after topgrade. If topgrade's sudo needs your password, archmaid asks for it in its own dialog.",
+		"3 steps run as root, together, through one authorisation; topgrade gets root through its own sudo. If topgrade's sudo needs your password, archmaid asks for it in its own dialog.",
 		"Step 5 asks before it deletes the entire package cache.",
 		"Orphans are listed for you to confirm before anything is removed.",
 		"If an AUR package changed maintainer or gained a co-maintainer, you're asked before the update.",
 	}
-	if got := GateNotes(full, false, false); !slices.Equal(got, want) {
+	if got := GateNotes(full, true, false, false); !slices.Equal(got, want) {
 		t.Errorf("notes\n%q\nwant\n%q", got, want)
 	}
-	// The kept password (the real Driver): the count is the root tags,
-	// and topgrade, tagged sudo, is named beside it (Dev 5's VM round b6:
-	// "6 steps run as root" beside 7 root tags).
+	// The real GUI: polkit with a kept password. The count is the root
+	// tags, topgrade, tagged sudo, is named beside it (Dev 5's VM round b6:
+	// "6 steps run as root" beside 7 root tags), and the root steps are one
+	// authorisation, not each through sudo (round b8).
+	want[0] = "3 steps run as root, together, through one authorisation; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
+	if got := GateNotes(full, true, true, false); !slices.Equal(got, want) {
+		t.Errorf("polkit, kept: notes\n%q\nwant\n%q", got, want)
+	}
+	// Sudo mode with a kept password: each root step asks sudo.
 	want[0] = "3 steps run as root, each through sudo; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
-	if got := GateNotes(full, true, false); !slices.Equal(got, want) {
-		t.Errorf("kept: notes\n%q\nwant\n%q", got, want)
+	if got := GateNotes(full, false, true, false); !slices.Equal(got, want) {
+		t.Errorf("sudo, kept: notes\n%q\nwant\n%q", got, want)
+	}
+	// Sudo mode, nothing kept.
+	want[0] = "3 steps run as root, each through sudo; topgrade gets root through its own sudo. If sudo needs your password, archmaid asks for it in its own dialog."
+	if got := GateNotes(full, false, false, false); !slices.Equal(got, want) {
+		t.Errorf("sudo: notes\n%q\nwant\n%q", got, want)
 	}
 	// A dry run asks for no password, kept or not (Dev 5).
 	want[0] = DryNoPassword
-	for _, kept := range []bool{false, true} {
-		if got := GateNotes(full, kept, true); !slices.Equal(got, want) {
-			t.Errorf("dry, kept %v: notes\n%q\nwant\n%q", kept, got, want)
+	for _, polkit := range []bool{false, true} {
+		for _, kept := range []bool{false, true} {
+			if got := GateNotes(full, polkit, kept, true); !slices.Equal(got, want) {
+				t.Errorf("dry, polkit %v, kept %v: notes\n%q\nwant\n%q", polkit, kept, got, want)
+			}
 		}
 	}
 	if got := GateKicker(full); got != "7 steps, in this order" {
@@ -51,28 +64,28 @@ func TestGateNotes(t *testing.T) {
 
 	// Run topgrade: no helper step; topgrade's sudo asks in our dialog.
 	tg := []engine.PlanStep{{ID: steps.IDAURAudit}, {ID: steps.IDTopgrade, NeedsPriv: true}}
-	if got := GateNotes(tg, true, false); !slices.Equal(got, []string{
+	if got := GateNotes(tg, true, true, false); !slices.Equal(got, []string{
 		"You type your password once, the first time a step needs it; archmaid keeps it for this run only.",
 		"If an AUR package changed maintainer or gained a co-maintainer, you're asked before the update.",
 	}) {
 		t.Errorf("topgrade: %q", got)
 	}
 	one := []engine.PlanStep{{ID: "x", Verb: "v", NeedsPriv: true, Confirm: true}}
-	if got := GateNotes(one, false, false); !slices.Equal(got, []string{"1 step runs as root, after one polkit authorisation.", "Step 1 asks before it runs."}) {
+	if got := GateNotes(one, true, false, false); !slices.Equal(got, []string{"1 step runs as root, through one authorisation.", "Step 1 asks before it runs."}) {
 		t.Errorf("one: %q", got)
 	}
-	if got := GateNotes(one, true, false); !slices.Equal(got, []string{"1 step runs as root, through sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only.", "Step 1 asks before it runs."}) {
+	if got := GateNotes(one, false, true, false); !slices.Equal(got, []string{"1 step runs as root, through sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only.", "Step 1 asks before it runs."}) {
 		t.Errorf("one, kept: %q", got)
 	}
 	// Steps other than topgrade that run sudo themselves are named by number.
 	other := []engine.PlanStep{{ID: "a", NeedsPriv: true}, {ID: "b", Verb: "v", NeedsPriv: true}, {ID: "c", NeedsPriv: true}, {ID: "d", NeedsPriv: true}}
-	if got := GateNotes(other, true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through sudo; steps 1, 3 and 4 get root through their own sudo. ") {
+	if got := GateNotes(other, false, true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through sudo; steps 1, 3 and 4 get root through their own sudo. ") {
 		t.Errorf("other sudo steps: %q", got)
 	}
-	if got := GateNotes(other[:2], true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through sudo; step 1 gets root through its own sudo. ") {
+	if got := GateNotes(other[:2], false, true, false); len(got) != 1 || !strings.HasPrefix(got[0], "1 step runs as root, through sudo; step 1 gets root through its own sudo. ") {
 		t.Errorf("one other sudo step: %q", got)
 	}
-	if got := GateNotes(nil, false, true); got != nil {
+	if got := GateNotes(nil, true, false, true); got != nil {
 		t.Errorf("no plan: %q", got)
 	}
 }

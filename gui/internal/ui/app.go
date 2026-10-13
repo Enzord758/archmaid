@@ -188,8 +188,14 @@ func mainReal(args []string, confirm string) int {
 		fmt.Fprintln(os.Stderr, "archmaid-gui:", err)
 		return 1
 	}
-	return Run(args, Options{NewDriver: wr.New, Engine: base, KeepsPassword: true, Notices: wr.SetNotice, Confirm: confirm,
-		AtForcedExit: wr.CloseAskpass})
+	return Run(args, realOptions(base, wr.New, wr.SetNotice, confirm, wr.CloseAskpass))
+}
+
+// realOptions are the window's Options on the real Driver: it keeps the
+// run's first password (KeepsPassword), whatever base's auth mode.
+func realOptions(base engine.Options, newDriver func(engine.Options) engine.Driver, notices func(func(string)), confirm string, atForcedExit func()) Options {
+	return Options{NewDriver: newDriver, Engine: base, KeepsPassword: true, Notices: notices, Confirm: confirm,
+		AtForcedExit: atForcedExit}
 }
 
 // stubDriver is the stub's NewDriver for an ARCHMAID_GUI_SCRIPT value

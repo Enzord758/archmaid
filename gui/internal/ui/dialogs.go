@@ -133,7 +133,7 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *amDialog {
 	}
 	if len(p.Plan) > 0 {
 		steps := planSteps(d, p.Plan)
-		if notes := runview.GateNotes(p.Plan, w.opts.KeepsPassword, w.drvDry); len(notes) > 0 {
+		if notes := gateNotesFor(w.opts, p.Plan, w.drvDry); len(notes) > 0 {
 			d.add(d.columns(steps, gateNotes(notes), notesColumn))
 		} else {
 			d.add(steps)
@@ -609,4 +609,11 @@ func (w *Window) reportDialog(p engine.OutputReport) *amDialog {
 		})
 	})
 	return d
+}
+
+// gateNotesFor is the gate's notes for the auth mode the window's runs
+// really use (Options.Engine.Auth) and its password handling: the real GUI
+// is polkit with a kept password, and the stub plays the polkit plan.
+func gateNotesFor(o Options, plan []engine.PlanStep, dry bool) []string {
+	return runview.GateNotes(plan, o.Stub || o.Engine.Auth == engine.AuthPolkit, o.KeepsPassword, dry)
 }
