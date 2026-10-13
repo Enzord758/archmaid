@@ -478,12 +478,31 @@ comments and `git log`; this is the "read before you touch it" list.
     them bare (`-ldflags -X`; before any tape it reads the values the
     binary links with `scripts/sysbinvals`, from the ELF file, never
     running it, since `-trimpath` keeps `-ldflags` out of `go version
-    -m`); `check.sh` fails a PKGBUILD or cover build that names
-    `sysbin`, and a main package that links `testenv`. Guards:
+    -m`); `check.sh` fails a PKGBUILD, `install.sh` (the owner's
+    `~/.local/bin` build) or cover build that names `sysbin`, a PKGBUILD
+    or `install.sh` that sets any `-X`, and a main package that links
+    `testenv` (a `go list` that fails fails the gate, here and in the
+    Makefile's GUI check, rather than reading as "not linked"). Guards:
     `TestNoBarePrivilegedExec` (no bare privileged name as an exec call's
     program in product code), `TestSysbinDefaultsAbsolute`,
     `TestE2EBuildsBareSysbin`, and one test per call site that runs a shim
     at the sysbin path with a decoy first on `PATH` (each failed before).
+    `TestNoBarePrivilegedExec` reads a call's first two arguments (and a
+    composite literal's `Name`/`Path`) as the compiler folds them
+    (`go/types`, `internal/testenv/barescan_test.go`): a literal, a named
+    or typed constant from any archmaid package, a concatenation, a
+    conversion to string; a string variable assigned a bare name anywhere
+    in its package; and a shell (`sh`, `bash`…) given `-c` with a script
+    that names one as a word. A value of a type of its own
+    (`logstore.Category`'s `"topgrade"`) counts only once converted to a
+    string. Its exemptions: `bareAllowed` per call site, and
+    `steps.IDTopgrade` everywhere (`bareConstAllowed`: a step's ID); an
+    entry that matches nothing fails the test. *Known limits:* a value
+    reaching the call through a struct field, a function's result, a
+    parameter or a range variable; a string built at run time (`Sprintf`,
+    `Join`); a `-c` script in a step's `Argv` or a `proc.Spec`'s `Args`
+    rather than in the call's own arguments; an absolute path is
+    `TestNoAbsolutePrivilegedExec`'s.
   - *What a step's child starts by name* (topgrade's yay, yay's and
     makepkg's `sudo`) still goes through the step's `PATH`; archmaid
     can't change how those tools look sudo up. The risk is the kept
@@ -494,16 +513,23 @@ comments and `git log`; this is the "read before you touch it" list.
     answer it with no dialog. So when a `NeedsPriv` child step starts
     under a Driver that keeps the password, the Driver scans the `PATH`
     the child will get (`privilege.ChildPATH`, `PathShadows`;
-    `internal/driver/pathguard.go`, one call in `startStep`): every
-    directory before the first that holds `/usr/bin/sudo` itself (a plain
-    file, the same file: `/bin` and `/usr/sbin` count as `/usr/bin`) is
-    searched for `sudo`, `sudo-rs`, `doas`, `run0`, `please`, `su` and
-    `pkexec`; a relative entry before it counts by itself (yay builds in
-    the package's own folder). Conservative: any symlink with such a name
-    counts (to `/usr/bin/sudo` too: its target can change mid-run), a
-    regular file counts if it has an execute bit; a directory or a
-    non-executable file doesn't, nor does anything after the real sudo's
-    directory. A root-owned `/usr/local/bin/sudo` counts too. If anything
+    `internal/driver/pathguard.go`, one call in `startStep`) for `sudo`,
+    `sudo-rs`, `doas`, `run0`, `please`, `su` and `pkexec`. Each name has
+    its own boundary (#136): the first directory that holds the system's
+    own file of that name, the same file (not followed) as the one in
+    `/usr/bin` (`/bin` and `/usr/sbin` count as `/usr/bin`; for sudo,
+    `sysbin.Sudo` itself). Before it, a file of that name counts; after
+    it, execvp finds the real one first. A name `/usr/bin` lacks (`doas`,
+    `please`, `sudo-rs` here) is searched on the whole `PATH`: topgrade
+    tries `doas` and `please` before `sudo`, wherever they are. A
+    relative entry counts by itself while any name's boundary is still to
+    come (yay builds in the package's own folder), and so does an empty
+    `PATH` (`PATH=`: execvp searches the current folder). Conservative:
+    any symlink with such a name counts (to `/usr/bin/sudo` too: its
+    target can change mid-run; `/usr/bin/run0`, the system's own link to
+    `systemd-run`, is the boundary), a regular file counts if it has an
+    execute bit; a directory or a non-executable file doesn't. A
+    root-owned `/usr/local/bin/sudo` counts too. If anything
     is found, the kept password is off for the rest of the run
     (`KeptPassword.Fail`): every prompt, sudo's and polkit's, gets the
     dialog naming its caller. One WARN line in the step's log and one
@@ -511,10 +537,12 @@ comments and `git log`; this is the "read before you touch it" list.
     the loop before the child starts, bounded at 2 s (a hung network or
     FUSE `PATH` entry): one that takes longer counts as found.
     `internal/driver/pathguard_test.go` holds it on a real child with the
-    askpass (shadow before: off, WARN, dialog; after, not executable:
-    no effect; symlink to the real sudo, other names, a relative entry,
-    a scan timeout: off; only a real `NeedsPriv` child under
-    `KeepPassword`).
+    askpass (shadow before: off, WARN, dialog; a sudo after, not
+    executable: no effect; symlink to the real sudo, other names, a
+    relative entry, a `doas` after `/usr/bin` when it lacks one, a scan
+    timeout: off; only a real `NeedsPriv` child under `KeepPassword`; the
+    owner's `PATH` shape: on). Its stand-in `/usr/bin` holds every name,
+    as Arch's holds `su`, `pkexec` and `run0`.
   - *Not covered* (open, Dev 3): a file planted on `PATH` after the scan,
     while the step runs. That needs a process of the user's own uid
     acting mid-run. Rejected for now: the *pin dir* (a private dir of
@@ -524,10 +552,21 @@ comments and `git log`; this is the "read before you touch it" list.
     which names it, is readable to that uid, so it moves the race rather
     than closing it. It also changes the `PATH` every program under
     topgrade sees, needs making and removing per run (a SIGKILLed GUI
-    leaves it behind), and pins only the names on its list. Cheaper and
-    closer: re-run the scan right before each kept answer
-    (`askpassRequest`, `agentRequest`), which narrows the window to the
-    answer itself; it needs a second call site in `keep.go`. Also open:
+    leaves it behind), and pins only the names on its list. Also rejected
+    (review #134): re-running the scan right before each kept answer
+    (`askpassRequest`, `agentRequest`). By the time a planted sudo's
+    askpass request arrives it has exec'd the real sudo, and it can have
+    removed itself first, so the second scan sees a clean `PATH` and the
+    kept password answers all the same; it would only catch a planter
+    that leaves its file in place, for a second call site in `keep.go`
+    and a scan per answer. *Accepted residual, the same class* (review
+    #134 N5): a directory before `/usr/bin` that is a user's symlink to it
+    (`~/bin -> /usr/bin`) passes the same-file check as `/usr/bin` itself,
+    and the user can repoint it mid-run. A hard link to sudo can't be made
+    (`protected_hardlinks`). Since #136 a `/usr/bin/sudo` that is itself
+    a symlink (sudo-rs installed as sudo) has its boundary at `/usr/bin`
+    (the system's own link); before, no boundary was found and the kept
+    password was always off. Also open:
     after the guard turns keeping off, the password dialog's kept-password
     note (`ui.KeptNote`, shown from a static option) still says the
     password is kept; it fails safe (more dialogs, not fewer), and the

@@ -125,30 +125,54 @@ for pkg in $(go list ./cmd/...); do
 done
 # Test-only code stays out of the binaries: no main package may link the
 # testing package (privilege/privtest, helperclient/helpertest and testenv are
-# for _test.go files).
-for pkg in $(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./cmd/...); do
-	if go list -deps "$pkg" | grep -qx 'testing'; then
+# for _test.go files). Each go list is captured before it is grepped, and
+# its failure fails the gate: piped into grep (or a for loop's word list),
+# a go list that fails reads as "not linked" and the check passes.
+mains="$(go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./cmd/...)" || {
+	echo "FAIL: go list of the main packages failed; can't check what they link"
+	exit 1
+}
+if [[ -z "$mains" ]]; then
+	echo "FAIL: go list found no main package under ./cmd; can't check what they link"
+	exit 1
+fi
+for pkg in $mains; do
+	deps="$(go list -deps "$pkg")" || {
+		echo "FAIL: go list -deps $pkg failed; can't check what it links"
+		exit 1
+	}
+	if grep -qx 'testing' <<<"$deps"; then
 		echo "FAIL: $pkg links the testing package; test helpers belong in _test.go files"
 		exit 1
 	fi
 	# testenv's init points internal/sysbin's absolute paths (su, sudo,
 	# pkexec, pkttyagent, topgrade) back at bare names that PATH decides.
-	if go list -deps "$pkg" | grep -qx 'github.com/Enzord758/archmaid/internal/testenv'; then
+	if grep -qx 'github.com/Enzord758/archmaid/internal/testenv' <<<"$deps"; then
 		echo "FAIL: $pkg links internal/testenv, whose init makes archmaid look su and sudo up on PATH again"
 		exit 1
 	fi
 done
 # Only the e2e harness's test build sets internal/sysbin back to bare names
-# (-ldflags -X): the package and the VM's cover builds keep /usr/bin.
-if grep -nE -- 'sysbin' packaging/arch/PKGBUILD scripts/cover-build.sh; then
+# (-ldflags -X): the package, the owner's own build (install.sh, into
+# ~/.local/bin) and the VM's cover builds keep /usr/bin. The package and
+# install.sh set no variable at all (the cover build sets coverdir's).
+if grep -nE -- 'sysbin' packaging/arch/PKGBUILD install.sh scripts/cover-build.sh; then
 	echo "FAIL: a product or cover build names internal/sysbin; its /usr/bin paths must stay as built (only cmd/archmaid/e2e/run.sh sets them bare)"
+	exit 1
+fi
+if grep -nE -- '-X' packaging/arch/PKGBUILD install.sh; then
+	echo "FAIL: packaging/arch/PKGBUILD or install.sh sets a variable at link time (-X); a product build sets none (internal/sysbin's /usr/bin paths stay as built)"
 	exit 1
 fi
 
 # A cover build (scripts/cover-build.sh) is never what gets installed: a
 # normal build of the helper doesn't link the cover-only coverdir package
 # (tag archmaidcover), and the PKGBUILD builds no cover binary.
-if go list -deps ./cmd/archmaid-helper | grep -q '/cmd/archmaid-helper/internal/coverdir$'; then
+deps="$(go list -deps ./cmd/archmaid-helper)" || {
+	echo "FAIL: go list -deps ./cmd/archmaid-helper failed; can't check what it links"
+	exit 1
+}
+if grep -q '/cmd/archmaid-helper/internal/coverdir$' <<<"$deps"; then
 	echo "FAIL: a normal build of cmd/archmaid-helper links internal/coverdir (cover builds only, tag archmaidcover)"
 	exit 1
 fi

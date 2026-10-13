@@ -635,9 +635,12 @@ test can delete your files or need root.
    reads the values the binary links with `scripts/sysbinvals`, which
    reads the ELF file and runs nothing); `check.sh` fails a main package that links
    `internal/testenv` (its init would make the product trust `PATH` again)
-   and a PKGBUILD or cover build that names `sysbin`.
+   and a PKGBUILD, `install.sh` or cover build that names `sysbin`.
    `TestNoBarePrivilegedExec` keeps the bare names out of every exec call in
-   product code. archmaid-helper
+   product code, reading the program argument as the compiler folds it
+   (`go/types`: a constant, a concatenation, a typed constant; also a
+   variable assigned a bare name and a shell's `-c` script; its known
+   limits are in HANDOVER.md's #131 landmine). archmaid-helper
    runs `/usr/bin/pacman` and friends by absolute path (as root, under
    pkexec); its verb tests use a fake `Runner` and never execute them, and
    only the `ExecRunner` tests run real, harmless binaries (`env`, `cat`,

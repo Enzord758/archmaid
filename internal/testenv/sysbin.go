@@ -29,8 +29,10 @@ func BareSysbin() {
 	}
 }
 
-// TB is the part of testing.TB the helpers below use (this package doesn't
-// import testing, so no binary that links it by mistake links testing too).
+// TB is the part of testing.TB the helpers below use. (The package does
+// link testing, for testing.CoverMode in cover.go, so a binary that links
+// it by mistake links testing too; scripts/check.sh fails a main package
+// that links either.)
 type TB interface {
 	Helper()
 	TempDir() string
