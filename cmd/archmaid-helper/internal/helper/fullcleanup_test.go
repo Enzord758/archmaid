@@ -56,13 +56,13 @@ func TestFullCleanupSequence(t *testing.T) {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	want := []string{
-		"/usr/bin/pacman -Rns --noconfirm -- a",
+		"/usr/bin/pacman -Rns --noconfirm --color always -- a",
 		"/usr/bin/paccache -r -k 2",
 		"/usr/bin/paccache -r -k 0",
-		"/usr/bin/pacman -Sc --noconfirm",
+		"/usr/bin/pacman -Sc --noconfirm --color always",
 		"/usr/bin/systemd-tmpfiles --clean",
 		"/usr/bin/journalctl --vacuum-time=1month",
-		"/usr/bin/pacman -Qk",
+		"/usr/bin/pacman -Qk --color always",
 	}
 	if got := join(f.streams); !slices.Equal(got, want) {
 		t.Errorf("sequence\n got %q\nwant %q", got, want)
@@ -127,7 +127,7 @@ func TestFullCleanupWithoutOptionalSteps(t *testing.T) {
 		"/usr/bin/paccache -r -k 3",
 		"/usr/bin/systemd-tmpfiles --clean",
 		"/usr/bin/journalctl --vacuum-time=2weeks",
-		"/usr/bin/pacman -Qk",
+		"/usr/bin/pacman -Qk --color always",
 	}
 	if got := join(f.streams); !slices.Equal(got, want) {
 		t.Errorf("got %q\nwant %q", got, want)

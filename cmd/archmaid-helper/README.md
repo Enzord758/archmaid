@@ -37,6 +37,21 @@ the GUI was started from, which fails anyway on polkit 126+ (see
 | `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_@][A-Za-z0-9:_.@-]{0,249}\.service$` (never a leading `-` or `.`). A denylisted name, alias, sleep hook or `Also=` unit, a running `Also=` unit, or a trigger that would start the unit again exits **4**, and the whole request is refused (see "Companions and triggers"). A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
 | `full-cleanup …` | the sequence below | strict flags, see below | `…full-cleanup` (admin) |
 
+**Colour.** Every pacman above also gets a fixed `--color` (before any
+`--`), so the run output can show pacman's colour without anything the
+helper parses ever holding an escape. A pacman whose output is only
+relayed gets `--color always`: `-Rns` (remove-orphans), `-S` (repair),
+`-Sc` and `-Qk` (full-cleanup's parts); its `line` events keep the SGR
+sequences (see Output). A pacman whose output the helper parses gets
+`--color never`: every query (`-Qq`, `-Qdtq`, `-Rs --print`, `-Q`, `-Si`,
+`-Qk -- pkg`, `-Sp`) and the `check-files` verb's own `-Qk`, whose summary
+lines make the `check` event. paccache colours only on a terminal, and
+`systemd-tmpfiles`, `journalctl` and `systemctl` get no colour switch:
+the first two have no `--color` option, and the environment stays
+`TERM=dumb` without `SYSTEMD_COLORS`, because `disable-unit` parses
+`systemctl cat`, which with colour on wraps `[Install]` and every
+directive in SGR. The values are constants; the caller has no say.
+
 Action ids are `org.archmaid.helper.<verb>` (see
 `packaging/polkit/org.archmaid.helper.policy`). "keep" is `auth_admin_keep`,
 "admin" is `auth_admin`.
@@ -146,7 +161,7 @@ this order, each named by the verb it stands for (`clean-uninstalled` has a name
 4. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog
 5. `clean-tmp`: `systemd-tmpfiles --clean`
 6. `vacuum-journal`: `journalctl --vacuum-time=D`
-7. `check-files`: `pacman -Qk`
+7. `check-files`: `pacman -Qk --color always` (relayed only, no `check` event here; the `check-files` verb's own `-Qk` runs with `--color never`)
 
 The parts are independent, so a failing part doesn't stop the rest. Each
 part's `progress` events carry `part`, and the part ends with a `done` event
@@ -186,7 +201,13 @@ on stderr.
 | `result` | `ok` (= `code == 0`), `code`, `child_exit` (exit status of the last root command run, `null` if none ran), `skipped` (`[{name, reason}]`, never `null`); `error` (string) when something went wrong |
 
 All text is sanitized. Whole ANSI/VT escape sequences are removed (CSI, OSC,
-DCS, APC, PM, SOS and the short ESC forms). C0/C1 control characters and DEL
+DCS, APC, PM, SOS and the short ESC forms), with one exception: a `line`
+event's `text` keeps well-formed SGR sequences (`ESC [`, parameters of
+only digits, `;` and `:`, final `m`: colour and text style), so pacman's
+`--color always` output keeps its colour; a cursor move, an erase, a
+private CSI, a title or hyperlink is still removed there. A client must
+still filter `text` itself (archmaid's keeps only SGR, without conceal,
+and drops it under `NO_COLOR`; its logs keep none). C0/C1 control characters and DEL
 are dropped, a tab becomes a space, and invalid UTF-8 becomes U+FFFD.
 Invisible characters that can reorder, hide or fake text are dropped, the same
 set the TUI's sanitizer drops. These are Unicode format characters (category
@@ -212,7 +233,9 @@ In order, before anything else:
 
 1. Capture `PKEXEC_UID` (else `SUDO_UID`), then clear the whole environment
    and set `PATH=/usr/bin LC_ALL=C TERM=dumb`. Every child again gets exactly
-   that environment, so it is cleared twice. Also `umask 022`, `chdir /`, and
+   that environment, so it is cleared twice. (`TERM` stays `dumb` although the
+   output is coloured: pacman's colour comes from `--color`, and systemd's
+   tools, whose output `disable-unit` parses, must stay plain; see Verbs, "Colour".) Also `umask 022`, `chdir /`, and
    every inherited fd above 2 is closed. The Go runtime's own netpoller fds
    (eventpoll/eventfd) can't be told apart from inherited ones of the same
    kind, so those are set close-on-exec instead of closed.

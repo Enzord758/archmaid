@@ -21,7 +21,10 @@ type reply struct {
 
 // fakeRunner records every argv and answers from a table keyed by the
 // space-joined argv; unknown commands exit 0 with no output. It never
-// executes anything.
+// executes anything. A recorded argv is exact; the lookup falls back to
+// the argv without its pacman `--color <when>` pair, so a reply set up
+// for `pacman -Qdtq` answers `pacman -Qdtq --color never` too
+// (TestColourPerCall pins the pairs themselves).
 type fakeRunner struct {
 	mu      sync.Mutex
 	replies map[string]reply
@@ -38,11 +41,29 @@ func (f *fakeRunner) on(argv []string, r reply) *fakeRunner {
 	return f
 }
 
+// answer is argv's reply: by the exact argv, else by argv without its
+// `--color <when>` pair. f.mu must be held.
+func (f *fakeRunner) answer(argv []string) reply {
+	if r, ok := f.replies[strings.Join(argv, " ")]; ok {
+		return r
+	}
+	return f.replies[strings.Join(withoutColour(argv), " ")]
+}
+
+// withoutColour is argv without its first `--color <when>` pair.
+func withoutColour(argv []string) []string {
+	i := slices.Index(argv, "--color")
+	if i < 0 || i+1 >= len(argv) {
+		return argv
+	}
+	return slices.Concat(argv[:i], argv[i+2:])
+}
+
 func (f *fakeRunner) Query(argv []string) (string, string, int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.queries = append(f.queries, slices.Clone(argv))
-	r := f.replies[strings.Join(argv, " ")]
+	r := f.answer(argv)
 	if r.fail != nil {
 		return "", "", -1, r.fail
 	}
@@ -52,7 +73,7 @@ func (f *fakeRunner) Query(argv []string) (string, string, int, error) {
 func (f *fakeRunner) Stream(argv []string, line func(stream, text string)) (int, error) {
 	f.mu.Lock()
 	f.streams = append(f.streams, slices.Clone(argv))
-	r := f.replies[strings.Join(argv, " ")]
+	r := f.answer(argv)
 	f.mu.Unlock()
 	if r.fail != nil {
 		return -1, r.fail

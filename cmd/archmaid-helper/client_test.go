@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -80,7 +79,7 @@ func TestClientNamePatternsAreTheHelpers(t *testing.T) {
 type anyRunner struct{ installed []string }
 
 func (r anyRunner) Query(argv []string) (string, string, int, error) {
-	if slices.Equal(argv, []string{helper.Pacman, "-Qq"}) {
+	if len(argv) > 1 && argv[1] == "-Qq" {
 		return strings.Join(r.installed, "\n") + "\n", "", 0, nil
 	}
 	return "", "", 0, nil

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -58,16 +59,22 @@ func TestSanitize(t *testing.T) {
 
 // TestEveryTextFieldIsSanitized drives hostile child output and package
 // names through a real run and checks no control character survives into
-// any emitted line.
+// any emitted line. The one exception is a line event's text, which keeps
+// well-formed SGR (colour, task #111): with its SGR taken out, it must be
+// as clean as every other field.
 func TestEveryTextFieldIsSanitized(t *testing.T) {
-	f := newFake().on(paccacheArgv("3"), reply{out: "\x1b]0;title\x07ok \x1b[31mred\n", err: "e\x07rr\n", exit: 7})
+	f := newFake().on(paccacheArgv("3"), reply{out: "\x1b]0;title\x07ok \x1b[31mred\x1b[?1049h\x1b[2J\n", err: "e\x07rr\n", exit: 7})
 	o, out := rootOpts(t, f)
 	Run([]string{"paccache", "3"}, o)
 	Run([]string{"bogus\x1b[2J\x07verb"}, o)
+	sgr := regexp.MustCompile("\x1b\\[[0-9;:]*m")
 	for l := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		var ev map[string]any
 		if err := json.Unmarshal([]byte(l), &ev); err != nil {
 			t.Fatal(err)
+		}
+		if ev["t"] == EventLine {
+			ev["text"] = sgr.ReplaceAllString(ev["text"].(string), "")
 		}
 		var walk func(any)
 		walk = func(v any) {

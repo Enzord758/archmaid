@@ -3,6 +3,7 @@ package helperclient
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -56,10 +57,27 @@ type decoder struct {
 	comb    *combined         // a full-cleanup call's parts (combined.go), or nil
 	unknown int
 	err     error
+	// lines is how line events' text is sanitized: KeepSGR, or Plain
+	// under NO_COLOR (lineMode).
+	lines sanitize.Mode
+}
+
+// lineMode is how a line event's text is sanitized. The helper keeps the
+// SGR colour of the pacman calls it only relays (it asks for it with a
+// constant --color always: nothing of the caller's reaches the root
+// helper, NO_COLOR included), so the client is where NO_COLOR (set and
+// not empty, no-color.org) is honoured: Plain drops the colour, KeepSGR
+// keeps it and drops every other escape. Either way logs are plain
+// (sanitize.Plain in logstore).
+func lineMode() sanitize.Mode {
+	if os.Getenv("NO_COLOR") != "" {
+		return sanitize.Plain
+	}
+	return sanitize.KeepSGR
 }
 
 func newDecoder(st steps.Step) *decoder {
-	d := &decoder{verb: st.Verb}
+	d := &decoder{verb: st.Verb, lines: lineMode()}
 	if st.Verb == steps.VerbCheckFiles && len(st.Items) > 0 {
 		d.items = st.Items
 	}
@@ -143,7 +161,7 @@ func (d *decoder) feed(line []byte) (out []string, start bool) {
 		}
 		// The helper sends one line, already sanitized; a newline here
 		// would still only ever make more lines, never a control sequence.
-		return strings.Split(sanitize.String(*e.Text, sanitize.KeepSGR), "\n"), false
+		return strings.Split(sanitize.String(*e.Text, d.lines), "\n"), false
 	case evProgress:
 		return nil, false // known; nothing for the engine
 	case evPlan:

@@ -271,7 +271,11 @@ by one `disable-unit` helper call; nothing found, and a `list-units` that
 fails, each said in the toast and on the status line, nothing run). The plain-Go `gui/internal/realdriver` tests cover the relay, the Run
 page's colour (`TestRunPageColour`: Run topgrade's Events through
 `runview.Model`, its line a bold green span and Pango attributes, none
-under `NO_COLOR`),
+under `NO_COLOR`; `TestRunPageHelperColour`: a Full Cleanup whose
+pkexec shim speaks the root helper's stream with a pacman line in SGR
+colour, as the helper relays `--color always` output: the orphan row's
+line coloured, no escape in any log or `last-run.json`, no span under
+`NO_COLOR`),
 `Options.Validate`, a dry Full Cleanup on the real Driver without a
 display, the per-run directories and rotation (`TestRunDirs`, a topgrade
 shim first on PATH), and the audit prefetch with a blocking fake

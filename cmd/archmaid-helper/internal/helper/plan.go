@@ -40,7 +40,7 @@ func PlanHash(targets, items []string) string {
 // ComputePlan asks pacman for the orphan plan. It is read-only and needs no
 // root: -Qdtq is a query and --print never touches the database lock.
 func ComputePlan(r Runner) (Plan, error) {
-	out, errOut, exit, err := r.Query([]string{Pacman, "-Qdtq"})
+	out, errOut, exit, err := r.Query(orphansArgv())
 	if err != nil {
 		return Plan{}, fmt.Errorf("pacman -Qdtq: %w", err)
 	}
@@ -62,7 +62,7 @@ func ComputePlan(r Runner) (Plan, error) {
 		return Plan{Hash: PlanHash(nil, nil)}, nil
 	}
 
-	argv := append([]string{Pacman, "-Rs", "--print", "--print-format", "%n %v", "--"}, targets...)
+	argv := cascadeArgv(targets)
 	out, errOut, exit, err = r.Query(argv)
 	if err != nil {
 		return Plan{}, fmt.Errorf("pacman -Rs --print: %w", err)

@@ -9,7 +9,11 @@ import "os"
 // Run page and the TUI's pane show. They are set on the step's own child
 // (steps.Step.Env, its Argv), never in archmaid's environment, and only on
 // steps that run as the user: a sudo resets the environment for what it
-// runs as root, and the root helper's tools are left alone.
+// runs as root. The root helper asks for its own colour, as constants in
+// its own argv (cmd/archmaid-helper, helper.go: pacman's --color always on
+// what it only relays, --color never on what it parses); nothing here
+// reaches it, and NO_COLOR is honoured for it by internal/helperclient,
+// which then drops the colour of its lines.
 //
 // What each tool needs, from its source (the versions Arch ships):
 //

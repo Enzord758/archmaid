@@ -83,7 +83,7 @@ func TestCheckFilesNotInstalledRefused(t *testing.T) {
 	if msg, _ := result(t, out)["error"].(string); !strings.Contains(msg, `package "ghost" is not installed`) {
 		t.Errorf("error %q, want it to name ghost as not installed", msg)
 	}
-	if got, want := join(f.queries), []string{"/usr/bin/pacman -Qq"}; !slices.Equal(got, want) {
+	if got, want := join(f.queries), []string{"/usr/bin/pacman -Qq --color never"}; !slices.Equal(got, want) {
 		t.Errorf("queries %q, want %q", got, want)
 	}
 	if len(f.streams) != 0 {
@@ -122,7 +122,7 @@ func TestCheckFilesNames(t *testing.T) {
 	if code := Run(append([]string{"check-files"}, names...), o); code != ExitOK {
 		t.Fatalf("exit %d, want 0; output:\n%s", code, out)
 	}
-	if got, want := join(f.streams), []string{"/usr/bin/pacman -Qk -- amd-ucode big nfs-utils gone"}; !slices.Equal(got, want) {
+	if got, want := join(f.streams), []string{"/usr/bin/pacman -Qk --color never -- amd-ucode big nfs-utils gone"}; !slices.Equal(got, want) {
 		t.Fatalf("ran %q, want %q", got, want)
 	}
 	evs := events(t, out)
@@ -191,7 +191,7 @@ func TestCheckFilesNamesMax(t *testing.T) {
 	if code := Run(append([]string{"check-files"}, names...), o); code != ExitOK {
 		t.Fatalf("exit %d, want 0; output:\n%s", code, out)
 	}
-	if len(f.streams) != 1 || len(f.streams[0]) != 3+maxNames || f.streams[0][2] != "--" {
+	if len(f.streams) != 1 || len(f.streams[0]) != 5+maxNames || f.streams[0][4] != "--" {
 		t.Fatalf("want one pacman -Qk -- with %d names, got %d argvs", maxNames, len(f.streams))
 	}
 }
@@ -212,7 +212,7 @@ func TestCheckFilesFullCheckEvent(t *testing.T) {
 	if code := Run([]string{"check-files"}, o); code != ExitOK {
 		t.Fatalf("exit %d, want 0; output:\n%s", code, out)
 	}
-	if got, want := join(f.streams), []string{"/usr/bin/pacman -Qk"}; !slices.Equal(got, want) {
+	if got, want := join(f.streams), []string{"/usr/bin/pacman -Qk --color never"}; !slices.Equal(got, want) {
 		t.Fatalf("ran %q, want %q", got, want)
 	}
 	if !strings.Contains(out.String(), `{"v":1,"t":"check","checked":["a","b","c"],"broken":["b","c"]}`) {

@@ -773,10 +773,33 @@ comments and `git log`; this is the "read before you touch it" list.
   (`TestTopgradeColourShownLogsPlain`). Not covered: yay and pacman *under
   topgrade* (topgrade passes yay only `[linux] yay_arguments` from the
   owner's `topgrade.toml`; `yay_arguments = "--color always"` there would
-  colour them), the TUI's sudo steps (sudo resets the environment, and
-  paccache colours only on a terminal), and the root helper, whose tools
-  run with `TERM=dumb` and no colour switch (a change there goes through
-  security review first). hyprpm always colours.
+  colour them) and the TUI's sudo steps (sudo resets the environment, and
+  paccache colours only on a terminal). hyprpm always colours.
+  **The root helper colours its pacman, per call (task #111, security
+  review).** Its argv are constants in `cmd/archmaid-helper` (`helper.go`):
+  a pacman whose output it only relays gets `--color always` (`-Rns`,
+  `-S`, `-Sc`, full-cleanup's `-Qk` part), one whose output it parses
+  gets `--color never` (every Query: `-Qq`, `-Qdtq`, `-Rs --print`, `-Q`,
+  `-Si`, `-Qk -- pkg`, `-Sp`; and the check-files verb's `-Qk`, whose
+  summary lines are its check event), so a parsed line never holds an
+  escape. Its `line` events keep well-formed SGR only
+  (`helper.SanitizeLine`); every other field stays plain. The client
+  filters again (`sanitize.KeepSGR`, no conceal) and drops the colour
+  under `NO_COLOR` (`helperclient.lineMode`: nothing of the caller's
+  reaches the helper, NO_COLOR included). Keep: **`TERM=dumb` and no
+  `SYSTEMD_COLORS` in `helper.ChildEnv`**. No child's colour needs TERM
+  (pacman reads none; paccache checks for a tty), and `disable-unit`
+  parses `systemctl show`/`cat`: with colour on, `systemctl cat` wraps
+  `[Install]` and every directive in SGR (systemd's `cat_file`), so
+  `parseInstall` would never see the section and the Alias=/WantedBy=/
+  Also= denylist checks would pass by default. `systemd-tmpfiles` and
+  `journalctl` have no `--color` option (one would fail the part), and
+  paccache can't be forced: those stay plain (see the decision under
+  Open items). Tests: `TestColourPerCall`, `TestEveryQueryIsColourless`,
+  `TestChildEnvStaysDumb`, `TestLineKeepsOnlySGR`, `TestSanitizeLine`
+  (helper), `TestHelperColourReachesTheClient` (helper to client),
+  `TestLineColour` (client), `TestRunPageHelperColour` (the GUI's Run
+  page coloured, every log plain).
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
   *current* maintainer and co-maintainers, never their history. Consequence:
   the first audit only records a baseline. It is archmaid's only network call.
@@ -1125,5 +1148,18 @@ to:
   archmaid-gui defaults to cairo (`ui.DefaultRenderer`, only when
   `GSK_RENDERER` is unset; `TESTING.md` → GUI measurements).
 
+- **Decision for the owner: colour for the helper's systemd tools
+  (task #111). Recommendation: no.** The helper colours its pacman calls
+  (see "Colour in the run output"); `systemd-tmpfiles --clean`,
+  `journalctl --vacuum-time` and `systemctl disable --now` stay plain.
+  They have no `--color` option, so the only switch is
+  `SYSTEMD_COLORS=1`, and that may not go into `helper.ChildEnv`: the same
+  environment runs `systemctl show`/`cat`, which `disable-unit`'s denylist
+  vetting parses, and a coloured `systemctl cat` fails that vetting open.
+  Doing it safely needs a per-call environment in the helper's `Runner`
+  (its interface and `ExecRunner`, root code), for tools that print a
+  line or two ("Vacuuming done, freed …", disable's "Removed …"). The
+  gain is small and the change is in the root helper's process-start
+  code, so it is left out unless the owner wants it.
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.

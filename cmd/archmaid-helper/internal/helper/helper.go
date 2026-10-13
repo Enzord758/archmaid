@@ -228,10 +228,48 @@ func noArgs(s *session, verb string, args []string) bool {
 
 // ---- argv builders (pure; the tests pin them) ------------------------------
 
-func checkFilesArgv() []string { return []string{Pacman, "-Qk"} }
-func installedArgv() []string  { return []string{Pacman, "-Qq"} }
+// Colour (task #111; colour_test.go pins every call). The children write
+// into pipes, so pacman colours only when its argv asks; --color always
+// forces it whatever pacman.conf says, and pacman reads no TERM. A pacman
+// whose output the helper only relays gets colourAlways, and its line
+// events keep the SGR (Emitter.Line); a pacman whose output the helper
+// parses gets colourNever, so a parsed line never holds an escape: every
+// Query, and the check-files verb's -Qk, whose summary lines become the
+// check event. paccache colours only on a terminal, systemd-tmpfiles and
+// journalctl have no colour option (one would fail the call), and the
+// environment stays ChildEnv: see there for why TERM stays dumb.
+var (
+	colourAlways = []string{"--color", "always"}
+	colourNever  = []string{"--color", "never"}
+)
+
+// pacmanArgv is pacman with opts, then colour, then names after "--"
+// (none: no "--").
+func pacmanArgv(opts, colour, names []string) []string {
+	argv := slices.Concat([]string{Pacman}, opts, colour)
+	if names == nil {
+		return argv
+	}
+	return slices.Concat(argv, []string{"--"}, names)
+}
+
+// checkFilesArgv is the check-files verb's full pacman -Qk: parsed.
+func checkFilesArgv() []string { return pacmanArgv([]string{"-Qk"}, colourNever, nil) }
+
+// integrityArgv is full-cleanup's pacman -Qk part: only relayed.
+func integrityArgv() []string { return pacmanArgv([]string{"-Qk"}, colourAlways, nil) }
+func installedArgv() []string { return pacmanArgv([]string{"-Qq"}, colourNever, nil) }
 func checkPackagesArgv(names []string) []string {
-	return append([]string{Pacman, "-Qk", "--"}, names...)
+	return pacmanArgv([]string{"-Qk"}, colourNever, names)
+}
+
+// queryArgv is `pacman op --color never -- pkg`, a query repairable parses.
+func queryArgv(op, pkg string) []string { return pacmanArgv([]string{op}, colourNever, []string{pkg}) }
+
+// orphansArgv and cascadeArgv are the orphan plan's two queries.
+func orphansArgv() []string { return pacmanArgv([]string{"-Qdtq"}, colourNever, nil) }
+func cascadeArgv(targets []string) []string {
+	return pacmanArgv([]string{"-Rs", "--print", "--print-format", "%n %v"}, colourNever, targets)
 }
 func paccacheArgv(k string) []string { return []string{Paccache, "-r", "-k", k} }
 func journalArgv(d string) []string  { return []string{Journalctl, "--vacuum-time=" + d} }
@@ -240,12 +278,14 @@ func cleanTmpArgv() []string         { return []string{SystemdTmpfile, "--clean"
 // cleanUninstalledArgv is pacman -Sc: the cache of packages no longer
 // installed (pacman.conf's CleanMethod decides), and unused sync databases;
 // --noconfirm answers its two questions with their default, yes.
-func cleanUninstalledArgv() []string { return []string{Pacman, "-Sc", "--noconfirm"} }
+func cleanUninstalledArgv() []string {
+	return pacmanArgv([]string{"-Sc", "--noconfirm"}, colourAlways, nil)
+}
 func removeArgv(targets []string) []string {
-	return append([]string{Pacman, "-Rns", "--noconfirm", "--"}, targets...)
+	return pacmanArgv([]string{"-Rns", "--noconfirm"}, colourAlways, targets)
 }
 func repairArgv(pkgs []string) []string {
-	return append([]string{Pacman, "-S", "--noconfirm", "--"}, pkgs...)
+	return pacmanArgv([]string{"-S", "--noconfirm"}, colourAlways, pkgs)
 }
 func disableArgv(units []string) []string {
 	return append([]string{Systemctl, "disable", "--now", "--"}, units...)
@@ -534,15 +574,15 @@ func runRepair(s *session, args []string) int {
 // version, so reinstalling would be a partial upgrade (or a downgrade).
 func (s *session) repairable(pkg string) (version, reason string, otherVersion bool) {
 	r := s.o.Runner
-	qOut, _, exit, err := r.Query([]string{Pacman, "-Q", "--", pkg})
+	qOut, _, exit, err := r.Query(queryArgv("-Q", pkg))
 	if err != nil || exit != 0 {
 		return "", "not installed", false
 	}
-	siOut, _, exit, err := r.Query([]string{Pacman, "-Si", "--", pkg})
+	siOut, _, exit, err := r.Query(queryArgv("-Si", pkg))
 	if err != nil || exit != 0 {
 		return "", "not in a sync repository", false
 	}
-	out, _, _, err := r.Query([]string{Pacman, "-Qk", "--", pkg})
+	out, _, _, err := r.Query(queryArgv("-Qk", pkg))
 	if err != nil {
 		return "", "could not check its files", false
 	}
@@ -567,7 +607,7 @@ func (s *session) repairable(pkg string) (version, reason string, otherVersion b
 // repairPlanArgv asks pacman what `pacman -S -- pkgs…` would install,
 // dependencies included, without doing it (--print takes no lock).
 func repairPlanArgv(pkgs []string) []string {
-	return append([]string{Pacman, "-Sp", "--noconfirm", "--print-format", "%n %v", "--"}, pkgs...)
+	return pacmanArgv([]string{"-Sp", "--noconfirm", "--print-format", "%n %v"}, colourNever, pkgs)
 }
 
 // vetRepair checks the whole transaction `pacman -S -- broken…` would run:

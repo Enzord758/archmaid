@@ -37,7 +37,7 @@ type orphanSystem struct {
 
 func (s *orphanSystem) Query(argv []string) (string, string, int, error) {
 	switch {
-	case slices.Equal(argv, []string{helper.Pacman, "-Qdtq"}):
+	case len(argv) > 1 && argv[1] == "-Qdtq":
 		if len(s.orphans) == 0 {
 			return "", "", 1, nil
 		}
@@ -108,7 +108,7 @@ func TestOrphanRemovalEndToEnd(t *testing.T) {
 	if code, out := runHelper(t, sys, args); code != helper.ExitOK {
 		t.Fatalf("remove-orphans %q exited %d: %s", args, code, out)
 	}
-	want := [][]string{{helper.Pacman, "-Rns", "--noconfirm", "--", "libfoo", "python-bar"}}
+	want := [][]string{{helper.Pacman, "-Rns", "--noconfirm", "--color", "always", "--", "libfoo", "python-bar"}}
 	if !slices.EqualFunc(sys.streamed, want, slices.Equal) {
 		t.Fatalf("root commands %q, want %q", sys.streamed, want)
 	}

@@ -145,9 +145,14 @@ func (e *Emitter) Done(step, of int, part string, code int, msg string) {
 		OK: code == ExitOK, Code: code, Error: Sanitize(msg)})
 }
 
-// Line relays one line of a child's output; stream is "out" or "err".
+// Line relays one line of a child's output; stream is "out" or "err". It
+// is the one text field that keeps colour: SanitizeLine keeps well-formed
+// SGR sequences (pacman's --color always on the commands the helper only
+// relays, helper.go) and drops every other escape, as Sanitize does.
+// Nothing the helper parses reaches it coloured: a command whose output
+// is parsed runs with --color never.
 func (e *Emitter) Line(stream, text string) {
-	e.emit(lineEvent{V: SchemaVersion, T: EventLine, Stream: stream, Text: Sanitize(text)})
+	e.emit(lineEvent{V: SchemaVersion, T: EventLine, Stream: stream, Text: SanitizeLine(text)})
 }
 
 // Plan reports an orphan-removal plan.
@@ -193,13 +198,29 @@ func sanitizeAll(in []string) []string {
 // becomes a space, invalid UTF-8 becomes U+FFFD, and invisible characters
 // that can reorder, hide or fake text are dropped (see invisible). It drops
 // what the TUI's sanitizer drops.
-func Sanitize(s string) string {
+func Sanitize(s string) string { return sanitize(s, false) }
+
+// SanitizeLine is Sanitize for a line of child output (the line event's
+// text), except that it keeps an escape sequence that is a well-formed
+// SGR (isSGR: colour and text style). A cursor move, an erase, a title or
+// hyperlink (OSC), a private CSI (ESC [ ? 25 l) or a malformed sequence
+// goes whole, as in Sanitize. The client filters the line again
+// (internal/helperclient, sanitize.KeepSGR, which also drops SGR's
+// conceal) and the logs keep no escape at all (sanitize.Plain).
+func SanitizeLine(s string) string { return sanitize(s, true) }
+
+// sanitize is Sanitize, keeping well-formed SGR sequences when keepSGR.
+func sanitize(s string, keepSGR bool) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for i := 0; i < len(s); {
 		c := s[i]
 		if c == 0x1b {
-			i = skipEscape(s, i)
+			end := skipEscape(s, i)
+			if keepSGR && isSGR(s[i:end]) {
+				b.WriteString(s[i:end])
+			}
+			i = end
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
@@ -235,6 +256,21 @@ func invisible(r rune) bool {
 		return true
 	}
 	return false
+}
+
+// isSGR reports whether seq, one whole escape sequence as skipEscape cuts
+// it, is a well-formed SGR: ESC [, parameters of only digits, ';' and ':'
+// (no private marker, no intermediate byte), then the final byte 'm'.
+func isSGR(seq string) bool {
+	if len(seq) < 3 || seq[0] != 0x1b || seq[1] != '[' || seq[len(seq)-1] != 'm' {
+		return false
+	}
+	for i := 2; i < len(seq)-1; i++ {
+		if c := seq[i]; (c < '0' || c > '9') && c != ';' && c != ':' {
+			return false
+		}
+	}
+	return true
 }
 
 // skipEscape returns the index just past the escape sequence starting at

@@ -126,7 +126,7 @@ func runFullCleanup(s *session, args []string) int {
 	steps = append(steps,
 		cstep{part: PartCleanTmp, label: "Cleaning temporary files", argv: cleanTmpArgv()},
 		cstep{part: PartVacuumJournal, label: "Vacuuming the journal (older than " + c.journal + ")", argv: journalArgv(c.journal)},
-		cstep{part: PartCheckFiles, label: "Checking package files", argv: checkFilesArgv(), okExits: checkFilesOK},
+		cstep{part: PartCheckFiles, label: "Checking package files", argv: integrityArgv(), okExits: checkFilesOK},
 	)
 
 	var failures []string

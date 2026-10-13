@@ -19,7 +19,7 @@ func TestVerbs(t *testing.T) {
 		code int
 		argv string // the one streamed command; "" = nothing may run
 	}{
-		{"check-files", []string{"check-files"}, ExitOK, "/usr/bin/pacman -Qk"},
+		{"check-files", []string{"check-files"}, ExitOK, "/usr/bin/pacman -Qk --color never"},
 		{"check-files name not installed", []string{"check-files", "x"}, ExitUsage, ""},
 		{"check-files flag", []string{"check-files", "--root=/"}, ExitUsage, ""},
 		{"paccache 3", []string{"paccache", "3"}, ExitOK, "/usr/bin/paccache -r -k 3"},
@@ -228,7 +228,7 @@ func TestRemoveOrphansHashMatch(t *testing.T) {
 	if code := Run([]string{"remove-orphans", h}, o); code != ExitOK {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -Rns --noconfirm -- a b"}) {
+	if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -Rns --noconfirm --color always -- a b"}) {
 		t.Errorf("ran %q", got)
 	}
 }
@@ -377,7 +377,7 @@ func TestRepair(t *testing.T) {
 	if code := Run([]string{"repair", "healthy", "broken", "aur", "gone", "odd", "garbled", "broken"}, o); code != ExitOK {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
-	if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- broken"}) {
+	if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm --color always -- broken"}) {
 		t.Errorf("ran %q", got)
 	}
 	want := map[string]string{
@@ -409,7 +409,7 @@ func TestRepairNeverCausesAPartialUpgrade(t *testing.T) {
 		if code := Run([]string{"repair", "a", "b"}, o); code != ExitOK {
 			t.Fatalf("exit %d:\n%s", code, out)
 		}
-		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- a b"}) {
+		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm --color always -- a b"}) {
 			t.Errorf("ran %q", got)
 		}
 		if sk := skippedNames(t, out); len(sk) != 0 {
@@ -467,7 +467,7 @@ func TestRepairNeverCausesAPartialUpgrade(t *testing.T) {
 		if code := Run([]string{"repair", "newer", "same", "healthy"}, o); code != ExitOK {
 			t.Fatalf("exit %d:\n%s", code, out)
 		}
-		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- same"}) {
+		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm --color always -- same"}) {
 			t.Errorf("ran %q", got)
 		}
 		sk := skippedNames(t, out)
@@ -513,11 +513,11 @@ func TestRepairTransactionIsExactlyTheBrokenSet(t *testing.T) {
 		if code := Run([]string{"repair", "b", "a"}, o); code != ExitOK {
 			t.Fatalf("exit %d:\n%s", code, out)
 		}
-		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm -- a b"}) {
+		if got := join(f.streams); !slices.Equal(got, []string{"/usr/bin/pacman -S --noconfirm --color always -- a b"}) {
 			t.Errorf("ran %q", got)
 		}
 		if !slices.ContainsFunc(f.queries, func(q []string) bool {
-			return slices.Equal(q, []string{Pacman, "-Sp", "--noconfirm", "--print-format", "%n %v", "--", "a", "b"})
+			return slices.Equal(q, []string{Pacman, "-Sp", "--noconfirm", "--print-format", "%n %v", "--color", "never", "--", "a", "b"})
 		}) {
 			t.Errorf("no -Sp plan was asked for: %q", f.queries)
 		}

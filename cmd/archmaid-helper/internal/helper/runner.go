@@ -24,6 +24,17 @@ const (
 
 // ChildEnv is the complete environment every child runs with. The helper's
 // own environment is also reset to this in main, so it is cleared twice.
+//
+// TERM stays dumb although the run output shows colour (task #111): no
+// child's colour depends on it (pacman's comes from --color, helper.go,
+// and pacman reads no TERM; paccache colours only on a terminal), so a
+// real TERM would buy nothing, while systemd's tools take TERM=dumb as
+// "no colour" on top of the pipe, and disable-unit parses `systemctl cat`,
+// which with colour on wraps [Install] and every directive in SGR: the
+// section would go unseen, and with it the Alias=, WantedBy= and Also=
+// its denylist vetting checks. Hooks and install scriptlets that probe
+// the terminal (tput, ncurses) stay quiet under it too. For the same
+// reason SYSTEMD_COLORS is never set here.
 func ChildEnv() []string {
 	return []string{"PATH=/usr/bin", "LC_ALL=C", "TERM=dumb"}
 }
