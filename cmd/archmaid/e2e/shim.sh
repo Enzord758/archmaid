@@ -25,16 +25,16 @@ sudo)
 	# Only the root recheck of Repair's candidates is canned (run.sh allows
 	# exactly `sudo -n -v` and `sudo -n pacman -Qkq`; any other sudo fails the tape).
 	case "$*" in
-	"-n pacman -Qkq -- "*) [[ -n "${SHIM_BROKEN:-}" ]] && printf '%s /usr/share/fake/missing-file\n' "$SHIM_BROKEN" ;;
+	"-n pacman -Qkq --color never -- "*) [[ -n "${SHIM_BROKEN:-}" ]] && printf '%s /usr/share/fake/missing-file\n' "$SHIM_BROKEN" ;;
 	esac
 	;;
 pacman)
 	case "$*" in
-	"-Qq") printf 'fine-pkg\n%s\n' "${SHIM_BROKEN:-other-pkg}" ;;
-	"-Qkq -- "*) [[ -n "${SHIM_BROKEN:-}" ]] && printf '%s /usr/share/fake/missing-file\n' "$SHIM_BROKEN" ;;
-	"-Qdtq") printf 'orphan-one\norphan-two\n' ;;
-	"-Rs --print -- "*) printf 'orphan-one-1.0\norphan-two-1.0\norphan-dep-1.0\n' ;;
-	"-Qqm")
+	"-Qq --color never") printf 'fine-pkg\n%s\n' "${SHIM_BROKEN:-other-pkg}" ;;
+	"-Qkq --color never -- "*) [[ -n "${SHIM_BROKEN:-}" ]] && printf '%s /usr/share/fake/missing-file\n' "$SHIM_BROKEN" ;;
+	"-Qdtq --color never") printf 'orphan-one\norphan-two\n' ;;
+	"-Rs --print --color never -- "*) printf 'orphan-one-1.0\norphan-two-1.0\norphan-dep-1.0\n' ;;
+	"-Qqm --color never")
 		# The audit step is the one in-process step that really touches a
 		# command under --dryrun; SHIM_BLOCK_QQM holds it open for the abort tape.
 		[[ -n "${SHIM_BLOCK_QQM:-}" ]] && exec sleep "$SHIM_BLOCK_QQM"

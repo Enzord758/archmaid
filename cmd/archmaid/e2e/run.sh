@@ -104,7 +104,7 @@ run_tape() {
 		# sudo is allowed only in its two read-only forms: the ticket probe and
 		# Repair's root recheck (the shim only logs them and prints canned output).
 		if [[ $c == sudo ]]; then
-			if grep '^sudo ' "$SHIM_LOG" | grep -qvE '^sudo -n (-v|pacman -Qkq -- )'; then
+			if grep '^sudo ' "$SHIM_LOG" | grep -qvE '^sudo -n (-v|pacman -Qkq --color never -- )'; then
 				echo "--- shim log ---"; cat "$SHIM_LOG"
 				fail "$name: sudo was invoked for more than the ticket probe and the Qkq recheck"
 			fi
@@ -191,14 +191,14 @@ if want orphans; then
 	[[ -f "$ORPH" ]] || fail "orphans: no dry-run orphans.log"
 	need "$ORPH" "DRYRUN: Orphaned packages removed" "orphans: DRYRUN entry missing"
 	need "$ORPH" "pacman -Rns --noconfirm -- orphan-one orphan-two$" "orphans: wrong package list in the log"
-	need "$SHIM_LOG" "^pacman -Rs --print -- orphan-one orphan-two$" "orphans: cascade probe not run"
+	need "$SHIM_LOG" "^pacman -Rs --print --color never -- orphan-one orphan-two$" "orphans: cascade probe not run"
 	refuse "$SHIM_LOG" "^pacman -Rns" "orphans: pacman removal actually ran"
 	echo "PASS: orphan confirm showed 2/3 total and logged the dry-run removal"
 fi
 
 if want abort; then
 	run_tape abort SHIM_BLOCK_QQM=6
-	need "$SHIM_LOG" "^pacman -Qqm$" "abort: the blocking step never started"
+	need "$SHIM_LOG" "^pacman -Qqm --color never$" "abort: the blocking step never started"
 	need "$TXT" "Abort" "abort: the abort confirm was never shown"
 	# After the abort the app is back on the menu and still responding.
 	[[ "$(awk '/Abort/{a=NR} /Full Cleanup/{m=NR} END{print (m>a)}' "$TXT")" == 1 ]] ||
@@ -212,7 +212,7 @@ fi
 if want repair-none; then
 	run_tape repair-none
 	need "$TXT" "No broken packages: checked 2 installed packages" "repair-none: the notice was not shown"
-	need "$SHIM_LOG" "^pacman -Qkq -- " "repair-none: the user scan never ran"
+	need "$SHIM_LOG" "^pacman -Qkq --color never -- " "repair-none: the user scan never ran"
 	refuse "$SHIM_LOG" "^sudo " "repair-none: nothing flagged, yet sudo was used"
 	refuse "$CLEANUP_LOG" "." "repair-none: a notice-only run wrote to the cleanup log"
 	need "$STATE_DIR/dryrun/repair.log" "CHECK: No broken packages" "repair-none: no discovery record"
@@ -222,8 +222,8 @@ fi
 
 if want repair-found; then
 	run_tape repair-found SHIM_BROKEN=broken-pkg
-	need "$SHIM_LOG" "^pacman -Qkq -- .*broken-pkg" "repair-found: the user scan never ran"
-	need "$SHIM_LOG" "^sudo -n pacman -Qkq -- .*broken-pkg$" "repair-found: the root recheck did not go through sudo"
+	need "$SHIM_LOG" "^pacman -Qkq --color never -- .*broken-pkg" "repair-found: the user scan never ran"
+	need "$SHIM_LOG" "^sudo -n pacman -Qkq --color never -- .*broken-pkg$" "repair-found: the root recheck did not go through sudo"
 	need "$TXT" "Reinstall 1 broken package" "repair-found: the reinstall confirm was not shown"
 	refuse "$SHIM_LOG" "pacman -S" "repair-found: a reinstall ran although it was declined"
 	# The step is Optional + AlwaysLog: a declined confirm is on record, and no
@@ -277,7 +277,7 @@ if want fullcleanup-gate-declined; then
 	[[ "$(awk '/Proceed with full cleanup/{a=NR} /Full Cleanup/{m=NR} END{print (m>a)}' "$TXT")" == 1 ]] ||
 		fail "gate: the menu did not reappear after declining"
 	# Only the audit prefetch (pacman -Qqm, read-only) starts at the gate.
-	if grep -qvE "^pacman -Qqm$" "$SHIM_LOG"; then cat "$SHIM_LOG"; fail "gate: a declined gate ran commands"; fi
+	if grep -qvE "^pacman -Qqm --color never$" "$SHIM_LOG"; then cat "$SHIM_LOG"; fail "gate: a declined gate ran commands"; fi
 	refuse "$TXT" "Summary|DRYRUN" "gate: a declined gate produced a summary"
 	# By design (logstore.OutcomeCancelled: "nothing ran: declined gate") a declined
 	# gate leaves a "cancelled" last-run record, in the dry-run slot only.

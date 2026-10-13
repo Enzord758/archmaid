@@ -800,6 +800,16 @@ comments and `git log`; this is the "read before you touch it" list.
   (helper), `TestHelperColourReachesTheClient` (helper to client),
   `TestLineColour` (client), `TestRunPageHelperColour` (the GUI's Run
   page coloured, every log plain).
+  **The user side follows the same rule (task #114).** Every user-side
+  pacman whose output archmaid parses gets `--color never` after its
+  operation (`-Qdtq`, `-Rs --print`, `-Qq`, `-Qkq`, `-Qqm`; shims that read
+  `$1` keep working, those that skip fixed argument counts must skip the
+  two more). And the names parsed out of `-Qdtq` and `-Qkq` are checked
+  with `actions.PackageNameOK` (the helper's pattern, tied to the client's
+  by `TestActionsPackageNameIsTheClients`) before any `sudo pacman -Rns`/
+  `-S`/`-Qkq` argv is built; a bad name fails the probe or scan with the
+  name quoted (`TestOrphanNamesCheckedBeforeSudo`,
+  `TestBrokenNamesCheckedBeforeSudo`). Keep both when adding a parsed call.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
   *current* maintainer and co-maintainers, never their history. Consequence:
   the first audit only records a baseline. It is archmaid's only network call.
