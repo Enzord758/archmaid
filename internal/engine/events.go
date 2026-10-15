@@ -274,7 +274,10 @@ type AuthWaiting struct {
 // AuthResolved ends an AuthWaiting. Granted false with AttemptsLeft > 0
 // means another NeedsPassword follows; otherwise the privileged steps end
 // as steps.AuthRefused. Detail is a message to show verbatim (a lockout
-// notice), or "".
+// notice), or "". Granted with a Detail: the run goes on, and Detail is a
+// note about how it will ask (the TUI's sudo keeps no ticket, so archmaid
+// asks each time sudo needs the password: privilege.NoTicketNote); a front
+// end shows it once, for the run.
 type AuthResolved struct {
 	Granted      bool
 	AttemptsLeft int

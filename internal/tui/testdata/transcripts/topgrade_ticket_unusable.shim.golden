@@ -4,5 +4,19 @@ auth  password -> <correct>
 exec  su -s /usr/bin/true $USER
 exec  sudo -S -v
 exec  sudo -n -v
-note  "sudo didn't keep your password for this terminal (sudo's ticket isn't reusable here, e.g. timestamp_timeout=0). topgrade and yay would then ask for it directly on the terminal, outside archmaid. Run this from archmaid-gui, or allow sudo to keep the ticket."
-end   outcome=cancelled errs=0 skipped=0
+note  "sudo won't keep your password between prompts here, so archmaid asks for it in its own window each time sudo needs it."
+plan  2 steps
+plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
+plan  2 "Updating system with topgrade…" argv=topgrade -y --no-retry sudo alwayslog cat=topgrade
+step  1 running
+out   1 No foreign (AUR or locally built) packages installed — nothing to audit.
+step  1 ok
+log   audit OK: AUR audit
+step  2 running
+exec  topgrade -y --no-retry
+out   2 :: Synchronizing package databases...
+out   2 ── Summary ──
+out   2 System update: OK
+step  2 ok
+log   topgrade OK: Topgrade completed
+end   outcome=completed errs=0 skipped=0

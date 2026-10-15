@@ -22,10 +22,13 @@ type Tick struct{ Status sysstat.Status }
 type ProbeDone struct{ Cached bool }
 
 // AuthDone answers Authenticate. Detail is a message worth showing
-// verbatim (a lockout notice), or "".
+// verbatim (a lockout notice), or "". With OK it is a note for the run
+// (privilege.NoTicketNote: sudo keeps no ticket, so archmaid asks each
+// time), carried on AuthResolved{Granted: true}.
 //
 // NoTicket: the password was right but sudo kept no ticket another sudo can
-// reuse (privilege.ErrNoTicket); OK is false, Detail says why, and the run
+// reuse and nothing sends the steps' own sudo through archmaid
+// (privilege.ErrNoTicket); OK is false, Detail says why, and the run
 // ends before any step starts, with no attempt counted: AuthResolved, a
 // Notice with Detail, then Finished{OutcomeCancelled}.
 type AuthDone struct {

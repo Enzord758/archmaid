@@ -77,6 +77,11 @@ type model struct {
 	errs    int  // steps that failed
 	skipped int  // steps skipped (refused, declined or aborted)
 	aborted bool // queue stopped by declining a required confirm
+	// runNote is a note for the whole run, shown above the checklist
+	// while it runs: the up-front password's AuthResolved Detail
+	// (privilege.NoTicketNote: sudo keeps no ticket, so each sudo asks
+	// through the popup). "" for none; cleared when the action ends.
+	runNote string
 
 	// confirm-modal state: gateActive marks the action's proceed-gate, as
 	// opposed to a step's confirm.

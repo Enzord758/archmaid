@@ -254,9 +254,12 @@ echo python-oldthing`}}, sh["pacman"]...)
 	}},
 
 	{"topgrade_ticket_unusable.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
-		// The password is right, but sudo keeps no ticket (timestamp_timeout=0):
-		// the run is refused before any step, and topgrade is never started
-		// (its sudo would prompt on the terminal).
+		// The password is right, but sudo keeps no ticket (timestamp_timeout=0).
+		// The sudo wrapper is wired (as in the binary), so topgrade's own sudo
+		// asks through the popup, not the terminal: the run goes on, with its
+		// note (#153; before, #149 refused it here). Without the wrapper it
+		// is still refused (privilege's TestAuthenticateNoTicketWithWrapper,
+		// the engine's TestSessionNoTicketRefusesTheRun).
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{
 			"sudo":     sudoRulesNoTicket(),

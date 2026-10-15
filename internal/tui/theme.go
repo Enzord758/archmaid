@@ -19,6 +19,8 @@ var (
 	titleStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colPurple)).Bold(true)
 	statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colGray))
 	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colGray))
+	// noteStyle is the running screen's note for the run (runNote).
+	noteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colYellow))
 
 	cursorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue)).Bold(true)
 	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colGreen)).Bold(true)

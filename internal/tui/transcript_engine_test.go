@@ -39,17 +39,36 @@ type tuiEngineTarget struct {
 	cancelledNotice bool
 }
 
+// runNote is the transcript's note line for a right password that comes
+// with a note for the run (AuthResolved{Granted, Detail}: sudo keeps no
+// ticket, so each sudo asks through the popup), or nil.
+func runNote(ev engine.AuthResolved) tt.Event {
+	if !ev.Granted || ev.Detail == "" {
+		return nil
+	}
+	return tt.Notice{Text: ev.Detail}
+}
+
+// fakeAskpass wires askpass up as the real binary always does, so sudo
+// steps run `sudo -A`, and the sudo wrapper's dir (privilege.Sudo.SudoDir)
+// goes first on the PATH of the steps that get the askpass. Both are only
+// named, never run: sudo is a shim, and no transcript's program runs sudo
+// by name.
+func fakeAskpass(t *testing.T) {
+	t.Helper()
+	oldWrapper, oldDir := askpassWrapper, askpassSudoDir
+	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
+	askpassSudoDir = "/run/user/test/archmaid-askpass/bin"
+	t.Cleanup(func() { askpassWrapper, askpassSudoDir = oldWrapper, oldDir })
+}
+
 // newTUIEngineTarget starts a target on a fresh model at 100×40 with the
 // status line pinned, on a syncDriver. The Cmds Update returns are never
 // run (no ticks, no blinking cursor). Call it after installShims and after
 // seeding HOME/logDir.
 func newTUIEngineTarget(t *testing.T, shimLog string) *tuiEngineTarget {
 	t.Helper()
-	// The real binary always wires askpass, so sudo steps run `sudo -A`; the
-	// wrapper is never invoked here (sudo is a shim), only named.
-	oldWrapper := askpassWrapper
-	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
-	t.Cleanup(func() { askpassWrapper = oldWrapper })
+	fakeAskpass(t)
 
 	opts := engine.Options{DryRun: dryRun, Env: actionEnv()}
 	if err := opts.Validate(); err != nil {
@@ -104,9 +123,14 @@ func (tg *tuiEngineTarget) deliver(evs []engine.Event, launches int) {
 	if len(evs) == 0 {
 		return
 	}
-	wasScreen := tg.m.screen
+	wasScreen, wasNote := tg.m.screen, tg.m.runNote
 	next, _ := tg.m.Update(engineEventsMsg{evs: evs})
 	tg.m = next.(model)
+	if tg.m.runNote != "" && tg.m.runNote != wasNote {
+		// The run's note (sudo keeps no ticket), shown on the running
+		// screen; it comes with the right password, before the plan.
+		tg.push(tt.Notice{Text: tg.m.runNote})
+	}
 
 	// What the batch put in the output pane, line by line, and where a
 	// step was inserted (the model's checklist says that it grew, not

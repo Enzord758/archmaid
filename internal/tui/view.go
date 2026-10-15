@@ -169,10 +169,26 @@ func (m model) viewConfirm() string {
 func (m model) viewRunning() string {
 	var b strings.Builder
 	b.WriteString(m.header() + "\n")
+	if note := m.runNoteView(); note != "" {
+		b.WriteString(note + "\n\n")
+	}
 	b.WriteString(m.checklist() + "\n")
 	b.WriteString(outputPaneStyle.Width(m.output.Width).Render(m.output.View()) + "\n")
 	b.WriteString(hintStyle.Render("↑/↓ scroll output · ctrl+c abort"))
 	return b.String()
+}
+
+// runNoteView is the run's note (runNote) as the running screen shows it,
+// wrapped to the terminal's width; "" for none.
+func (m model) runNoteView() string {
+	if m.runNote == "" {
+		return ""
+	}
+	w := 78
+	if m.termWidth > 0 {
+		w = m.termWidth - 2
+	}
+	return noteStyle.Width(max(w, 20)).Render("Note: " + m.runNote)
 }
 
 func (m model) viewAbortConfirm() string {

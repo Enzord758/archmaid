@@ -251,6 +251,11 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		if e.askpass != 0 && (ev.Granted || ev.AttemptsLeft == 0) {
 			m.closeEngineAskpass()
 		}
+		if ev.Granted && ev.Detail != "" {
+			// A note for the run (sudo keeps no ticket): the running
+			// screen shows it from QueueStarted on.
+			m.runNote = ev.Detail
+		}
 	case engine.PromptClosed:
 		switch ev.ID {
 		case e.askpass:
@@ -311,6 +316,7 @@ func (m model) engineStopped(why string) (tea.Model, tea.Cmd) {
 	m.password.Reset()
 	m.pwErr = ""
 	m.gateActive, m.authInFlight = false, false
+	m.runNote = ""
 	m.bg = m.baseScreen(m.screen)
 	m.notice, m.noticeLog = "archmaid's engine stopped unexpectedly: "+why, ""
 	m.screen = screenNotice
@@ -328,6 +334,7 @@ func (m *model) finished(ev engine.Finished) tea.Cmd {
 	e.prompt, e.report, e.accept = 0, 0, false
 	m.errs, m.skipped = ev.Errs, ev.Skipped
 	m.gateActive, m.authInFlight = false, false
+	m.runNote = ""
 	switch ev.Outcome {
 	case engine.OutcomeCompleted:
 		m.screen = screenSummary

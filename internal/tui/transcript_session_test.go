@@ -143,11 +143,7 @@ type sessionChild struct {
 
 func newSessionTarget(t *testing.T, shimLog string) *sessionTarget {
 	t.Helper()
-	// As in tuiEngineTarget: the real binary always wires askpass, so sudo steps
-	// run `sudo -A`; the wrapper is only named, never run.
-	oldWrapper := askpassWrapper
-	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
-	t.Cleanup(func() { askpassWrapper = oldWrapper })
+	fakeAskpass(t) // as in tuiEngineTarget
 
 	// The run's flags and the TUI's actionEnv, as a front end would hand
 	// them over, checked first.
@@ -360,10 +356,14 @@ func (tg *sessionTarget) apply(o engine.Output) {
 		tg.push(tg.fx.execs()...)
 	}
 
-	var plan, out, done, changed, started, tail []tt.Event
+	var head, plan, out, done, changed, started, tail []tt.Event
 	var engineLogs []tt.Event
 	for _, ev := range o.Events {
 		switch ev := ev.(type) {
+		case engine.AuthResolved:
+			if note := runNote(ev); note != nil {
+				head = append(head, note)
+			}
 		case engine.QueueStarted:
 			ps := make([]tt.Step, len(ev.Steps))
 			for i, s := range ev.Steps {
@@ -414,12 +414,13 @@ func (tg *sessionTarget) apply(o engine.Output) {
 		case engine.Finished:
 			tg.fin = &ev
 		case engine.DiscoveryResult: // no transcript line: its record is the log line
-		case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting, engine.AuthResolved,
+		case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting,
 			engine.FaillockState: // no transcript line
 		default:
 			tg.fail("event %T (%+v): teach the session target", ev, ev)
 		}
 	}
+	tg.push(head...)
 	tg.push(plan...)
 	tg.push(out...)
 	tg.push(done...)

@@ -51,8 +51,15 @@ type Privileged interface {
 
 // Sudo is Privileged through sudo's tty ticket. Wrapper is the SUDO_ASKPASS
 // wrapper of a running askpass Server ((*Server).Wrapper), or "" when there
-// is none.
-type Sudo struct{ Wrapper string }
+// is none. SudoDir is that Server's sudo wrapper directory
+// ((*Server).SudoDir, the TUI's only), or "": with Wrapper, Env puts it
+// first on the PATH of every step that gets the askpass, so a sudo that
+// topgrade, yay or makepkg start by name asks through archmaid
+// (sudowrap.go).
+type Sudo struct {
+	Wrapper string
+	SudoDir string
+}
 
 var _ Privileged = Sudo{}
 
@@ -75,7 +82,14 @@ func (Sudo) Probe(ctx context.Context) bool {
 // Stderr is captured so a pam_faillock lockout notice ("account locked…")
 // can be surfaced verbatim instead of a generic wrong-password error. A
 // mid-run askpass request is answered the same way (see Request.Answer).
-func (Sudo) Authenticate(ctx context.Context, pw string) (detail string, err error) {
+//
+// The ticket is then checked for reuse (`sudo -n -v`). Without one, every
+// sudo asks again: with the askpass and the sudo wrapper wired (Wrapper and
+// SudoDir) each such sudo asks through archmaid, so the run goes on and
+// detail is NoTicketNote, with a nil error; without the sudo wrapper,
+// topgrade's and yay's sudo would ask on the terminal, so it is
+// ErrNoTicket and the run must not start.
+func (s Sudo) Authenticate(ctx context.Context, pw string) (detail string, err error) {
 	if detail, err := CheckPassword(ctx, pw); err != nil {
 		return detail, err
 	}
@@ -86,22 +100,34 @@ func (Sudo) Authenticate(ctx context.Context, pw string) (detail string, err err
 	if err := cmd.Run(); err != nil {
 		return lockoutNotice(stderr.String()), err
 	}
-	// The ticket just minted has to be reusable: topgrade's and yay's own
-	// sudo reads it, and without one they would prompt on the terminal,
-	// outside archmaid. `sudo -n -v` never prompts and never counts toward
+	// Is the ticket just minted reusable? topgrade's and yay's own sudo
+	// reads it. `sudo -n -v` never prompts and never counts toward
 	// faillock; it fails with timestamp_timeout=0, timestamp_type=ppid (the
 	// ticket is bound to the sudo that minted it), or anything else that
 	// keeps the ticket from being reused.
 	if err := exec.CommandContext(ctx, sysbin.Sudo, "-n", "-v").Run(); err != nil {
+		if s.Wrapper != "" && s.SudoDir != "" {
+			// Every sudo the steps start by name runs through the sudo
+			// wrapper: it asks archmaid each time, never the terminal.
+			return NoTicketNote, nil
+		}
 		return NoTicketMessage, fmt.Errorf("%w: %v", ErrNoTicket, err)
 	}
 	return "", nil
 }
 
 // ErrNoTicket is Authenticate's error when the password was right but sudo
-// did not keep a ticket another sudo can reuse (see Authenticate). The run
-// must not start: the sudo steps would prompt on the terminal.
+// did not keep a ticket another sudo can reuse, and there is no sudo
+// wrapper to send the steps' own sudo through archmaid (see Authenticate).
+// The run must not start: topgrade's and yay's sudo would prompt on the
+// terminal.
 var ErrNoTicket = errors.New("privilege: sudo's ticket is not reusable")
+
+// NoTicketNote is Authenticate's detail, with a nil error, when the ticket
+// isn't reusable but the sudo wrapper is wired: the run goes on, and the
+// user is told once why archmaid will ask again.
+const NoTicketNote = "sudo won't keep your password between prompts here, so archmaid asks for it in its own " +
+	"window each time sudo needs it."
 
 // NoTicketMessage is what the user is told when ErrNoTicket refuses a run.
 const NoTicketMessage = "sudo didn't keep your password for this terminal (sudo's ticket isn't reusable here, " +
@@ -183,13 +209,29 @@ func program(name string) string {
 // inherits it, down to AUR build scripts, so the fewer steps that carry the
 // socket's location the better; one the user's shell exported is dropped too.
 // SUDO_ASKPASS is never set in archmaid's own environment.
+//
+// A step that gets the askpass also gets SudoDir, when set, first on its
+// PATH (on each PATH= entry; without one, before execvp's default,
+// /bin:/usr/bin): a sudo its programs start by name is then archmaid's
+// wrapper (sudowrap.go). archmaid's own sudo runs by absolute path
+// (sysbin.Sudo) and never looks at it.
 func (s Sudo) Env(needsPriv bool) []string {
 	environ := os.Environ()
-	env := make([]string, 0, len(environ)+1)
+	env := make([]string, 0, len(environ)+2)
+	wrap := needsPriv && s.Wrapper != "" && s.SudoDir != ""
+	path := false
 	for _, kv := range environ {
-		if !strings.HasPrefix(kv, "SUDO_ASKPASS=") {
+		switch {
+		case strings.HasPrefix(kv, "SUDO_ASKPASS="):
+		case wrap && strings.HasPrefix(kv, "PATH="):
+			env = append(env, "PATH="+s.SudoDir+string(os.PathListSeparator)+strings.TrimPrefix(kv, "PATH="))
+			path = true
+		default:
 			env = append(env, kv)
 		}
+	}
+	if wrap && !path {
+		env = append(env, "PATH="+s.SudoDir+string(os.PathListSeparator)+"/bin:/usr/bin")
 	}
 	if needsPriv && s.Wrapper != "" {
 		env = append(env, "SUDO_ASKPASS="+s.Wrapper)

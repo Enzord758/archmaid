@@ -54,9 +54,7 @@ type driverTarget struct {
 
 func newDriverTarget(t *testing.T, shimLog string) *driverTarget {
 	t.Helper()
-	oldWrapper := askpassWrapper
-	askpassWrapper = "/run/user/test/archmaid-askpass/wrapper"
-	t.Cleanup(func() { askpassWrapper = oldWrapper })
+	fakeAskpass(t)
 	opts := engine.Options{DryRun: dryRun, Env: actionEnv()}
 	if err := opts.Validate(); err != nil {
 		t.Fatal(err)
@@ -191,9 +189,13 @@ func (tg *driverTarget) take(evs []engine.Event) {
 	if !tg.contract.Check(evs) {
 		tg.fail("a batch breaks the engine's contract: %s", eventKinds(evs))
 	}
-	var plan, out, done, changed, started, tail, engineLogs []tt.Event
+	var head, plan, out, done, changed, started, tail, engineLogs []tt.Event
 	for _, ev := range evs {
 		switch ev := ev.(type) {
+		case engine.AuthResolved:
+			if note := runNote(ev); note != nil {
+				head = append(head, note)
+			}
 		case engine.QueueStarted:
 			ps := make([]tt.Step, len(ev.Steps))
 			for i, s := range ev.Steps {
@@ -240,6 +242,7 @@ func (tg *driverTarget) take(evs []engine.Event) {
 			tg.fin = &ev
 		}
 	}
+	tg.push(head...)
 	tg.push(plan...)
 	tg.push(out...)
 	tg.push(done...)

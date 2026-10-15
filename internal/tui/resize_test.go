@@ -82,6 +82,46 @@ func TestViewRunningNeverExceedsTerminalHeight(t *testing.T) {
 	}
 }
 
+// TestRunNoteOnTheRunningScreen: a right password that comes with a note
+// for the run (AuthResolved{Granted, Detail}: sudo keeps no ticket) shows
+// it on the running screen, above the checklist, wrapped to the terminal;
+// the output pane makes room for it at every width (the frame is as tall
+// as without it); an askpass prompt's own AuthResolved doesn't
+// replace it; the run's end clears it.
+func TestRunNoteOnTheRunningScreen(t *testing.T) {
+	const note = "sudo won't keep your password between prompts here, so archmaid asks for it in its own window each time sudo needs it."
+	for _, width := range []int{40, 80, 120} {
+		run := func(evs ...engine.Event) model {
+			m, _ := engineModel()
+			m = update(m, tea.WindowSizeMsg{Width: width, Height: 24})
+			return feed(m, append(evs,
+				engine.QueueStarted{Steps: []engine.PlanStep{{ID: "a", Title: "Step A"}, {ID: "b", Title: "Step B"}}},
+				engine.StepStarted{ID: "a", Index: 0})...)
+		}
+		plain := strings.Count(run(engine.AuthResolved{Granted: true}).View(), "\n") + 1
+		m := run(engine.AuthResolved{Granted: true, Detail: note})
+		out := m.View()
+		flat := strings.Join(strings.Fields(out), " ")
+		if !strings.Contains(flat, "Note: "+note) {
+			t.Fatalf("width %d: the note isn't on the running screen:\n%s", width, out)
+		}
+		if strings.Index(out, "Note: ") > strings.Index(out, "Step A") {
+			t.Fatalf("width %d: the note isn't above the checklist:\n%s", width, out)
+		}
+		if lines := strings.Count(out, "\n") + 1; lines != plain || lines > 24 {
+			t.Fatalf("width %d: the running screen is %d lines with the note, %d without (24 rows):\n%s", width, lines, plain, out)
+		}
+		m = feed(m, engine.AuthResolved{Granted: true}) // an askpass prompt answered
+		if m.runNote != note {
+			t.Fatalf("width %d: an askpass answer changed the note to %q", width, m.runNote)
+		}
+		m = feed(m, engine.Finished{Outcome: engine.OutcomeCompleted})
+		if m.runNote != "" {
+			t.Fatalf("width %d: the note outlived the run: %q", width, m.runNote)
+		}
+	}
+}
+
 // TestViewLogStaysWithinTerminalHeight pins the log viewer's own budget (the
 // one resizeOutput's constant was originally tuned against) so a future
 // change can't silently break it while fixing the running screen. The chrome

@@ -5,6 +5,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // ── update ───────────────────────────────────────────────────────────────────
@@ -91,6 +92,9 @@ func (m *model) resizeOutput() {
 	height := m.termHeight - 8
 	if m.baseScreen(m.screen) == screenRunning {
 		height -= len(m.queue)
+		if note := m.runNoteView(); note != "" {
+			height -= lipgloss.Height(note) + 1 // and the blank line under it
+		}
 	}
 	if height < 1 {
 		height = 1

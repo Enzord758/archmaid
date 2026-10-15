@@ -90,6 +90,11 @@ func ChildPATH(env, extra []string) string {
 // come, and so is an empty entry, the current directory (an empty path is
 // one: execvp, bash and Rust's split_paths search "." for PATH=).
 //
+// archmaid's own sudo wrapper (the TUI's, sudowrap.go), first on a step's
+// PATH, is sudo's boundary too, but only that file at that path as this
+// process wrote it (same file, mode and contents): a file put in its place
+// or a copy of it elsewhere counts like any other.
+//
 // It is conservative: a symlink with one of those names counts whatever it
 // points at (even /usr/bin/sudo: its target can change mid-run), and so
 // does any regular file with an execute bit; a directory or a file without
@@ -142,6 +147,13 @@ func PathShadows(path string) []Shadow {
 			}
 			if real[i] != nil && os.SameFile(fi, real[i]) {
 				passed[i], open = true, open-1 // the system's own: what follows can't shadow it
+				continue
+			}
+			if name == "sudo" && ownSudo.is(p, fi) {
+				// archmaid's own sudo wrapper, as this process wrote it
+				// (sudowrap.go): it execs sysbin.Sudo, so it is the way
+				// to the real sudo, and what follows can't shadow it.
+				passed[i], open = true, open-1
 				continue
 			}
 			if fi.Mode()&os.ModeSymlink != 0 || (fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0) {

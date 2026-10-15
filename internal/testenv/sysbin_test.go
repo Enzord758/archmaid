@@ -155,6 +155,7 @@ var bareNames = []string{"su", "sudo", "sudo-rs", "pkexec", "pkttyagent", "runus
 var bareAllowed = map[string]string{
 	`gui/internal/ui/overview.go:privTag("sudo")`:              "a plan row's privilege tag, a label; runs nothing",
 	`internal/helperclient/run.go:Errorf(…, Pkexec: "pkexec")`: "the display name in an error's text; Run executes sysbin.Pkexec",
+	`internal/privilege/sudowrap.go:Join(…, "sudo")`:           "the TUI's sudo wrapper's file name, which archmaid writes and never runs (it execs sysbin.Sudo)",
 }
 
 // TestNoBarePrivilegedExec: no product Go file passes a privileged

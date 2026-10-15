@@ -195,6 +195,30 @@ func TestSessionNoTicketRefusesTheRun(t *testing.T) {
 	enginetest.CheckContract(t, h.evs)
 }
 
+// A right password whose ticket can't be reused, with the TUI's sudo
+// wrapper there to send every sudo through archmaid (task #153: Authenticate
+// says OK with privilege.NoTicketNote as its detail): the run goes on as
+// with any right password, and the note rides on AuthResolved, once,
+// sanitized onto one line. No Notice, nothing refused.
+func TestSessionNoTicketNoteRuns(t *testing.T) {
+	h := newHarness(t, Options{}, sudoQueue())
+	h.toPrompt("q")
+	h.password("hunter2")
+	o := h.handle(AuthDone{OK: true, Detail: "sudo won't keep\x1b[31m it\nhere."})
+	if got := event[AuthResolved](t, o); got != (AuthResolved{Granted: true, Detail: "sudo won't keep it here."}) {
+		t.Errorf("AuthResolved = %+v", got)
+	}
+	if got := event[QueueStarted](t, o); len(got.Steps) != 4 {
+		t.Errorf("QueueStarted = %+v", got)
+	}
+	effect[KeepAlive](t, o)
+	for _, ev := range o.Events {
+		if _, ok := ev.(Notice); ok {
+			t.Errorf("a Notice for a run that goes on: %+v", ev)
+		}
+	}
+}
+
 func TestSessionPasswordFaillock(t *testing.T) {
 	unlock := t0.Add(10 * time.Minute)
 	for _, c := range []struct {

@@ -96,11 +96,11 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/helperclient/helpertest/helpertest.go:16-16` | `testOnly` | 1 | yes | test-helper guards: panic outside a test binary or on an empty path |
 | `internal/helperclient/helpertest/helpertest.go:29-29` | `UseHelperFile` | 1 | yes | test-helper guards: panic outside a test binary or on an empty path |
 | `internal/logstore/lastrun.go:66-67` | `Store.WriteLastRun` | 1 |  | json.Marshal of a RunRecord can't fail |
-| `internal/privilege/askpass.go:119-122` | `Listen` | 3 | yes | WriteFile of the wrapper into the 0700 dir just created can't fail |
-| `internal/privilege/askpass.go:206-207` | `Server.peerOf` | 1 | yes | SyscallConn/Control/SO_PEERCRED on an accepted unix conn don't fail |
-| `internal/privilege/askpass.go:213-214` | `Server.peerOf` | 1 | yes | SyscallConn/Control/SO_PEERCRED on an accepted unix conn don't fail |
-| `internal/privilege/askpass.go:216-217` | `Server.peerOf` | 1 | yes | SyscallConn/Control/SO_PEERCRED on an accepted unix conn don't fail |
-| `internal/privilege/askpass.go:515-516` | `verifyPeer` | 1 | yes | os.Executable fails only without /proc |
+| `internal/privilege/askpass.go:127-130` | `Listen` | 3 | yes | WriteFile of the wrapper into the 0700 dir just created can't fail |
+| `internal/privilege/askpass.go:229-230` | `Server.peerOf` | 1 | yes | SyscallConn/Control/SO_PEERCRED on an accepted unix conn don't fail |
+| `internal/privilege/askpass.go:236-237` | `Server.peerOf` | 1 | yes | SyscallConn/Control/SO_PEERCRED on an accepted unix conn don't fail |
+| `internal/privilege/askpass.go:239-240` | `Server.peerOf` | 1 | yes | SyscallConn/Control/SO_PEERCRED on an accepted unix conn don't fail |
+| `internal/privilege/askpass.go:538-539` | `verifyPeer` | 1 | yes | os.Executable fails only without /proc |
 | `internal/privilege/kept.go:150-151` | `KeptPassword.wipeLocked` | 1 | yes | the wipe check can't see non-zero bytes after the wipe |
 | `internal/privilege/privtest/privtest.go:18-18` | `testOnly` | 1 | yes | panics outside a test binary |
 | `internal/proc/detach.go:57-58` | `groupAlive` | 1 |  | Getpgid errors other than ESRCH (EPERM across namespaces) don't happen for our own children |
@@ -153,7 +153,7 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `internal/ttyguard/ttyguard.go:122-123` | `Exclusive` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |
 | `internal/ttyguard/ttyguard.go:130-131` | `ioctl` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |
 | `internal/ttyguard/ttyguard.go:136-137` | `ioctl` | 1 | yes | TIOCGEXCL/TIOCEXCL on an fd IsTerminal just accepted fail only if it is closed concurrently |
-| `internal/tui/askpass.go:36-37` | `startAskpassServer` | 1 | yes | os.Executable fails only without /proc |
+| `internal/tui/askpass.go:45-46` | `startAskpassServer` | 1 | yes | os.Executable fails only without /proc |
 | `internal/tui/tui.go:63-64` | `Run` | 1 |  | ttyguard.Hold reports an error only when TIOCGEXCL/TIOCEXCL fails on a terminal that just answered TCGETS; a closed or non-terminal stdin is a Guard that does nothing, no error |
 | `internal/tui/tui.go:69-70` | `Run.func` | 1 |  | Release of the guard fails only if the fd was closed concurrently |
 | `internal/tui/tui.go:128-129` | `DisableCoreDumps` | 1 |  | prctl(PR_SET_DUMPABLE) on our own process doesn't fail |

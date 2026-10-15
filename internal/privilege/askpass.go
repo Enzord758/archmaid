@@ -63,6 +63,10 @@ type ServerOptions struct {
 	// ReadTimeout bounds how long a client may take to send its prompt
 	// line; zero means DefaultReadTimeout.
 	ReadTimeout time.Duration
+	// SudoWrapper also writes the TUI's sudo wrapper (sudowrap.go) into
+	// the private directory, for Sudo.SudoDir (Server.SudoDir). The TUI
+	// sets it; the GUI doesn't (its steps have no terminal).
+	SudoWrapper bool
 }
 
 // Server owns the private directory, socket and wrapper script for one UI
@@ -75,13 +79,17 @@ type Server struct {
 	dir         string // private 0700 directory holding sock and wrapper
 	sock        string
 	wrapper     string
+	sudoDir     string // the sudo wrapper's directory, or ""
+	sudoFile    string // the sudo wrapper itself, or ""
 	readTimeout time.Duration
 	readProc    func(pid int) (proc.Info, error)
 }
 
 // Listen creates a private 0700 directory under runtimeDir (the user's
 // XDG_RUNTIME_DIR), opens the socket in it and writes the SUDO_ASKPASS
-// wrapper next to it, which execs exe in --askpass mode on that socket. On
+// wrapper next to it, which execs exe in --askpass mode on that socket,
+// and with o.SudoWrapper the sudo wrapper in a 0700 directory of its own
+// inside it (sudowrap.go). On
 // any error nothing is left behind, and the caller runs without askpass:
 // sudo steps then run `sudo -n` (Sudo with an empty Wrapper), relying on the
 // primed ticket and failing cleanly without it, never prompting on the tty.
@@ -120,6 +128,13 @@ func Listen(runtimeDir, exe string, o ServerOptions) (*Server, error) {
 		os.RemoveAll(dir)
 		return nil, err
 	}
+	if o.SudoWrapper {
+		if s.sudoDir, s.sudoFile, err = writeSudoWrapper(dir, s.wrapper); err != nil {
+			ln.Close()
+			os.RemoveAll(dir)
+			return nil, err
+		}
+	}
 	s.ln = ln
 
 	go func() {
@@ -143,9 +158,14 @@ func (s *Server) Requests() <-chan *Request { return s.reqs }
 // Wrapper is the SUDO_ASKPASS wrapper's path, for Sudo.Wrapper.
 func (s *Server) Wrapper() string { return s.wrapper }
 
+// SudoDir is the sudo wrapper's directory, for Sudo.SudoDir: "" unless
+// the Server was started with ServerOptions.SudoWrapper (and sysbin.Sudo
+// is an absolute path, as it always is outside tests).
+func (s *Server) SudoDir() string { return s.sudoDir }
+
 // Close stops accepting, hangs up on requests not yet delivered and removes
-// the private directory with the socket and wrapper. Safe to call twice, and
-// on a nil Server.
+// the private directory with the socket and wrappers. Safe to call twice,
+// and on a nil Server.
 func (s *Server) Close() {
 	if s == nil {
 		return
@@ -153,6 +173,9 @@ func (s *Server) Close() {
 	s.closeOnce.Do(func() {
 		close(s.done)
 		s.ln.Close()
+		if s.sudoFile != "" {
+			ownSudo.remove(s.sudoFile)
+		}
 		os.RemoveAll(s.dir)
 	})
 }

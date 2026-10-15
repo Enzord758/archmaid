@@ -56,7 +56,7 @@ charmbracelet, except `internal/tui`, and any that imports gotk4):
 
 | Package | Owns |
 |---|---|
-| `internal/privilege` | getting root without prompting on the tty. `Privileged` (`Probe`, `Authenticate`, `Refresh`, `Command`) and its one implementation `Sudo{Wrapper}`: `sudo -n -v` probe and keep-alive, two-stage `Authenticate` (`CheckPassword` = `su -s /usr/bin/true <user>`, then `sudo -S -v`; lockout notices), `Command` (sudo gets `-A` or `-n`; `Env` strips `SUDO_ASKPASS` and gives the wrapper only to privileged steps). Askpass: `Listen(runtimeDir, exe, ServerOptions)` → `*Server` (`Requests`, `Wrapper`, `Close`; private 0700 dir, shell-quoted wrapper, per-client read deadline and `MaxPrompt` cap, `SO_PEERCRED` + start time per client), `*Request` (`Prompt`, `Peer`, `Verify(stepPid, stepStart)` → `Requester`, `Answer(pw)` — refused unless Verify passed, su-checked before anything is written —, `AnswerThen(pw, accepted)` (accepted runs between su's yes and the write: where the GUI's Driver keeps the password) and `Cancel`; only a Server makes one; other packages' tests use `privtest`), `RunClient(sock, prompt)` (the `--askpass` helper). `FaillockStatus(user, now)` → `Status{Failures, Locked, Unlock, Deny}` (`LastAttempt()`): pam_faillock's state, read before any password or polkit prompt (see the faillock landmine) |
+| `internal/privilege` | getting root without prompting on the tty. `Privileged` (`Probe`, `Authenticate`, `Refresh`, `Command`) and its one implementation `Sudo{Wrapper, SudoDir}`: `sudo -n -v` probe and keep-alive, two-stage `Authenticate` (`CheckPassword` = `su -s /usr/bin/true <user>`, then `sudo -S -v`; lockout notices; then the ticket's reuse check `sudo -n -v`: without a reusable ticket `NoTicketNote` and no error when the sudo wrapper is wired, else `ErrNoTicket`), `Command` (sudo gets `-A` or `-n`; `Env` strips `SUDO_ASKPASS` and gives the wrapper only to privileged steps, with `SudoDir` first on their `PATH`). Askpass: `Listen(runtimeDir, exe, ServerOptions)` → `*Server` (`Requests`, `Wrapper`, `SudoDir`, `Close`; private 0700 dir, shell-quoted wrapper, per-client read deadline and `MaxPrompt` cap, `SO_PEERCRED` + start time per client; with `ServerOptions.SudoWrapper`, the TUI's, a `sudo` of its own in a 0700 `bin/` inside it: `sudowrap.go`, see "Nothing may prompt on the raw tty"), `*Request` (`Prompt`, `Peer`, `Verify(stepPid, stepStart)` → `Requester`, `Answer(pw)` — refused unless Verify passed, su-checked before anything is written —, `AnswerThen(pw, accepted)` (accepted runs between su's yes and the write: where the GUI's Driver keeps the password) and `Cancel`; only a Server makes one; other packages' tests use `privtest`), `RunClient(sock, prompt)` (the `--askpass` helper). `FaillockStatus(user, now)` → `Status{Failures, Locked, Unlock, Deny}` (`LastAttempt()`): pam_faillock's state, read before any password or polkit prompt (see the faillock landmine) |
 | `internal/proc` | child processes: `Runner.Start` (a `Spec` run with `Options{DryRun, WaitDelay, KillGrace, Detach, Pty, Cols, Redraw}`; `Spec.ExtraEnv` is added after its environment, without any `SUDO_ASKPASS`, its combined output streamed as `Msg`s on one ordered channel through `internal/vt` (`lines.go`: complete lines at once, a redraw — `Msg.Replace` — at most every `Redraw`, 50 ms), the dry-run echo, `ErrWaitDelay` → success on a clean exit; `Pty` (with `Detach`, the GUI's) gives the child a pty as stdout and stderr, never its controlling terminal: `pty.go`, see the `Setsid` landmine), `Next` (blocks for one message, drains up to `BatchMax` more into a `Batch`, folding `Replace` in), `Child.Stop` (SIGINT, SIGKILL after the grace), `Query` (run a read-only command, return stdout, keep the `*exec.ExitError` and stderr), `Read` (`/proc/<pid>`: parent, group, session, start time, euid, exe) |
 | `internal/steps` | what a unit of work is: `Step` (stable `ID`, the root helper's `Verb` where one exists, `Argv` or an in-process `Run(ctx, Env) Result`, `Env` (variables for its child alone: the Driver passes it as `proc.Spec.ExtraEnv`), `Confirm`/`Optional`/`OnAccept`, `Items`/`Cascade` (what a confirm lists, as data), `NeedsPriv`, `AlwaysLog`, log `Category`, `Prefetch`), `Result` (`Output`, `Err`, `ConfirmNext`, `Commit`, `InsertNext`; `Check` forbids gating and inserting at once), `ErrResultTaken` (the cause a front end releases an in-process step's ctx with once its result is taken; any other cancel is an abort), `Status` (`Pending` … `AuthRefused` — privilege not granted, one status whatever the reason, since pkexec exits 127 for every refusal — and `Aborted`) |
 | `internal/actions` | the menu as data: `Menu []Action` (`ID`, `Label`, `Icon`, `Gate`, `Busy`, `Steps func(Env) []steps.Step` or `Discover func(ctx, Env) Discovery`, `Record` — the discovery's log category), `ByID`; the queues (Full Cleanup, Run topgrade, Clear user cache), the orphan probe, Repair's user scan and root recheck, the services discovery and `DisableUnits`, the downloads discovery. `Discovery` is a typed union: `Notice{Text, Err, Details, Log}` (ends the action: nothing found, or with `Err` the look failed), `Pending`, `NeedsSelection{Items, Steps}`, `Report{Text, Accept}` (`Accept func() error` accepts the flagged findings, nil when there is nothing to accept), `NeedsRoot{Items, Busy, AuthFailed, Rescan}`; `Pending`, `NeedsSelection` and `NeedsRoot` carry `Checked{Summary, Details, Log}`, what the discovery looked at (see "The discovery record"). `Env` carries the run's flags and what still lives in the TUI, as func values: the AUR audit (`AuditStep`, `AuditReport`) and the downloads delete step (`Downloads`, `DeleteDownloads`). Those four are required (a nil one panics mid-action); `Env.Validate` names any left out, and the TUI's `main` calls it on `actionEnv()` at startup. `DryRun`, `LookPath` and `RepairWorkers` may stay zero |
@@ -218,23 +218,82 @@ comments and `git log`; this is the "read before you touch it" list.
   popup, and again by `Answer`): sudo reads one line, so it would get a
   different password than su checked. `Answer` is the only way a password
   reaches an askpass connection; don't add another.
-- **Nothing may prompt on the raw tty, as far as archmaid's own sudo goes.**
-  Sudo steps run `sudo -A`, and `SUDO_ASKPASS` routes any re-prompt back into
-  the TUI as a popup. topgrade's and yay's own sudo are not archmaid's: they
-  read the primed ticket, so the TUI's guarantee depends on a reusable ticket.
-  `Sudo.Authenticate` verifies it right after `sudo -S -v` with `sudo -n -v`
-  (never prompts, never counts toward faillock); on failure
-  (`timestamp_timeout=0`, `timestamp_type=ppid`, ...) it returns
-  `privilege.ErrNoTicket`, the Driver sets `AuthDone.NoTicket`, and the Session
-  ends the run before any step with a Notice (`privilege.NoTicketMessage`:
-  run from archmaid-gui, or let sudo keep the ticket), no attempt counted.
-  What the check cannot cover: if the ticket lapses mid-run (suspend, a step's
-  `sudo -k`), topgrade's and yay's sudo can still prompt on the tty. The GUI
-  is unaffected: its children have no tty and use askpass. The password
-  is passed straight through, never stored or logged, and never kept in a
+- **Nothing may prompt on the raw tty: every sudo a step starts by name
+  goes through archmaid's askpass popup (TUI, #153; the owner: "the TUI
+  should always go through a sudo wrapper").** archmaid's own sudo steps
+  run `sudo -A` by absolute path, and `SUDO_ASKPASS` routes any prompt into
+  the TUI as a popup. topgrade, yay and makepkg start sudo **by name**, and
+  in the TUI their sudo has the TUI's terminal: without a reusable ticket
+  it would prompt there, under the full-screen UI (sudo is setuid root, so
+  the terminal hold, `ttyguard`, can't stop it). So the TUI's askpass
+  Server also writes a `sudo` of its own (`privilege/sudowrap.go`,
+  `ServerOptions.SudoWrapper`): a 0700 file in a 0700 `bin/` inside the
+  Server's private dir, and `Sudo.Env` puts that dir first on the `PATH` of
+  every step that gets `SUDO_ASKPASS` (topgrade, and any `NeedsPriv`
+  child). It `exec`s `sysbin.Sudo` by absolute path (fixed when written,
+  never looked up on `PATH`) with `-A`, and sets `SUDO_ASKPASS` to the
+  Server's askpass, so the real sudo's parent is still topgrade or yay
+  (`Request.Verify` sees the same chain) and each password goes through
+  `Request.Answer`'s su check first (faillock-safe). It adds nothing when
+  the caller already said how sudo gets its password (`-A`/`--askpass`,
+  `-S`/`--stdin`, `-n`/`--non-interactive`, also in a cluster such as
+  `-nv`) or for a mode that never asks and takes no other option (`-K`,
+  `-V`, `-h`); it reads sudo's own options only (to the command, `--` or
+  an option it doesn't know, skipping an option's value: `-u -n` is the
+  user "-n"), and passes every argument through as given. It is removed
+  with the Server's dir when the TUI exits. Not written when `sysbin.Sudo`
+  is a bare name (only under testenv: it would find itself on `PATH`).
+  The GUI writes none: its children have no tty, and sudo uses the askpass
+  by itself there (`TestGUIGetsNoSudoWrapper`).
+  The ticket check stays: `Sudo.Authenticate` runs `sudo -n -v` right
+  after `sudo -S -v` (never prompts, never counts toward faillock). On a
+  ticket that can't be reused (`timestamp_timeout=0`,
+  `timestamp_type=ppid`, ...) with the wrapper wired, the run goes on: it
+  returns `privilege.NoTicketNote` with no error, the Session puts it on
+  `AuthResolved{Granted: true, Detail}`, and the TUI shows it once above
+  the running checklist ("sudo won't keep your password between prompts
+  here, so archmaid asks for it in its own window each time sudo needs
+  it."); each sudo then asks through its own popup. Without the wrapper
+  (no askpass: no `XDG_RUNTIME_DIR`) it is `privilege.ErrNoTicket` as
+  before: `AuthDone.NoTicket`, a Notice (`privilege.NoTicketMessage`), the
+  run refused before any step. **Residuals:** (1) a program that runs
+  sudo by **absolute path** bypasses the wrapper and can still prompt on
+  the terminal. Checked by reading, never by running them: topgrade
+  17.12.3 has no `/usr/bin/sudo` string in its binary; it looks its sudo
+  up on `PATH` (the `which` crate: doas, please, sudo, ... in that order)
+  and runs the path it found, so it finds the wrapper, unless
+  `sudo_command` in `topgrade.toml` names a path (the owner's leaves it
+  commented). yay 13.0.1 has no absolute sudo path either: it runs its
+  `sudobin` (default `sudo`, Go's `exec.Command`, a `PATH` lookup) with
+  its `sudoflags`; a `sudobin` set to a path in yay's config
+  (`~/.config/yay/init.lua` on yay 13) would bypass it (the owner's sets
+  no sudo option). makepkg (pacman 7.1) runs
+  `PACMAN_AUTH` when set (`/etc/makepkg.conf`; commented here), else
+  `sudo -k pacman …` by name when `type -p sudo` finds one (the wrapper:
+  `-k` with a command ignores the ticket, so makepkg's sudo always asks,
+  now in the popup), else `su root -c`; a `PACMAN_AUTH` naming a path,
+  `doas` or `run0` bypasses it, as would topgrade choosing `doas` or
+  `please` (installed before sudo on `PATH`): none is here. (2) The
+  wrapper's dir is prepended, so it comes before every one of the user's
+  own `PATH` dirs; a user's own `sudo` earlier on `PATH` (a wrapper of
+  theirs) is no longer reached from a TUI step. (3) A sudo loop (yay's
+  `sudoloop`, topgrade's `sudo_loop`; both off here) without a reusable
+  ticket would raise a popup at every turn. (4) Repair's root recheck
+  runs `sudo -n` (no askpass): without a reusable ticket it ends in its
+  "Couldn't scan for broken packages" notice. (5) The wrapper is a file
+  of the user's own, as `~/.local/bin` is: a process of the same uid
+  could rewrite it mid-run (the #131 class, below). The password is
+  passed straight through, never stored or logged, and never kept in a
   struct that outlives the call (`privilege.Request` holds no password).
-  `sudo -n -v` is only the cache probe, the ticket check and the 60 s keep-alive
-  (`Sudo.Probe`, `Sudo.Refresh`).
+  `sudo -n -v` is only the cache probe, the ticket check and the 60 s
+  keep-alive (`Sudo.Probe`, `Sudo.Refresh`). Tests: `sudowrap_test.go`
+  (the flag table, argv passed through exactly, exec with no shell
+  between and a decoy later on `PATH` never run, modes, removal), the
+  TUI's `TestTUISudoByNameAsksInThePopup` (the real TUI in a pty: a
+  step's `sudo` by name reaches the popup, the answer reaches sudo after
+  su, nothing reaches the terminal; with `timestamp_timeout=0` the run
+  goes on with its note and one popup per sudo call), the
+  `topgrade_ticket_unusable` transcript.
 - **The TUI drops its sudo ticket on exit (owner's decision M1).** `main`
   calls `tui.DropSudoTicket` after `Finish` on every path: `sudo -n -k`
   (`privilege.DropTicket`: `sysbin.Sudo`, `SUDO_ASKPASS` dropped, stdin
@@ -294,7 +353,9 @@ comments and `git log`; this is the "read before you touch it" list.
   archmaid's only update path, in the TUI and the GUI (there is no repo/AUR
   split), so the askpass peer checks below (F7b) are the control there. The
   GUI gives every step's child a pty as its output (#129, below); that
-  doesn't change the sudo path.
+  doesn't change the sudo path. In the TUI the same steps (and only they)
+  also get the sudo wrapper's dir first on their `PATH` ("Nothing may
+  prompt on the raw tty"); a step without the askpass gets neither.
 - **An askpass request is answered only from the running sudo step.** The
   server records each client's pid/uid (`SO_PEERCRED`) and start time; the
   Driver (`internal/driver`, `verify`) refuses a request while no step's
@@ -540,7 +601,16 @@ comments and `git log`; this is the "read before you touch it" list.
     `TestNoAbsolutePrivilegedExec`'s.
   - *What a step's child starts by name* (topgrade's yay, yay's and
     makepkg's `sudo`) still goes through the step's `PATH`; archmaid
-    can't change how those tools look sudo up. The risk is the kept
+    can't change how those tools look sudo up. (In the TUI the first
+    `sudo` on that `PATH` is archmaid's own wrapper, which execs
+    `sysbin.Sudo`: "Nothing may prompt on the raw tty". The guard below
+    takes it for what it is, sudo's boundary, but only that file at that
+    path as the process wrote it: same file by device and inode, a 0700
+    regular file, same contents; a file put in its place, a copy, a
+    symlink to it or one left after its Server closed counts as a shadow
+    (`TestPathShadowsOwnSudoWrapper`, `TestPathGuardOwnSudoWrapper`). The
+    guard only runs under `KeepPassword`, the GUI's, which writes no
+    wrapper, so today the two never meet.) The risk is the kept
     password: a script named `sudo` before `/usr/bin/sudo` that execs the
     real sudo with a command of its own (`exec /usr/bin/sudo -A sh -c
     '…'`) *is* sudo run by yay once it has exec'd, so its request passes

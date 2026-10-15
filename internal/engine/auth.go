@@ -123,8 +123,11 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 	}
 	r.checking = false
 	if in.OK {
+		// Detail on a right password is a note for the run (the TUI's
+		// sudo keeps no ticket, so each sudo asks through archmaid:
+		// privilege.NoTicketNote).
 		r.attempts = 0
-		o.event(AuthResolved{Granted: true})
+		o.event(AuthResolved{Granted: true, Detail: sanitize.OneLine(in.Detail)})
 		if r.root != nil {
 			s.rescan(o)
 			return
@@ -133,8 +136,9 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 		return
 	}
 	if in.NoTicket {
-		// Right password, unusable ticket: the sudo steps (topgrade's and
-		// yay's own sudo) would prompt on the raw tty. Nothing has run.
+		// Right password, unusable ticket, and no sudo wrapper to send
+		// topgrade's and yay's own sudo through archmaid: they would
+		// prompt on the raw tty. Nothing has run.
 		r.attempts = 0
 		o.event(AuthResolved{})
 		o.event(Notice{Text: sanitize.String(in.Detail, sanitize.Plain)})

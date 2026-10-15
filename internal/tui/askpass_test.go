@@ -1,13 +1,17 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
+	"github.com/Enzord758/archmaid/internal/sysbin"
+	"github.com/Enzord758/archmaid/internal/testenv"
 )
 
 // The TUI's side of askpass: the session's server wired up for privileged() and
@@ -108,5 +112,49 @@ func TestStepChildSeesAskpassEnv(t *testing.T) {
 		if err != nil || len(lines) != 1 || lines[0] != c.want {
 			t.Fatalf("%s saw SUDO_ASKPASS %v (err %v), want %s", c.s.Command(), lines, err, c.want)
 		}
+	}
+}
+
+// TestTUIServerWritesTheSudoWrapper: the TUI's askpass Server writes the
+// sudo wrapper (a 0700 file in a 0700 dir inside its own) and
+// privileged() puts it first on the PATH of a step that gets the askpass,
+// only that step; stopping the Server removes it and unwires it.
+func TestTUIServerWritesTheSudoWrapper(t *testing.T) {
+	testenv.UseSysbin(t, &sysbin.Sudo, "exit 0")
+	rt := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", rt)
+	t.Setenv("PATH", "/x:/y")
+	withAskpassWrapper(t, "")
+	oldDir := askpassSudoDir
+	t.Cleanup(func() { askpassSudoDir = oldDir })
+
+	s := startAskpassServer()
+	if s == nil {
+		t.Fatal("no server")
+	}
+	dir := askpassSudoDir
+	if dir == "" || dir != s.SudoDir() || filepath.Dir(dir) != filepath.Dir(s.Wrapper()) {
+		t.Fatalf("askpassSudoDir = %q, want the server's sudo dir beside %s", dir, s.Wrapper())
+	}
+	for path, want := range map[string]os.FileMode{dir: os.ModeDir | 0o700, filepath.Join(dir, "sudo"): 0o700} {
+		if fi, err := os.Lstat(path); err != nil || fi.Mode() != want {
+			t.Fatalf("%s: %v (err %v), want %v", path, fi.Mode(), err, want)
+		}
+	}
+	pathOf := func(env []string) string {
+		return privilege.ChildPATH(env, nil)
+	}
+	if got := pathOf(privileged().Command([]string{"topgrade"}, true).Env); got != dir+":/x:/y" {
+		t.Fatalf("a NeedsPriv step's PATH = %q, want the sudo dir first", got)
+	}
+	if got := pathOf(privileged().Command([]string{"yay", "-Sc"}, false).Env); got != "/x:/y" {
+		t.Fatalf("a plain step's PATH = %q, want it untouched", got)
+	}
+	stopAskpassServer(s)
+	if askpassSudoDir != "" || askpassWrapper != "" {
+		t.Fatalf("still wired after stop: %q, %q", askpassSudoDir, askpassWrapper)
+	}
+	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the sudo wrapper's dir is still there after stop (err %v)", err)
 	}
 }

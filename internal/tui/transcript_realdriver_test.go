@@ -96,6 +96,12 @@ func newRealDriverTarget(t *testing.T, shimLog string) *realDriverTarget {
 	if !strings.HasPrefix(srv.Wrapper(), rt+string(filepath.Separator)) {
 		t.Fatalf("the askpass wrapper %q is outside the scratch runtime dir", srv.Wrapper())
 	}
+	// The Server writes no sudo wrapper here (sysbin.Sudo is bare under
+	// testenv, and the wrapper would find itself on PATH): name one, as
+	// the other targets do, so the steps' PATH and an unusable ticket go
+	// as in the binary. No transcript's program runs sudo by name.
+	oldDir := askpassSudoDir
+	askpassSudoDir = "/run/user/test/archmaid-askpass/bin"
 
 	opts := engine.Options{DryRun: dryRun, Env: actionEnv()}
 	if err := opts.Validate(); err != nil {
@@ -126,7 +132,7 @@ func newRealDriverTarget(t *testing.T, shimLog string) *realDriverTarget {
 	t.Cleanup(func() {
 		tg.d.Close()
 		stopAskpassServer(srv)
-		askpassWrapper = oldWrapper
+		askpassWrapper, askpassSudoDir = oldWrapper, oldDir
 	})
 	return tg
 }
@@ -309,7 +315,11 @@ func (tg *realDriverTarget) take(ev engine.Event) {
 		}
 	case engine.Finished:
 		tg.fin = &ev
-	case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting, engine.AuthResolved,
+	case engine.AuthResolved:
+		if note := runNote(ev); note != nil {
+			tg.push(note)
+		}
+	case engine.PhaseChanged, engine.StatusUpdated, engine.AuthWaiting,
 		engine.FaillockState: // no transcript line
 	default:
 		tg.fail("event %T (%+v): teach the real driver target", ev, ev)

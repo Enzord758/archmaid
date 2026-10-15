@@ -170,10 +170,20 @@ func startTUIChild(t *testing.T) *tuiChild {
 	if err := os.WriteFile(filepath.Join(shims, "sudo"), []byte(sudo), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	c.cmd = exec.Command(os.Args[0], "-test.run=^TestTTYChild$", "-test.count=1")
 	// The child puts the shims first on PATH itself: its own testenv puts
 	// the traps first when it starts.
-	c.cmd.Env = append(desktopEnv(), envTTYChild+"="+c.marker, envTTYShims+"="+shims, "TERM=xterm-256color")
+	c.start("TestTTYChild", "TTY probe", envTTYChild+"="+c.marker, envTTYShims+"="+shims)
+	return c
+}
+
+// start runs the test named child (a TUI under Run) as the session leader
+// of c's pty, with env added to desktopEnv, and waits for its menu, which
+// shows menu.
+func (c *tuiChild) start(child, menu string, env ...string) {
+	t := c.t
+	t.Helper()
+	c.cmd = exec.Command(os.Args[0], "-test.run=^"+child+"$", "-test.count=1")
+	c.cmd.Env = append(append(desktopEnv(), env...), "TERM=xterm-256color")
 	c.cmd.Stdin, c.cmd.Stdout, c.cmd.Stderr = c.follower, c.follower, c.follower
 	c.cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 	if err := c.cmd.Start(); err != nil {
@@ -193,8 +203,7 @@ func startTUIChild(t *testing.T) *tuiChild {
 	// (OSC 11, DSR) and waits up to 5 s for answers: answer as a terminal.
 	waitFor(t, c.scr, "the terminal queries", func() bool { return c.scr.has("\x1b[6n") })
 	c.key("\x1b]11;rgb:0000/0000/0000\x1b\\\x1b[1;1R")
-	waitFor(t, c.scr, "the menu", func() bool { return c.scr.has("TTY probe") })
-	return c
+	waitFor(t, c.scr, "the menu", func() bool { return c.scr.has(menu) })
 }
 
 func (c *tuiChild) key(k string) {

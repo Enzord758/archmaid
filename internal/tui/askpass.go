@@ -19,38 +19,48 @@ import (
 // startAskpassServer, cleared by stopAskpassServer.
 var askpassWrapper string
 
-// privileged is how steps get root: sudo, with the askpass wrapper while it's
-// wired up. Call it on main's goroutine (it reads askpassWrapper).
+// askpassSudoDir is the server's sudo wrapper directory, put first on the
+// PATH of the steps that get the askpass, so that a sudo topgrade, yay or
+// makepkg start by name asks through the TUI's popup, never on its
+// terminal (privilege's sudowrap.go); "" while askpass isn't wired up. Set
+// and cleared with askpassWrapper.
+var askpassSudoDir string
+
+// privileged is how steps get root: sudo, with the askpass wrapper and the
+// sudo wrapper while they're wired up. Call it on main's goroutine (it
+// reads askpassWrapper and askpassSudoDir).
 func privileged() privilege.Privileged {
-	return privilege.Sudo{Wrapper: askpassWrapper}
+	return privilege.Sudo{Wrapper: askpassWrapper, SudoDir: askpassSudoDir}
 }
 
 // startAskpassServer starts the session's askpass server under
-// XDG_RUNTIME_DIR and wires its wrapper up for privileged. Best-effort: on
-// any error it returns nil, askpass simply isn't wired up, and sudo steps
-// run `sudo -n` — they rely on the primed ticket and fail cleanly without
-// it, never prompting on the tty.
+// XDG_RUNTIME_DIR, with the sudo wrapper, and wires both up for
+// privileged. Best-effort: on any error it returns nil, askpass simply
+// isn't wired up, and sudo steps run `sudo -n` — they rely on the primed
+// ticket and fail cleanly without it, never prompting on the tty (and a
+// ticket that can't be reused refuses the run: privilege.ErrNoTicket).
 func startAskpassServer() *privilege.Server {
 	exe, err := os.Executable()
 	if err != nil {
 		return nil
 	}
-	s, err := privilege.Listen(os.Getenv("XDG_RUNTIME_DIR"), exe, privilege.ServerOptions{})
+	s, err := privilege.Listen(os.Getenv("XDG_RUNTIME_DIR"), exe, privilege.ServerOptions{SudoWrapper: true})
 	if err != nil {
 		return nil
 	}
-	askpassWrapper = s.Wrapper()
+	askpassWrapper, askpassSudoDir = s.Wrapper(), s.SudoDir()
 	return s
 }
 
-// stopAskpassServer closes s and unwires its wrapper. A nil s is a no-op.
+// stopAskpassServer closes s, which removes its directory with both
+// wrappers, and unwires them. A nil s is a no-op.
 func stopAskpassServer(s *privilege.Server) {
 	if s == nil {
 		return
 	}
 	s.Close()
 	if askpassWrapper == s.Wrapper() {
-		askpassWrapper = ""
+		askpassWrapper, askpassSudoDir = "", ""
 	}
 }
 
