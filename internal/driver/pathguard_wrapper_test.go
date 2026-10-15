@@ -74,6 +74,12 @@ func TestPathGuardReplacedSudoWrapper(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Held open so the new file can't take the old inode number.
+		old, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { old.Close() })
 		if err := os.Remove(path); err != nil {
 			t.Fatal(err)
 		}

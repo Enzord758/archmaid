@@ -64,3 +64,38 @@ func TestOwnFilesIs(t *testing.T) {
 		t.Error("a removed entry is still taken for its own")
 	}
 }
+
+// TestOwnFilesIsInodeReuse: a file that has the recorded device, inode,
+// mode and contents but a changed ctime is not the wrapper as written. This
+// is what a removed and rewritten wrapper looks like on a filesystem that
+// hands the new file the old inode number (CI's /tmp does, tmpfs does not).
+// The reuse can't be forced, so the recorded ctime is moved instead: the
+// file is, by device, inode, mode and text, exactly the one recorded.
+func TestOwnFilesIsInodeReuse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sudo")
+	body := []byte("#!/bin/sh\nexec /usr/bin/sudo -A \"$@\"\n")
+	if err := os.WriteFile(path, body, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reg ownFiles
+	reg.add(path, fi, body)
+	if !reg.is(path, fi) {
+		t.Fatal("the file as written isn't taken for its own")
+	}
+	reg.mu.Lock()
+	e := reg.m[path]
+	if e.ctime == 0 {
+		reg.mu.Unlock()
+		t.Fatal("no ctime recorded")
+	}
+	e.ctime++
+	reg.m[path] = e
+	reg.mu.Unlock()
+	if reg.is(path, fi) {
+		t.Error("same inode, mode and text but another ctime taken for the wrapper as written")
+	}
+}

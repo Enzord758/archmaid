@@ -328,7 +328,15 @@ func TestPathShadowsOwnSudoWrapper(t *testing.T) {
 		}
 	}
 
-	// Replaced: removed and written again with the same text.
+	// Replaced: removed and written again with the same text. The old file
+	// is held open so its inode can't be handed to the new one: the case
+	// doesn't depend on the filesystem's inode reuse (TestOwnFilesIsInodeReuse
+	// covers that).
+	oldFile, err := os.Open(own)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer oldFile.Close()
 	if err := os.Remove(own); err != nil {
 		t.Fatal(err)
 	}

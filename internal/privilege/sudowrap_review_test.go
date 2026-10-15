@@ -250,7 +250,9 @@ func TestPathShadowsOwnSudoWrapperMode(t *testing.T) {
 	if err := os.Chmod(own, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := paths(PathShadows(list(s.SudoDir(), real))); len(got) != 0 {
-		t.Errorf("restored to 0700: shadows %q", got)
+	// A chmod moved the ctime, and the wrapper is never touched after it is
+	// written: a file restored to 0700 is not taken for archmaid's own.
+	if got := paths(PathShadows(list(s.SudoDir(), real))); !slices.Equal(got, []string{own}) {
+		t.Errorf("restored to 0700: shadows %q, want %s (the ctime moved)", got, own)
 	}
 }

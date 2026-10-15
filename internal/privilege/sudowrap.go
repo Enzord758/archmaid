@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/Enzord758/archmaid/internal/sysbin"
 )
@@ -141,8 +142,21 @@ func writeSudoWrapper(dir, askpass string) (bin, path string, err error) {
 var ownSudo ownFiles
 
 type ownFile struct {
-	fi   os.FileInfo
-	body []byte
+	fi    os.FileInfo
+	body  []byte
+	ctime int64 // status-change time (ns) at write; 0 when unknown
+}
+
+// ctimeNs is fi's status-change time in nanoseconds, false when the
+// platform's stat doesn't carry one. A file removed and written again gets
+// a new ctime even when the filesystem hands the new file the old inode
+// number (tmpfs and ext4 do), which device and inode alone can't tell.
+func ctimeNs(fi os.FileInfo) (int64, bool) {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return int64(st.Ctim.Sec)*1e9 + int64(st.Ctim.Nsec), true
 }
 
 type ownFiles struct {
@@ -156,7 +170,8 @@ func (o *ownFiles) add(path string, fi os.FileInfo, body []byte) {
 	if o.m == nil {
 		o.m = map[string]ownFile{}
 	}
-	o.m[path] = ownFile{fi: fi, body: body}
+	c, _ := ctimeNs(fi)
+	o.m[path] = ownFile{fi: fi, body: body, ctime: c}
 }
 
 func (o *ownFiles) remove(path string) {
@@ -167,13 +182,19 @@ func (o *ownFiles) remove(path string) {
 
 // is reports whether the file at path (fi, not followed) is a wrapper this
 // process wrote, as written: the same path, the same file (device and
-// inode), still a regular 0700 file (no setuid, setgid or sticky bit), with the same contents. A file put
+// inode) and the same ctime, still a regular 0700 file (no setuid, setgid or sticky bit), with the same contents. A file put
 // in its place, a copy elsewhere, a symlink to it or a rewritten one is not.
 func (o *ownFiles) is(path string, fi os.FileInfo) bool {
 	o.mu.Lock()
 	own, ok := o.m[filepath.Clean(path)]
 	o.mu.Unlock()
 	if !ok || !fi.Mode().IsRegular() || fi.Mode()&(os.ModePerm|os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0o700 || !os.SameFile(fi, own.fi) {
+		return false
+	}
+	// archmaid never touches the wrapper after writing it, so any change of
+	// ctime (a replaced, rewritten, chmod'ed or relinked file) is not ours.
+	// No ctime at hand is not ours either.
+	if c, ok := ctimeNs(fi); !ok || own.ctime == 0 || c != own.ctime {
 		return false
 	}
 	b, err := os.ReadFile(path)
