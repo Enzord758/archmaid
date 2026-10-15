@@ -25,12 +25,17 @@ import (
 // -A is left out when the caller already said how sudo gets its password
 // (-A/--askpass, -S/--stdin, -n/--non-interactive, also in a cluster such as
 // -nv) and for the modes that never ask for one and take no other option
-// (-K/--remove-timestamp, -V/--version, -h/--help). It reads sudo's own
+// (-K/--remove-timestamp, -V/--version, --help). A bare -h takes the next
+// word as its host (unless it starts with - or is VAR=value), so it
+// keeps -A, except as the last word, where it is the help mode. It reads sudo's own
 // options only: they end at the first word that isn't one (the command),
 // at --, and at an option it doesn't know (whatever follows is then left
 // to sudo, and -A is added: it can only keep sudo off the terminal). An
 // option's value (-u -n: the user "-n"; -p, -C, --prompt …) is skipped,
-// never read as a flag. The caller's arguments go to sudo exactly as given.
+// never read as a flag. The script uses only reserved words and special
+// builtins (case, for, while, break, continue, export, exec), never [ or
+// test or any other command: an exported shell function of the caller's
+// can override none of them. The caller's arguments go to sudo exactly as given.
 //
 // The GUI doesn't use it: its children have no terminal, and sudo asks
 // through SUDO_ASKPASS there by itself.
@@ -52,7 +57,11 @@ func sudoWrapperScript(sudo, askpass string) string {
 archmaid_ask=-A
 archmaid_val=
 for archmaid_arg do
-	if [ -n "$archmaid_val" ]; then archmaid_val=; continue; fi
+	case $archmaid_val in
+	"") ;;
+	h) archmaid_val=; case $archmaid_arg in -*|*=*) ;; *) continue ;; esac ;;
+	*) archmaid_val=; continue ;;
+	esac
 	case $archmaid_arg in
 	--) break ;;
 	--askpass|--stdin|--non-interactive|--remove-timestamp|--version|--help) archmaid_ask=; break ;;
@@ -61,13 +70,14 @@ for archmaid_arg do
 	--*) break ;;
 	-?*)
 		archmaid_rest=${archmaid_arg#-}
-		while [ -n "$archmaid_rest" ]; do
+		while :; do
+			case $archmaid_rest in "") break ;; esac
 			archmaid_c=${archmaid_rest%"${archmaid_rest#?}"}
 			archmaid_rest=${archmaid_rest#?}
 			case $archmaid_c in
 			A|S|n|K|V) archmaid_ask=; break 2 ;;
-			h) if [ -z "$archmaid_rest" ]; then archmaid_ask=; break 2; fi; archmaid_rest= ;;
-			a|C|c|D|g|p|R|r|T|t|U|u) if [ -z "$archmaid_rest" ]; then archmaid_val=1; fi; archmaid_rest= ;;
+			h) case $archmaid_rest in "") archmaid_val=h ;; esac; archmaid_rest= ;;
+			a|C|c|D|g|p|R|r|T|t|U|u) case $archmaid_rest in "") archmaid_val=1 ;; esac; archmaid_rest= ;;
 			B|b|E|e|H|i|k|l|N|P|s|v) ;;
 			*) break 2 ;;
 			esac
@@ -75,11 +85,14 @@ for archmaid_arg do
 	*) break ;;
 	esac
 done
-if [ -n "$archmaid_ask" ]; then
+case $archmaid_val in h) archmaid_ask= ;; esac
+case $archmaid_ask in
+"") ;;
+*)
 	SUDO_ASKPASS=` + shellQuote(askpass) + `
 	export SUDO_ASKPASS
-	exec ` + shellQuote(sudo) + ` -A "$@"
-fi
+	exec ` + shellQuote(sudo) + ` -A "$@" ;;
+esac
 exec ` + shellQuote(sudo) + ` "$@"
 `
 }
@@ -154,13 +167,13 @@ func (o *ownFiles) remove(path string) {
 
 // is reports whether the file at path (fi, not followed) is a wrapper this
 // process wrote, as written: the same path, the same file (device and
-// inode), still a regular 0700 file, with the same contents. A file put
+// inode), still a regular 0700 file (no setuid, setgid or sticky bit), with the same contents. A file put
 // in its place, a copy elsewhere, a symlink to it or a rewritten one is not.
 func (o *ownFiles) is(path string, fi os.FileInfo) bool {
 	o.mu.Lock()
 	own, ok := o.m[filepath.Clean(path)]
 	o.mu.Unlock()
-	if !ok || !fi.Mode().IsRegular() || fi.Mode().Perm() != 0o700 || !os.SameFile(fi, own.fi) {
+	if !ok || !fi.Mode().IsRegular() || fi.Mode()&(os.ModePerm|os.ModeSetuid|os.ModeSetgid|os.ModeSticky) != 0o700 || !os.SameFile(fi, own.fi) {
 		return false
 	}
 	b, err := os.ReadFile(path)

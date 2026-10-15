@@ -106,7 +106,15 @@ func sudoModel(args []string) (prompts, known bool) {
 					quiet = true
 				case c == 'h':
 					if j == len(a)-1 {
-						return false, false // -h alone: help, or -h host
+						// -h host: the next word is the host unless it
+						// starts with '-' or is VAR=value; with none, help.
+						if i+1 >= len(args) {
+							quiet = true // -h last: help
+						} else if n := args[i+1]; !strings.HasPrefix(n, "-") && !strings.Contains(n, "=") {
+							i++
+						} else {
+							return false, false // -h and no host: sudo's own mix
+						}
 					}
 					j = len(a)
 				case strings.IndexByte(valShort, c) >= 0:
@@ -135,7 +143,7 @@ func TestSudoWrapperAgainstModel(t *testing.T) {
 	sudo := testenv.UseSysbin(t, &sysbin.Sudo, argvSudo)
 	w := wrapperFor(t, sudo, "/askpass")
 	shorts := []string{"A", "S", "n", "K", "V", "k", "v", "l", "ll", "E", "H", "i", "s", "e", "b", "B", "N", "P",
-		"nv", "vn", "kn", "Ek", "kA", "Sv", "lk", "HEk", "-"}
+		"h", "nv", "vn", "kn", "hk", "Ek", "kA", "Sv", "lk", "HEk", "-"}
 	valShorts := []string{"a", "C", "c", "D", "g", "p", "R", "r", "T", "t", "U", "u"}
 	longs := []string{"askpass", "stdin", "non-interactive", "remove-timestamp", "version", "help",
 		"background", "bell", "preserve-env", "edit", "set-home", "login", "reset-timestamp", "list",
@@ -201,14 +209,13 @@ func TestSudoWrapperAgainstModel(t *testing.T) {
 	}
 }
 
-// TestSudoWrapperHostArgKnownGap documents a gap found in review (#154):
+// TestSudoWrapperHostArg documents a gap found in review (#154):
 // sudo takes the word after a bare `-h` as its host unless it starts with
 // '-' or is VAR=value (parse_args.c, "Optional args support -hhostname, not
 // -h hostname" then the next word), so `sudo -h myhost -v` is a prompting
-// call, and the wrapper, which reads a bare -h as help, leaves -A out.
-// Nothing topgrade, yay or makepkg run uses -h; skipped until the script
-// follows the grammar.
-func TestSudoWrapperHostArgKnownGap(t *testing.T) {
+// call; the wrapper used to read a bare -h as help and leave -A out.
+// The script follows that grammar now (was a known gap).
+func TestSudoWrapperHostArg(t *testing.T) {
 	sudo := testenv.UseSysbin(t, &sysbin.Sudo, argvSudo)
 	w := wrapperFor(t, sudo, "/askpass")
 	out, err := exec.Command(w, "-h", "myhost", "-v").Output()
@@ -216,7 +223,7 @@ func TestSudoWrapperHostArgKnownGap(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(out), "\x00-A\x00") {
-		t.Skipf("known gap: sudo -h myhost -v runs without -A (got %q)", out)
+		t.Errorf("sudo -h myhost -v ran without -A (got %q)", out)
 	}
 }
 
