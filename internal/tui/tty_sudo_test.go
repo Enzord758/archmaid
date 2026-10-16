@@ -61,6 +61,7 @@ func TestTTYSudoChild(t *testing.T) {
 	// The real sudo: outside PATH, the absolute path the wrapper execs.
 	testenv.UseSysbin(t, &sysbin.Sudo, `printf '%s\n' "$*" >> `+shQuote(dir)+`/sudo.log
 case "$1" in
+-k) exit 0 ;;
 -n) [ "$2" = -v ] && [ -e `+shQuote(dir)+`/noticket ] && exit 1; exit 0 ;;
 -S) IFS= read -r pw; exit 0 ;;
 -A) shift; for tag; do :; done
@@ -230,8 +231,8 @@ func TestTUISudoByNameAsksInThePopup(t *testing.T) {
 			} else {
 				want = "-n -v\n" + want // the probe: cached
 			}
-			if got := r.read("sudo.log"); !strings.HasPrefix(got, want) || !strings.HasSuffix(got, "-n -k\n") {
-				t.Errorf("the real sudo ran\n%s\nwant it to start with\n%sand end with the ticket drop (-n -k)", got, want)
+			if got := r.read("sudo.log"); !strings.HasPrefix(got, want) || !strings.HasSuffix(got, "-k\n") {
+				t.Errorf("the real sudo ran\n%s\nwant it to start with\n%sand end with the ticket drop (-k)", got, want)
 			}
 			if got := r.read("decoy.log") + r.read("tty.log"); got != "" {
 				t.Errorf("a sudo reached the terminal: %q", got)

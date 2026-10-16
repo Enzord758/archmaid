@@ -224,21 +224,21 @@ func shimSudo(t *testing.T, status string) (calls string) {
 	return calls
 }
 
-// TestDropSudoTicket: at exit the sudo ticket is dropped with `sudo -n -k`; a
+// TestDropSudoTicket: at exit the sudo ticket is dropped with `sudo -k`; a
 // failure is said on w but never stops the exit; a dry run, which primed no
 // ticket, runs no sudo at all.
 func TestDropSudoTicket(t *testing.T) {
 	calls := shimSudo(t, "0")
 	var w bytes.Buffer
 	DropSudoTicket(&w)
-	if b, _ := os.ReadFile(calls); strings.TrimSpace(string(b)) != "-n -k" || w.Len() != 0 {
-		t.Errorf("sudo calls %q, output %q; want one `-n -k` and nothing said", b, w.String())
+	if b, _ := os.ReadFile(calls); strings.TrimSpace(string(b)) != "-k" || w.Len() != 0 {
+		t.Errorf("sudo calls %q, output %q; want one `-k` and nothing said", b, w.String())
 	}
 
 	failing := shimSudo(t, "1")
 	w.Reset()
 	DropSudoTicket(&w)
-	if b, _ := os.ReadFile(failing); strings.TrimSpace(string(b)) != "-n -k" || !strings.Contains(w.String(), "couldn't drop the sudo ticket") {
+	if b, _ := os.ReadFile(failing); strings.TrimSpace(string(b)) != "-k" || !strings.Contains(w.String(), "couldn't drop the sudo ticket") {
 		t.Errorf("sudo calls %q, output %q; want the failure said", b, w.String())
 	}
 

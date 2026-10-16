@@ -275,7 +275,7 @@ func TestStepCannotReadTheTerminal(t *testing.T) {
 
 // TestTUIDropsTicketOnExit: however the TUI ends (q, SIGTERM, SIGINT,
 // SIGHUP), main's exit path runs and drops the sudo ticket with exactly
-// `sudo -n -k`, once (the owner's decision M1).
+// `sudo -k`, once (the owner's decision M1).
 func TestTUIDropsTicketOnExit(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -292,8 +292,8 @@ func TestTUIDropsTicketOnExit(t *testing.T) {
 				c.awaitExit(tc.name)
 			}
 			b, _ := os.ReadFile(c.sudoLog)
-			if got := strings.TrimSpace(string(b)); got != "-n -k" {
-				t.Errorf("sudo ran %q on exit, want exactly \"-n -k\" once; screen:\n%q", got, c.scr.String())
+			if got := strings.TrimSpace(string(b)); got != "-k" {
+				t.Errorf("sudo ran %q on exit, want exactly \"-k\" once; screen:\n%q", got, c.scr.String())
 			}
 		})
 	}

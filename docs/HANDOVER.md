@@ -295,7 +295,7 @@ comments and `git log`; this is the "read before you touch it" list.
   goes on with its note and one popup per sudo call), the
   `topgrade_ticket_unusable` transcript.
 - **The TUI drops its sudo ticket on exit (owner's decision M1).** `main`
-  calls `tui.DropSudoTicket` after `Finish` on every path: `sudo -n -k`
+  calls `tui.DropSudoTicket` after `Finish` on every path: `sudo -k`
   (`privilege.DropTicket`: `sysbin.Sudo`, `SUDO_ASKPASS` dropped, stdin
   `/dev/null`, bounded at 3 s, its failure only reported), so your next
   manual `sudo` in that terminal asks again. Bubble Tea ends on q, SIGINT
@@ -558,7 +558,7 @@ comments and `git log`; this is the "read before you touch it" list.
 - **archmaid doesn't trust PATH for privilege (#131).** Two halves:
   - *What archmaid starts itself* runs by absolute `/usr/bin` path,
     whatever `PATH` the session has (`internal/sysbin`): `su` (the
-    password check), `sudo` (probe, `-S -v`, keep-alive, `-n -k`, every
+    password check), `sudo` (probe, `-S -v`, keep-alive, `-k`, every
     sudo step through `Sudo.Command`, Repair's root recheck), `pkexec`
     (`helperclient.Run`), `pkttyagent` (`polkitagent.Start`) and the
     update step's `topgrade` (`Sudo.Command` maps the step's name; the

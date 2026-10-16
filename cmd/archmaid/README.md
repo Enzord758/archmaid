@@ -49,7 +49,7 @@ straight over via `lipgloss`).
   needs to re-authenticate mid-run, `SUDO_ASKPASS` routes the prompt back into
   the TUI as a popup (`internal/privilege`) — nothing can ever prompt on the raw
   terminal. The password is passed straight through, never stored or logged.
-  The TUI drops its sudo ticket on exit (`sudo -n -k`, after q, a signal or
+  The TUI drops its sudo ticket on exit (`sudo -k`, after q, a signal or
   an error; not in a dry run, which primes none): your next manual `sudo` in
   that terminal asks again.
 - **A self-updating status header** via `tea.Tick` (disk/RAM/cache), the thing

@@ -145,18 +145,24 @@ func (Sudo) Refresh(ctx context.Context) {
 // must never hold up.
 const dropTimeout = 3 * time.Second
 
-// DropTicket runs `sudo -n -k`, invalidating the sudo ticket the TUI primed
+// DropTicket runs `sudo -k`, invalidating the sudo ticket the TUI primed
 // and kept alive, so the next sudo in that terminal asks again (the owner's
-// decision M1). It can never prompt: -n, and -k needs no password anyway;
-// SUDO_ASKPASS is dropped from its environment, stdin is /dev/null, and it
-// is bounded by dropTimeout. sudo is sysbin.Sudo, like every other sudo and
-// su here: an absolute path, never looked up on PATH (internal/sysbin; under
-// testenv the bare name, which its traps catch). Its error is the caller's
+// decision M1). It can never prompt: -k alone only resets the timestamp and
+// needs no password; SUDO_ASKPASS is dropped from its environment, stdin is
+// /dev/null, and it is bounded by dropTimeout. It must NOT carry -n: sudo
+// 1.9.17 treats a bare -k as its own mode (parse_args.c:540-545) and then
+// allows no other flag (valid_flags = 0), so `sudo -n -k` fails the check at
+// parse_args.c:567 with the usage text and exit 1, and the ticket survives.
+// The ticket is the record for the caller's tty and session
+// (timestamp_type=tty), which is the TUI's own: DropTicket must run from the
+// TUI process. sudo is sysbin.Sudo, like every other sudo and su here: an
+// absolute path, never looked up on PATH (internal/sysbin; under testenv the
+// bare name, which its traps catch). Its error is the caller's
 // to ignore: a failed drop must never block an exit.
 func DropTicket(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, dropTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, sysbin.Sudo, "-n", "-k")
+	cmd := exec.CommandContext(ctx, sysbin.Sudo, "-k")
 	cmd.Env = Sudo{}.Env(false)
 	cmd.WaitDelay = time.Second
 	return cmd.Run()

@@ -91,7 +91,7 @@ func Run(drv engine.Driver) error {
 	return err
 }
 
-// DropSudoTicket runs `sudo -n -k` once the TUI is done, however it ended
+// DropSudoTicket runs `sudo -k` once the TUI is done, however it ended
 // (q, a signal, an error), so the ticket it primed and kept alive doesn't
 // outlive it: the next sudo in that terminal asks again (the owner's
 // decision M1). It never prompts and never holds the exit up (see
@@ -102,7 +102,7 @@ func DropSudoTicket(w io.Writer) {
 		return
 	}
 	if err := privilege.DropTicket(context.Background()); err != nil {
-		fmt.Fprintln(w, "archmaid: couldn't drop the sudo ticket (sudo -n -k):", err)
+		fmt.Fprintln(w, "archmaid: couldn't drop the sudo ticket (sudo -k):", err)
 	}
 }
 

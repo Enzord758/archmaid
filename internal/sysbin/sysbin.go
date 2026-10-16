@@ -33,7 +33,7 @@ var (
 	// Su checks a password (privilege.CheckPassword): `su -s /usr/bin/true
 	// <user>`, single-shot PAM with no pam_faillock.
 	Su = "/usr/bin/su"
-	// Sudo is the sudo ticket's (probe, `-S -v`, keep-alive, `-n -k`), every
+	// Sudo is the sudo ticket's (probe, `-S -v`, keep-alive, `-k`), every
 	// sudo step's (privilege.Sudo.Command) and Repair's root recheck's.
 	Sudo = "/usr/bin/sudo"
 	// Pkexec starts the root helper (helperclient.Run).

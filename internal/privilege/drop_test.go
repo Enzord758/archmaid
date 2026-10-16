@@ -33,7 +33,7 @@ func readTrim(t *testing.T, p string) string {
 	return strings.TrimSpace(string(b))
 }
 
-// TestDropTicketNeverPrompts: DropTicket runs exactly `sudo -n -k`, with no
+// TestDropTicketNeverPrompts: DropTicket runs exactly `sudo -k`, with no
 // SUDO_ASKPASS (even one the user's shell exported) and no terminal on
 // stdin, so it can't ask anywhere.
 func TestDropTicketNeverPrompts(t *testing.T) {
@@ -42,8 +42,8 @@ func TestDropTicketNeverPrompts(t *testing.T) {
 	if err := DropTicket(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := readTrim(t, filepath.Join(dir, "argv")); got != "-n -k" {
-		t.Errorf("sudo ran with %q, want \"-n -k\"", got)
+	if got := readTrim(t, filepath.Join(dir, "argv")); got != "-k" {
+		t.Errorf("sudo ran with %q, want \"-k\"", got)
 	}
 	if got := readTrim(t, filepath.Join(dir, "askpass")); got != "unset" {
 		t.Errorf("sudo saw SUDO_ASKPASS=%q", got)
