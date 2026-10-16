@@ -17,10 +17,49 @@ env:
   GUI_SUM_FILE: gui/go.sum
 
 jobs:
+  # Picks the container image for core and gui. Preferred: our copy of the Arch
+  # base on ghcr.io (built by ci-image.yml), pulled with the job token, so no
+  # anonymous pull from a capped registry. If it doesn't exist (first run, a
+  # deleted package) or ghcr can't be reached or isn't readable (fork PR token),
+  # fall back to the ECR image, which is the old behaviour. The jobs still run
+  # `pacman -Syu`, so a stale image costs time, not correctness.
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      image: ${{ steps.pick.outputs.image }}
+      ghcr: ${{ steps.pick.outputs.ghcr }}
+    steps:
+      - name: Pick the image
+        id: pick
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          fallback=public.ecr.aws/docker/library/archlinux:latest
+          ours="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/archmaid-ci-arch:latest"
+          if echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin \
+              && docker manifest inspect "$ours" > /dev/null; then
+            echo "image=$ours" >> "$GITHUB_OUTPUT"
+            echo "ghcr=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::$ours is not available; falling back to $fallback"
+            echo "image=$fallback" >> "$GITHUB_OUTPUT"
+            echo "ghcr=false" >> "$GITHUB_OUTPUT"
+          fi
+
   core:
     runs-on: ubuntu-latest
-    # Docker official image via AWS ECR Public, not Docker Hub (anonymous pull rate limit).
-    container: public.ecr.aws/docker/library/archlinux:latest
+    needs: image
+    # Image and registry login come from the `image` job: our ghcr copy, or the
+    # ECR one with empty credentials (no login).
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ needs.image.outputs.ghcr == 'true' && github.actor || '' }}
+        password: ${{ needs.image.outputs.ghcr == 'true' && secrets.GITHUB_TOKEN || '' }}
     steps:
       - name: Install toolchain
         # gcc: -race needs cgo. diffutils: scripts/state-guard.sh compares
@@ -133,8 +172,12 @@ jobs:
   # cache is keyed on gui/go.sum and kept.
   gui:
     runs-on: ubuntu-latest
-    # Docker official image via AWS ECR Public, not Docker Hub (anonymous pull rate limit).
-    container: public.ecr.aws/docker/library/archlinux:latest
+    needs: image
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ needs.image.outputs.ghcr == 'true' && github.actor || '' }}
+        password: ${{ needs.image.outputs.ghcr == 'true' && secrets.GITHUB_TOKEN || '' }}
     timeout-minutes: 40
     steps:
       - name: Install toolchain, GTK and weston

@@ -1,0 +1,36 @@
+name: ci-image
+
+# Builds the CI base image on GitHub's own registry, so the core and gui jobs
+# don't depend on an anonymous pull from a rate-limited registry (see ci.yml).
+on:
+  schedule:
+    - cron: '17 3 * * 1'   # weekly, Monday 03:17 UTC
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/ci-image/**
+      - .github/workflows/ci-image.yml
+
+concurrency:
+  group: ci-image
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Log in to ghcr.io
+        run: echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/archmaid-ci-arch"
+          docker build --pull -t "$image:latest" -t "$image:$(date -u +%Y%m%d)" .github/ci-image
+          docker push --all-tags "$image"
