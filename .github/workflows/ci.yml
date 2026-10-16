@@ -50,17 +50,22 @@ jobs:
             echo "ghcr=false" >> "$GITHUB_OUTPUT"
           fi
 
+  # core and gui each exist twice, because a container's credentials can't be
+  # empty (GitHub rejects the workflow) and the secrets context isn't allowed
+  # in the container image expression. Exactly one variant of each runs: the
+  # ghcr one (private package, so with the job token) or the ECR fallback (public,
+  # no credentials). The other shows as skipped. The steps are shared by YAML
+  # anchor, so they are written once.
   core:
+    if: needs.image.outputs.ghcr == 'true'
     runs-on: ubuntu-latest
     needs: image
-    # Image and registry login come from the `image` job: our ghcr copy, or the
-    # ECR one with empty credentials (no login).
     container:
       image: ${{ needs.image.outputs.image }}
       credentials:
-        username: ${{ needs.image.outputs.ghcr == 'true' && github.actor || '' }}
-        password: ${{ needs.image.outputs.ghcr == 'true' && secrets.GITHUB_TOKEN || '' }}
-    steps:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps: &core_steps
       - name: Install toolchain
         # gcc: -race needs cgo. diffutils: scripts/state-guard.sh compares
         # with diff, which the archlinux image's base doesn't include.
@@ -95,6 +100,15 @@ jobs:
         run: runuser -u builder -- env HOME=/home/builder make -C "$GITHUB_WORKSPACE" all
       - name: The seeded state dir is intact
         run: runuser -u builder -- env HOME=/home/builder "$GITHUB_WORKSPACE/scripts/ci-seed-state.sh" --verify
+
+  core-ecr:
+    name: core (ECR fallback)
+    if: needs.image.outputs.ghcr != 'true'
+    runs-on: ubuntu-latest
+    needs: image
+    container:
+      image: ${{ needs.image.outputs.image }}
+    steps: *core_steps
 
   e2e:
     runs-on: ubuntu-latest
@@ -171,15 +185,16 @@ jobs:
   # A cold gotk4 build is the slow part (cgo over all of GTK), so the build
   # cache is keyed on gui/go.sum and kept.
   gui:
+    if: needs.image.outputs.ghcr == 'true'
     runs-on: ubuntu-latest
     needs: image
     container:
       image: ${{ needs.image.outputs.image }}
       credentials:
-        username: ${{ needs.image.outputs.ghcr == 'true' && github.actor || '' }}
-        password: ${{ needs.image.outputs.ghcr == 'true' && secrets.GITHUB_TOKEN || '' }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 40
-    steps:
+    steps: &gui_steps
       - name: Install toolchain, GTK and weston
         run: pacman -Syu --noconfirm --needed go gcc git make diffutils pkgconf gobject-introspection gtk4 libadwaita adwaita-icon-theme ttf-dejavu weston dbus
       - uses: actions/checkout@v7
@@ -204,3 +219,13 @@ jobs:
           chown -R builder:builder /home/builder
       - name: make gui-test (as builder)
         run: runuser -u builder -- env HOME=/home/builder GSK_RENDERER=cairo HEADLESS_TIMEOUT=600 make -C "$GITHUB_WORKSPACE" gui-test
+
+  gui-ecr:
+    name: gui (ECR fallback)
+    if: needs.image.outputs.ghcr != 'true'
+    runs-on: ubuntu-latest
+    needs: image
+    container:
+      image: ${{ needs.image.outputs.image }}
+    timeout-minutes: 40
+    steps: *gui_steps
