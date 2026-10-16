@@ -197,6 +197,43 @@ if grep -nE -- '-X' packaging/arch/PKGBUILD install.sh; then
 	exit 1
 fi
 
+# The TUI has no desktop entry at all, not even a hidden one (only the GUI's
+# io.github.enzord758.archmaid.desktop exists). Nothing may make one again:
+# no packaging/archmaid.desktop, and neither the PKGBUILD nor install.sh
+# installs or writes a file named archmaid.desktop (install.sh may only
+# remove an older one).
+if test -e packaging/archmaid.desktop; then
+	echo "FAIL: packaging/archmaid.desktop exists; the TUI has no desktop entry"
+	exit 1
+fi
+if grep -nE -- '(^|[^.[:alnum:]_-])archmaid\.desktop' packaging/arch/PKGBUILD; then
+	echo "FAIL: packaging/arch/PKGBUILD names archmaid.desktop; the TUI has no desktop entry"
+	exit 1
+fi
+# install.sh's own run, in a scratch prefix with a fake go: a fresh install
+# leaves no applications/archmaid.desktop, and a stale entry of archmaid's own
+# is removed while a foreign file of the same name is kept.
+(
+	set -e
+	t="$(mktemp -d)"
+	trap 'rm -rf "$t"' EXIT
+	mkdir -p "$t/bin" "$t/home/share/applications"
+	printf '#!/bin/sh\nwhile [ "$1" != -o ]; do shift; done\nprintf "#!/bin/sh\\n" >"$2"\n' >"$t/bin/go"
+	chmod +x "$t/bin/go"
+	run() { HOME="$t/home" PREFIX="$t/home" PATH="$t/bin:$PATH" bash ./install.sh "$@" >/dev/null; }
+	app="$t/home/share/applications/archmaid.desktop"
+	printf '[Desktop Entry]\nName=archmaid\nExec=kitty /h/.local/bin/archmaid\n' >"$app"
+	run
+	test ! -e "$app" || { echo "FAIL: install.sh left archmaid's own stale archmaid.desktop"; exit 1; }
+	printf '[Desktop Entry]\nName=other\nExec=other\n' >"$app"
+	run
+	run --uninstall
+	test -f "$app" || { echo "FAIL: install.sh removed a foreign archmaid.desktop"; exit 1; }
+	rm -f "$app"
+	run
+	test ! -e "$app" || { echo "FAIL: install.sh wrote archmaid.desktop"; exit 1; }
+) || exit 1
+
 # A cover build (scripts/cover-build.sh) is never what gets installed: a
 # normal build of the helper doesn't link the cover-only coverdir package
 # (tag archmaidcover), and the PKGBUILD builds no cover binary.

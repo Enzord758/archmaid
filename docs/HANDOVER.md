@@ -1467,9 +1467,11 @@ to:
 - **The `archmaid-gui-git` package has not been installed on the owner's
   machine yet** (only `archmaid-git` is); install it together with the
   `archmaid-git` of the same build (`packaging/arch/README.md`).
-- **One launcher entry.** The TUI's `archmaid.desktop` has `NoDisplay=true`,
-  so only the GUI's entry shows in the launcher; the `archmaid` command still
-  starts the TUI.
+- **One launcher entry.** The TUI has no desktop entry at all (not even a
+  hidden one); only the GUI's `io.github.enzord758.archmaid.desktop` exists.
+  The `archmaid` command still starts the TUI. `scripts/check.sh` fails if
+  `packaging/archmaid.desktop` returns or the PKGBUILD or `install.sh` makes
+  one; `install.sh` removes a stale one of its own.
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The

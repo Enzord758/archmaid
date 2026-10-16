@@ -119,8 +119,6 @@ package_archmaid-git() {
   install -Dm0755 "$srcdir/build/archmaid-helper" "$pkgdir/usr/lib/archmaid/archmaid-helper"
   install -Dm0644 packaging/polkit/org.archmaid.helper.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.archmaid.helper.policy"
-  install -Dm0644 packaging/archmaid.desktop \
-    "$pkgdir/usr/share/applications/archmaid.desktop"
   install -Dm0644 packaging/archmaid.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/archmaid.svg"
   # DMS bar widget: DMS reads system-wide plugins from this directory

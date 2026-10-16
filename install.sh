@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# archmaid installer — builds the TUI and wires it up as a launchable app.
+# archmaid installer — builds the TUI for the current user.
 #
 # Installs (all under $HOME, no root needed):
 #   - binary  → ~/.local/bin/archmaid
 #   - icon    → ~/.local/share/icons/hicolor/scalable/apps/archmaid.svg
-#   - desktop → ~/.local/share/applications/archmaid.desktop
 #
-# The .desktop launches the TUI inside a terminal so it works from rofi and
-# other application launchers.
+# The TUI has no desktop entry (the GUI has its own): start it from a shell
+# with `archmaid`. A TUI entry an older install.sh wrote is removed, on
+# install and on --uninstall, if it is archmaid's own.
 #
 # Usage:
 #   ./install.sh              # build + install
@@ -15,8 +15,6 @@
 #
 # Env:
 #   PREFIX               install prefix (default: ~/.local)
-#   ARCHMAID_TERMINAL    terminal command the .desktop uses (default: kitty),
-#                        e.g. ARCHMAID_TERMINAL="alacritty -e"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -28,9 +26,8 @@ APPDIR="$PREFIX/share/applications"
 
 BIN="$BINDIR/archmaid"
 ICON="$ICONDIR/archmaid.svg"
-DESKTOP="$APPDIR/archmaid.desktop"
-
-TERMINAL="${ARCHMAID_TERMINAL:-kitty}"
+# Only ever removed, never written: the stale TUI entry of an older install.sh.
+STALE_DESKTOP="$APPDIR/archmaid.desktop"
 
 info() { printf '  %s\n' "$1"; }
 
@@ -40,9 +37,25 @@ refresh_caches() {
 		gtk-update-icon-cache -f "$PREFIX/share/icons/hicolor" 2>/dev/null || true
 }
 
+# Remove the stale entry only if it is archmaid's own: Name=archmaid with an
+# Exec that runs archmaid, or a stub that is just Hidden=true. Anything else
+# (another program's file, a symlink) is left alone.
+remove_stale_desktop() {
+	[[ -f "$STALE_DESKTOP" && ! -L "$STALE_DESKTOP" ]] || return 0
+	if grep -qx 'Name=archmaid' "$STALE_DESKTOP" && grep -qE '^Exec=.*archmaid[[:space:]]*$' "$STALE_DESKTOP"; then
+		:
+	elif [[ "$(grep -v '^[[:space:]]*$' "$STALE_DESKTOP")" == $'[Desktop Entry]\nHidden=true' ]]; then
+		:
+	else
+		return 0
+	fi
+	rm -fv "$STALE_DESKTOP"
+}
+
 uninstall() {
 	echo "Removing archmaid…"
-	rm -fv "$BIN" "$ICON" "$DESKTOP"
+	rm -fv "$BIN" "$ICON"
+	remove_stale_desktop
 	refresh_caches
 	echo "Done."
 }
@@ -54,38 +67,22 @@ do_install() {
 	}
 
 	echo "Building archmaid…"
-	mkdir -p "$BINDIR" "$ICONDIR" "$APPDIR"
+	mkdir -p "$BINDIR" "$ICONDIR"
 	( cd "$SCRIPT_DIR" && go build -trimpath -ldflags='-s -w' -o "$BIN" ./cmd/archmaid )
 	info "binary  → $BIN"
 
 	install -m 0644 "$SCRIPT_DIR/packaging/archmaid.svg" "$ICON"
 	info "icon    → $ICON"
 
-	cat >"$DESKTOP" <<EOF
-[Desktop Entry]
-Type=Application
-Name=archmaid
-GenericName=Arch maintenance
-Comment=Clean caches, remove orphans, update, and tidy your Arch system
-Exec=$TERMINAL $BIN
-Icon=archmaid
-Terminal=false
-Categories=System;
-Keywords=maintenance;cleanup;pacman;orphans;update;topgrade;arch;
-StartupNotify=false
-EOF
-	info "desktop → $DESKTOP"
-
+	remove_stale_desktop
 	refresh_caches
 
 	echo
-	echo "Installed. Launch it from rofi as \"archmaid\", or run: archmaid"
+	echo "Installed. Run: archmaid"
 	case ":$PATH:" in
 	*":$BINDIR:"*) ;;
 	*) echo "note: $BINDIR is not on your PATH — add it to run 'archmaid' directly." ;;
 	esac
-	command -v "${TERMINAL%% *}" >/dev/null ||
-		echo "note: terminal '${TERMINAL%% *}' not found — set ARCHMAID_TERMINAL and re-run."
 }
 
 if [[ "${1:-}" == "--uninstall" ]]; then

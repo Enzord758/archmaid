@@ -6,10 +6,7 @@ it as a launchable app — everything lands under `$HOME`, no root required.
 ## Requirements
 
 - **Go** (`pacman -S go`) — to build the binary.
-- **A terminal emulator** — the app is a TUI, so the desktop launcher opens it
-  inside one. Defaults to `kitty`.
-- **rofi** (or any launcher) to launch it by name — optional; you can also just
-  run `archmaid`.
+- **A terminal emulator** — the app is a TUI; run `archmaid` in it.
 
 ## Install
 
@@ -25,19 +22,14 @@ This installs:
 | --- | --- |
 | binary | `~/.local/bin/archmaid` |
 | icon | `~/.local/share/icons/hicolor/scalable/apps/archmaid.svg` |
-| desktop entry | `~/.local/share/applications/archmaid.desktop` |
 
-Then launch it from **rofi** as *archmaid*, or run `archmaid` in a terminal.
+Then run `archmaid` in a terminal. The TUI has no launcher entry (the GUI has its own).
 
 If `~/.local/bin` isn't on your `PATH`, the installer says so — add it (e.g. in
 your shell rc): `export PATH="$HOME/.local/bin:$PATH"`.
 
 ## Options
 
-- **Different terminal** — the `.desktop` uses `kitty` by default. Override it:
-  ```sh
-  ARCHMAID_TERMINAL="alacritty -e" ./install.sh
-  ```
 - **Different prefix** — installs under `~/.local` by default:
   ```sh
   PREFIX="$HOME/.local" ./install.sh

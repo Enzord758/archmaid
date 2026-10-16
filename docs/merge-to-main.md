@@ -27,7 +27,6 @@ install from `main` afterwards (section 2). Your machine today:
 | `~/.local/bin/archmaid` | the **old** TUI, built from 83ecad2 (2026-09-23, `vcs.modified=true`), module `…/archmaid/tui` |
 | `/usr/bin/archmaid`, `/usr/lib/archmaid/archmaid-helper`, policy, widget files, timer units | package `archmaid-git r357.2783217-1` (the live-run commit) |
 | `archmaid-gui-git` | not installed |
-| `~/.local/share/applications/archmaid.desktop` | `install.sh`'s entry, `Exec=$ARCHMAID_TERMINAL $PREFIX/bin/archmaid`, expanded when install.sh writes it (kitty and `$HOME/.local/bin/archmaid` by default) |
 | `archmaid-updates-check.timer` | not enabled |
 | DMS plugin | files in `/etc/xdg/quickshell/dms-plugins/archmaid/`; whether it is enabled in DMS wasn't checked |
 | `~/archmaid-live` | git worktree, detached at 2783217 |
@@ -90,7 +89,7 @@ is handled as before.
 
 - **`archmaid-git`**: `/usr/bin/archmaid` (the TUI), `/usr/lib/archmaid/archmaid-helper`
   (0755 root, never setuid, run only through pkexec), the polkit policy (9 actions,
-  one per helper verb), `archmaid.desktop` + icon, the DMS widget in
+  one per helper verb), the icon, the DMS widget in
   `/etc/xdg/quickshell/dms-plugins/archmaid/`, the `archmaid-updates-check`
   user timer (not enabled), `/usr/share/doc/archmaid/helper.md`. It depends on
   `pacman-contrib`, `fakeroot`, `polkit` and `systemd`.

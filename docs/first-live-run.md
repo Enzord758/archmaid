@@ -470,8 +470,7 @@ This installs (README → "What it installs"):
 - `/usr/share/polkit-1/actions/org.archmaid.helper.policy`
 - `/usr/bin/archmaid`. `~/.local/bin` comes first on your PATH, so a plain
   `archmaid` is still the old build.
-- `archmaid.desktop` and the icon. Your `~/.local` entry of the same name
-  shadows it.
+- The icon. (The package no longer ships a TUI desktop entry.)
 - The DMS widget files in `/etc/xdg/quickshell/dms-plugins/archmaid/`
   (inactive until you enable the plugin).
 - The `archmaid-updates-check` user timer (not enabled) and its script.
