@@ -10,7 +10,7 @@
 #        PERF_OUT       directory for the raw output and summary.txt (default: a temp dir)
 #        PERF_MAX_LOAD  highest 1-minute load average that counts as quiet
 #                       (default: an eighth of the CPUs)
-#        PERF_GUI=0     leave out the GUI module (no gtk4/weston here)
+#        PERF_GUI=0     leave out the GUI module (no gtk4 here)
 #        PERF_FORCE=1   measure anyway on a machine that isn't quiet; the
 #                       summary then says NOT A BASELINE (for a smoke test)
 #
@@ -28,7 +28,9 @@
 #   - TestPerfGuard against its current baselines;
 #   - the GUI model's flush benchmarks, and the GUI's first frame, idle RSS and
 #     50k-line throughput (TestGUIFirstFrameAndIdleRAM, TestGUIThroughput) in a
-#     headless weston with ARCHMAID_GUI_PERF=1;
+#     headless display (GTK Broadway on nullbroadway) with ARCHMAID_GUI_PERF=1;
+#     Broadway PNG-encodes every texture GTK uploads, so these are not
+#     comparable with the earlier headless-weston baselines (docs/TESTING.md);
 #   - the stripped sizes of archmaid, archmaid-helper and archmaid-gui (built, never run).
 # The plan's figures that need the real system (the Repair scan's
 # pacman -Qk, the services discovery, the installed GUI's idle CPU) are not
@@ -123,7 +125,7 @@ if [[ $GUI == 1 ]]; then
 	echo "==> GUI first frame, idle RSS, throughput ($COUNT runs, headless)"
 	: >"$out/gui.txt"
 	for ((i = 1; i <= COUNT; i++)); do
-		# headless.sh bounds weston and the run to 60 s each.
+		# headless.sh bounds its display server and the run to 60 s each.
 		ARCHMAID_GUI_PERF=1 gui/scripts/headless.sh bash -c 'cd internal/ui && exec "$0" "$@"' "$work/ui.test" -test.count=1 -test.v \
 			-test.run '^TestGUI(FirstFrameAndIdleRAM|Throughput)$' >"$work/gui-run.txt" 2>&1 || true
 		grep -E 'first frame:|lines/s|budget|^(--- |ok|FAIL|PASS)' "$work/gui-run.txt" | tee -a "$out/gui.txt"

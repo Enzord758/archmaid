@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The GUI's display tests (gui/scripts/headless.sh's default groups, each in
-# its own private headless weston under its timeout) plus the plain-Go GUI
+# its own private headless display under its timeout) plus the plain-Go GUI
 # tests, with coverage: every test binary and every child it re-executes (the
 # display tests run the window in one) writes covdata into DIR, through
 # scripts/cover-exec.sh. Merge DIR with scripts/cover-merge.sh.

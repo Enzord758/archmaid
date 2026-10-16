@@ -20,7 +20,7 @@ of `archmaid-gui` takes several minutes (gotk4's cgo).
 
 `check()` runs the helper's and the DMS widget's tests and the GUI's plain-Go
 view-model tests (`gui/internal/runview`). The GUI's display tests need a
-private headless weston, so they stay out of `check()`; run `make gui-test`
+private headless display, so they stay out of `check()`; run `make gui-test`
 from a checkout.
 
 ### Why two packages

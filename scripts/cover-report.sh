@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # `make e2e-cover`: the unit tests and the e2e tapes, each writing covdata,
 # merged into one number (scripts/cover-merge.sh), plus the GUI's tests with
-# COVER_GUI=1 (headless weston, ~3 minutes). Further runs (the test VM's, the
+# COVER_GUI=1 (headless Broadway, ~8 minutes). Further runs (the test VM's, the
 # owner's) merge in afterwards:
 #   scripts/cover-merge.sh -o NEW "$COVER_OUT/merged/covdata" VMDIR OWNERDIR
 #

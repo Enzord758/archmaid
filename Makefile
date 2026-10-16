@@ -55,15 +55,17 @@ bench:
 
 # The GUI module without a display: build, vet, the plain-Go view-model and
 # pump tests under -race (they don't build gotk4; the race build of gotk4
-# alone would add minutes), the rest without. Needs gtk4, libadwaita, gcc.
+# alone would add minutes), the rest without. Needs gtk4, libadwaita, gcc
+# and dbus (nullbroadway's tests run headless.sh with a no-op command).
 gui:
 	cd $(GUI_DIR) && go build ./... && go vet ./... && test -z "$$(gofmt -l .)"
 	@# internal/testenv's init would make archmaid-gui look su, sudo, pkexec and pkttyagent up on PATH again.
 	@# The list is captured first, so a go list that fails fails here instead of reading as "not linked".
 	cd $(GUI_DIR) && deps="$$(go list -deps ./cmd/archmaid-gui)" && test -n "$$deps" && ! printf '%s\n' "$$deps" | grep -qx 'github.com/Enzord758/archmaid/internal/testenv'
-	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview ./internal/overview ./internal/logview ./internal/settings ./internal/realdriver ./internal/plural ./internal/polkitagent && go test -count=1 ./...
+	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview ./internal/overview ./internal/logview ./internal/settings ./internal/realdriver ./internal/plural ./internal/polkitagent ./scripts/nullbroadway && go test -count=1 ./...
 
-# `gui` plus the display tests in a private headless weston (no window on the
+# `gui` plus the display tests on a private headless display (GTK Broadway on
+# gui/scripts/nullbroadway: no compositor, no window on the
 # desktop): every action from its Overview row, the logs, Stop, close mid-run, the
 # 50k-line throughput proof and first frame/RAM, all leak-checked. Add
 # ARCHMAID_GUI_PERF=1 to also enforce the budgets (machine-specific).

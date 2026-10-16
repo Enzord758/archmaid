@@ -91,7 +91,7 @@ check() {
   # The TUI's suite needs a real terminal size and shims; run its gate in CI.
   # The GUI's plain-Go view model and pump: no gotk4 in the test binary, so
   # no display and no second cgo build. The display tests (gui/internal/ui)
-  # need a private headless weston (`make gui-test`) and skip unless
+  # need a private headless display (`make gui-test`) and skip unless
   # ARCHMAID_GUI_DISPLAY_TESTS=1; unset it so a check() started from a shell
   # that exported it can never open a window on the desktop.
   cd gui

@@ -107,7 +107,7 @@ into one number:
 | Script | Writes covdata from |
 |---|---|
 | `scripts/cover-unit.sh DIR [PKG...]` | the root module's tests (`go test ./...`, every package under `testenv.Run` as always), through `scripts/cover-exec.sh`, so a test binary's re-executed children count too (plain `go test -cover` drops what they write) |
-| `gui/scripts/headless-cover.sh DIR` | the GUI's plain tests and `headless.sh`'s display groups (private headless weston, as `make gui-test`) |
+| `gui/scripts/headless-cover.sh DIR` | the GUI's plain tests and `headless.sh`'s display groups (private headless Broadway display, as `make gui-test`) |
 | `E2E_COVER_DIR=DIR bash cmd/archmaid/e2e/run.sh` | the e2e tapes on a cover-built `archmaid` (each run's `GOCOVERDIR` inside its scratch dir, copied to DIR) |
 | `scripts/cover-build.sh OUTDIR` (`make cover-build COVER_BIN=…`) | builds `archmaid`, `archmaid-helper`, `archmaid-gui` with `-cover`; each writes to `$GOCOVERDIR` when it exits normally (a SIGKILLed process writes nothing). For the test VM and the owner's measured runs (`coverage-map.md`, "Collecting coverage") |
 | `scripts/cover-merge.sh [-o OUT] DIR...` | merges, then prints core (`cmd/archmaid` + `internal/...` without the test-only packages, check.sh's set), testonly, helper, gui and all, raw and reachable (`docs/coverage-exempt.tsv`); OUT holds the merged covdata, `profile.txt`, `summary.txt`, `uncovered.txt` and `coverage.html` |
@@ -138,7 +138,7 @@ gotk4 build takes about 7 minutes). Two layers:
 | Layer | Where | Needs |
 |---|---|---|
 | View-models and pump | `gui/internal/runview`, `overview`, `logview`, plain `go test` (`-race` is fine: they don't build gotk4) | nothing: no display, no GTK |
-| The real window | `gui/internal/ui/harness_test.go`, through `gui/scripts/headless.sh` | gtk4, libadwaita, weston |
+| The real window | `gui/internal/ui/harness_test.go`, through `gui/scripts/headless.sh` | gtk4 (its Broadway backend), libadwaita, dbus |
 
 `runview`'s tests replay `stub.FullCleanup` one event at a time and as one
 batch, check that the widget-side output diff always reproduces the model's
@@ -155,13 +155,43 @@ The display tests run the real window in a child process (the test binary
 re-executed with `ARCHMAID_GUI_CHILD=<scenario>`, so GTK owns that process's
 main thread) and read its JSON report. They skip unless
 `ARCHMAID_GUI_DISPLAY_TESTS=1`, which only `headless.sh` sets, so a plain
-`go test ./...` in `gui/` never opens a window. `headless.sh` starts
-`weston --backend=headless` (pixman) with its socket in a fresh temp runtime
-dir, points `WAYLAND_DISPLAY` at it by absolute path, drops `DISPLAY` and
+`go test ./...` in `gui/` never opens a window. `headless.sh` runs them on
+GTK's Broadway backend (`GDK_BACKEND=broadway`, part of gtk4) against
+`gui/scripts/nullbroadway`, a Broadway display server of our own that shows
+nothing: no compositor, no browser, no web server. It listens on one Unix
+socket in a fresh 0700 temp runtime dir (`BROADWAY_DISPLAY=:0` is
+`broadway1.socket` there; GDK only takes a display number, so the ui
+package links the socket into testenv's scratch runtime dir,
+`display_test.go`), and `headless.sh` refuses to run if the server holds
+any IP socket (checked from its fds against `/proc/net/{tcp,udp}{,6}`).
+The script drops `WAYLAND_DISPLAY`, `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
-no service activation (no portal, at-spi or gvfs starts). weston and the
+no service activation (no portal, at-spi or gvfs starts). The server and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~135 s warm, so with no command it runs fourteen parts of at most ~40 s, each with its own weston (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one `TestGUIWideDialogsLong` another and `TestGUIWideDialogsLongResize` (~41 s with the one before it) a last one, on a 1600x1000 output: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run. Scenarios:
+~7.5 min warm, so with no command it runs fourteen parts of at most ~40 s, each with its own display server (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one `TestGUIWideDialogsLong` another and `TestGUIWideDialogsLongResize` (~41 s with the one before it) a last one, on a 1600x1000 screen: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run, and its cleanup trap removes the runtime dir whatever failed (`TestHeadlessServerFails`).
+
+Why not `gtk4-broadwayd`, GTK's own server: with no browser connected it
+answers each frame's roundtrip locally, and GDK then draws one frame a
+second (`_gdk_broadway_roundtrip_notify` rate-limits a local reply), which
+starves every scenario that waits for frames; with a browser (or a
+stand-in that answers like one) connected, gtk 4.24's broadwayd aborts on
+the app's frames (`broadway-output.c` `append_node_ops`: `node ==
+reused_node` with the cairo renderer, `!reused_node->consumed` with
+Broadway's own). `nullbroadway` keeps broadwayd's no-browser behaviour
+(surfaces, configure notifies, focus, a modal surface focused on configure,
+pointer grabs, the screen size sent on connect), answers every roundtrip as
+a browser does, and drops render nodes and textures (closing each
+texture's fd): `scripts/nullbroadway/server_test.go` checks the replies,
+the event layout GDK reads, and that an unknown request (another gtk's
+protocol) ends it with an error. Two things the backend change brought
+into the harness: the child opens the display and handles its first events
+before the app builds its window (`settleDisplay`: broadway's screen size
+is an event, and a window presented before it is clamped to 1024x768),
+and the checks that fail on any GTK warning let GDK Broadway's own
+once-per-process "Duplicate call to gdk_frame_timings_submitted() with
+different values" through on Broadway only (`broadwayNoise`). Screenshots
+(`shot.go`) render with a cairo renderer of their own, so they look the
+same on any backend. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
@@ -366,8 +396,8 @@ mode is `WORD`: a word longer than the window is its minimum width, so
 labels that can hold one use `WrapWordChar`.
 
 `TestGUIWideDialogs` (`widedialogs_harness_test.go`, scenario
-`real-wide`, its own part of `headless.sh` on a 1600x1000 weston output,
-since the output bounds the window) opens every decision dialog at
+`real-wide`, its own part of `headless.sh` on a 1600x1000 headless screen,
+since the screen bounds the window) opens every decision dialog at
 1460x930 and at 380x720: the real Driver's Full Cleanup gate (declined),
 then the orphans confirm with the VM's plan, the real downloads confirm,
 a step confirm, the audit gate, the three password dialogs, the services
@@ -446,8 +476,12 @@ cd gui
 go test ./...                                     # runview; the display tests skip
 scripts/headless.sh                               # + the display tests, headless
 ARCHMAID_GUI_PERF=1 scripts/headless.sh           # + enforce the budgets below
-GSK_RENDERER=vulkan scripts/headless.sh           # another renderer (default: cairo)
+GSK_RENDERER=broadway scripts/headless.sh         # Broadway's own renderer (default: cairo)
 ```
+
+Broadway has no GL or Vulkan, so `GSK_RENDERER=vulkan` or `ngl` measures
+nothing here; the Vulkan column below was measured on the headless weston
+the suite used to run on.
 
 With `ARCHMAID_GUI_PERF=1` the tests fail over budget: warm first frame
 < 400 ms (the best of the runs after the first, measured from exec to the
@@ -480,6 +514,28 @@ own, so the Vulkan numbers are the closest to the desktop we can get without
 opening a window there. Before the follow-the-bottom fix the list's head trim
 cost 6 ms a flush (the visible rows were rebound each time): keep the newest
 line in view while appending.
+
+**The table is weston's; Broadway measures its own transport.** Since #162
+the suite runs on Broadway (no weston on the dev machine), where GDK
+encodes every texture it uploads as a PNG on the main thread: with cairo
+that is the whole window every frame. Same machine, gtk4 4.24.1, warm,
+one run each (`TestGUIFirstFrameAndIdleRAM`, `TestGUIThroughput`):
+
+| Measure | Budget | Broadway, cairo (the default) | Broadway, `GSK_RENDERER=broadway` |
+|---|---|---|---|
+| First frame, warm | < 400 ms | 140 ms | 131 ms |
+| Idle RSS (PSS, anon) | < 125 MB | 132 MB (74, 43) | 125 MB (68, 36) |
+| 50k unpaced, nothing dropped | ≥ 5k lines/s | ~8.5k lines/s | ~9.9k lines/s |
+| Main-thread work per flush, p95 (max) | ≤ 4 ms | 0.60 ms (7.9) | 0.56 ms (6.8) |
+| 10k lines/s paced: p95 (max), dropped | ≤ 4 ms | 0.53 ms (4.4), 0 | 0.48 ms (4.4), 0 |
+| RSS after 50k lines | < 200 MB | 449 MB | 166 MB |
+| Frame work, unpaced p95 | — | 62 ms | 54 ms |
+
+The flush work, which the budgets are about, is the app's and matches;
+the rate, the frame work and the RSS are Broadway's PNG uploads, so with
+`ARCHMAID_GUI_PERF=1` the RSS budgets fail on Broadway with cairo. Measure
+budgets against a real compositor (the owner's desktop, by hand) until a
+decision on where the GUI's perf baseline lives.
 
 Colour costs in the rows, not in the model: a line is stored raw and
 stripped (`runview.StripSGR`, ~0.15 µs) as it arrives, and its spans are
@@ -532,7 +588,7 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 | `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (the gate, then the opt-in perf guard — see "Perf guard") |
 | `make perf-baseline` | `scripts/perf-baseline.sh`: re-measures the baselines (TUI/sysstat/sanitize/runview benchmarks, `TestPerfGuard`, the GUI's first frame, idle RSS and throughput headless, stripped binary sizes) into `$PERF_OUT`'s `summary.txt`. It refuses (exit 3) unless the machine is quiet: load ≤ `PERF_MAX_LOAD` (an eighth of the CPUs), no `qemu-system`, no other gate or test run. `PERF_COUNT=1 PERF_FORCE=1` is a smoke test marked NOT A BASELINE. The Repair scan, services discovery and the installed GUI's idle CPU need the real system: measured by hand. |
 | `make gui` | in `gui/`: build, vet, gofmt, `runview` tests under `-race`, `go test ./...` (display tests skip) |
-| `make gui-test` | `gui`, then the display tests under `gui/scripts/headless.sh` (needs weston) |
+| `make gui-test` | `gui`, then the display tests under `gui/scripts/headless.sh` (gtk4's Broadway backend on `nullbroadway`; no compositor) |
 | `make e2e-cover` | `scripts/cover-report.sh`: the unit tests and the e2e tapes writing covdata, merged into one number (`COVER_GUI=1` adds the GUI's tests) — see "Coverage from real runs" |
 | `make cover-build` | `scripts/cover-build.sh`: the three binaries built with `-cover` into `COVER_BIN` (default a temp dir), for the test VM and the owner's measured runs; never packaged |
 | `make all` | `gate` — run before pushing |
@@ -547,7 +603,7 @@ the same ref cancels the older run. Paths are in the workflow's `env:` block.
 | `core` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) (some discovery tests expect Arch tooling) | `make all`: the gate (TUI and helper). Go build and module caches keyed on `go.sum` and the Go version. |
 | `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `cmd/archmaid/e2e/*.txt` as an artifact on failure. A tape whose VHS browser never started ("could not start browser", a runner flake) runs once more (`e2e/browser-retry.sh`, proved on a stub vhs by `browser-retry-selftest.sh` at the start of every run); any other failure fails at once. |
 | `bench` | `ubuntu-latest` + setup-go, full history | `scripts/bench-compare.sh <base>` on the one runner: the PR's merge-base (or a push's previous SHA) against HEAD, benchstat-compared; fails on a significant slowdown (see "Bench compare"); uploads `benchstat` (old/new results, report) as an artifact, always. About 1–2 minutes. |
-| `gui` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) + gtk4, libadwaita, weston, dbus, a font | `make gui-test` as an unprivileged user with `GSK_RENDERER=cairo` (no GPU): build, vet, the plain-Go tests, the display tests in headless weston; budgets not enforced. Build and module caches keyed on `gui/go.sum` + `go.sum` and the Go version (a cold gotk4 build is ~7 min on 16 threads, more on a runner). |
+| `gui` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) + gtk4, libadwaita, dbus, a font (no compositor) | `make gui-test` as an unprivileged user with `GSK_RENDERER=cairo` (no GPU): build, vet, the plain-Go tests, the display tests on the headless Broadway display; budgets not enforced. Build and module caches keyed on `gui/go.sum` + `go.sum` and the Go version (a cold gotk4 build is ~7 min on 16 threads, more on a runner). |
 
 Stays manual (not in CI): a real Full Cleanup, sudo/faillock behaviour, the
 polkit live test on a scratch user, sudo without a tty, and askpass against real

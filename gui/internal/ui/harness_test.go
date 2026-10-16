@@ -5,11 +5,13 @@ package ui
 // GTK owns that process's main thread, and the parent only reads the
 // child's JSON report. They need a display and are opt-in:
 //
-//	gui/scripts/headless.sh go test -v ./internal/ui     # weston --backend=headless
+//	gui/scripts/headless.sh go test -v ./internal/ui     # GDK_BACKEND=broadway, nullbroadway
 //
-// headless.sh starts a private headless weston and sets WAYLAND_DISPLAY to
-// it plus ARCHMAID_GUI_DISPLAY_TESTS=1; without that variable the tests
-// skip, so a plain `go test ./...` never opens a window on the desktop.
+// headless.sh starts a private headless display (GTK Broadway on
+// scripts/nullbroadway; display_test.go links its socket in) and sets
+// GDK_BACKEND, BROADWAY_DISPLAY and ARCHMAID_GUI_DISPLAY_TESTS=1; without
+// that variable the tests skip, so a plain `go test ./...` never opens a
+// window on the desktop.
 // ARCHMAID_GUI_PERF=1 also enforces the performance budgets (they are
 // always measured and logged).
 
@@ -57,7 +59,7 @@ func init() { runtime.LockOSThread() }
 
 // A child inherits the parent's testenv (scratch HOME and XDG dirs, the
 // privileged-binary traps), so only the parent sets one up.
-func TestMain(m *testing.M) {
+func TestMain(tm *testing.M) {
 	// The askpass relay, as archmaid-gui's main: the real-Driver scenarios'
 	// sudo shim runs the wrapper, which execs this binary.
 	if code, relayed := realdriver.Relay(os.Args[1:]); relayed {
@@ -69,6 +71,9 @@ func TestMain(m *testing.M) {
 	if sc := os.Getenv("ARCHMAID_GUI_CHILD"); sc != "" {
 		os.Exit(runChild(sc, os.Getenv("ARCHMAID_GUI_REPORT")))
 	}
+	// The package's tests, with headless.sh's display linked into the
+	// scratch runtime dir testenv.Run sets up (display_test.go).
+	m := displayRun{m: tm, runtime: os.Getenv("XDG_RUNTIME_DIR")}
 	os.Exit(testenv.Run(m))
 }
 
@@ -321,6 +326,7 @@ func (d countingDriver) Send(c engine.Command) bool {
 
 func runChild(scenario, path string) int {
 	DefaultRenderer() // as archmaid-gui's main does
+	settleDisplay()
 	ignore := goleak.IgnoreCurrent()
 	rep := &report{Scenario: scenario}
 	fail := func(format string, a ...any) { rep.Errors = append(rep.Errors, fmt.Sprintf(format, a...)) }

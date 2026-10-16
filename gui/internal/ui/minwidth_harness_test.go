@@ -432,5 +432,8 @@ const toastControl = "toast-control-never-closed"
 // glibWarned: a stderr line that is a GLib warning, critical or error (the
 // log writer prints them as slog lines: "WARN ...", "ERROR ...").
 func glibWarned(l string) bool {
+	if broadwayNoise(l) {
+		return false
+	}
 	return strings.Contains(l, " WARN ") || strings.Contains(l, " ERROR ") || strings.Contains(l, "-WARNING") || strings.Contains(l, "-CRITICAL")
 }

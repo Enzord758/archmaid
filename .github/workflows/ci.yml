@@ -180,7 +180,8 @@ jobs:
 
   # The GUI module (gui/, its own go.mod: the jobs above never build gotk4).
   # Builds and vets it, runs the plain-Go tests, then the display tests in a
-  # private headless weston (gui/scripts/headless.sh) with the cairo renderer
+  # private headless display (gui/scripts/headless.sh: GTK Broadway on
+  # gui/scripts/nullbroadway, so no compositor package) with the cairo renderer
   # (no GPU here). The budgets aren't enforced: they are the dev machine's.
   # A cold gotk4 build is the slow part (cgo over all of GTK), so the build
   # cache is keyed on gui/go.sum and kept.
@@ -195,8 +196,8 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     timeout-minutes: 40
     steps: &gui_steps
-      - name: Install toolchain, GTK and weston
-        run: pacman -Syu --noconfirm --needed go gcc git make diffutils pkgconf gobject-introspection gtk4 libadwaita adwaita-icon-theme ttf-dejavu weston dbus
+      - name: Install toolchain and GTK
+        run: pacman -Syu --noconfirm --needed go gcc git make diffutils pkgconf gobject-introspection gtk4 libadwaita adwaita-icon-theme ttf-dejavu dbus
       - uses: actions/checkout@v7
       - name: Create an unprivileged user
         run: |

@@ -26,8 +26,10 @@ import (
 const shotsEnv = "ARCHMAID_GUI_SHOTS"
 
 // shoot writes the window as it is now to $ARCHMAID_GUI_SHOTS/<scenario>-
-// <what>.png, if that is set. Through the window's own renderer, as GTK
-// draws it (a WidgetPaintable of the window, snapshotted at its size). A
+// <what>.png, if that is set. Through a cairo renderer of its own (what
+// archmaid-gui renders with; the headless display's renderer is
+// Broadway's), from what GTK draws (a WidgetPaintable of the window,
+// snapshotted at its size), so on any backend. A
 // dialog shown inside the window is in the shot; one that didn't fit and
 // floats as a window of its own isn't.
 func shoot(w *Window, scenario, what string) {
