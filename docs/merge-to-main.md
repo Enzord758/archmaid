@@ -27,7 +27,7 @@ install from `main` afterwards (section 2). Your machine today:
 | `~/.local/bin/archmaid` | the **old** TUI, built from 83ecad2 (2026-09-23, `vcs.modified=true`), module `…/archmaid/tui` |
 | `/usr/bin/archmaid`, `/usr/lib/archmaid/archmaid-helper`, policy, widget files, timer units | package `archmaid-git r357.2783217-1` (the live-run commit) |
 | `archmaid-gui-git` | not installed |
-| `~/.local/share/applications/archmaid.desktop` | `install.sh`'s entry, `Exec=kitty /home/Enzord/.local/bin/archmaid` |
+| `~/.local/share/applications/archmaid.desktop` | `install.sh`'s entry, `Exec=$ARCHMAID_TERMINAL $PREFIX/bin/archmaid`, expanded when install.sh writes it (kitty and `$HOME/.local/bin/archmaid` by default) |
 | `archmaid-updates-check.timer` | not enabled |
 | DMS plugin | files in `/etc/xdg/quickshell/dms-plugins/archmaid/`; whether it is enabled in DMS wasn't checked |
 | `~/archmaid-live` | git worktree, detached at 2783217 |
