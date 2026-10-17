@@ -220,7 +220,7 @@ be empty after the answer), `audit` (the AUR report's Accept is
 `Confirm(yes)`, and `ReportAccepted` is a toast), `idle` (first frame
 and RAM), `flood` (50k unpaced lines, dropping off: the view's real capacity),
 `flood-paced` (100 lines every 10 ms = 10k lines/s, default pump: nothing may
-drop), `flood-default` (unpaced, default pump), `flood-colour` (as `flood`,
+drop under `ARCHMAID_GUI_PERF=1`, a capacity budget; always: dropped + in view never exceeds the lines seen; the GUI process, not nullbroadway, is where the frame work goes), `flood-default` (unpaced, default pump), `flood-colour` (as `flood`,
 every line in colour with seven SGR spans: bold, the 16 colours, 256-colour
 and 24-bit; it also checks that every visible output row carries its Pango
 attributes). Every scenario also checks
