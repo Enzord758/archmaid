@@ -55,7 +55,7 @@ func TestGateNoteMatrix(t *testing.T) {
 					for _, dry := range []bool{true, false} {
 						name := fmt.Sprintf("polkit=%v/kept=%v/dry=%v/topgrade=%v/orphans=%v", polkit, kept, dry, topgrade, orphans)
 						t.Run(name, func(t *testing.T) {
-							notes := runview.GateNotes(plan, polkit, kept, dry)
+							notes := runview.GateNotes(plan, polkit, kept, "", dry)
 							if len(notes) == 0 {
 								t.Fatal("no notes")
 							}

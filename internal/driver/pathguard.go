@@ -55,10 +55,7 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 		return
 	}
 	d.keep.Fail()
-	d.keepOffWhy = "the PATH check found something that could stand in for sudo"
-	if !done {
-		d.keepOffWhy = "the PATH check didn't finish in time"
-	}
+	d.keepOffWhy = keepOffReason(done)
 	what := "the check of this step's PATH didn't finish in " + pathScanMax.String()
 	if done {
 		what = "this step's PATH has something that could stand in for sudo: " + namesOf(shadows)
@@ -72,6 +69,34 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 	}
 	line := "archmaid: the kept password is off for this run, so every password prompt asks you (" + what + ")"
 	d.local = append(d.local, msg{in: engine.StepOutput{Seq: e.Seq, Lines: []string{line}}})
+}
+
+// keepOffReason is the one-line why a failed guard gives the password
+// dialog (NeedsPassword.KeepOff) and the gate's note (PreviewKeepOff).
+func keepOffReason(done bool) string {
+	if !done {
+		return "the PATH check didn't finish in time"
+	}
+	return "the PATH check found something that could stand in for sudo"
+}
+
+// PreviewKeepOff is the PATH guard's verdict as of now, without its side
+// effects (no Fail, no log line, no step output), for the GUI's gate sheet
+// before the run starts: "" when the guard would leave the kept password
+// on, else why it would turn it off (the reason the password dialog gives,
+// NeedsPassword.KeepOff). It scans archmaid's own PATH, which is what a
+// GUI step's child gets (the GUI has no sudo wrapper dir in front).
+//
+// It is a preview and only that. The step-start check (guardPath) stays
+// the authority: PATH or the files on it can change between the sheet
+// and the step, and the guard turns the password off at that moment
+// whatever the sheet said.
+func PreviewKeepOff() string {
+	shadows, done := scanPath(privilege.ChildPATH(nil, nil), pathScanMax)
+	if done && len(shadows) == 0 {
+		return ""
+	}
+	return keepOffReason(done)
 }
 
 // pathShadows is the scan (a seam: a test makes it hang).

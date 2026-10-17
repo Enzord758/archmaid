@@ -10,7 +10,11 @@
 > is `yay -Sc --aur` (no sudo) with `pacman -Sc` inside the helper call.
 > And after the merge, **S0/S1** build from `~/archmaid` on `main`, not
 > from an `~/archmaid-live` worktree. Refresh C4 before the next GUI live
-> run (`feat/gui-one-password` changes its password dialogs again).
+> run: one password per run is merged (`internal/privilege/kept.go`), so
+> the first password you give is kept for the run and answers the later
+> sudo and polkit prompts (the dialog says so, or says why it is not
+> keeping it; the Proceed sheet does too), and C4's "may ask again" and
+> per-step dialog counts no longer hold.
 
 For the owner to run by hand on the Arch/Hyprland machine. No agent runs any
 of this (CLAUDE.md rule 2). It is the first real run of:

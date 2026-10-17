@@ -1462,11 +1462,14 @@ to:
   root helper and policy come only from the package (`packaging/arch`);
   `install.sh` installs the TUI alone, which needs neither. The owner's
   step-by-step first live run: `docs/first-live-run.md` (its C4 predates
-  the one-dialog call). One password per run (`feat/gui-one-password`)
-  isn't merged yet.
-- **The `archmaid-gui-git` package has not been installed on the owner's
-  machine yet** (only `archmaid-git` is); install it together with the
-  `archmaid-git` of the same build (`packaging/arch/README.md`).
+  the one-dialog call and the kept password). One password per run is
+  merged (`internal/privilege/kept.go`, `gui/internal/polkitagent`); the
+  Proceed sheet previews its PATH guard (`driver.PreviewKeepOff`) and says
+  when the password will not be kept, while the guard at step start stays
+  the authority.
+- **Both packages are installed on the owner's machine** (`archmaid-git`
+  and `archmaid-gui-git`; r608 as of 2026-10-17, the lead's word). Keep
+  installing them together, from the same build (`packaging/arch/README.md`).
 - **One launcher entry.** The TUI has no desktop entry at all (not even a
   hidden one); only the GUI's `io.github.enzord758.archmaid.desktop` exists.
   The `archmaid` command still starts the TUI. `scripts/check.sh` fails if

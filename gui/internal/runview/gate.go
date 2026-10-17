@@ -49,8 +49,20 @@ func (r Row) PrivTag() string { return PrivTag(r.NeedsPriv, r.Verb) }
 // run's password (one password), whatever the mode (the real GUI is both;
 // in a dry run nothing is asked). The root count is the steps tagged
 // "root" (PrivTag); the steps tagged "sudo" are named beside it.
-func GateNotes(plan []engine.PlanStep, polkit, kept, dry bool) []string {
+//
+// keepOff, with kept, is why the kept password's PATH guard would turn it
+// off (a preview, driver.PreviewKeepOff; "" keeps it): the notes then say
+// archmaid is not keeping the password, with that reason, as the password
+// dialog does (NeedsPassword.KeepOff), instead of promising it keeps it.
+// This is the state when the sheet is built; the guard at step start stays
+// the authority, since PATH or files can change before the step.
+func GateNotes(plan []engine.PlanStep, polkit, kept bool, keepOff string, dry bool) []string {
 	var notes []string
+	off := ""
+	if kept && keepOff != "" {
+		kept = false
+		off = " archmaid is not keeping your password for this run (" + keepOff + "), so every password prompt asks you."
+	}
 	helper := 0    // root steps the helper runs
 	var sudo []int // the steps that run sudo themselves, by position
 	for i, s := range plan {
@@ -90,11 +102,11 @@ func GateNotes(plan []engine.PlanStep, polkit, kept, dry bool) []string {
 		default:
 			n += ". If sudo needs your password, archmaid asks for it in its own dialog."
 		}
-		notes = append(notes, n)
+		notes = append(notes, n+off)
 	case len(sudo) > 0 && kept:
 		notes = append(notes, "You type your password once, the first time a step needs it; archmaid keeps it for this run only.")
 	case len(sudo) > 0:
-		notes = append(notes, "If sudo needs your password, archmaid asks for it in its own dialog.")
+		notes = append(notes, "If sudo needs your password, archmaid asks for it in its own dialog."+off)
 	}
 	for i, s := range plan {
 		if !s.Confirm {

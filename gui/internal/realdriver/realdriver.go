@@ -285,3 +285,8 @@ func runClock(start time.Time) func() time.Time {
 		return time.Now()
 	}
 }
+
+// KeepPreview is the gate sheet's side-effect-free preview of the kept
+// password's PATH guard: "" when the password would be kept, else why not
+// (driver.PreviewKeepOff). The step-start check stays authoritative.
+func KeepPreview() string { return driver.PreviewKeepOff() }

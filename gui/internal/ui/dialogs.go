@@ -634,6 +634,14 @@ func (w *Window) reportDialog(p engine.OutputReport) *amDialog {
 // gateNotesFor is the gate's notes for the auth mode the window's runs
 // really use (Options.Engine.Auth) and its password handling: the real GUI
 // is polkit with a kept password, and the stub plays the polkit plan.
+//
+// When the Driver keeps the password, the sheet asks Options.KeepPreview
+// whether the PATH guard would turn that off, and words itself from the
+// answer. It is a preview: the guard at step start decides.
 func gateNotesFor(o Options, plan []engine.PlanStep, dry bool) []string {
-	return runview.GateNotes(plan, o.Stub || o.Engine.Auth == engine.AuthPolkit, o.KeepsPassword, dry)
+	keepOff := ""
+	if o.KeepsPassword && o.KeepPreview != nil && !dry {
+		keepOff = o.KeepPreview()
+	}
+	return runview.GateNotes(plan, o.Stub || o.Engine.Auth == engine.AuthPolkit, o.KeepsPassword, keepOff, dry)
 }

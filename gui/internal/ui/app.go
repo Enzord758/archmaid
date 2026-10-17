@@ -55,6 +55,12 @@ type Options struct {
 	// KeepsPassword: the Driver keeps the run's first password (the real
 	// one does); its password dialogs say so (KeptNote).
 	KeepsPassword bool
+	// KeepPreview, when set with KeepsPassword, is asked when the gate
+	// sheet is built: "" when the PATH guard would leave the password
+	// kept, else why it would turn it off. The sheet words itself from
+	// that; the guard at step start stays the authority (PATH or files can
+	// change between the sheet and the step).
+	KeepPreview func() string
 	// Notices, when set, is handed the window's notice setter: what to
 	// show when polkit's own dialog has to ask (realdriver's SetNotice).
 	Notices func(set func(string))
@@ -196,7 +202,7 @@ func mainReal(args []string, confirm string) int {
 // realOptions are the window's Options on the real Driver: it keeps the
 // run's first password (KeepsPassword), whatever base's auth mode.
 func realOptions(base engine.Options, newDriver func(engine.Options) engine.Driver, notices func(func(string)), confirm string, atForcedExit func()) Options {
-	return Options{NewDriver: newDriver, Engine: base, KeepsPassword: true, Notices: notices, Confirm: confirm,
+	return Options{NewDriver: newDriver, Engine: base, KeepsPassword: true, KeepPreview: realdriver.KeepPreview, Notices: notices, Confirm: confirm,
 		AtForcedExit: atForcedExit}
 }
 
