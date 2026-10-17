@@ -56,7 +56,7 @@ if [[ $# -eq 0 ]]; then
 	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards)$'
 	tones='^TestGUI(LastRunTones|AuditRerun)$'
 	states='^TestGUIMinWidthStates$'
-	wide='^TestGUI(WideDialogs|MinWidthToggle)$'
+	wide='^TestGUI(WideDialogs|MinWidthToggle|GateNotesFit)$'
 	widelong='^TestGUIWideDialogsLong$'
 	widelongr='^TestGUIWideDialogsLongResize$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'

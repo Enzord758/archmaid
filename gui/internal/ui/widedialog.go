@@ -34,6 +34,13 @@ const (
 // and the buttons share the width.
 const wideNarrow = "max-width: 640sp"
 
+// wideTight is the second, lower one: under it a plan's tags go under
+// their step's title. Between the two (a half-screen window, the VM's
+// 570 px sheet) the columns are stacked but a step is still one line with
+// its tags at its end; stacked with every tag under its title the gate's
+// rail grew ~120 px and its notes ran below the dialog (#176).
+const wideTight = "max-width: 500sp"
+
 // wideMinW, wideMinH are a wide dialog's minimum size. A dialog with
 // breakpoints has none of its own (libadwaita asks for one, as for an
 // AdwBreakpointBin); this fits the smallest window libadwaita allows.
@@ -60,6 +67,7 @@ type amDialog struct {
 	body       *gtk.Box // the middle's content
 	buttons    *gtk.Box // the bottom bar
 	narrowFns  []func(narrow bool)
+	tightFns   []func(tight bool)
 	breakpoint *adw.Breakpoint
 	parts      []gtk.Widgetter // the heading, the middle, the button bar (fitHeight)
 
@@ -159,9 +167,25 @@ func newWideDialog(heading string, width int) *amDialog {
 		}
 	})
 	d.breakpoint = adw.NewBreakpoint(adw.BreakpointConditionParse(wideNarrow))
-	d.breakpoint.ConnectApply(func() { d.setNarrow(true) })
-	d.breakpoint.ConnectUnapply(func() { d.setNarrow(false) })
+	// libadwaita applies one breakpoint at a time, so the lower one also
+	// stands for narrow: bp is the one in force, "" for none.
+	bp := ""
+	set := func(on, name string) {
+		if on != "" {
+			bp = on
+		} else if bp == name {
+			bp = ""
+		}
+		d.setNarrow(bp != "")
+		d.setTight(bp == "tight")
+	}
+	d.breakpoint.ConnectApply(func() { set("narrow", "narrow") })
+	d.breakpoint.ConnectUnapply(func() { set("", "narrow") })
 	d.AddBreakpoint(d.breakpoint)
+	tight := adw.NewBreakpoint(adw.BreakpointConditionParse(wideTight))
+	tight.ConnectApply(func() { set("tight", "tight") })
+	tight.ConnectUnapply(func() { set("", "tight") })
+	d.AddBreakpoint(tight)
 
 	// Escape, the window's close and a ForceClose (the engine withdrew
 	// the prompt) close an AdwDialog with nothing but its closed signal:
@@ -275,6 +299,15 @@ func (d *amDialog) setCappedOne(l cappedList, on bool) {
 // onNarrow runs f with the dialog's breakpoint state whenever it changes.
 func (d *amDialog) onNarrow(f func(narrow bool)) { d.narrowFns = append(d.narrowFns, f) }
 
+// onTight runs f with the lower breakpoint's state whenever it changes.
+func (d *amDialog) onTight(f func(tight bool)) { d.tightFns = append(d.tightFns, f) }
+
+func (d *amDialog) setTight(tight bool) {
+	for _, f := range d.tightFns {
+		f(tight)
+	}
+}
+
 // setNarrow lays the dialog out for under its breakpoint, or above it.
 func (d *amDialog) setNarrow(narrow bool) {
 	for _, f := range d.narrowFns {
@@ -302,7 +335,7 @@ func (d *amDialog) columns(left, right gtk.Widgetter, rightW int) gtk.Widgetter 
 	d.onNarrow(func(narrow bool) {
 		if narrow {
 			box.SetOrientation(gtk.OrientationVertical)
-			box.SetSpacing(14)
+			box.SetSpacing(10)
 			sep.SetOrientation(gtk.OrientationHorizontal)
 			gtk.BaseWidget(right).SetSizeRequest(-1, -1)
 			return

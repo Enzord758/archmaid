@@ -192,7 +192,7 @@
    (the only part that scrolls), the buttons at the end over a hairline;
    columns split by a hairline. */
 .archmaid.am-wide .am-wide-heading { margin: 22px 24px 0; }
-.archmaid.am-wide .am-wide-body { margin: 14px 24px 18px; }
+.archmaid.am-wide .am-wide-body { margin: 12px 24px 12px; }
 .archmaid.am-wide .am-wide-buttons { padding: 14px 24px 20px; border-top: 1px solid @am_rail; }
 .archmaid.am-wide .am-wide-buttons > button { padding-left: 22px; padding-right: 22px; }
 .archmaid.am-wide .am-column-rule { background-color: @am_rail; }

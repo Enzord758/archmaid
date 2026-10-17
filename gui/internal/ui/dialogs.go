@@ -226,9 +226,9 @@ func planSteps(d *amDialog, plan []engine.PlanStep) gtk.Widgetter {
 		row.Append(line.box)
 		rail.Append(row)
 	}
-	d.onNarrow(func(narrow bool) {
+	d.onTight(func(tight bool) {
 		for _, l := range lines {
-			l.setUnder(narrow)
+			l.setUnder(tight)
 		}
 	})
 	box.Append(rail)

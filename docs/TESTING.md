@@ -444,6 +444,12 @@ inside it: a capped list shrank there instead, task #101), the 20-step
 rail whole at 1460x930 and at least 6 of its steps shown in each low
 window, the orphans' lines unbroken at 1460x930, nothing too wide, no GTK warning
 (`wide-long-<w>x<h>-<dialog>.png` with `ARCHMAID_GUI_SHOTS`).
+`TestGUIGateNotesFit` (`gatenotesfit_harness_test.go`, in the wide dialogs'
+part, #176): the VM's 10-step gate, polkit and sudo, kept and keep-off
+wording, at 1460x930 and at 636x754 (the VM's half screen): every note drawn
+whole and the middle needs no scroll (`gate-notes-<w>x<h>-<case>.png`).
+Between 500 and 640 px the columns stack but a plan's tags stay at their
+step's end (`wideTight`).
 `TestGUIWideDialogsLongResize` (`widelongresize_harness_test.go`, scenario
 `wide-resize`, a part of its own) leaves the orphans, downloads and report
 dialogs open while the window goes 1460x930, 1460x500, 1460x930 and so
