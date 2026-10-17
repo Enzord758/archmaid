@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -232,6 +233,7 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 			}
 		}
 		m.screen = screenConfirm
+		m.armKeys()
 	case engine.NeedsPassword:
 		if ev.Kind == engine.PasswordAskpass {
 			return m.openAskpass(ev)
@@ -282,6 +284,7 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 	case engine.OutputReport:
 		e.report, e.accept = ev.ID, ev.Audit != nil && ev.Audit.CanAccept
 		m.screen = screenAudit
+		m.armKeys()
 		m.resizeOutput()
 		m.output.SetContent(ev.Text)
 		m.output.GotoTop()
@@ -419,7 +422,43 @@ func (m *model) closeEngineAskpass() {
 	m.pwErr = ""
 	if m.screen == screenPassword {
 		m.screen = m.bg
+		m.armKeys() // the keys that ended the password must not answer what it covered
 	}
+}
+
+// confirmArm is how long after a confirm (or an audit report) appears, and
+// after the last key it swallowed, keys are dropped. A password the owner
+// typed ahead of its prompt, with its Enter, reaches the TUI as ordinary
+// keys, and the first prompt to show would take them for an answer (the
+// topgrade confirm, default No, was declined that way). Bubble Tea gives no
+// key a timestamp and has no way to drain the tty, so the guard is on time:
+// queued keys are handled within milliseconds of the prompt being drawn, and a
+// key that lands in the window renews it, so a slow typist's trailing Enter is
+// dropped as well. A deliberate answer comes after a pause. 0 switches the
+// guard off (the model tests that answer at once).
+var confirmArm = 400 * time.Millisecond
+
+// armNow is the guard's clock, a seam for the tests.
+var armNow = time.Now
+
+// armKeys starts the window for a prompt that has just appeared.
+func (m *model) armKeys() {
+	if confirmArm > 0 {
+		m.armUntil = armNow().Add(confirmArm)
+	}
+}
+
+// keyHeld reports whether a key must be dropped: the screen is an answer
+// prompt (confirm or audit report) inside its window. A dropped key renews it.
+func (m *model) keyHeld() bool {
+	if confirmArm <= 0 || (m.screen != screenConfirm && m.screen != screenAudit) {
+		return false
+	}
+	if now := armNow(); now.Before(m.armUntil) {
+		m.armUntil = now.Add(confirmArm)
+		return true
+	}
+	return false
 }
 
 // engineKey turns a key on a prompt into a Command; ok is false for a key

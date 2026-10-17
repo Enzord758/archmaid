@@ -5,6 +5,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"time"
 )
 
 // ── screens ──────────────────────────────────────────────────────────────────
@@ -88,6 +89,7 @@ type model struct {
 	confirmMsg string
 	confirmYes bool
 	gateActive bool
+	armUntil   time.Time // keys before this are typed-ahead, not answers (adapter.go keyHeld)
 
 	// eng is the engine side of the model (adapter.go): the Driver the
 	// model runs its actions on, and the prompts it has open. nil only in

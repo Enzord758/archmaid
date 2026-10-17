@@ -241,7 +241,7 @@ func (m model) viewSummary() string {
 		line = stepOKStyle.Render("✔ Cleanup completed successfully")
 	}
 	return m.header() + "\n" + m.checklist() + "\n" + line + "\n\n" +
-		hintStyle.Render("l view log · enter back to menu")
+		hintStyle.Render("l view log · enter back to menu · q quit")
 }
 
 func (m model) viewLogPicker() string {

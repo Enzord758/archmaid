@@ -31,6 +31,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.eng.stopped {
 			return m, tea.Quit // the Driver is gone; the notice says so
 		}
+		if msg.String() != "ctrl+c" && m.keyHeld() {
+			return m, nil // typed ahead of the prompt: never an answer to it
+		}
 		if next, cmd, ok := m.engineKey(msg); ok {
 			return next, cmd
 		}
@@ -167,7 +170,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "l":
 			m.logReturn = screenSummary
 			return m.openLogPicker()
-		case "enter", "esc", "q":
+		case "q", "ctrl+c":
+			return m, tea.Quit
+		case "enter", "esc":
 			m.screen = screenMenu
 		}
 

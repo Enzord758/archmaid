@@ -263,7 +263,7 @@ TestStartupDeletesNothing; HANDOVER "Nothing deletes run history at startup" -->
      `[dry-run] would run: sudo pacman -Rns --noconfirm -- …`.
    - The last row is "Updating Hyprland plugins…" (`hyprpm update`).
 4. **Summary:** "Completed — 1 step(s) skipped" (2 if you also declined the
-   orphans), hint `l view log · enter back to menu`. Press `l`, open a
+   orphans), hint `l view log · enter back to menu · q quit`. Press `l`, open a
    category or two: the entries say `DRYRUN: …`. `esc` back, `enter` to the
    menu, `q` to quit. `rc=0`, stderr empty.
 

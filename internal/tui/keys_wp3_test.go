@@ -131,10 +131,11 @@ func TestConfirmKeys(t *testing.T) {
 	}
 }
 
-// TestSummaryKeys: Enter, Esc and q on the summary go back to the menu; any
+// TestSummaryKeys: Enter and Esc on the summary go back to the menu (q quits, see
+// TestSummaryQuitsOnQ); any
 // other key leaves it up.
 func TestSummaryKeys(t *testing.T) {
-	for _, k := range []string{"enter", "esc", "q"} {
+	for _, k := range []string{"enter", "esc"} {
 		m := fixedModel()
 		m.screen = screenSummary
 		if got, _ := press(m, k); got.screen != screenMenu {
