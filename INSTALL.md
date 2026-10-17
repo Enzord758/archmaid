@@ -21,9 +21,8 @@ This installs:
 | What | Where |
 | --- | --- |
 | binary | `~/.local/bin/archmaid` |
-| icon | `~/.local/share/icons/hicolor/scalable/apps/archmaid.svg` |
 
-Then run `archmaid` in a terminal. The TUI has no launcher entry (the GUI has its own).
+Then run `archmaid` in a terminal. The TUI has no launcher entry and no icon (the GUI has its own).
 
 If `~/.local/bin` isn't on your `PATH`, the installer says so — add it (e.g. in
 your shell rc): `export PATH="$HOME/.local/bin:$PATH"`.
@@ -41,7 +40,7 @@ your shell rc): `export PATH="$HOME/.local/bin:$PATH"`.
 ./install.sh --uninstall
 ```
 
-Removes the binary, icon, and desktop entry.
+Removes the binary, and any stale icon or desktop entry an older install.sh wrote (only archmaid's own).
 
 ## Logs
 

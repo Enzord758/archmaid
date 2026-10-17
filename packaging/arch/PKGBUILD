@@ -119,8 +119,6 @@ package_archmaid-git() {
   install -Dm0755 "$srcdir/build/archmaid-helper" "$pkgdir/usr/lib/archmaid/archmaid-helper"
   install -Dm0644 packaging/polkit/org.archmaid.helper.policy \
     "$pkgdir/usr/share/polkit-1/actions/org.archmaid.helper.policy"
-  install -Dm0644 packaging/archmaid.svg \
-    "$pkgdir/usr/share/icons/hicolor/scalable/apps/archmaid.svg"
   # DMS bar widget: DMS reads system-wide plugins from this directory
   # (PluginService.systemPluginDirectory); the user still enables it in DMS.
   for f in plugin.json ArchmaidWidget.qml state.js; do
@@ -157,8 +155,8 @@ package_archmaid-gui-git() {
     "$pkgdir/usr/share/applications/$_appid.desktop"
   install -Dm0644 "packaging/$_appid.metainfo.xml" \
     "$pkgdir/usr/share/metainfo/$_appid.metainfo.xml"
-  # The project icon again, under the application id (archmaid.svg stays the
-  # TUI launcher's, in archmaid-git).
+  # The project icon under the application id (nothing installs it under the
+  # plain name archmaid: the TUI has no launcher entry).
   install -Dm0644 packaging/archmaid.svg \
     "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_appid.svg"
 }

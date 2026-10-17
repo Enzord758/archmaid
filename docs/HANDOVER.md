@@ -1474,7 +1474,17 @@ to:
   hidden one); only the GUI's `io.github.enzord758.archmaid.desktop` exists.
   The `archmaid` command still starts the TUI. `scripts/check.sh` fails if
   `packaging/archmaid.desktop` returns or the PKGBUILD or `install.sh` makes
-  one; `install.sh` removes a stale one of its own.
+  one; `install.sh` removes a stale one of its own. The icon name `archmaid`
+  is unused too (the GUI uses its app-id icon, the widget a Material one):
+  neither the PKGBUILD nor `install.sh` installs `apps/archmaid.svg`, and
+  `install.sh` removes an older copy only if it is a regular file identical
+  to `packaging/archmaid.svg`.
+- **The GUI's speed budgets are measured by hand.** First frame, idle RSS,
+  throughput and zero drops are enforced only with `ARCHMAID_GUI_PERF=1`
+  (`cd gui && ARCHMAID_GUI_PERF=1 scripts/headless.sh`, or
+  `ARCHMAID_GUI_PERF=1 make gui-test`), run by the owner on the desktop
+  machine when it is quiet. CI's Broadway display is too slow to measure them,
+  so CI checks correctness only (`docs/TESTING.md` → GUI measurements).
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The

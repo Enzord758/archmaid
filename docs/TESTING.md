@@ -496,6 +496,19 @@ unpaced flood, main-thread work per flush p95 ≤ 4 ms (the time in the pump's
 `apply`: model, list splice, queueing the scroll), RSS after 50k lines < 200 MB. They are
 always measured and logged with `-v`. CI runs them without the variable.
 
+**The speed budgets are measured by hand, not in CI** (owner decision,
+#170/#179). CI's Broadway display is too slow to measure first frame, idle RSS,
+throughput or zero drops, so CI checks correctness only. Before a release, or
+after a change to the GUI's pump, list or startup, run on the owner's desktop
+machine, quiet (nothing else heavy, no VM running):
+
+```sh
+cd gui && ARCHMAID_GUI_PERF=1 scripts/headless.sh
+```
+
+(or `ARCHMAID_GUI_PERF=1 make gui-test` from the repo root). It is still
+headless (no window on the desktop); a failing budget fails the run.
+
 ### GUI measurements
 
 Dev machine (Ryzen 7 7800X3D, RTX 4090 on driver 615.71, gtk4 4.22.5,

@@ -263,8 +263,11 @@ or merge.
 
 **Before the merge**
 
-- [ ] CI is green on all four jobs (core, e2e, bench, gui) for the
-      `refactor/p0` tip: the `TestStepCannotReadTheTerminal` fix (4d3b11d)
+- [ ] CI is green on every job that runs (image, core, e2e, bench, gui) for
+      the `refactor/p0` tip. core and gui come in pairs, `core` / `core (ECR
+      fallback)` and `gui` / `gui (ECR fallback)`: exactly one of each pair
+      runs (ghcr with credentials, ECR without) and the other shows as
+      skipped, which is fine. The `TestStepCannotReadTheTerminal` fix (4d3b11d)
       has passed, and the earlier gui/e2e failures (e71424d, 2783217) are
       confirmed as one-off flakes or fixed.
 - [ ] `feat/gui-one-password` has passed its security review, its findings

@@ -69,6 +69,8 @@ the commit that made the change; the range is `5585358..refactor/p0` (308 commit
 - GUI: the six Overview action cells now light up in the accent colour on hover (a little stronger while pressed, and on keyboard focus), so they read as buttons; the last-run cell and the sidebar are unchanged.
 - Packaging: only the GUI shows in the app launcher. `archmaid.desktop` (the TUI) now has `NoDisplay=true`; the `archmaid` command still starts the TUI.
 - Packaging: the TUI now has no desktop entry at all (it was hidden before). The package no longer installs `archmaid.desktop`, `install.sh` no longer writes one and removes a stale one of its own (on install and `--uninstall`), and `ARCHMAID_TERMINAL` is gone. Only the GUI has an entry; run `archmaid` from a shell. `scripts/check.sh` guards it.
+- Packaging: the TUI has no icon either. Nothing used the icon name `archmaid`, so the package and `install.sh` no longer install `apps/archmaid.svg` (the GUI keeps its app-id copy); `install.sh` removes an older copy on install and `--uninstall`, only if it is a regular file identical to `packaging/archmaid.svg`. `scripts/check.sh` guards it.
+- Docs: the GUI speed budgets (first frame, idle RSS, throughput, zero drops) are measured by hand on the owner's desktop with `ARCHMAID_GUI_PERF=1`, CI checks correctness only; the merge checklist no longer counts "four jobs" (core and gui come in pairs, one of each runs).
 - `archmaid --help` (or `-h`) now prints the usage and exits 0. Before, it started the full TUI. An unknown option or a stray argument now exits 2 with a message instead of being ignored (13eb21a).
 - History rotation now keeps 5 runs **including the current one**: you see 5 run folders, not 5 old ones plus the current one (6 before). The rotation happens when a real run writes its first log entry, not at every start (420733b, 13eb21a).
 - A dry run, `--help`, a bad option and a start that ends at the menu no longer delete anything from the run history (13eb21a).
@@ -229,4 +231,4 @@ the commit that made the change; the range is `5585358..refactor/p0` (308 commit
 - The first live runs are done, of both the TUI and the GUI (`docs/first-live-run.md`; its C4 step predates the one-dialog call). Before merging, follow `docs/merge-to-main.md`.
 - The GUI's frame p95 on a quiet machine has not been re-measured, and the perf-guard baselines need re-measuring after E7b (`make perf`, `make bench`), because the benchmarks changed shape.
 - The `auth_admin_keep` check in a real session now has a guide: `docs/polkit-keep-session-check.md`.
-- CI failed on 2783217 and 6e6f70e: `TestStepCannotReadTheTerminal` under `CI=true`, fixed by 4d3b11d. Confirm that all 4 jobs are green on the final tip.
+- CI failed on 2783217 and 6e6f70e: `TestStepCannotReadTheTerminal` under `CI=true`, fixed by 4d3b11d. Confirm that CI is green on the final tip (image, e2e, bench, and one of each core and gui pair; the other of each pair is skipped).

@@ -202,6 +202,13 @@ fi
 # no packaging/archmaid.desktop, and neither the PKGBUILD nor install.sh
 # installs or writes a file named archmaid.desktop (install.sh may only
 # remove an older one).
+# Nor does anything install the icon under the plain name apps/archmaid.svg
+# (the GUI's copy is apps/<app-id>.svg; install.sh may only remove an older
+# copy of its own).
+if grep -nE -- 'apps/archmaid\.svg' packaging/arch/PKGBUILD; then
+	echo "FAIL: packaging/arch/PKGBUILD installs apps/archmaid.svg; nothing uses the icon name archmaid"
+	exit 1
+fi
 if test -e packaging/archmaid.desktop; then
 	echo "FAIL: packaging/archmaid.desktop exists; the TUI has no desktop entry"
 	exit 1
@@ -232,6 +239,27 @@ fi
 	rm -f "$app"
 	run
 	test ! -e "$app" || { echo "FAIL: install.sh wrote archmaid.desktop"; exit 1; }
+	# The same for the icon: a fresh install leaves no apps/archmaid.svg, an
+	# own stale copy (byte-identical to packaging/archmaid.svg) goes, a
+	# different file or a symlink of that name stays.
+	ico="$t/home/share/icons/hicolor/scalable/apps/archmaid.svg"
+	mkdir -p "${ico%/*}"
+	run
+	test ! -e "$ico" || { echo "FAIL: install.sh wrote apps/archmaid.svg"; exit 1; }
+	cp packaging/archmaid.svg "$ico"
+	run
+	test ! -e "$ico" || { echo "FAIL: install.sh left archmaid's own stale apps/archmaid.svg"; exit 1; }
+	cp packaging/archmaid.svg "$ico"
+	run --uninstall
+	test ! -e "$ico" || { echo "FAIL: --uninstall left archmaid's own stale apps/archmaid.svg"; exit 1; }
+	printf '<svg>other</svg>\n' >"$ico"
+	run
+	run --uninstall
+	test -f "$ico" || { echo "FAIL: install.sh removed a foreign apps/archmaid.svg"; exit 1; }
+	rm -f "$ico"
+	ln -s packaging-target "$ico"
+	run
+	test -L "$ico" || { echo "FAIL: install.sh removed a symlink apps/archmaid.svg"; exit 1; }
 ) || exit 1
 
 # A cover build (scripts/cover-build.sh) is never what gets installed: a

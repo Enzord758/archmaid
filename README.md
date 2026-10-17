@@ -60,7 +60,7 @@ binary would shadow the package's.
    command -v archmaid    # must print /usr/bin/archmaid
    ```
 
-   It removes `~/.local/bin/archmaid`, its icon and its `.desktop` entry.
+   It removes `~/.local/bin/archmaid` and any stale icon or `.desktop` entry of an older install.sh.
    This matters because a pre-refactor build is harmful, not just stale:
 
    - It deletes old run folders at every start, `--help` included.

@@ -97,7 +97,6 @@ sudo pacman -U "$P"/archmaid-gui-git-r*.pkg.tar.zst   # the GUI too (see above: 
 | `/usr/bin/archmaid` | 0755 | the TUI |
 | `/usr/lib/archmaid/archmaid-helper` | 0755 root:root | **not setuid**; run via `pkexec` |
 | `/usr/share/polkit-1/actions/org.archmaid.helper.policy` | 0644 | one action per helper verb |
-| `/usr/share/icons/hicolor/scalable/apps/archmaid.svg` | 0644 | |
 | `/usr/share/doc/archmaid/helper.md` | 0644 | helper docs |
 | `/etc/xdg/quickshell/dms-plugins/archmaid/{plugin.json,ArchmaidWidget.qml,state.js}` | 0644 | DMS widget plugin (system plugin dir); enable it in DMS |
 | `/usr/lib/archmaid/archmaid-updates-check` | 0755 | runs `checkupdates` and `yay -Qua`, writes the pending counts |

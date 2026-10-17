@@ -3,11 +3,10 @@
 #
 # Installs (all under $HOME, no root needed):
 #   - binary  → ~/.local/bin/archmaid
-#   - icon    → ~/.local/share/icons/hicolor/scalable/apps/archmaid.svg
 #
-# The TUI has no desktop entry (the GUI has its own): start it from a shell
-# with `archmaid`. A TUI entry an older install.sh wrote is removed, on
-# install and on --uninstall, if it is archmaid's own.
+# The TUI has no desktop entry and no icon (the GUI has its own): start it
+# from a shell with `archmaid`. A TUI entry and icon an older install.sh wrote
+# are removed, on install and on --uninstall, if they are archmaid's own.
 #
 # Usage:
 #   ./install.sh              # build + install
@@ -25,9 +24,10 @@ ICONDIR="$PREFIX/share/icons/hicolor/scalable/apps"
 APPDIR="$PREFIX/share/applications"
 
 BIN="$BINDIR/archmaid"
-ICON="$ICONDIR/archmaid.svg"
-# Only ever removed, never written: the stale TUI entry of an older install.sh.
+# Only ever removed, never written: the stale TUI entry and icon of an older
+# install.sh.
 STALE_DESKTOP="$APPDIR/archmaid.desktop"
+STALE_ICON="$ICONDIR/archmaid.svg"
 
 info() { printf '  %s\n' "$1"; }
 
@@ -52,10 +52,19 @@ remove_stale_desktop() {
 	rm -fv "$STALE_DESKTOP"
 }
 
+# Remove the stale icon only if it is the project icon, byte for byte, and a
+# regular file (not a symlink).
+remove_stale_icon() {
+	[[ -f "$STALE_ICON" && ! -L "$STALE_ICON" ]] || return 0
+	cmp -s "$STALE_ICON" "$SCRIPT_DIR/packaging/archmaid.svg" || return 0
+	rm -fv "$STALE_ICON"
+}
+
 uninstall() {
 	echo "Removing archmaid…"
-	rm -fv "$BIN" "$ICON"
+	rm -fv "$BIN"
 	remove_stale_desktop
+	remove_stale_icon
 	refresh_caches
 	echo "Done."
 }
@@ -67,14 +76,12 @@ do_install() {
 	}
 
 	echo "Building archmaid…"
-	mkdir -p "$BINDIR" "$ICONDIR"
+	mkdir -p "$BINDIR"
 	( cd "$SCRIPT_DIR" && go build -trimpath -ldflags='-s -w' -o "$BIN" ./cmd/archmaid )
 	info "binary  → $BIN"
 
-	install -m 0644 "$SCRIPT_DIR/packaging/archmaid.svg" "$ICON"
-	info "icon    → $ICON"
-
 	remove_stale_desktop
+	remove_stale_icon
 	refresh_caches
 
 	echo
