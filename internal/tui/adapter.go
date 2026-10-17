@@ -516,7 +516,9 @@ func (m model) engineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		case "y":
 			m.confirmYes = true
 			return m.engineConfirm()
-		case "n", "esc":
+		case "n", "esc", "ctrl+c":
+			// ctrl+c declines like n; it is exempt from the typed-ahead
+			// guard (Update), and declining runs nothing.
 			m.confirmYes = false
 			return m.engineConfirm()
 		case "enter":
@@ -535,7 +537,7 @@ func (m model) engineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		}
 	case screenAudit:
 		switch msg.String() {
-		case "esc", "q":
+		case "esc", "q", "ctrl+c":
 			id := e.report
 			e.accept = false
 			m.screen = screenMenu

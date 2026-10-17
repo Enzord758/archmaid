@@ -112,21 +112,35 @@ func TestSummaryQuitsOnQ(t *testing.T) {
 	}
 }
 
-// ctrl+c is never held and never renews the window: a password cannot contain
-// it, so it is not typed-ahead. After a burst, a ctrl+c inside the window must
-// leave the window to run out, so a deliberate y soon after still works.
-func TestCtrlCDoesNotRenewTheWindow(t *testing.T) {
-	advance := armedClock(t)
+// ctrl+c declines the confirm at once, even inside the typed-ahead window
+// (a password cannot contain it, and declining runs nothing), and does not
+// renew the window.
+func TestCtrlCDeclinesConfirmInsideWindow(t *testing.T) {
+	armedClock(t)
 	m, f := engineModel()
-	m = typeAhead(topgradeConfirm(m))
-	advance(300 * time.Millisecond)
-	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
-	if m.screen != screenConfirm || len(f.sent) != 0 {
-		t.Fatalf("ctrl+c on the confirm: screen %d, sent %+v", m.screen, f.sent)
+	m = typeAhead(topgradeConfirm(m)) // the window is open and renewed
+	update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if got := lastSent(t, f); got != (engine.Confirm{Prompt: 3, Yes: false}) {
+		t.Errorf("ctrl+c inside the window sent %#v, want the No answer", got)
 	}
-	advance(200 * time.Millisecond) // 500 ms after the burst, 200 after ctrl+c
-	update(m, key("y"))
-	if got := lastSent(t, f); got != (engine.Confirm{Prompt: 3, Yes: true}) {
-		t.Errorf("y after ctrl+c sent %#v: ctrl+c renewed the window", got)
+}
+
+// ctrl+c on the confirm after the window is a No as well; on the audit report
+// it declines like esc and q.
+func TestCtrlCDeclinesConfirmAndAudit(t *testing.T) {
+	advance := armedClock(t)
+	advance(500 * time.Millisecond)
+	m, f := engineModel()
+	m = topgradeConfirm(m)
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if got := lastSent(t, f); got != (engine.Confirm{Prompt: 3, Yes: false}) || m.screen != screenRunning {
+		t.Errorf("ctrl+c on the confirm: sent %#v, screen %d", got, m.screen)
+	}
+
+	m, f = engineModel()
+	m = feed(m, engine.OutputReport{ID: 5, Text: "findings", Audit: &engine.AuditReport{CanAccept: true}})
+	m = update(m, tea.KeyMsg{Type: tea.KeyCtrlC})
+	if got := lastSent(t, f); got != (engine.Confirm{Prompt: 5, Yes: false}) || m.screen != screenMenu {
+		t.Errorf("ctrl+c on the audit: sent %#v, screen %d", got, m.screen)
 	}
 }
