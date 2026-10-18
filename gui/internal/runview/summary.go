@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/gui/internal/plural"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -134,7 +135,7 @@ func BuildSummary(r report.Report, clean bool) Summary {
 	case !clean:
 		s.Kicker, s.Tone, s.Headline = "CHECK THE STEPS", "warn", "The run did not finish cleanly"
 	default:
-		s.Kicker, s.Tone, s.Headline = "ALL QUIET", "ok", "Everything is up to date"
+		s.Kicker, s.Tone, s.Headline = quietHeadline(r.Action)
 	}
 	for _, a := range r.Attention {
 		s.Attention = append(s.Attention, attentionRow(a))
@@ -156,6 +157,28 @@ func BuildSummary(r report.Report, clean bool) Summary {
 		s.Notes = append(s.Notes, sanitize.OneLine(n))
 	}
 	return s
+}
+
+// doneHeadline is what a clean run of an action that is not an update says:
+// "Everything is up to date" would claim something about updates the action
+// never looked at. Actions not listed (Full Cleanup, topgrade, an unknown or
+// empty id) keep ALL QUIET.
+var doneHeadline = map[string]string{
+	actions.IDUserCache: "User cache cleared",
+	actions.IDRepair:    "Broken packages repaired",
+	actions.IDDownloads: "Old downloads deleted",
+	actions.IDWipeCache: "Package cache deleted",
+	actions.IDServices:  "Unused services disabled",
+	actions.IDAURAudit:  "AUR audit finished",
+}
+
+// quietHeadline is the kicker, tone and headline of a clean run with nothing
+// that needs the user.
+func quietHeadline(action string) (kicker, tone, headline string) {
+	if h, ok := doneHeadline[action]; ok {
+		return "DONE", "ok", h
+	}
+	return "ALL QUIET", "ok", "Everything is up to date"
 }
 
 func attentionRow(a report.Attention) AttentionRow {

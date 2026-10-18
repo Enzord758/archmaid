@@ -113,7 +113,11 @@ func covRunReport(c *covEnv) {
 		report bool // the summary is expected
 	}
 	busy, quiet := uiBusyReport(), uiQuietReport()
-	cases := []kase{{"busy", &busy, false, true}, {"quiet", &quiet, false, true}, {"none", nil, false, false}, {"dry", &busy, true, false}}
+	quiet.Action = "fullcleanup"
+	wipe := rr.Report{Action: "wipecache", Elapsed: 4 * time.Second,
+		Freed:      []rr.Area{{ID: rr.AreaPaccache, Label: "Package cache", Bytes: 3 << 30, Known: true}},
+		FreedBytes: 3 << 30}
+	cases := []kase{{"busy", &busy, false, true}, {"quiet", &quiet, false, true}, {"wipe", &wipe, false, true}, {"none", nil, false, false}, {"dry", &busy, true, false}}
 	size, next := 0, 0
 	plan := []engine.PlanStep{{ID: "s1", Title: "System update"}, {ID: "s2", Title: "Orphaned packages"}, {ID: "s3", Title: "Package cache"}, {ID: "s4", Title: "Temp files"}}
 
@@ -133,11 +137,15 @@ func covRunReport(c *covEnv) {
 		k := cases[next]
 		wd, ht := sizes[size][0], sizes[size][1]
 		moment := fmt.Sprintf("%s at %dx%d", k.name, wd, ht)
-		w.current = "fullcleanup"
+		act := "fullcleanup"
+		if k.rep != nil && k.rep.Action != "" {
+			act = k.rep.Action
+		}
+		w.current = act
 		w.pickPage("run")
 		evs := []engine.Event{
 			engine.PhaseChanged{Phase: engine.PhaseRunning},
-			engine.QueueStarted{Action: "fullcleanup", DryRun: k.dry, Started: time.Now(), Steps: plan},
+			engine.QueueStarted{Action: act, DryRun: k.dry, Started: time.Now(), Steps: plan},
 		}
 		for _, p := range plan {
 			evs = append(evs, engine.StepStarted{ID: p.ID}, engine.OutputChunk{ID: p.ID, Lines: []string{"output of " + p.ID}},
@@ -151,7 +159,7 @@ func covRunReport(c *covEnv) {
 			c.feed(engine.RunReport{Report: *k.rep})
 			c.ok(!w.sum.shown, "%s: the summary shows before the run finished", moment)
 		}
-		c.feed(engine.Finished{Action: "fullcleanup", Outcome: engine.OutcomeCompleted, Elapsed: time.Minute}, engine.PhaseChanged{Phase: engine.PhaseIdle})
+		c.feed(engine.Finished{Action: act, Outcome: engine.OutcomeCompleted, Elapsed: time.Minute}, engine.PhaseChanged{Phase: engine.PhaseIdle})
 		coreglib.TimeoutAdd(500, func() {
 			c.ok(w.narrow == (wd < 760), "%s: narrow is %v", moment, w.narrow)
 			if k.report {
@@ -197,6 +205,10 @@ func checkRunSummary(c *covEnv, moment, name string, r *rr.Report) {
 	texts := strings.Join(labelTexts(s.box), "\n")
 	want := []string{"ALL QUIET", "Everything is up to date", "3 packages upgraded · 382 MiB freed · 6 m 08 s", "3 upgraded (1 AUR)", "ripgrep, python-pip, yay-bin", "0 B", "382 MiB",
 		"The package cache still holds 3.9 GiB (298 packages)."}
+	if name == "wipe" {
+		want = []string{"DONE", "Package cache deleted", "3 GiB freed"}
+		c.ok(!strings.Contains(texts, "Everything is up to date") && !strings.Contains(texts, "ALL QUIET"), "%s: a package cache deletion says it is up to date:\n%s", moment, texts)
+	}
 	if name == "busy" {
 		want = []string{"NEEDS YOUR ATTENTION", "Restart recommended", "1 new .pacnew", "47 packages upgraded · at least 2.76 GiB freed · 14 m 52 s",
 			"47 upgraded (6 AUR)", "linux-cachyos, systemd, nvidia-utils +44 more", "Installed", "Removed", "unknown", "at least 2.76 GiB",
@@ -217,6 +229,9 @@ func checkRunSummary(c *covEnv, moment, name string, r *rr.Report) {
 	}
 
 	// The columns.
+	if name == "wipe" { // no packages: one column, no grid
+		return
+	}
 	if s.cols == nil {
 		c.fail("%s: no columns", moment)
 		return

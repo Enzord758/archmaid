@@ -154,6 +154,34 @@ func TestSummaryQuiet(t *testing.T) {
 	}
 }
 
+func TestSummaryHeadlinePerAction(t *testing.T) {
+	for _, id := range []string{"fullcleanup", "topgrade", ""} {
+		r := quietReport()
+		r.Action = id
+		if s := BuildSummary(r, true); s.Kicker != "ALL QUIET" || s.Headline != "Everything is up to date" {
+			t.Errorf("%q: %q / %q", id, s.Kicker, s.Headline)
+		}
+	}
+	for id, want := range doneHeadline {
+		r := quietReport()
+		r.Action = id
+		s := BuildSummary(r, true)
+		if s.Kicker != "DONE" || s.Tone != "ok" || s.Headline != want {
+			t.Errorf("%s: %q %q %q", id, s.Kicker, s.Tone, s.Headline)
+		}
+		if s := BuildSummary(r, false); s.Kicker != "CHECK THE STEPS" {
+			t.Errorf("%s unclean: %q", id, s.Kicker)
+		}
+		r.Attention = []report.Attention{{Kind: report.KindRestart, Short: "Restart recommended", Text: "Restart recommended: x"}}
+		if s := BuildSummary(r, true); s.Kicker != "NEEDS YOUR ATTENTION" {
+			t.Errorf("%s with attention: %q", id, s.Kicker)
+		}
+	}
+	if got := doneHeadline[actions.IDWipeCache]; got != "Package cache deleted" {
+		t.Errorf("wipe: %q", got)
+	}
+}
+
 func TestSummaryUnknownPartialAndAudit(t *testing.T) {
 	r := report.Report{
 		Freed: []report.Area{
