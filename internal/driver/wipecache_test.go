@@ -121,3 +121,23 @@ func TestWipeCacheUnderPolkit(t *testing.T) {
 		}
 	}
 }
+
+// TestWipeCacheConfirmDefaultsToNo (review of #186): the confirm is
+// destructive and Enter answers No.
+func TestWipeCacheConfirmDefaultsToNo(t *testing.T) {
+	r, _ := wipeRig(t)
+	seen := false
+	r.run(actions.IDWipeCache, func(ev engine.Event) engine.Command {
+		if c, ok := ev.(engine.NeedsConfirm); ok && c.Step == steps.IDPaccacheWipe {
+			seen = true
+			if c.Default || !c.Destructive || c.YesLabel != "Delete" {
+				t.Errorf("confirm default=%v destructive=%v yes=%q", c.Default, c.Destructive, c.YesLabel)
+			}
+			return engine.Confirm{Prompt: c.ID, Yes: false}
+		}
+		return nil
+	})
+	if !seen {
+		t.Error("no confirm")
+	}
+}

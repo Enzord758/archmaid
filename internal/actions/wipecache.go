@@ -2,10 +2,12 @@ package actions
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -21,6 +23,10 @@ var wipeDryArgv = []string{"--nocolor", "-dk0"}
 // wipeSummary is paccache's last line of a dry run:
 // "==> finished dry run: 5 candidates (disk space saved: 101.35 MiB)".
 var wipeSummary = regexp.MustCompile(`finished dry run: (\d+) candidates? \(disk space saved: ([0-9][0-9.,]* [A-Za-z]+)\)`)
+
+// wipeTimeout bounds the dry run: a cache on a hung mount must not leave the
+// action on "Measuring…" forever. A variable so a test can shorten it.
+var wipeTimeout = 60 * time.Second
 
 // wipeNone is paccache's line for an empty cache.
 const wipeNone = "no candidate packages found for pruning"
@@ -41,8 +47,13 @@ func discoverWipeCache(ctx context.Context, env Env) Discovery {
 	if _, err := env.lookPath("paccache"); err != nil {
 		return fail("Couldn't measure the package cache: paccache is not installed (pacman-contrib).", "error: "+err.Error()+"\n")
 	}
-	out, err := queryWipe(ctx)
+	qctx, cancel := context.WithTimeout(ctx, wipeTimeout)
+	defer cancel()
+	out, err := queryWipe(qctx)
 	if err != nil {
+		if errors.Is(qctx.Err(), context.DeadlineExceeded) {
+			err = context.DeadlineExceeded // killed by the deadline: exec only says "signal: killed"
+		}
 		return fail("Couldn't measure the package cache: "+clipErr(err), string(out)+"error: "+err.Error()+"\n")
 	}
 	m := wipeSummary.FindStringSubmatch(string(out))
@@ -68,11 +79,12 @@ func discoverWipeCache(ctx context.Context, env Env) Discovery {
 }
 
 // WipeConfirm is the wipe's confirm: a title, then what it frees and what
-// it costs. The size is paccache's own text; it was matched against a strict
+// it costs. "About": the cache can change between the dry run and the yes
+// (a download, an update), and the removal takes whatever is there then. The size is paccache's own text; it was matched against a strict
 // pattern before it got here.
 func WipeConfirm(n int, size string) string {
 	// One sentence per line: the TUI's popup doesn't wrap its text.
-	return fmt.Sprintf("Delete the ENTIRE package cache?\nThis frees %s (%d %s).\n"+
+	return fmt.Sprintf("Delete the ENTIRE package cache?\nThis frees about %s (%d %s).\n"+
 		"You can't reinstall or downgrade these packages without internet.",
 		size, n, plural(n, "package file", "package files"))
 }

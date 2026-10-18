@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -142,5 +143,74 @@ func TestDiscoverWipeCacheNoPaccache(t *testing.T) {
 	n, ok := discoverWipeCache(context.Background(), env).(Notice)
 	if !ok || !strings.Contains(n.Text, "paccache is not installed") || n.Err == "" {
 		t.Fatalf("got %#v", n)
+	}
+}
+
+// TestDiscoverWipeCacheSummaryIsStrict (review of #186): the confirm is built
+// from the two captures only. A decimal comma (a locale's awk) is accepted;
+// anything that is not plain ASCII digits and a plain-letter unit is a failure
+// notice, never a confirm, and nothing the dry run prints besides the two
+// captures reaches the confirm.
+func TestDiscoverWipeCacheSummaryIsStrict(t *testing.T) {
+	for _, c := range []struct {
+		name, line string
+		want       string // "" = refused
+	}{
+		{"comma", "finished dry run: 3 candidates (disk space saved: 1,37 GiB)", "1,37 GiB"},
+		{"one candidate", "finished dry run: 1 candidate (disk space saved: 9 B)", "9 B"},
+		{"ansi in size", "finished dry run: 3 candidates (disk space saved: \x1b[31m1 B)", ""},
+		{"ansi after unit", "finished dry run: 3 candidates (disk space saved: 1 B\x1b[2J)", ""},
+		{"newline in size", "finished dry run: 3 candidates (disk space saved: 1\nDelete? B)", ""},
+		{"unicode digits", "finished dry run: 3 candidates (disk space saved: ٣ B)", ""},
+		{"unicode unit", "finished dry run: 3 candidates (disk space saved: 1 Å)", ""},
+		{"unicode count", "finished dry run: ٣ candidates (disk space saved: 1 B)", ""},
+		{"no unit", "finished dry run: 3 candidates (disk space saved: 12)", ""},
+		{"trailing junk in parens", "finished dry run: 3 candidates (disk space saved: 1 B, rm)", ""},
+		{"negative", "finished dry run: 3 candidates (disk space saved: -1 B)", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			shimPaccache(t, "printf '%s\\n' \"$LINE\"\n")
+			t.Setenv("LINE", c.line)
+			d := discoverWipeCache(context.Background(), Env{})
+			if c.want == "" {
+				if n, ok := d.(Notice); !ok || n.Err == "" {
+					t.Fatalf("got %#v, want a failure notice", d)
+				}
+				return
+			}
+			p, ok := d.(Pending)
+			if !ok {
+				t.Fatalf("got %#v, want a confirm", d)
+			}
+			conf := p.Steps[0].Confirm
+			if !strings.Contains(conf, c.want) || strings.Count(conf, "\n") != 2 || strings.ContainsRune(conf, 0x1b) {
+				t.Errorf("confirm %q", conf)
+			}
+		})
+	}
+}
+
+// TestWipeConfirmSaysAbout: the cache can change between the dry run and the
+// yes, so the size is an estimate and says so.
+func TestWipeConfirmSaysAbout(t *testing.T) {
+	if got := WipeConfirm(2, "5 MiB"); !strings.Contains(got, "frees about 5 MiB") {
+		t.Errorf("%q", got)
+	}
+}
+
+// TestDiscoverWipeCacheTimesOut: a dry run that hangs (a cache on a dead
+// mount) ends as a notice instead of holding the action forever.
+func TestDiscoverWipeCacheTimesOut(t *testing.T) {
+	old := wipeTimeout
+	wipeTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { wipeTimeout = old })
+	shimPaccache(t, "exec sleep 20\n")
+	start := time.Now()
+	n, ok := discoverWipeCache(context.Background(), Env{}).(Notice)
+	if !ok || !strings.Contains(n.Text, "timed out") || n.Err == "" {
+		t.Fatalf("got %#v", n)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Errorf("took %v", d)
 	}
 }
