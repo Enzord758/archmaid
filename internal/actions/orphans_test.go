@@ -168,8 +168,10 @@ func TestEnvValidatePolkit(t *testing.T) {
 // Full Cleanup that gets the askpass (NeedsPriv, no Verb, a command) is
 // topgrade: yay -Sc's root half (pacman -Sc) is a part of the helper's one
 // call, and the yay step runs `yay -Sc --aur`, which in yay runs no sudo.
-// Under sudo (the TUI) the AUR cache step is as it was: yay -Sc, its sudo
-// on the primed ticket, and no pacman -Sc step of its own.
+// Under sudo (the TUI) the AUR cache step is yay -Sc with no pacman -Sc step
+// of its own, and NeedsPriv: its sudo gets the askpass and the sudo wrapper
+// (#194; without them it prompted on the tty when the ticket couldn't be
+// reused).
 func TestOnlyTopgradeAsksUnderPolkit(t *testing.T) {
 	t.Setenv("NO_COLOR", "") // the colour switches on (colour.go), whatever the shell says
 	a, _ := ByID(IDFullCleanup)
@@ -194,7 +196,7 @@ func TestOnlyTopgradeAsksUnderPolkit(t *testing.T) {
 		yay := queue[slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDYayCache })]
 		hasSc := slices.ContainsFunc(queue, func(s steps.Step) bool { return s.ID == steps.IDPkgCacheUninstalled })
 		if !polkit {
-			if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--noconfirm", "--color", "always"}) || yay.NeedsPriv || hasSc {
+			if !slices.Equal(yay.Argv, []string{"yay", "-Sc", "--noconfirm", "--color", "always"}) || !yay.NeedsPriv || hasSc {
 				t.Errorf("sudo: AUR cache step %+v, a pacman -Sc step: %v", yay, hasSc)
 			}
 			continue

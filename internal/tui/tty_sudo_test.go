@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -38,6 +39,10 @@ const (
 	envTTYSudo = "ARCHMAID_TTY_SUDO"
 	// ttySudoPassword is the one password the su shim accepts.
 	ttySudoPassword = "hunter2-tty-sudo"
+	// envTTYSudoStep names the step the child runs: unset, a script that
+	// calls sudo twice; "yay-cache" or "hyprpm", the step Full Cleanup
+	// itself builds for it (queues.go), with the script as the program.
+	envTTYSudoStep = "ARCHMAID_TTY_SUDO_STEP"
 	// ttySudoMenu is the child's one action.
 	ttySudoMenu = "Sudo by name"
 )
@@ -93,9 +98,22 @@ exit 1`)
 
 	old := actions.Menu
 	defer func() { actions.Menu = old }()
+	step := steps.Step{ID: "tool", Title: "Running a tool that calls sudo…", LogLabel: "tool",
+		Argv: []string{filepath.Join(dir, "tool")}, NeedsPriv: true}
+	if id := os.Getenv(envTTYSudoStep); id != "" {
+		// Full Cleanup's own step, as the TUI builds it (hyprpm is in the
+		// queue because the rig has a shim of that name on PATH); the shim
+		// of the step's program name is the script.
+		fc, _ := actions.ByID(actions.IDFullCleanup)
+		built := fc.Steps(ActionEnv())
+		i := slices.IndexFunc(built, func(s steps.Step) bool { return s.ID == id })
+		if i < 0 {
+			t.Fatalf("Full Cleanup has no step %q", id)
+		}
+		step = built[i]
+	}
 	actions.Menu = []actions.Action{{ID: "sudo-by-name", Label: ttySudoMenu, Steps: func(actions.Env) []steps.Step {
-		return []steps.Step{{ID: "tool", Title: "Running a tool that calls sudo…", LogLabel: "tool",
-			Argv: []string{filepath.Join(dir, "tool")}, NeedsPriv: true}}
+		return []steps.Step{step}
 	}}}
 	if err := DisableCoreDumps(); err != nil {
 		t.Fatal(err)
@@ -134,6 +152,10 @@ func newTTYSudoRig(t *testing.T, noTicket bool) ttySudoRig {
 	}
 	files := map[string]string{
 		"tool": ttySudoTool,
+		// The programs Full Cleanup's yay-cache and hyprpm steps run: both
+		// call sudo by name, as the tool does.
+		"shims/yay":    ttySudoTool,
+		"shims/hyprpm": ttySudoTool,
 		// The sudo a step finds by name without archmaid's wrapper: it
 		// would prompt on the terminal (real sudo is setuid root, so the
 		// TUI's exclusive hold can't stop it; this one only tries).
@@ -180,18 +202,29 @@ func (r ttySudoRig) exists(name string) bool {
 func TestTUISudoByNameAsksInThePopup(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
+		step     string // envTTYSudoStep: "" is the test's own step
 		noTicket bool
-	}{{"ticket", false}, {"timestamp_timeout=0", true}} {
+		root     bool // a NeedsPriv step: the sudo probe and the up-front password
+	}{
+		{"ticket", "", false, true},
+		{"timestamp_timeout=0", "", true, true},
+		// Full Cleanup's own AUR cache step (#194): yay runs sudo pacman -Sc.
+		{"yay-cache, ticket", "yay-cache", false, true},
+		{"yay-cache, timestamp_timeout=0", "yay-cache", true, true},
+		// hyprpm is no root step (no probe, no up-front password), but its
+		// sudo must not prompt on the terminal either.
+		{"hyprpm", "hyprpm", false, false},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newTTYSudoRig(t, tc.noTicket)
 			c := &tuiChild{t: t, scr: &ptyScreen{}, exited: make(chan struct{})}
 			c.leader, c.follower = ptyPair(t)
-			c.start("TestTTYSudoChild", ttySudoMenu, envTTYSudo+"="+r.dir)
+			c.start("TestTTYSudoChild", ttySudoMenu, envTTYSudo+"="+r.dir, envTTYSudoStep+"="+tc.step)
 			scr := c.scr
 			su := 0 // su checks so far
 
 			c.key("\r")
-			if tc.noTicket {
+			if tc.noTicket && tc.root {
 				// The up-front password: su, sudo -S -v, then the reuse check
 				// fails; the run goes on with its note.
 				waitFor(t, scr, "the up-front password prompt", func() bool { return scr.has("sudo access required") })
@@ -226,7 +259,9 @@ func TestTUISudoByNameAsksInThePopup(t *testing.T) {
 			}
 
 			want := "-A pacman -Syu one\n-A pacman -Syu two\n"
-			if tc.noTicket {
+			if !tc.root {
+				// no probe: the queue has no root step
+			} else if tc.noTicket {
 				want = "-n -v\n-S -v\n-n -v\n" + want // the probe, priming, the reuse check
 			} else {
 				want = "-n -v\n" + want // the probe: cached

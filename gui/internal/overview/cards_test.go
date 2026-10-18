@@ -112,8 +112,8 @@ func TestPlanPreviewFullCleanupSudo(t *testing.T) {
 			t.Errorf("%q combined outside polkit", s.Title)
 		}
 	}
-	if p.Root != 4 || p.Sudo != 1 || !p.Orphans {
-		t.Errorf("root %d sudo %d orphans %v, want 4, 1 and true", p.Root, p.Sudo, p.Orphans)
+	if p.Root != 4 || p.Sudo != 2 || !p.Orphans { // sudo: topgrade and, since #194, yay-cache
+		t.Errorf("root %d sudo %d orphans %v, want 4, 2 and true", p.Root, p.Sudo, p.Orphans)
 	}
 }
 

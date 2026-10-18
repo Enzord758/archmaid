@@ -68,6 +68,16 @@ type Step struct {
 	// sudo itself.
 	NeedsPriv bool
 
+	// SudoByName marks a step that isn't root work itself but whose program
+	// can start sudo by name (hyprpm, which elevates itself to install its
+	// headers). In the TUI its child gets what a NeedsPriv child gets, the
+	// askpass and the sudo wrapper first on its PATH, so a sudo it starts
+	// asks through archmaid's popup and never on the terminal. Unlike
+	// NeedsPriv it asks for no up-front password, shows no root tag, is not
+	// refused when the password was given up on and may run after hyprpm.
+	// Under polkit (the GUI) an action leaves it unset.
+	SudoByName bool
+
 	// Category buckets this step's log entries; the zero value is
 	// logstore.Cleanup (see LogCategory).
 	Category logstore.Category
@@ -89,6 +99,11 @@ type Step struct {
 	// it instead of running Run (see PrefetchAURAudit).
 	Prefetch string
 }
+
+// Asks reports whether the step's child gets the askpass and the sudo
+// wrapper: it is root work (NeedsPriv) or its program can start sudo by name
+// (SudoByName).
+func (s Step) Asks() bool { return s.NeedsPriv || s.SudoByName }
 
 // OrphanPlan is the root helper's orphan-removal plan, as its unprivileged
 // plan-orphans reported it: Direct are the orphans (pacman -Qdtq), Cascade

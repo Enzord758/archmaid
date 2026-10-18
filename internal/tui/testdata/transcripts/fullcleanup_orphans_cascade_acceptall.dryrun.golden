@@ -6,7 +6,7 @@ plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
 plan  2 "Updating system with topgrade…" argv=topgrade -y --no-retry --disable hyprpm sudo alwayslog cat=topgrade
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
 plan  4 "Finding orphaned packages…" inproc cat=orphans
-plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm --color always cat=cleanup
+plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm --color always sudo cat=cleanup
 plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
 plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
 plan  8 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup

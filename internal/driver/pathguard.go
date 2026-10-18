@@ -47,7 +47,7 @@ const pathShadowsMax = 3
 // still), the step is a NeedsPriv child (the one that gets the askpass),
 // and it runs for real.
 func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
-	if d.keep.Spent() || !e.Step.NeedsPriv || e.Env.DryRun {
+	if d.keep.Spent() || !e.Step.Asks() || e.Env.DryRun {
 		return
 	}
 	shadows, done := scanPath(privilege.ChildPATH(spec.Env, spec.ExtraEnv), pathScanMax)

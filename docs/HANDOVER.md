@@ -294,7 +294,21 @@ comments and `git log`; this is the "read before you touch it" list.
   runs `sudo -n` (no askpass): without a reusable ticket it ends in its
   "Couldn't scan for broken packages" notice. (5) The wrapper is a file
   of the user's own, as `~/.local/bin` is: a process of the same uid
-  could rewrite it mid-run (the #131 class, below). The password is
+  could rewrite it mid-run (the #131 class, below). **Which steps get
+  it (swept in #194, enforced by `TestEveryStepThatCanReachSudoGetsTheWrapper`
+  and `TestQueuedStepsThatCanReachSudoAsk`):** every TUI step whose program
+  can reach sudo has `Step.Asks()`: `NeedsPriv` (the `sudo …` steps,
+  topgrade, and the **yay-cache step, `yay -Sc`, which runs
+  `sudo pacman -Sc` itself**; it had neither flag until #194 and prompted
+  on the tty without a reusable ticket; under polkit it is cleared, the
+  step is `yay -Sc --aur` as the user) or `SudoByName` (hyprpm: elevates
+  itself by name, is no root step: no up-front password, no root tag, may
+  run last, not refused when the password was given up on; TUI only, the
+  GUI's children have no tty). A step with a new program must be listed in
+  the test's `sudoReaching` or `neverSudo`. The other steps (the audit,
+  orphan probe, downloads, user cache's `bash -c rm`, Repair's
+  `pacman -Qk`) run no sudo; the rest are `sudo …` steps by absolute path
+  with `-A`. The password is
   passed straight through, never stored or logged, and never kept in a
   struct that outlives the call (`privilege.Request` holds no password).
   `sudo -n -v` is only the cache probe, the ticket check and the 60 s

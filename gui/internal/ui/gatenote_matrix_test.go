@@ -101,7 +101,8 @@ func TestGateNoteMatrix(t *testing.T) {
 							if kn, _ := strconv.Atoi(km[1]); kn != n {
 								t.Errorf("note %d root steps, kicker %d", n, kn)
 							}
-							if topgrade && !strings.Contains(first, "topgrade gets root through its own sudo") {
+							// Under sudo (not the GUI's auth) the AUR cache step has its own sudo too (#194): "steps 2 and 5 …".
+							if topgrade && !strings.Contains(first, "topgrade gets root through its own sudo") && !(!polkit && strings.Contains(first, "get root through their own sudo")) {
 								t.Errorf("note %q does not name topgrade's own sudo", first)
 							}
 							if !topgrade && strings.Contains(first, "topgrade") {

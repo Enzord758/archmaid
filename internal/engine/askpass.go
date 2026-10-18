@@ -10,7 +10,7 @@ import (
 // Askpass, as the TUI's handleAskpass does it. A request reaches the
 // Session already peer-checked by the Driver (privilege's Request.Verify
 // against the running step's child): Refused says why it failed. It is
-// answered only while a sudo step runs — a NeedsPriv child that isn't a
+// answered only while a sudo step runs — a NeedsPriv or SudoByName child that isn't a
 // polkit helper step — and only one at a time; anything else is hung up on
 // (a refused peer or a second request with a line in the step's output).
 // The password is su-checked by the Driver before it reaches sudo
@@ -45,7 +45,7 @@ func (s *Session) askpassRequest(o *Output, in AskpassRequest) {
 	if r != nil && r.stepSeq != 0 {
 		st = r.running()
 	}
-	ours := st != nil && st.step.NeedsPriv && st.step.Run == nil && !s.polkitStep(st.step)
+	ours := st != nil && st.step.Asks() && st.step.Run == nil && !s.polkitStep(st.step)
 	if in.Polkit {
 		// polkit's agent: only for the helper step waiting for it.
 		ours = st != nil && s.polkitStep(st.step) && r.polkitWait

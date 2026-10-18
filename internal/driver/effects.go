@@ -194,13 +194,13 @@ func (d *Driver) startStep(e engine.StartStep) {
 			opts.Cols = d.cfg.TermCols()
 		}
 	}
-	spec := d.cfg.Priv.Command(st.Argv, st.NeedsPriv)
+	spec := d.cfg.Priv.Command(st.Argv, st.Asks())
 	spec.ExtraEnv = st.Env // the step's own variables (topgrade's colour), for its child only
 	d.guardPath(e, spec)   // the kept password's PATH guard (pathguard.go)
 	c := proc.New(opts).Start(spec, ch, nil)
 	if c != nil {
 		d.children[e.Seq] = c
-		d.childPriv[e.Seq] = st.NeedsPriv
+		d.childPriv[e.Seq] = st.Asks()
 		d.lastChild = e.Seq
 		if d.cfg.Detach {
 			d.detachedMu.Lock()

@@ -20,7 +20,7 @@ import (
 // it, privileged().
 func runStep(s steps.Step, ch chan<- proc.Msg, quit <-chan struct{}) *proc.Child {
 	opts := proc.Options{DryRun: dryRun, WaitDelay: stepWaitDelay, KillGrace: sigkillGrace}
-	spec := privileged().Command(s.Argv, s.NeedsPriv)
+	spec := privileged().Command(s.Argv, s.Asks())
 	spec.ExtraEnv = s.Env // as the Driver does (internal/driver startStep)
 	return proc.New(opts).Start(spec, ch, quit)
 }

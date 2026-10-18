@@ -197,7 +197,7 @@ func fullCleanupWith(start time.Time, o fcOpts) Script {
 		{ID: steps.IDTopgrade, Title: "Updating system with topgrade…", Argv: []string{"topgrade", "-y", "--no-retry", "--disable", "hyprpm"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Topgrade},
 		{ID: steps.IDPaccache, Verb: steps.VerbPaccache, Title: "Cleaning package cache…", Argv: []string{"sudo", "paccache", "-r"}, NeedsPriv: true, Category: logstore.Cleanup},
 		{ID: steps.IDOrphansProbe, Verb: steps.VerbPlanOrphans, Title: "Finding orphaned packages…", InProc: true, Category: logstore.Orphans},
-		{ID: steps.IDYayCache, Title: "Cleaning AUR cache…", Argv: []string{"yay", "-Sc", "--noconfirm"}, Category: logstore.Cleanup},
+		{ID: steps.IDYayCache, Title: "Cleaning AUR cache…", Argv: []string{"yay", "-Sc", "--noconfirm"}, NeedsPriv: true, Category: logstore.Cleanup},
 		{ID: steps.IDTmpfiles, Verb: steps.VerbCleanTmp, Title: "Cleaning old temp files…", Argv: []string{"sudo", "systemd-tmpfiles", "--clean"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup},
 		{ID: steps.IDJournal, Verb: steps.VerbVacuumJournal, Title: "Vacuuming logs…", Argv: []string{"sudo", "journalctl", "--vacuum-time=2weeks"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup},
 		{ID: steps.IDIntegrity, Verb: steps.VerbCheckFiles, Title: "Checking package integrity…", Argv: []string{"sudo", "pacman", "-Qkq"}, NeedsPriv: true, Category: logstore.Cleanup},

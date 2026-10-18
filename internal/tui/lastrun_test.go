@@ -25,7 +25,8 @@ func readLastRun(t *testing.T) logstore.RunRecord {
 }
 
 // End to end: three wrong passwords give up on sudo, the user-level steps
-// still run, so Full Cleanup is incomplete with every sudo step refused.
+// still run, so Full Cleanup is incomplete with every sudo step refused (7:
+// the AUR cache step is one since #194).
 func TestLastRunThreeWrongPasswordsIsIncomplete(t *testing.T) {
 	d := runScenario(t, "fullcleanup_three_wrong_passwords.shim")
 	refused := 0
@@ -34,8 +35,8 @@ func TestLastRunThreeWrongPasswordsIsIncomplete(t *testing.T) {
 			refused++
 		}
 	}
-	if refused != 6 {
-		t.Fatalf("%d steps refused, want 6 (did the scenario change?)", refused)
+	if refused != 7 {
+		t.Fatalf("%d steps refused, want 7 (did the scenario change?)", refused)
 	}
 	r := readLastRun(t)
 	if r.Action != "fullcleanup" || r.Outcome != "incomplete" || r.StepsRefused != refused ||

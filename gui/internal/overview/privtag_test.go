@@ -27,8 +27,8 @@ func TestSudoStepIsOnlyTopgrade(t *testing.T) {
 						root++
 					case s.NeedsPriv:
 						sudo++
-						if s.ID != steps.IDTopgrade {
-							t.Errorf("%s (polkit %v): %q needs privilege with no verb and is not topgrade", c.ID, polkit, s.ID)
+						if s.ID != steps.IDTopgrade && !(s.ID == steps.IDYayCache && !polkit) {
+							t.Errorf("%s (polkit %v): %q needs privilege with no verb and is not topgrade (or, under sudo only, yay-cache: #194)", c.ID, polkit, s.ID)
 						}
 					}
 				}

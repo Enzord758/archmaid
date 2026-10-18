@@ -66,11 +66,15 @@ func fullCleanupSteps(env Env) []steps.Step {
 			ID:    steps.IDYayCache,
 			Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned",
 			Argv: append([]string{"yay", "-Sc", "--noconfirm"}, yayColourArgs()...),
-			// yay runs `sudo pacman -Sc` itself, which under the TUI rides
-			// the primed ticket on its terminal. Under polkit (the GUI)
-			// this step is split (polkitFullCleanup): pacman -Sc goes into
-			// the root helper's one call, and yay cleans only its own
-			// cache, without sudo.
+			// yay runs `sudo pacman -Sc` itself. NeedsPriv gives its child
+			// what topgrade's gets in the TUI, the askpass and the sudo
+			// wrapper first on its PATH, so that sudo asks through the
+			// popup whenever it has no reusable ticket, never on the tty
+			// (it did, #194). Under polkit (the GUI) this step is split
+			// (polkitFullCleanup): pacman -Sc goes into the root helper's
+			// one call, and yay cleans only its own cache, without sudo,
+			// so it is no root step there.
+			NeedsPriv: true,
 		},
 		// Temp files are aged out by the system's own tmpfiles.d rules (on
 		// Arch: /tmp after 10 days, /var/tmp after 30), not a hand-rolled
@@ -108,6 +112,11 @@ func fullCleanupSteps(env Env) []steps.Step {
 			ID:    steps.IDHyprpm,
 			Title: "Updating Hyprland plugins…", LogLabel: "Hyprland plugins updated",
 			Argv: []string{"hyprpm", "update"},
+			// hyprpm elevates itself (sudo by name, to install its headers)
+			// and is no root step: SudoByName gives its child the askpass
+			// and the sudo wrapper in the TUI, so that sudo never prompts
+			// on the tty (#194). The GUI's child has no tty and keeps none.
+			SudoByName: !env.Polkit,
 		})
 	}
 
@@ -153,6 +162,7 @@ func polkitFullCleanup(queue []steps.Step) []steps.Step {
 	}
 	yay := byID[steps.IDYayCache]
 	yay.Argv = append([]string{"yay", "-Sc", "--aur", "--noconfirm"}, yayColourArgs()...)
+	yay.NeedsPriv = false // no sudo here: the GUI's yay step is a plain user step
 	byID[steps.IDYayCache] = yay
 	out := []steps.Step{byID[steps.IDAURAudit], byID[steps.IDTopgrade], byID[steps.IDOrphansProbe]}
 	for _, id := range fullCleanupRoot {

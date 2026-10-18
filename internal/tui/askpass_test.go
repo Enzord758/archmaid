@@ -4,9 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -156,5 +158,42 @@ func TestTUIServerWritesTheSudoWrapper(t *testing.T) {
 	}
 	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the sudo wrapper's dir is still there after stop (err %v)", err)
+	}
+}
+
+// TestFullCleanupSudoStepsGetTheWrapper (#194): the children of Full
+// Cleanup's AUR cache step (yay runs sudo pacman -Sc) and of hyprpm (which
+// elevates itself) get the askpass and the sudo wrapper's dir first on their
+// PATH in the TUI, the steps as the action builds them, like topgrade's; the
+// steps that run no program of their own with sudo (the audit's in-process
+// step, the user cache's bash) get neither.
+func TestFullCleanupSudoStepsGetTheWrapper(t *testing.T) {
+	t.Setenv("SUDO_ASKPASS", "/from/the/users/shell")
+	oldW, oldD := askpassWrapper, askpassSudoDir
+	askpassWrapper, askpassSudoDir = "/wrapper", "/sudodir/bin"
+	t.Cleanup(func() { askpassWrapper, askpassSudoDir = oldW, oldD })
+
+	dir := t.TempDir()
+	script := "#!/bin/sh\nfirst=${PATH%%:*}\nprintf '[%s][%s]\\n' \"$SUDO_ASKPASS\" \"$first\"\n"
+	for _, name := range []string{"yay", "hyprpm"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	fc, _ := actions.ByID(actions.IDFullCleanup)
+	queue := fc.Steps(ActionEnv())
+	for _, id := range []string{steps.IDYayCache, steps.IDHyprpm} {
+		i := slices.IndexFunc(queue, func(s steps.Step) bool { return s.ID == id })
+		if i < 0 {
+			t.Fatalf("Full Cleanup has no %s step", id)
+		}
+		ch := make(chan proc.Msg, 8)
+		runStep(queue[i], ch, nil)
+		lines, err := drainStep(ch)
+		if want := "[/wrapper][/sudodir/bin]"; err != nil || len(lines) != 1 || lines[0] != want {
+			t.Errorf("%s's child saw %v (err %v), want %s: the wrapper's dir first on PATH and SUDO_ASKPASS", id, lines, err, want)
+		}
 	}
 }
