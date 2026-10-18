@@ -52,6 +52,7 @@ type Window struct {
 	// tl is the Run page's timeline (timeline.go); outLen counts the
 	// output lines its sections hold (not the summary items).
 	tl      *timeline
+	sum     *summaryView // the finished page's summary (summary.go)
 	outLen  uint
 	outView *gtk.ListView
 	// dragStop: a drag on the output's scrollbar stops following.
@@ -417,6 +418,9 @@ func (w *Window) redraw(c runview.Change) {
 	}
 	if c.Reset || len(c.Rows) > 0 || c.Status || c.Finished {
 		w.updateRunHeader()
+	}
+	if c.Reset || c.Report || c.Finished {
+		w.updateSummary()
 	}
 	if c.Status || c.Finished {
 		w.setStatus()

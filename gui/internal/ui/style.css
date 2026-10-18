@@ -207,3 +207,39 @@
   border: 1px solid @am_warn;
   background-image: repeating-linear-gradient(-45deg, alpha(@am_warn, 0.14) 0px, alpha(@am_warn, 0.14) 6px, transparent 6px, transparent 12px);
 }
+
+/* The Run page's finished state (task #191, the owner's variant C of
+   #187): the hero (the corner marks of am-blueprint, spec 1.10), its
+   attention rows, the two columns, the space bars and the fold. State
+   colours only on state; the surfaces are the named colours (DMS). */
+.archmaid .am-summary-body { padding: 14px 18px; }
+.archmaid.am-narrow .am-summary-body { padding: 10px 12px; }
+.archmaid .am-summary-hero { margin-bottom: 12px; }
+.archmaid .am-kicker.am-tone-warn { color: @am_warn; }
+.archmaid .am-kicker.am-tone-ok { color: @am_ok; }
+.archmaid.am-narrow .am-summary-hero .am-hero-title { font-size: 26px; }
+.archmaid .am-attn-row {
+  padding: 8px 10px;
+  border-left: 3px solid @am_warn;
+  background-color: alpha(@am_warn, 0.09);
+}
+.archmaid .am-column-heading { margin-top: 4px; }
+.archmaid .am-summary-cols { margin-bottom: 12px; }
+.archmaid .am-summary-col { margin-bottom: 8px; }
+.archmaid .am-pkg { padding: 2px 0; border-bottom: 1px solid @am_rail; font-size: smaller; }
+.archmaid .am-summary-line { margin-top: 2px; }
+.archmaid .am-zero { color: @am_muted; }
+.archmaid levelbar.am-freed-bar trough { min-height: 6px; padding: 0; border-radius: 0; }
+.archmaid levelbar.am-freed-bar trough > block { min-height: 6px; border-radius: 0; }
+.archmaid levelbar.am-freed-bar trough > block.filled { background-color: @accent_bg_color; }
+.archmaid levelbar.am-freed-bar trough > block.empty { background-color: @am_rail; }
+.archmaid .am-freed-total { margin-top: 2px; padding-top: 5px; border-top: 1px solid @am_rail; }
+.archmaid .am-cacheline {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 3px solid @am_running;
+  background-color: alpha(@am_running, 0.08);
+}
+.archmaid .am-fold-row { border-top: 1px solid @am_rail; margin: 0 18px; padding: 6px 0; }
+.archmaid.am-narrow .am-fold-row { margin: 0 12px; }
+.archmaid .am-summary-audit, .archmaid .am-summary-note { margin-bottom: 6px; }

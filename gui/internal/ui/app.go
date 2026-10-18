@@ -24,7 +24,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/stub"
-	"github.com/Enzord758/archmaid/internal/report"
+	runreport "github.com/Enzord758/archmaid/internal/report"
 )
 
 // AppID is the application id (D-Bus name, .desktop file, icon).
@@ -204,7 +204,7 @@ func realConfig() realdriver.Config {
 	return realdriver.Config{
 		Report:    func(err error) { fmt.Fprintln(os.Stderr, "archmaid-gui:", err) },
 		TermCols:  TermCols,
-		RunReport: report.DefaultConfig(),
+		RunReport: runreport.DefaultConfig(),
 	}
 }
 

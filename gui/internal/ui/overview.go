@@ -230,6 +230,7 @@ func (w *Window) setNarrow(narrow bool) {
 			h.line.setUnder(narrow)
 		}
 	}
+	w.setSummaryNarrow(narrow)
 }
 
 // setShown shows or hides wd, and the flow box child holding it if it is

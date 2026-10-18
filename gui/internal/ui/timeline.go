@@ -206,7 +206,10 @@ func (w *Window) newRunPage() gtk.Widgetter {
 
 	page := gtk.NewBox(gtk.OrientationVertical, 0)
 	page.Append(w.newRunHeader())
-	page.Append(tl.scroll)
+	// The summary (summary.go) sits above the timeline when the run has a
+	// report; the timeline's scroll is the same widget either way.
+	w.sum = w.newSummaryView(tl.scroll)
+	page.Append(w.sum.scroll)
 	return page
 }
 
