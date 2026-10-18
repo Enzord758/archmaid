@@ -110,12 +110,34 @@ func TestFreed(t *testing.T) {
 func TestMeasurerBudget(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Unix(1000, 0)
-	m := &measurer{each: time.Second, deadline: now.Add(10 * time.Second), now: func() time.Time { return now }}
-	if s := m.size(context.Background(), dir); !s.OK {
-		t.Fatal("a walk within the budget is unknown")
+	// Every walk "takes" 4 s on the fake clock (read at its start and end).
+	reads := 0
+	clock := func() time.Time {
+		reads++
+		if reads%2 == 0 {
+			now = now.Add(4 * time.Second)
+		}
+		return now
 	}
-	now = now.Add(11 * time.Second)
+	m := &measurer{each: 5 * time.Second, total: 10 * time.Second, now: clock}
+	for i := 0; i < 3; i++ { // 4 s, 8 s spent, then 2 s left: all three start
+		if s := m.size(context.Background(), dir); !s.OK {
+			t.Fatalf("walk %d within the cap is unknown", i)
+		}
+	}
 	if s := m.size(context.Background(), dir); s.OK {
-		t.Error("a walk past the budget was measured")
+		t.Error("a walk past the cap was measured")
+	}
+}
+
+// TestMeasurerIdleTimeIsFree: minutes passing between walks (topgrade, a
+// password wait) don't spend the cap.
+func TestMeasurerIdleTimeIsFree(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Unix(1000, 0)
+	m := &measurer{each: time.Second, total: 10 * time.Second, now: func() time.Time { return now }}
+	now = now.Add(15 * time.Minute)
+	if s := m.size(context.Background(), dir); !s.OK {
+		t.Error("a walk after a long wait was not measured")
 	}
 }

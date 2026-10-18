@@ -39,8 +39,9 @@ type Config struct {
 	TmpDirs, JournalDirs []string
 	UserCacheDir         string
 	YayDir               func() string
-	// MeasureEach bounds one walk of a target, MeasureTotal all the walks
-	// of a run together (after it every walk is unknown at once).
+	// MeasureEach bounds one walk of a target, MeasureTotal the time spent walking
+	// over a whole run (after it every walk is unknown at once); waiting for
+	// steps, passwords or confirms is not counted.
 	MeasureEach, MeasureTotal time.Duration
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
@@ -49,7 +50,7 @@ type Config struct {
 // Defaults for the measuring budget.
 const (
 	DefaultMeasureEach  = 4 * time.Second
-	DefaultMeasureTotal = 15 * time.Second
+	DefaultMeasureTotal = 20 * time.Second
 	// DefaultFinishTimeout is how long a Driver gives Finish.
 	DefaultFinishTimeout = 20 * time.Second
 )
@@ -201,7 +202,7 @@ func New(cfg Config, action string, started time.Time) *Collector {
 	if cfg.Running != nil {
 		c.running = cfg.Running()
 	}
-	c.meas = &measurer{each: cfg.MeasureEach, deadline: cfg.Now().Add(cfg.MeasureTotal), now: cfg.Now}
+	c.meas = &measurer{each: cfg.MeasureEach, total: cfg.MeasureTotal, now: cfg.Now}
 	return c
 }
 

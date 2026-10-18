@@ -1113,7 +1113,8 @@ comments and `git log`; this is the "read before you touch it" list.
     hard links once, other filesystems not entered) of each step's targets as the user,
     before and after, `Freed` clamps a negative delta to 0, a target that
     can't be read (ENOTDIR/EACCES on the top folder) or a walk past its time
-    is **unknown**, never 0. Budget: 4 s per walk, 15 s per run (`Config`),
+    is **unknown**, never 0. Budget: 4 s per walk, 20 s of walking per run (`Config`;
+    only time spent walking counts, never topgrade, password or confirm waits),
     after which every walk is unknown at once; a `Close` cancels them
     (`Driver.live`). Areas by step ID (`report.Area*`; a step that isn't in
     the queue has no row, a skipped/refused step none either): `paccache`,

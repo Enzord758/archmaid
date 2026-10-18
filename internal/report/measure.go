@@ -123,22 +123,27 @@ func Freed(before, after Size) (bytes uint64, ok bool) {
 }
 
 // measurer takes sizes within one budget: every walk gets at most Each, and
-// the whole run at most Total, after which every walk is unknown at once.
+// the walks of a run together at most total of walking time, after which
+// every walk is unknown at once. Only time spent walking counts: how long
+// topgrade ran, or a password or a confirm waited, is not spent.
 type measurer struct {
-	each     time.Duration
-	deadline time.Time
-	now      func() time.Time
+	each  time.Duration
+	total time.Duration
+	spent time.Duration
+	now   func() time.Time
 }
 
 func (m *measurer) size(parent context.Context, roots ...string) Size {
 	if parent.Err() != nil {
 		return Size{}
 	}
-	left := m.deadline.Sub(m.now())
+	left := m.total - m.spent
 	if left <= 0 {
 		return Size{}
 	}
 	ctx, cancel := context.WithTimeout(parent, min(m.each, left))
 	defer cancel()
+	start := m.now()
+	defer func() { m.spent += max(m.now().Sub(start), 0) }()
 	return DirSize(ctx, roots...)
 }

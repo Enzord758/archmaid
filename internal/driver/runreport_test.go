@@ -120,6 +120,23 @@ func TestRunReport(t *testing.T) {
 	}
 }
 
+// A slow step before the cleaning steps (topgrade, a password wait) does not
+// spend the measuring cap: the cache step still gets a known freed size.
+func TestRunReportSlowStepBeforeCacheSteps(t *testing.T) {
+	w := newReportWorld(t)
+	w.cfg.MeasureTotal = 300 * time.Millisecond // shorter than the slow step
+	q := append([]steps.Step{shStep(steps.IDIntegrity, "sleep 1")}, w.queue()...)
+	r := newRig(t, engine.Options{}, Deps{RunReport: &w.cfg}, action("q", q...))
+	rr := find[engine.RunReport](t, r.run("q", yes))
+	a := rr.Report.Freed
+	if len(a) == 0 || !a[0].Known || a[0].Bytes < 128<<10 {
+		t.Errorf("freed rows %+v, want the package cache measured (128 KB)", a)
+	}
+	if rr.Report.FreedPartial || rr.Report.FreedBytes < 128<<10 {
+		t.Errorf("freed %d partial %v", rr.Report.FreedBytes, rr.Report.FreedPartial)
+	}
+}
+
 // Fail-before for the whole feature: without Deps.RunReport the Driver adds
 // no event, reads no log and the record carries no summary key at all (a
 // Driver built for a test must never read the machine's pacman log).
