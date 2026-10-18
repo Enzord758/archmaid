@@ -31,7 +31,7 @@ raw and reachable per scope.
 ```sh
 COVER_GUI=1 COVER_OUT=$(mktemp -d) scripts/cover-report.sh
 #   unit/  scripts/cover-unit.sh: go test ./... through scripts/cover-exec.sh (children count)
-#   e2e/   cmd/archmaid/e2e/run.sh with E2E_COVER_DIR: the nine checks on a cover archmaid
+#   e2e/   cmd/archmaid/e2e/run.sh with E2E_COVER_DIR: the thirteen checks on a cover archmaid
 #   gui/   gui/scripts/headless-cover.sh: the GUI's plain tests and every headless display group
 #   merged/  scripts/cover-merge.sh of all three: summary.txt now has raw and reachable per scope
 go run ./scripts/covblocks -json "$COVER_OUT/merged/profile.txt" > blocks.json

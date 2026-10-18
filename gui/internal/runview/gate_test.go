@@ -10,21 +10,30 @@ import (
 )
 
 // TestGateNotes: the gate's notes come from the plan: the root count (the
-// helper's steps), each asking step by its number, the orphans and the AUR
+// helper's steps), the orphans and the AUR
 // gate; one-password's text when the Driver keeps the password.
 func TestGateNotes(t *testing.T) {
+	// A step with a confirm of its own is named by its number. Full Cleanup
+	// has none (the cache wipe is its own menu action, task #186): it is
+	// Clear user cache that asks.
+	asking := []engine.PlanStep{{ID: steps.IDUserCache, Confirm: true}}
+	if got := GateNotes(asking, true, false, "", false); !slices.Equal(got, []string{"Step 1 asks before it runs."}) {
+		t.Errorf("asking step: %q", got)
+	}
+	if got := GateNotes([]engine.PlanStep{{ID: steps.IDPaccacheWipe, Verb: steps.VerbPaccacheWipe, NeedsPriv: true, Confirm: true}},
+		true, false, "", false); !slices.Contains(got, "Step 1 asks before it runs.") {
+		t.Errorf("the standalone wipe's confirm: %q", got)
+	}
 	full := []engine.PlanStep{
 		{ID: steps.IDAURAudit},
 		{ID: steps.IDTopgrade, NeedsPriv: true},
 		{ID: steps.IDOrphansProbe},
 		{ID: steps.IDPaccache, Verb: steps.VerbPaccache, NeedsPriv: true},
-		{ID: steps.IDPaccacheWipe, Verb: steps.VerbPaccacheWipe, NeedsPriv: true, Confirm: true},
 		{ID: steps.IDJournal, Verb: "vacuum-journal", NeedsPriv: true},
 		{ID: steps.IDYayCache},
 	}
 	want := []string{
-		"3 steps run as root, together, through one authorisation; topgrade gets root through its own sudo. If topgrade's sudo needs your password, archmaid asks for it in its own dialog.",
-		"Step 5 asks before it deletes the entire package cache.",
+		"2 steps run as root, together, through one authorisation; topgrade gets root through its own sudo. If topgrade's sudo needs your password, archmaid asks for it in its own dialog.",
 		"Orphans are listed for you to confirm before anything is removed.",
 		"If an AUR package changed maintainer or gained a co-maintainer, you're asked before the update.",
 	}
@@ -35,17 +44,17 @@ func TestGateNotes(t *testing.T) {
 	// tags, topgrade, tagged sudo, is named beside it (Dev 5's VM round b6:
 	// "6 steps run as root" beside 7 root tags), and the root steps are one
 	// authorisation, not each through sudo (round b8).
-	want[0] = "3 steps run as root, together, through one authorisation; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
+	want[0] = "2 steps run as root, together, through one authorisation; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
 	if got := GateNotes(full, true, true, "", false); !slices.Equal(got, want) {
 		t.Errorf("polkit, kept: notes\n%q\nwant\n%q", got, want)
 	}
 	// Sudo mode with a kept password: each root step asks sudo.
-	want[0] = "3 steps run as root, each through sudo; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
+	want[0] = "2 steps run as root, each through sudo; topgrade gets root through its own sudo. You type your password once, the first time a step needs it; archmaid keeps it for this run only."
 	if got := GateNotes(full, false, true, "", false); !slices.Equal(got, want) {
 		t.Errorf("sudo, kept: notes\n%q\nwant\n%q", got, want)
 	}
 	// Sudo mode, nothing kept.
-	want[0] = "3 steps run as root, each through sudo; topgrade gets root through its own sudo. If sudo needs your password, archmaid asks for it in its own dialog."
+	want[0] = "2 steps run as root, each through sudo; topgrade gets root through its own sudo. If sudo needs your password, archmaid asks for it in its own dialog."
 	if got := GateNotes(full, false, false, "", false); !slices.Equal(got, want) {
 		t.Errorf("sudo: notes\n%q\nwant\n%q", got, want)
 	}
@@ -58,7 +67,7 @@ func TestGateNotes(t *testing.T) {
 			}
 		}
 	}
-	if got := GateKicker(full); got != "7 steps, in this order" {
+	if got := GateKicker(full); got != "6 steps, in this order" {
 		t.Errorf("kicker %q", got)
 	}
 

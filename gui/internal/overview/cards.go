@@ -33,9 +33,11 @@ var cardInfo = map[string]struct {
 	actions.IDUserCache: {"Deletes everything under ~/.cache", ""},
 	actions.IDRepair:    {"Finds packages with missing files and reinstalls them", "root"},
 	actions.IDDownloads: {"Files and folders not changed in 30 days, from your downloads folder", ""},
-	actions.IDTopgrade:  {"Audits your AUR packages, then updates the system with topgrade", "sudo"},
-	actions.IDServices:  {"Pick from enabled services that aren't running", "root"},
-	actions.IDAURAudit:  {"Read-only check of foreign packages against the AUR", ""},
+	actions.IDWipeCache: {"Shows how much space the whole package cache takes, then deletes all of it if you confirm. " +
+		"You can't reinstall or downgrade those packages without internet", "root"},
+	actions.IDTopgrade: {"Audits your AUR packages, then updates the system with topgrade", "sudo"},
+	actions.IDServices: {"Pick from enabled services that aren't running", "root"},
+	actions.IDAURAudit: {"Read-only check of foreign packages against the AUR", ""},
 }
 
 // Cards is the Overview's action cells, in the menu's order: every entry
@@ -59,7 +61,7 @@ type PlanItem struct {
 	// Sudo: it runs as the user and gets root through its own sudo
 	// (topgrade). They are runview.PrivTag's "root" and "sudo", which the
 	// gate and the Run page tag the step with. Asks: it has its own
-	// confirm (the cache wipe). Combined: it runs inside the one
+	// confirm (Clear user cache). Combined: it runs inside the one
 	// root-helper call (polkit's one dialog per Full Cleanup).
 	Root, Sudo, Asks, Combined bool
 }

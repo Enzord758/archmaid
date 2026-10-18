@@ -85,7 +85,7 @@ func TestOrphanProbeAfterUpdate(t *testing.T) {
 	if s.Run == nil || s.NeedsPriv || s.Confirm != "" || s.Category != logCategoryOrphans {
 		t.Fatalf("probe = %+v, want an in-process, sudo-less, unconfirmed orphans step", s)
 	}
-	for _, before := range []string{"topgrade", "Cleaning package cache", "Deleting entire package cache"} {
+	for _, before := range []string{"topgrade", "Cleaning package cache"} {
 		if i := findStep(list, before); i == -1 || i > probe {
 			t.Fatalf("step %q at %d, want it before the probe at %d", before, i, probe)
 		}

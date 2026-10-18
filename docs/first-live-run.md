@@ -6,7 +6,7 @@
 > **C4** describes one polkit dialog per root step, but since 0f83f65 the
 > GUI's Full Cleanup runs all its root steps as **one** `full-cleanup`
 > call with one dialog (asked after topgrade, the orphan list and the
-> cache wipe; a cancel marks every root row "Not authorised", and
+> orphan list; a cancel marks every root row "Not authorised", and
 > `steps_refused` counts them all), and since a96182a the AUR-cache step
 > is `yay -Sc --aur` (no sudo) with `pacman -Sc` inside the helper call.
 > And after the merge, **S0/S1** build from `~/archmaid` on `main`, not
@@ -250,8 +250,8 @@ TestStartupDeletesNothing; HANDOVER "Nothing deletes run history at startup" -->
 1. **Menu:** "Full Cleanup (Recommended)" is the first entry; press enter.
 2. **Gate:** a "⚠ Proceed with full cleanup?" popup with Yes/No. **No
    password prompt**: a dry run never asks for sudo. Press `y`.
-3. **Running screen:** a checklist of 10 steps, hyprpm last: AUR audit,
-   topgrade, package cache, entire package cache, orphans, AUR cache, temp
+3. **Running screen:** a checklist of 9 steps, hyprpm last: AUR audit,
+   topgrade, package cache, orphans, AUR cache, temp
    files, logs, package integrity, Hyprland plugins. Below it the output
    pane, and the hint `↑/↓ scroll output · ctrl+c abort`.
    - The AUR audit runs for real (one AUR request): "N foreign package(s)
@@ -260,14 +260,12 @@ TestStartupDeletesNothing; HANDOVER "Nothing deletes run history at startup" -->
      Either answer is safe here: a dry run never saves the snapshot.
    - Every command step prints `[dry-run] would run: …` (topgrade as
      `topgrade -y --no-retry --disable hyprpm`) and ticks ✔ at once.
-   - "Delete ENTIRE package cache? (can't reinstall without internet)":
-     press `n`.
    - Orphans: the real, read-only query. Either "No orphaned packages.", or
      the list plus "pacman -Rns would remove M package(s):" and a confirm
      "Remove N orphaned package(s) …?". `y` is safe here: it only prints
      `[dry-run] would run: sudo pacman -Rns --noconfirm -- …`.
    - The last row is "Updating Hyprland plugins…" (`hyprpm update`).
-4. **Summary:** "Completed — 1 step(s) skipped" (2 if you also declined the
+4. **Summary:** "Completed" ("1 step(s) skipped" if you declined the
    orphans), hint `l view log · enter back to menu · q quit`. Press `l`, open a
    category or two: the entries say `DRYRUN: …`. `esc` back, `enter` to the
    menu, `q` to quit. `rc=0`, stderr empty.
@@ -291,6 +289,25 @@ root.**
 internal/engine/queue.go plan() (a dry run never probes; the gate);
 internal/actions/queues.go; internal/logstore lastRunPath; view.go viewRunning,
 viewSummary; cmd/archmaid/e2e/orphans.tape -->
+
+### A3b. Dry run: Delete entire package cache
+
+```sh
+"$T/archmaid" --dryrun 2>"$T/tui-dry-wipe-stderr.txt"; echo "rc=$?"; cat "$T/tui-dry-wipe-stderr.txt"
+```
+
+1. **Menu:** "Delete entire package cache" (after "Delete old downloads");
+   press enter. archmaid runs `paccache --nocolor -dk0` as you, a read-only
+   dry run of the cache (no sudo, no password).
+2. **Confirm:** "⚠ Delete the ENTIRE package cache?", the size it frees and
+   the number of package files from that dry run, and "You can't reinstall
+   or downgrade these packages without internet." The default button is
+   **No**. Write down the size and count, press `n`: back to the summary,
+   nothing ran.
+3. Run it again and press `y`: under `--dryrun` it only prints
+   `[dry-run] would run: sudo paccache -rk0`. (Never answer `y` without
+   `--dryrun` here: it deletes every cached package file.) An empty cache
+   shows a notice instead of a confirm.
 
 ### A4. One real Full Cleanup
 
@@ -327,8 +344,9 @@ What to watch, in order:
    sudo then fails; sudo counts the hang-up as a failed attempt, so check
    `faillock` afterwards and apply the stop rule) and write down the caller
    line.
-4. **Package cache:** `paccache -r` runs. "Delete ENTIRE package cache?":
-   `n` is the recommended answer. `y` deletes every cached package file.
+4. **Package cache:** `paccache -r` runs (keeps 3 versions). Full Cleanup
+   asks nothing more about the cache: deleting the entire cache is the
+   separate menu action "Delete entire package cache" (A3b).
 5. **The orphan confirm.** The probe's output lists the orphans and
    "pacman -Rns would remove M package(s):" with the full cascade. The
    confirm says "Remove N orphaned package(s) — M total once dependencies
@@ -343,7 +361,7 @@ What to watch, in order:
 7. **hyprpm last.** "Updating Hyprland plugins…" is the final row and runs
    after every step that needs sudo (it drops the sudo ticket on exit).
 8. **Summary:** "✔ Cleanup completed successfully", "Completed — 1 step(s)
-   skipped" (the declined cache wipe) or "⚠ Completed with N issue(s)".
+   skipped" (a declined orphan removal) or "⚠ Completed with N issue(s)".
    Press `enter` for the menu and **stay in this TUI** for A5. That keeps A5
    in the same run folder.
 
@@ -419,8 +437,7 @@ Run the `awk` line in terminal 1, where `$START_A` is set. Expected:
   gone (that's the rotation; it is in the S3 backup).
 - In it: `audit.log` (`OK: AUR audit` twice, A4's and A5's, maybe
   `ACCEPT`); `topgrade.log` (`OK: Topgrade completed` with the whole
-  output; A5's aborted topgrade leaves no entry); `cleanup.log` (`SKIP:
-  Entire package cache removed (declined)`, `OK: Temp files cleaned per
+  output; A5's aborted topgrade leaves no entry); `cleanup.log` (`OK: Temp files cleaned per
   tmpfiles.d rules`, `OK: Old logs removed`, plus any failed step); `orphans.log` (`OK: Orphaned packages
   removed` with the output, or `SKIP: … (declined)`; nothing if there were
   no orphans). Steps that succeed and aren't in that list (paccache -r, yay,
@@ -579,8 +596,8 @@ statusText; launch_test.go -->
    **Run**. A dialog asks to proceed with full cleanup and lists the plan
    (hyprpm last), with Cancel and **Proceed**. Press Proceed.
 3. Expected: the status bar shows `DRY RUN`. **No polkit dialog, no password
-   dialog, no "Waiting for authorisation…"**. Rows go to "Done · …". The
-   cache-wipe confirm: press **Skip**. An orphan confirm, if any: either
+   dialog, no "Waiting for authorisation…"**. Rows go to "Done · …". An
+   orphan confirm, if any: either
    answer is safe. The status bar ends in "Finished: completed".
 4. **Settings → Dry run off.** Check (terminal 2):
 
@@ -620,7 +637,8 @@ In the same window: **Overview** → "Full Cleanup (Recommended)" → Proceed.
    - **Deliberate failure 2 of 2: press Cancel.** Expected: the row says
      **"Not authorised"** and **the run goes on** with the next step.
      Terminal 2: `faillock --user "$USER"` → **1 row**.
-3. "Delete ENTIRE package cache?": press **Skip**. No dialog.
+3. Nothing about the package cache is asked here any more: the entire-cache
+   wipe is its own Overview action, not part of Full Cleanup.
 4. **Orphans:** no dialog for the probe (`plan-orphans` runs as you). If it
    finds orphans, the confirm lists them and the cascade. **Yes** brings a
    polkit dialog "…remove orphaned packages and their unneeded
@@ -638,7 +656,7 @@ In the same window: **Overview** → "Full Cleanup (Recommended)" → Proceed.
    more failure locks your account": then apply the stop rule.
 7. **Hyprland plugins last**, no dialog.
 8. Expected: the status bar shows "Finished: completed". The package cache row
-   says "Not authorised", the cache-wipe row "Skipped", the rest "Done".
+   says "Not authorised", the rest "Done".
    **Overview → Last Run:** "Last run incomplete: root steps refused (1)".
    **Logs:** the run folder's `cleanup.log` has `SKIP: Old package cache
    cleaned (privilege not granted)`.
@@ -651,8 +669,7 @@ faillock --user "$USER"
 ```
 
 Expected: `"action":"fullcleanup"`, `"outcome":"incomplete"`,
-`"steps_refused":1`, `steps_skipped` ≥ 2 (the refused step and the declined
-wipe), `"dry_run":false`; faillock **0 rows**.
+`"steps_refused":1`, `steps_skipped` ≥ 1 (the refused step), `"dry_run":false`; faillock **0 rows**.
 
 <!-- source: gui/internal/realdriver package doc (topgrade's sudo through the
 askpass Server; root steps through helperclient.Run/pkexec; the AUR audit's

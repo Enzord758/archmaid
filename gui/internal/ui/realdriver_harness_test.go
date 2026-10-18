@@ -298,7 +298,6 @@ if [ "$verb" = full-cleanup ]; then
 	parts=
 	case " $* " in *" --orphans "*) parts=remove-orphans;; esac
 	parts="$parts paccache"
-	case " $* " in *" --wipe "*) parts="$parts paccache-wipe";; esac
 	case " $* " in *" --uninstalled "*) parts="$parts clean-uninstalled";; esac
 	parts="$parts clean-tmp vacuum-journal check-files"
 	of=$(echo $parts | wc -w) n=0
@@ -471,7 +470,7 @@ func TestGUIRealDriver(t *testing.T) {
 			t.Fatal(err)
 		}
 		rep, _ := child(t, "real-dry", append(env, "XDG_CONFIG_HOME="+cfg)...)
-		if rep.Outcome != "completed" || !slices.Equal(rep.Sent, []string{"confirm 1 true", "confirm 2 true", "confirm 3 true"}) {
+		if rep.Outcome != "completed" || !slices.Equal(rep.Sent, []string{"confirm 1 true", "confirm 2 true"}) {
 			t.Errorf("outcome %q sent %q", rep.Outcome, rep.Sent)
 		}
 		for _, r := range rep.Rows {
@@ -503,8 +502,8 @@ func TestGUIRealDriver(t *testing.T) {
 			}
 		}
 		// The Settings page's dry run: every confirm says so up front.
-		if len(rep.Confirms) != 3 {
-			t.Errorf("confirms %q, want 3", rep.Confirms)
+		if len(rep.Confirms) != 2 {
+			t.Errorf("confirms %q, want 2", rep.Confirms)
 		}
 		for _, c := range rep.Confirms {
 			if _, rest, _ := strings.Cut(c, "\n"); !strings.HasPrefix(rest+"\n", dryBannerText+"\n") {
@@ -521,7 +520,7 @@ func TestGUIRealDriver(t *testing.T) {
 		}
 		want := map[string]string{
 			steps.IDAURAudit: "ok", steps.IDTopgrade: "ok", steps.IDOrphansProbe: "ok",
-			steps.IDOrphansRemove: "auth refused", steps.IDPaccache: "auth refused", steps.IDPaccacheWipe: "auth refused",
+			steps.IDOrphansRemove: "auth refused", steps.IDPaccache: "auth refused",
 			steps.IDPkgCacheUninstalled: "auth refused", steps.IDTmpfiles: "auth refused", steps.IDJournal: "auth refused", steps.IDIntegrity: "auth refused",
 			steps.IDYayCache: "ok",
 		}
@@ -531,8 +530,8 @@ func TestGUIRealDriver(t *testing.T) {
 			}
 		}
 		// A refused step is "not authorised" on the chip, not a skip.
-		if !slices.Equal(rep.Chips, []string{"4 done", "0 failed", "0 skipped", "7 not authorised"}) {
-			t.Errorf("chips %q, want 4 done, 0 failed, 0 skipped, 7 not authorised", rep.Chips)
+		if !slices.Equal(rep.Chips, []string{"4 done", "0 failed", "0 skipped", "6 not authorised"}) {
+			t.Errorf("chips %q, want 4 done, 0 failed, 0 skipped, 6 not authorised", rep.Chips)
 		}
 		if !hasRow(rep.Subtitles, "Cleaning package cache…: Not authorised") {
 			t.Errorf("the refused row never read Not authorised: %q", rep.Subtitles)

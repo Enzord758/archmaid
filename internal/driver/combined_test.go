@@ -97,7 +97,7 @@ func pkexecCalls(t *testing.T, file string) []string {
 // grantedStream is the helper's stream for the whole call, every part ok.
 func grantedStream(t *testing.T) string {
 	t.Helper()
-	parts := []string{"remove-orphans", "paccache", "paccache-wipe", "clean-uninstalled", "clean-tmp", "vacuum-journal", "check-files"}
+	parts := []string{"remove-orphans", "paccache", "clean-uninstalled", "clean-tmp", "vacuum-journal", "check-files"}
 	ls := []string{`{"v":1,"t":"start","verb":"full-cleanup","version":"0.1.0"}`}
 	for i, p := range parts {
 		ls = append(ls,
@@ -113,12 +113,12 @@ func grantedStream(t *testing.T) string {
 	return "while IFS= read -r l; do printf '%s\\n' \"$l\"; done < '" + f + "'"
 }
 
-var rootRows = []string{steps.IDOrphansRemove, steps.IDPaccache, steps.IDPaccacheWipe, steps.IDPkgCacheUninstalled,
+var rootRows = []string{steps.IDOrphansRemove, steps.IDPaccache, steps.IDPkgCacheUninstalled,
 	steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity}
 
 // TestFullCleanupPolkitOneDialog: a whole Full Cleanup under polkit, every
 // confirm answered yes, makes exactly ONE pkexec call (full-cleanup, with
-// the confirmed orphan plan's hash, the wipe and pacman -Sc), after both
+// the confirmed orphan plan's hash and pacman -Sc), after both
 // confirms; every root row still starts and ends on its own, in plan order;
 // and the user steps run after it, the AUR cache as yay -Sc --aur, which
 // runs no sudo: nothing but topgrade could need the askpass.
@@ -139,12 +139,12 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("%d pkexec calls, want exactly one: %q", len(got), got)
 	}
-	want := "--disable-internal-agent /usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " + fcPlan.Hash + " --wipe --uninstalled"
+	want := "--disable-internal-agent /usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " + fcPlan.Hash + " --uninstalled"
 	if got[0] != want {
 		t.Errorf("pkexec %q\nwant    %q", got[0], want)
 	}
-	if confirms != 3 { // the gate, the orphans, the wipe
-		t.Errorf("%d confirms, want 3", confirms)
+	if confirms != 2 { // the gate, the orphans
+		t.Errorf("%d confirms, want 2", confirms)
 	}
 	if n := len(all[engine.AuthWaiting](evs)); n != 1 {
 		t.Errorf("%d polkit waits, want 1", n)
@@ -171,7 +171,7 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 		if c, isChunk := ev.(engine.OutputChunk); isChunk && slices.Contains(rootRows, c.ID) {
 			for _, l := range c.Lines {
 				if strings.HasPrefix(l, "out of ") && !strings.Contains(l, map[string]string{
-					steps.IDOrphansRemove: "remove-orphans", steps.IDPaccache: "paccache", steps.IDPaccacheWipe: "paccache-wipe",
+					steps.IDOrphansRemove: "remove-orphans", steps.IDPaccache: "paccache",
 					steps.IDPkgCacheUninstalled: "clean-uninstalled",
 					steps.IDTmpfiles:            "clean-tmp", steps.IDJournal: "vacuum-journal", steps.IDIntegrity: "check-files"}[c.ID]) {
 					t.Errorf("%s got %q", c.ID, l)
@@ -270,12 +270,12 @@ func TestFullCleanupPolkitDryRun(t *testing.T) {
 		}
 	}
 	call := "[dry-run] would run: pkexec --disable-internal-agent /usr/lib/archmaid/archmaid-helper full-cleanup --keep 3 --journal 2weeks --orphans " +
-		fcPlan.Hash + " --wipe --uninstalled"
+		fcPlan.Hash + " --uninstalled"
 	if got := byRow[steps.IDOrphansRemove]; len(got) == 0 || got[0] != call {
 		t.Errorf("the orphan row's output %q, want the call first:\n%s", got, call)
 	}
 	parts := map[string]string{
-		steps.IDOrphansRemove: "remove-orphans", steps.IDPaccache: "paccache", steps.IDPaccacheWipe: "paccache-wipe",
+		steps.IDOrphansRemove: "remove-orphans", steps.IDPaccache: "paccache",
 		steps.IDPkgCacheUninstalled: "clean-uninstalled", steps.IDTmpfiles: "clean-tmp", steps.IDJournal: "vacuum-journal",
 		steps.IDIntegrity: "check-files",
 	}

@@ -164,7 +164,7 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			p := goodPlan()
 			st.Items, st.Cascade, st.Plan = p.Direct, p.Cascade, &p
 		case steps.VerbFullCleanup:
-			st = fullCleanupCall(true, true, true)
+			st = fullCleanupCall(true, true)
 		}
 		got, err := Argv(st)
 		if err != nil {

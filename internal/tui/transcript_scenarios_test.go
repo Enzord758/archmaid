@@ -52,7 +52,6 @@ var transcriptScenarios = []transcriptScenario{
 		shimLog := installShims(t, Shims{"pacman": pacmanRules("", "", "")})
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
 	{"fullcleanup_orphans_cascade_acceptall.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -76,7 +75,6 @@ var transcriptScenarios = []transcriptScenario{
 		aurClean(t)
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 			Answer{"confirm", "orphaned package", "no"},
 		)
 	}},
@@ -93,7 +91,6 @@ echo python-oldthing`}}, sh["pacman"]...)
 		aurClean(t)
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 			Answer{"confirm", "Remove 2 orphaned package(s) — 3 total", "yes"},
 		)
 	}},
@@ -113,7 +110,6 @@ echo python-oldthing`}}, sh["pacman"]...)
 		aurClean(t)
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 			Answer{"confirm", "orphaned package", "yes"},
 		)
 	}},
@@ -124,7 +120,6 @@ echo python-oldthing`}}, sh["pacman"]...)
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "yay-bin changed maintainer", "no"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
 	{"fullcleanup_audit_takeover_accept.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -134,7 +129,6 @@ echo python-oldthing`}}, sh["pacman"]...)
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
 			Answer{"confirm", "yay-bin changed maintainer", "yes"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
 	{"fullcleanup_audit_unreachable.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -143,7 +137,6 @@ echo python-oldthing`}}, sh["pacman"]...)
 		shimLog := installShims(t, fullCleanupShims(true, "", ""))
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"confirm", "Proceed with full cleanup", "yes"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
 	{"fullcleanup_uncached_password_ok.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -152,7 +145,6 @@ echo python-oldthing`}}, sh["pacman"]...)
 		aurClean(t)
 		return record(t, mk, shimLog, "Full Cleanup",
 			Answer{"password", "", "correct"},
-			Answer{"confirm", "ENTIRE package cache", "no"},
 		)
 	}},
 	{"fullcleanup_three_wrong_passwords.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -376,6 +368,35 @@ echo python-oldthing`}}, sh["pacman"]...)
 		return record(t, mk, shimLog, "Disable unused services")
 	}},
 
+	// ── Delete entire package cache ──────────────────────────────────────────
+	// The dry run `paccache --nocolor -dk0` runs as the user and fills the
+	// confirm (default No) with its total; only a yes runs sudo paccache -rk0.
+
+	{"wipecache_declined.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		transcriptEnv(t, false)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true)})
+		return record(t, mk, shimLog, "Delete entire package cache",
+			Answer{"confirm", "ENTIRE package cache", "no"})
+	}},
+	{"wipecache_confirmed.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		transcriptEnv(t, false)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true, Rule{Prefix: "-A paccache -rk0"})})
+		return record(t, mk, shimLog, "Delete entire package cache",
+			Answer{"confirm", "ENTIRE package cache", "yes"})
+	}},
+	{"wipecache_empty.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		transcriptEnv(t, false)
+		shimLog := installShims(t, Shims{"paccache": {{Prefix: "--nocolor -dk0", Out: "==> no candidate packages found for pruning"}},
+			"sudo": sudoRules(true)})
+		return record(t, mk, shimLog, "Delete entire package cache")
+	}},
+	{"wipecache_confirmed.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
+		transcriptEnv(t, true)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun})
+		return record(t, mk, shimLog, "Delete entire package cache",
+			Answer{"confirm", "ENTIRE package cache", "yes"})
+	}},
+
 	// ── Audit AUR packages ───────────────────────────────────────────────────
 
 	{"auraudit_first_baseline.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -433,10 +454,9 @@ func replay(t *testing.T, mk newTarget, skip map[string]string) {
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
-// acceptAll says yes to Full Cleanup's gate and both optional removals.
+// acceptAll says yes to Full Cleanup's gate and its orphan removal.
 var acceptAll = []Answer{
 	{"confirm", "Proceed with full cleanup", "yes"},
-	{"confirm", "ENTIRE package cache", "yes"},
 	{"confirm", "orphaned package", "yes"},
 }
 
@@ -508,6 +528,13 @@ func suRules() []Rule {
 	return []Rule{{Script: `read -r pw
 if [ "$pw" != '` + shimPassword + `' ]; then echo 'su: Authentication failure' >&2; exit 1; fi`}}
 }
+
+// wipeDryRun is paccache's read-only dry run (-dk0): what the wipe's
+// confirm is built from.
+var wipeDryRun = []Rule{{Prefix: "--nocolor -dk0", Out: "" +
+	"/var/cache/pacman/pkg/foo-1-1-x86_64.pkg.tar.zst\n" +
+	"/var/cache/pacman/pkg/bar-2-1-x86_64.pkg.tar.zst\n" +
+	"==> finished dry run: 2 candidates (disk space saved: 412.50 MiB)"}}
 
 const topgradeOK = ":: Synchronizing package databases...\n── Summary ──\nSystem update: OK"
 

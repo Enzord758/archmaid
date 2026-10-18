@@ -31,14 +31,13 @@ func TestDryRun(t *testing.T) {
 	}
 
 	var got []string
-	call := fullCleanupCall(true, true, true)
+	call := fullCleanupCall(true, true)
 	DryRun(seq, call, func(in engine.Input) { got = append(got, trace(recorded{inputs: []engine.Input{in}})...) })
 	argv, _ := Argv(call)
 	line := "[dry-run] would run: " + strings.Join(argv, " ")
 	wantTrace := []string{
 		"| " + line, "| [dry-run] part remove-orphans of the one root-helper call", "done orphans-remove",
 		"start paccache", "| [dry-run] part paccache of the one root-helper call", "done paccache",
-		"start paccache-wipe", "| [dry-run] part paccache-wipe of the one root-helper call", "done paccache-wipe",
 		"start pkg-cache-uninstalled", "| [dry-run] part clean-uninstalled of the one root-helper call", "done pkg-cache-uninstalled",
 		"start tmpfiles", "| [dry-run] part clean-tmp of the one root-helper call", "done tmpfiles",
 		"start journal", "| [dry-run] part vacuum-journal of the one root-helper call", "done journal",

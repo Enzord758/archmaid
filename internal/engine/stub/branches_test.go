@@ -145,20 +145,17 @@ func TestCatalogEveryBranch(t *testing.T) {
 		actions.IDFullCleanup: {
 			{engine.OutcomeCompleted, 0}: true,
 			{engine.OutcomeCompleted, 1}: true,
-			{engine.OutcomeCompleted, 2}: true,
 			{engine.OutcomeCancelled, 0}: true,
 		},
 		IDFullCleanupUncached: {
 			{engine.OutcomeCompleted, 0}: true,
 			{engine.OutcomeCompleted, 1}: true,
-			{engine.OutcomeCompleted, 2}: true,
-			{engine.OutcomeCompleted, 7}: true, // three wrong passwords
+			{engine.OutcomeCompleted, 6}: true, // three wrong passwords
 			{engine.OutcomeCancelled, 0}: true,
 		},
 		IDFullCleanupAskpass: {
 			{engine.OutcomeCompleted, 0}: true,
 			{engine.OutcomeCompleted, 1}: true,
-			{engine.OutcomeCompleted, 2}: true,
 			{engine.OutcomeCancelled, 0}: true,
 		},
 		actions.IDUserCache: {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeAborted, 1}: true},
@@ -197,10 +194,11 @@ func TestCatalogEveryBranch(t *testing.T) {
 
 func TestFullCleanupBranchesWalk(t *testing.T) {
 	paths := walk(t, "fullcleanup", map[string]Script{"fullcleanup": FullCleanupBranches(t0)})
-	// gate: yes|no|cancel; wipe and orphans (behind a yes gate) likewise.
-	// gate yes: wipe 3 ways, each 3 ways for orphans = 9; gate no, cancel = 2.
-	if len(paths) != 11 {
-		t.Errorf("%d paths, want 11", len(paths))
+	// gate: yes|no|cancel; orphans (behind a yes gate) likewise. There is no
+	// cache-wipe confirm in Full Cleanup (task #186).
+	// gate yes: orphans 3 ways = 3; gate no, cancel = 2.
+	if len(paths) != 5 {
+		t.Errorf("%d paths, want 5", len(paths))
 	}
 	for _, p := range paths {
 		skipped := 0

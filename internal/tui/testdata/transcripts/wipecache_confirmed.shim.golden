@@ -1,0 +1,12 @@
+action "Delete entire package cache"
+exec  paccache --nocolor -dk0
+exec  sudo -n -v
+plan  1 steps
+plan  1 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
+log   cleanup CHECK: Measured the package cache: 2 package files, 412.50 MiB.
+ask   "Delete the ENTIRE package cache?\nThis frees 412.50 MiB (2 package files).\nYou can't reinstall or downgrade these packages without internet." -> yes
+step  1 running
+exec  sudo -A paccache -rk0
+step  1 ok
+log   cleanup OK: Entire package cache removed
+end   outcome=completed errs=0 skipped=0

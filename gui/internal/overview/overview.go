@@ -45,6 +45,7 @@ var icons = map[string]string{
 	actions.IDUserCache:   "user-trash-symbolic",
 	actions.IDRepair:      "emblem-system-symbolic",
 	actions.IDDownloads:   "folder-download-symbolic",
+	actions.IDWipeCache:   "edit-delete-symbolic",
 	actions.IDTopgrade:    "software-update-available-symbolic",
 	actions.IDServices:    "system-run-symbolic",
 	actions.IDAURAudit:    "security-medium-symbolic",

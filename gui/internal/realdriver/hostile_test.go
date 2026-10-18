@@ -40,7 +40,6 @@ printf 'l\033[31\nm\033\nn\033[3\n1mfoo\n'
 p=
 case " $* " in *" --orphans "*) p=remove-orphans ;; esac
 p="$p paccache"
-case " $* " in *" --wipe "*) p="$p paccache-wipe" ;; esac
 case " $* " in *" --uninstalled "*) p="$p clean-uninstalled" ;; esac
 p="$p clean-tmp vacuum-journal check-files"
 n=0

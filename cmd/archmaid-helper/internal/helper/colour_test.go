@@ -82,7 +82,7 @@ func TestColourPerCall(t *testing.T) {
 	}{
 		{
 			name: "full-cleanup", fake: func() *fakeRunner { return orphanFake("a\n", "a 1-1\ndep 1-1\n") },
-			args: []string{"full-cleanup", "--keep", "2", "--wipe", "--uninstalled", "--orphans", h, "--journal", "1month"},
+			args: []string{"full-cleanup", "--keep", "2", "--uninstalled", "--orphans", h, "--journal", "1month"},
 			queries: []call{
 				{"/usr/bin/pacman -Qdtq", "never"},
 				{"/usr/bin/pacman -Rs --print --print-format %n %v -- a", "never"},
@@ -91,7 +91,6 @@ func TestColourPerCall(t *testing.T) {
 			streams: []call{
 				{"/usr/bin/pacman -Rns --noconfirm -- a", "always"},
 				{"/usr/bin/paccache -r -k 2", ""},
-				{"/usr/bin/paccache -r -k 0", ""},
 				{"/usr/bin/pacman -Sc --noconfirm", "always"},
 				{"/usr/bin/systemd-tmpfiles --clean", ""},
 				{"/usr/bin/journalctl --vacuum-time=1month", ""},

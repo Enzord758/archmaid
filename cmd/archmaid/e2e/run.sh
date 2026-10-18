@@ -132,6 +132,14 @@ run_tape() {
 			fi
 			continue
 		fi
+		# paccache is allowed only as the wipe's read-only dry run.
+		if [[ $c == paccache ]]; then
+			if grep '^paccache ' "$SHIM_LOG" | grep -qvE '^paccache --nocolor -dk0$'; then
+				echo "--- shim log ---"; cat "$SHIM_LOG"
+				fail "$name: paccache was invoked for more than the wipe's dry run"
+			fi
+			continue
+		fi
 		if grep -q "^$c " "$SHIM_LOG"; then
 			echo "--- shim log ---"; cat "$SHIM_LOG"
 			fail "$name: mutating command $c was invoked"
@@ -216,6 +224,39 @@ if want orphans; then
 	need "$SHIM_LOG" "^pacman -Rs --print --color never -- orphan-one orphan-two$" "orphans: cascade probe not run"
 	refuse "$SHIM_LOG" "^pacman -Rns" "orphans: pacman removal actually ran"
 	echo "PASS: orphan confirm showed 2/3 total and logged the dry-run removal"
+fi
+
+if want wipecache-declined; then
+	run_tape wipecache-declined
+	need "$TXT" "Delete the ENTIRE package cache" "wipecache-declined: the confirm was not shown"
+	# The confirm carries the dry run's total and the warning, before anything ran.
+	need "$TXT" "412.50 MiB" "wipecache-declined: the confirm did not show what it frees"
+	need "$TXT" "2 package files" "wipecache-declined: the confirm did not show the package count"
+	need "$TXT" "without internet" "wipecache-declined: the confirm lacks the warning"
+	need "$SHIM_LOG" "^paccache --nocolor -dk0$" "wipecache-declined: the dry run never ran"
+	refuse "$SHIM_LOG" "-rk0" "wipecache-declined: the wipe ran although it was declined"
+	refuse "$SHIM_LOG" "^sudo -[^n]" "wipecache-declined: sudo ran a command"
+	need "$CLEANUP_LOG" "SKIP: Entire package cache removed \(declined\)" "wipecache-declined: the declined wipe was not logged"
+	refuse "$CLEANUP_LOG" "DRYRUN: Entire package cache removed" "wipecache-declined: a declined wipe was logged as done"
+	echo "PASS: the wipe's confirm showed 412.50 MiB / 2 files, No ran nothing"
+fi
+
+if want wipecache; then
+	run_tape wipecache
+	need "$TXT" "412.50 MiB" "wipecache: the confirm did not show what it frees"
+	need "$SHIM_LOG" "^paccache --nocolor -dk0$" "wipecache: the dry run never ran"
+	refuse "$SHIM_LOG" "-rk0" "wipecache: a dry run executed the wipe"
+	need "$CLEANUP_LOG" "DRYRUN: Entire package cache removed" "wipecache: the DRYRUN entry is missing"
+	need "$CLEANUP_LOG" "would run: sudo paccache -rk0$" "wipecache: the log does not name the wipe command"
+	echo "PASS: the wipe, confirmed under --dryrun, logged what it would run and ran nothing"
+fi
+
+if want wipecache-empty; then
+	run_tape wipecache-empty SHIM_CACHE_EMPTY=1
+	need "$TXT" "package cache is empty" "wipecache-empty: the notice was not shown"
+	need "$STATE_DIR/dryrun/pkgcache.log" "CHECK: The package cache is empty" "wipecache-empty: no discovery record"
+	refuse "$CLEANUP_LOG" "." "wipecache-empty: a notice-only run wrote to the cleanup log"
+	echo "PASS: an empty cache is a notice, nothing asked, nothing run"
 fi
 
 if want abort; then

@@ -5,6 +5,7 @@ archmaid — Arch maintenance  [dry-run]
 ➤ 󰃨  Clear user cache
   󰚰  Repair broken packages
   󰋊  Delete old downloads
+  󰩺  Delete entire package cache
   󰏗  Run topgrade (system update)
   󰒔  Disable unused services
   󰶚  Audit AUR packages

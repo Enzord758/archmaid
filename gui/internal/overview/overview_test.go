@@ -30,7 +30,7 @@ func TestEntries(t *testing.T) {
 			t.Errorf("%s: kind %v", e.ID, e.Kind)
 		}
 	}
-	want := []string{actions.IDFullCleanup, actions.IDUserCache, actions.IDRepair, actions.IDDownloads,
+	want := []string{actions.IDFullCleanup, actions.IDUserCache, actions.IDRepair, actions.IDDownloads, actions.IDWipeCache,
 		actions.IDTopgrade, actions.IDServices, actions.IDAURAudit, actions.IDViewLog}
 	if !slices.Equal(ids, want) {
 		t.Errorf("entries %q, want %q (the menu's order, without exit and editconfig)", ids, want)

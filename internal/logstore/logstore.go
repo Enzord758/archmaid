@@ -44,6 +44,7 @@ const (
 	Repair    Category = "repair"    // Repair broken packages: the scan
 	Downloads Category = "downloads" // Delete old downloads
 	AURAudit  Category = "auraudit"  // Audit AUR packages, from the menu
+	PkgCache  Category = "pkgcache"  // Delete entire package cache: the dry run
 )
 
 // CategoryInfo is a category with its display label.
@@ -62,6 +63,7 @@ var Categories = []CategoryInfo{
 	{Repair, "Package check"},
 	{Downloads, "Downloads check"},
 	{AURAudit, "AUR audit check"},
+	{PkgCache, "Package cache check"},
 }
 
 // Label is c's display name, falling back to the raw value for any category
@@ -75,7 +77,7 @@ func (c Category) Label() string {
 	return string(c)
 }
 
-// Valid reports whether c is one of the eight categories. The set is fixed
+// Valid reports whether c is one of the nine categories. The set is fixed
 // here, not read from Categories (an exported var a caller could append to):
 // a category names a file, so "../x" must never become one.
 func (c Category) Valid() bool {
@@ -87,10 +89,10 @@ func (c Category) Valid() bool {
 }
 
 // Discovery reports whether c is a discovery category (Services, Repair,
-// Downloads, AURAudit).
+// Downloads, AURAudit, PkgCache).
 func (c Category) Discovery() bool {
 	switch c {
-	case Services, Repair, Downloads, AURAudit:
+	case Services, Repair, Downloads, AURAudit, PkgCache:
 		return true
 	}
 	return false

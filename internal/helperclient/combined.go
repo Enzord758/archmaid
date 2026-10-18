@@ -24,7 +24,7 @@ const PartCleanUninstalled = "clean-uninstalled"
 // fullCleanupOrder is the order the helper runs full-cleanup's parts in,
 // each named by its verb (partName); required are those it always runs.
 var (
-	fullCleanupOrder = []string{steps.VerbRemoveOrphans, steps.VerbPaccache, steps.VerbPaccacheWipe,
+	fullCleanupOrder = []string{steps.VerbRemoveOrphans, steps.VerbPaccache,
 		PartCleanUninstalled, steps.VerbCleanTmp, steps.VerbVacuumJournal, steps.VerbCheckFiles}
 	fullCleanupRequired = map[string]bool{steps.VerbPaccache: true, steps.VerbCleanTmp: true,
 		steps.VerbVacuumJournal: true, steps.VerbCheckFiles: true}
@@ -45,8 +45,9 @@ func partName(st steps.Step) string {
 
 // fullCleanupArgs builds full-cleanup's flags from st.Parts, which must be
 // the helper's parts in its order: the four it always runs, plus the
-// orphan removal (first, its Plan checked as for remove-orphans), the
-// cache wipe and the uninstalled packages' cache where present. Each part is validated as its own verb would
+// orphan removal (first, its Plan checked as for remove-orphans) and
+// the uninstalled packages' cache where present. The cache wipe is not a
+// part: it is the standalone paccache-wipe verb. Each part is validated as its own verb would
 // be, and must itself be a plain step of the combined verb.
 func fullCleanupArgs(st steps.Step) ([]string, error) {
 	if len(st.Items) != 0 || st.Plan != nil {
@@ -80,8 +81,6 @@ func fullCleanupArgs(st steps.Step) ([]string, error) {
 		switch verb {
 		case steps.VerbRemoveOrphans:
 			args = append(args, "--orphans", pa[0])
-		case steps.VerbPaccacheWipe:
-			args = append(args, "--wipe")
 		case steps.VerbCheckFiles:
 			if len(pa) != 0 {
 				return nil, fmt.Errorf("%w: full-cleanup checks every package, not names", ErrBadParts)

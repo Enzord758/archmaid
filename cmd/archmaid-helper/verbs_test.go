@@ -120,6 +120,8 @@ func buildAllSteps(t *testing.T) []steps.Step {
 -Rs) echo libfoo ;;
 esac`,
 		"sudo": `[ "$1" = -n ] && shift; exec "$@"`,
+		// The wipe's dry run (as the user): paccache -dk0.
+		"paccache": `echo "==> finished dry run: 4 candidates (disk space saved: 12.50 MiB)"`,
 		"systemctl": `case "$1" in
 list-units) echo "cups.service loaded inactive dead CUPS" ;;
 is-enabled) echo enabled ;;

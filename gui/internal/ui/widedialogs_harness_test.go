@@ -164,8 +164,8 @@ func wideConfirms() []struct {
 			Direct: vmOrphans, Cascade: vmCascade, Destructive: true, YesLabel: "Remove"}, "Remove", "no"},
 		{"downloads", engine.NeedsConfirm{ID: 202, Kind: engine.ConfirmDownloads, Step: "downloads", Title: dlTitle,
 			Body: strings.TrimLeft(dlBody, "\n"), Msg: dl.Confirm(), Items: dlItems, Destructive: true, YesLabel: "Delete"}, "Delete", "no"},
-		{"step", engine.NeedsConfirm{ID: 203, Kind: engine.ConfirmStep, Step: "paccache-wipe", Title: "Delete ENTIRE package cache? (can't reinstall without internet)",
-			Msg: "Delete ENTIRE package cache? (can't reinstall without internet)", Destructive: true, YesLabel: "Delete"}, "Delete", "no"},
+		{"step", engine.NeedsConfirm{ID: 203, Kind: engine.ConfirmStep, Step: "paccache-wipe", Title: "Delete the ENTIRE package cache?", Body: "This frees 2.50 GiB (7 package files).\nYou can't reinstall or downgrade these packages without internet.",
+			Msg: "Delete the ENTIRE package cache?\nThis frees 2.50 GiB (7 package files).\nYou can't reinstall or downgrade these packages without internet.", Destructive: true, YesLabel: "Delete"}, "Delete", "no"},
 		{"audit-gate", engine.NeedsConfirm{ID: 204, Kind: engine.ConfirmAuditGate, Step: "topgrade",
 			Title: "valent changed maintainer since the last audit. Update anyway?", Msg: "valent changed maintainer since the last audit. Update anyway?",
 			YesLabel: "Update anyway"}, "Update anyway", "no"},
@@ -226,7 +226,7 @@ func realWide(c *covEnv) {
 				// Its rail's tags: under the titles in the 380 px bottom
 				// sheet (Dev 5's VM round b6 had them at the line's end),
 				// at the line's end at 1460.
-				c.ok(checkRailTags(c, d, fmt.Sprintf("gate at %d", width)) >= 7, "gate at %d: fewer rail steps with tags drawn than the plan's 7", width)
+				c.ok(checkRailTags(c, d, fmt.Sprintf("gate at %d", width)) >= 6, "gate at %d: fewer rail steps with tags drawn than the plan's 6", width)
 				// The note's count is the rail's root tags (Dev 5's VM
 				// round b6: "6 steps run as root" beside 7 root tags).
 				note, roots := gateRootCounts(d)

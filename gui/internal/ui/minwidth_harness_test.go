@@ -209,7 +209,7 @@ func realNarrow(c *covEnv) {
 				if cf := ch.Opened.Confirm; cf != nil && len(cf.Plan) > 0 {
 					// The real plan's rail: tags under the titles in a
 					// narrow dialog, at the line's end in a wide one.
-					c.ok(checkRailTags(c, d, moment+"-gate") >= 7, "%s: fewer rail steps with tags drawn than the plan's 7", moment)
+					c.ok(checkRailTags(c, d, moment+"-gate") >= 6, "%s: fewer rail steps with tags drawn than the plan's 6", moment)
 				}
 				resp := "yes"
 				if phase == "real" {

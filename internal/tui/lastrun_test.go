@@ -34,8 +34,8 @@ func TestLastRunThreeWrongPasswordsIsIncomplete(t *testing.T) {
 			refused++
 		}
 	}
-	if refused != 7 {
-		t.Fatalf("%d steps refused, want 7 (did the scenario change?)", refused)
+	if refused != 6 {
+		t.Fatalf("%d steps refused, want 6 (did the scenario change?)", refused)
 	}
 	r := readLastRun(t)
 	if r.Action != "fullcleanup" || r.Outcome != "incomplete" || r.StepsRefused != refused ||

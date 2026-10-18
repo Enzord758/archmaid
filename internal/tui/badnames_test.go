@@ -56,9 +56,9 @@ func TestRefusedOrphanNameLeavesNoStep(t *testing.T) {
 				transcriptEnv(t, false)
 				shimLog := installShims(t, fullCleanupShims(true, orphans, orphans))
 				aurClean(t)
-				tr := record(t, mk, shimLog, "Full Cleanup", acceptAll[:2]...).Transcript()
+				tr := record(t, mk, shimLog, "Full Cleanup", acceptAll[:1]...).Transcript()
 				noRemovalQueued(t, name, tr)
-				if !strings.Contains(tr, "step  5 failed") {
+				if !strings.Contains(tr, "step  4 failed") {
 					t.Errorf("the orphan probe did not fail:\n%s", tr)
 				}
 			})

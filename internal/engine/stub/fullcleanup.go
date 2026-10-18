@@ -196,7 +196,6 @@ func fullCleanupWith(start time.Time, o fcOpts) Script {
 		{ID: steps.IDAURAudit, Title: "Auditing AUR packages…", InProc: true, AlwaysLog: true, Category: logstore.Audit},
 		{ID: steps.IDTopgrade, Title: "Updating system with topgrade…", Argv: []string{"topgrade", "-y", "--no-retry", "--disable", "hyprpm"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Topgrade},
 		{ID: steps.IDPaccache, Verb: steps.VerbPaccache, Title: "Cleaning package cache…", Argv: []string{"sudo", "paccache", "-r"}, NeedsPriv: true, Category: logstore.Cleanup},
-		{ID: steps.IDPaccacheWipe, Verb: steps.VerbPaccacheWipe, Title: "Deleting entire package cache…", Argv: []string{"sudo", "paccache", "-rk0"}, NeedsPriv: true, Confirm: true, Optional: true, AlwaysLog: true, Category: logstore.Cleanup},
 		{ID: steps.IDOrphansProbe, Verb: steps.VerbPlanOrphans, Title: "Finding orphaned packages…", InProc: true, Category: logstore.Orphans},
 		{ID: steps.IDYayCache, Title: "Cleaning AUR cache…", Argv: []string{"yay", "-Sc", "--noconfirm"}, Category: logstore.Cleanup},
 		{ID: steps.IDTmpfiles, Verb: steps.VerbCleanTmp, Title: "Cleaning old temp files…", Argv: []string{"sudo", "systemd-tmpfiles", "--clean"}, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup},
@@ -312,7 +311,7 @@ func fcTopgradeEnd(b *builder) {
 
 	b.run(steps.IDPaccache, 300*time.Millisecond, "==> no candidate packages found for pruning")
 
-	fcWipe(b)
+	fcOrphans(b)
 }
 
 // refuse is a privileged step that never runs: sudo failed.
@@ -331,7 +330,6 @@ func fcGone(b *builder) {
 	fcAudit(b)
 	b.refuse(steps.IDTopgrade, logstore.Topgrade, "Topgrade completed")
 	b.refuse(steps.IDPaccache, logstore.Cleanup, "Old package cache cleaned")
-	b.refuse(steps.IDPaccacheWipe, logstore.Cleanup, "Entire package cache removed")
 	b.run(steps.IDOrphansProbe, 250*time.Millisecond, orphanLines...)
 	b.insertRemoval()
 	b.refuse(steps.IDOrphansRemove, logstore.Orphans, "Orphaned packages removed")
@@ -341,20 +339,6 @@ func fcGone(b *builder) {
 	b.refuse(steps.IDIntegrity, logstore.Cleanup, "Package integrity check completed")
 	b.run(steps.IDHyprpm, 1200*time.Millisecond, "✔ all plugins are up to date")
 	b.finish("fullcleanup", engine.OutcomeCompleted)
-}
-
-// fcWipe writes the run from the "delete entire cache" confirm on.
-func fcWipe(b *builder) {
-	const wipe = "Delete ENTIRE package cache? (can't reinstall without internet)"
-	b.emit(engine.NeedsConfirm{
-		ID: b.id(), Kind: engine.ConfirmStep, Step: steps.IDPaccacheWipe,
-		Title: "Delete the entire package cache?", Body: "Without it, packages can't be reinstalled offline.",
-		Destructive: true, Msg: wipe, YesLabel: "Delete",
-	})
-	b.decline(steps.IDPaccacheWipe, logstore.Cleanup, "SKIP: Entire package cache removed (declined)", fcOrphans)
-	b.run(steps.IDPaccacheWipe, 200*time.Millisecond)
-	b.log(logstore.Cleanup, "OK: Entire package cache removed")
-	fcOrphans(b)
 }
 
 // fcOrphans writes the run from the orphan probe on.
@@ -397,6 +381,6 @@ func (b *builder) insertRemoval() {
 		Argv:      []string{"sudo", "pacman", "-Rns", "--noconfirm", "--", "libfoo", "libbar"},
 		NeedsPriv: true, Confirm: true, Optional: true, AlwaysLog: true, Category: logstore.Orphans,
 	}
-	b.plan = append(b.plan[:5], append([]engine.PlanStep{removal}, b.plan[5:]...)...)
-	b.emit(engine.StepInserted{Index: 5, Step: removal})
+	b.plan = append(b.plan[:4], append([]engine.PlanStep{removal}, b.plan[4:]...)...)
+	b.emit(engine.StepInserted{Index: 4, Step: removal})
 }

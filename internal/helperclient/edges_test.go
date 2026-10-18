@@ -28,7 +28,7 @@ func TestDecodeMalformedFields(t *testing.T) {
 	paccache := steps.Step{Verb: steps.VerbPaccache}
 	startPaccache := `{"v":1,"t":"start","verb":"paccache","version":"0.1.0"}`
 	plan := steps.Step{Verb: steps.VerbPlanOrphans}
-	full := fullCleanupCall(false, false, false)
+	full := fullCleanupCall(false, false)
 	startFull := `{"v":1,"t":"start","verb":"full-cleanup","version":"0.1.0"}`
 	cases := map[string]struct {
 		st steps.Step
@@ -81,7 +81,7 @@ func feedParts(st steps.Step, ls ...string) (d *decoder, trace []string) {
 // output line; a part that failed without a message still fails ("failed");
 // a done event whose ok and code disagree fails the call.
 func TestCombinedPartEdges(t *testing.T) {
-	full := fullCleanupCall(false, false, false) // paccache, clean-tmp, vacuum-journal, check-files
+	full := fullCleanupCall(false, false) // paccache, clean-tmp, vacuum-journal, check-files
 	start := `{"v":1,"t":"start","verb":"full-cleanup","version":"0.1.0"}`
 	d, trace := feedParts(full, start,
 		`{"v":1,"t":"progress","step":1,"of":4,"label":"\u001b[2J\u001b]0;x\u0007","part":"paccache"}`,

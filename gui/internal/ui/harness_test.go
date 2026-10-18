@@ -1414,10 +1414,16 @@ func TestGUIFullCleanup(t *testing.T) {
 	if len(rep.Confirms) == 0 {
 		t.Fatal("no confirm was shown")
 	}
-	for _, want := range []string{"10 steps, in this order", "01\nAuditing AUR packages…", "04\nDeleting entire package cache…\nasks\nroot",
-		"5 steps run as root, together, through one authorisation", "Step 4 asks before it deletes the entire package cache."} {
+	for _, want := range []string{"9 steps, in this order", "01\nAuditing AUR packages…", "03\nCleaning package cache…",
+		"4 steps run as root, together, through one authorisation"} {
 		if !strings.Contains(rep.Confirms[0], want) {
 			t.Errorf("the gate lacks %q:\n%s", want, rep.Confirms[0])
+		}
+	}
+	// No cache wipe in Full Cleanup (task #186): no such step, no "asks" note.
+	for _, not := range []string{"Deleting entire package cache", "asks before"} {
+		if strings.Contains(rep.Confirms[0], not) {
+			t.Errorf("the gate has %q:\n%s", not, rep.Confirms[0])
 		}
 	}
 	for _, c := range rep.Confirms {
@@ -1441,16 +1447,16 @@ func TestGUIFullCleanup(t *testing.T) {
 	if want := []string{"disk 212G 0.00", "ram 41G 0.00", "cache 3.1G 0.00"}; !slices.Equal(rep.Meters, want) {
 		t.Errorf("meters %q, want %q", rep.Meters, want)
 	}
-	if want := []string{"confirm 1 true", "confirm 2 true", "confirm 3 true"}; !slices.Equal(rep.Sent, want) {
+	if want := []string{"confirm 1 true", "confirm 2 true"}; !slices.Equal(rep.Sent, want) {
 		t.Errorf("sent %q, want %q", rep.Sent, want)
 	}
-	if want := []string{"1 Proceed/Cancel", "2 Delete/Skip", "3 Remove/Skip"}; !slices.Equal(rep.Buttons, want) {
+	if want := []string{"1 Proceed/Cancel", "2 Remove/Skip"}; !slices.Equal(rep.Buttons, want) {
 		t.Errorf("confirm buttons %q, want %q", rep.Buttons, want)
 	}
-	if rep.Outcome != "completed" || !slices.Equal(rep.Prompts, []engine.PromptID{1, 2, 3}) {
-		t.Errorf("outcome %q prompts %v; want completed after prompts 1, 2, 3", rep.Outcome, rep.Prompts)
+	if rep.Outcome != "completed" || !slices.Equal(rep.Prompts, []engine.PromptID{1, 2}) {
+		t.Errorf("outcome %q prompts %v; want completed after prompts 1, 2", rep.Outcome, rep.Prompts)
 	}
-	if len(rep.Rows) != 11 || rep.Rows[5] != steps.IDOrphansRemove+"=ok" {
+	if len(rep.Rows) != 10 || rep.Rows[4] != steps.IDOrphansRemove+"=ok" {
 		t.Errorf("rows %v", rep.Rows)
 	}
 	for _, r := range rep.Rows {
@@ -1474,11 +1480,11 @@ func TestGUIPrompts(t *testing.T) {
 		sent              []string
 	}{
 		{"services", "completed", []string{"select 1 [bluetooth.service cups.service]"}},
-		{"uncached", "completed", []string{"password 1 len 7", "confirm 2 true", "confirm 3 true"}},
+		{"uncached", "completed", []string{"password 1 len 7", "confirm 2 true"}},
 		// Three wrong ones: the steps that need root are refused, the rest run.
 		{"wrong-password", "completed", []string{"password 1 len 5", "password 2 len 5", "password 3 len 5"}},
 		// The askpass comes mid-topgrade, between the gate and the confirms.
-		{"askpass", "completed", []string{"confirm 1 true", "password 2 len 7", "confirm 3 true", "confirm 4 true"}},
+		{"askpass", "completed", []string{"confirm 1 true", "password 2 len 7", "confirm 3 true"}},
 	} {
 		rep, _ := child(t, c.scenario)
 		if rep.Outcome != c.outcome || !slices.Equal(rep.Sent, c.sent) {
@@ -1520,7 +1526,7 @@ const repairNone = "No broken packages found."
 func TestGUIOverviewStarts(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "repair")
-	want := []string{"fullcleanup", "usercache", "repair", "downloads", "topgrade", "services", "auraudit"}
+	want := []string{"fullcleanup", "usercache", "repair", "downloads", "wipecache", "topgrade", "services", "auraudit"}
 	if !slices.Equal(rep.Menu, want) {
 		t.Errorf("menu %q, want %q", rep.Menu, want)
 	}

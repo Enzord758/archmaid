@@ -46,7 +46,6 @@ func TestFullCleanupHitsTheAUROnce(t *testing.T) {
 
 	d := run(t, shimLog, "Full Cleanup",
 		Answer{"password", "", "correct"},
-		Answer{"confirm", "ENTIRE package cache", "no"},
 	)
 	if got := d.Transcript(); d.m.queue[0].status != steps.OK {
 		t.Fatalf("audit step status=%d\n%s", d.m.queue[0].status, got)

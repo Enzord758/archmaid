@@ -140,9 +140,6 @@ func TestHelperColourReachesTheClient(t *testing.T) {
 				t.Fatalf("StepExited = %+v", exited)
 			}
 			want := []string{"plain paccache"}
-			if slices.ContainsFunc(parts, func(s steps.Step) bool { return s.ID == steps.IDPaccacheWipe }) {
-				want = append(want, "plain paccache")
-			}
 			for _, l := range coloured {
 				if noColour != "" {
 					l = strings.NewReplacer("\x1b[1;34m", "", "\x1b[0m", "", "\x1b[1m", "", "\x1b[1;32m", "").Replace(l)

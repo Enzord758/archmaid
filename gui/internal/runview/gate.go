@@ -112,11 +112,7 @@ func GateNotes(plan []engine.PlanStep, polkit, kept bool, keepOff string, dry bo
 		if !s.Confirm {
 			continue
 		}
-		what := "it runs"
-		if s.ID == steps.IDPaccacheWipe {
-			what = "it deletes the entire package cache"
-		}
-		notes = append(notes, fmt.Sprintf("Step %d asks before %s.", i+1, what))
+		notes = append(notes, fmt.Sprintf("Step %d asks before it runs.", i+1))
 	}
 	if has(steps.IDOrphansProbe) {
 		notes = append(notes, "Orphans are listed for you to confirm before anything is removed.")

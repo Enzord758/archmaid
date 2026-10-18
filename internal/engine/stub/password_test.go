@@ -144,10 +144,10 @@ func TestUncachedThreeWrong(t *testing.T) {
 	if len(resolved) != 3 || resolved[2] != (engine.AuthResolved{AttemptsLeft: 0}) {
 		t.Errorf("AuthResolved %#v", resolved)
 	}
-	if refused != 7 || logs != 7 {
-		t.Errorf("%d steps AuthRefused, %d logged, want 7 and 7", refused, logs)
+	if refused != 6 || logs != 6 {
+		t.Errorf("%d steps AuthRefused, %d logged, want 6 and 6", refused, logs)
 	}
-	if f := evs[len(evs)-2].(engine.Finished); f.Outcome != engine.OutcomeCompleted || f.Skipped != 7 {
+	if f := evs[len(evs)-2].(engine.Finished); f.Outcome != engine.OutcomeCompleted || f.Skipped != 6 {
 		t.Errorf("ended %+v", f)
 	}
 }
@@ -265,22 +265,22 @@ func allCueEvents(s Script) []engine.Event {
 }
 
 func TestUncachedWalkPaths(t *testing.T) {
-	// Password 1: right | no | cancel | wrong. Right: wipe x orphans 9 paths.
-	// Wrong: right (9) | cancel x2 | wrong: right (9) | cancel x2 |
+	// Password 1: right | no | cancel | wrong. Right: orphans 3 paths.
+	// Wrong: right (3) | cancel x2 | wrong: right (3) | cancel x2 |
 	// wrong (the third: gives up) — and so on, counted below.
 	paths := walk(t, IDFullCleanupUncached, Catalog(t0))
 	gave := 0
 	for _, p := range paths {
-		if p.finished().Skipped == 7 {
+		if p.finished().Skipped == 6 {
 			gave++
 		}
 	}
 	if gave != 1 {
 		t.Errorf("%d paths ended in three wrong passwords, want 1", gave)
 	}
-	// 1st prompt: no, cancel (2 ends); right (9); wrong -> 2nd: no, cancel,
-	// right (9), wrong -> 3rd: no, cancel, right (9), wrong (1 end).
-	if want := 2 + 9 + (2 + 9 + (2 + 9 + 1)); len(paths) != want {
+	// 1st prompt: no, cancel (2 ends); right (3); wrong -> 2nd: no, cancel,
+	// right (3), wrong -> 3rd: no, cancel, right (3), wrong (1 end).
+	if want := 2 + 3 + (2 + 3 + (2 + 3 + 1)); len(paths) != want {
 		t.Errorf("%d paths, want %d", len(paths), want)
 	}
 }

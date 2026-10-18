@@ -63,14 +63,14 @@ func TestFullCleanupOneEventAtATime(t *testing.T) {
 			m.Answer(c.Opened.ID)
 		}
 	}
-	if !slices.Equal(opened, []engine.PromptID{1, 2, 3}) {
-		t.Errorf("prompts opened %v, want [1 2 3]", opened)
+	if !slices.Equal(opened, []engine.PromptID{1, 2}) {
+		t.Errorf("prompts opened %v, want [1 2]", opened)
 	}
-	if len(m.Rows) != 11 {
-		t.Fatalf("%d rows, want 11 (10 planned + the inserted orphan removal)", len(m.Rows))
+	if len(m.Rows) != 10 {
+		t.Fatalf("%d rows, want 10 (9 planned + the inserted orphan removal)", len(m.Rows))
 	}
-	if m.Rows[5].ID != steps.IDOrphansRemove {
-		t.Errorf("row 5 is %s, want the inserted %s", m.Rows[5].ID, steps.IDOrphansRemove)
+	if m.Rows[4].ID != steps.IDOrphansRemove {
+		t.Errorf("row 4 is %s, want the inserted %s", m.Rows[4].ID, steps.IDOrphansRemove)
 	}
 	for _, r := range m.Rows {
 		if r.State != RowOK {
@@ -83,8 +83,8 @@ func TestFullCleanupOneEventAtATime(t *testing.T) {
 	if m.Phase != engine.PhaseIdle || m.Prompt != nil {
 		t.Errorf("phase %v, prompt %v; want idle and none", m.Phase, m.Prompt)
 	}
-	if len(m.Logs) != 6 {
-		t.Errorf("%d log entries, want 6", len(m.Logs))
+	if len(m.Logs) != 5 {
+		t.Errorf("%d log entries, want 5", len(m.Logs))
 	}
 	out := strings.Join(m.Output(), "\n")
 	for _, want := range []string{"── Updating system with topgrade…", "==> Nothing to do.", "removing libbaz..."} {

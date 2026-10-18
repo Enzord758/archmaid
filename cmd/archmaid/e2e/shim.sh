@@ -28,6 +28,18 @@ sudo)
 	"-n pacman -Qkq --color never -- "*) [[ -n "${SHIM_BROKEN:-}" ]] && printf '%s /usr/share/fake/missing-file\n' "$SHIM_BROKEN" ;;
 	esac
 	;;
+paccache)
+	# Only the wipe's read-only dry run is canned (run.sh allows exactly
+	# `paccache --nocolor -dk0`; any other paccache fails the tape).
+	if [[ "$*" == "--nocolor -dk0" ]]; then
+		if [[ -n "${SHIM_CACHE_EMPTY:-}" ]]; then
+			echo "==> no candidate packages found for pruning"
+		else
+			printf '%s\n' "/var/cache/pacman/pkg/fake-1.0-1-x86_64.pkg.tar.zst" "/var/cache/pacman/pkg/fake-0.9-1-x86_64.pkg.tar.zst" \
+				"==> finished dry run: 2 candidates (disk space saved: 412.50 MiB)"
+		fi
+	fi
+	;;
 pacman)
 	case "$*" in
 	"-Qq --color never") printf 'fine-pkg\n%s\n' "${SHIM_BROKEN:-other-pkg}" ;;

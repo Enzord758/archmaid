@@ -21,7 +21,7 @@ func TestCards(t *testing.T) {
 			t.Errorf("%s: kind %v, want a run", c.ID, c.Kind)
 		}
 	}
-	want := []string{actions.IDFullCleanup, actions.IDUserCache, actions.IDRepair, actions.IDDownloads,
+	want := []string{actions.IDFullCleanup, actions.IDUserCache, actions.IDRepair, actions.IDDownloads, actions.IDWipeCache,
 		actions.IDTopgrade, actions.IDServices, actions.IDAURAudit}
 	if !slices.Equal(ids, want) {
 		t.Errorf("cards %q, want %q (the menu without View log, Edit config and Exit)", ids, want)
@@ -66,17 +66,18 @@ func TestPlanPreviewFullCleanupPolkit(t *testing.T) {
 		t.Fatal("no preview for Full Cleanup")
 	}
 	want := []string{"Auditing AUR packages…", "Updating system with topgrade…", "Finding orphaned packages…",
-		"Cleaning package cache…", "Deleting entire package cache…", "Removing uninstalled packages from cache…",
+		"Cleaning package cache…", "Removing uninstalled packages from cache…",
 		"Cleaning old temp files…", "Vacuuming logs…", "Checking package integrity…", "Cleaning AUR cache…",
 		"Updating Hyprland plugins…"}
 	if got := titles(p); !slices.Equal(got, want) {
 		t.Fatalf("plan %q\nwant %q", got, want)
 	}
-	// The six steps of the one helper call are root; topgrade gets root
-	// through its own sudo, tagged sudo (the gate's "6 steps run as root"
-	// beside 6 root tags, not 7).
-	if p.Root != 6 || p.Sudo != 1 || !p.Orphans {
-		t.Errorf("root %d sudo %d orphans %v, want 6, 1 and true", p.Root, p.Sudo, p.Orphans)
+	// The five steps of the one helper call are root (the cache wipe is not
+	// one of them: it is its own menu action); topgrade gets root through
+	// its own sudo, tagged sudo (the gate's "5 steps run as root" beside 5
+	// root tags, not 6).
+	if p.Root != 5 || p.Sudo != 1 || !p.Orphans {
+		t.Errorf("root %d sudo %d orphans %v, want 5, 1 and true", p.Root, p.Sudo, p.Orphans)
 	}
 	if s := p.Steps[1]; s.Title != "Updating system with topgrade…" || s.Root || !s.Sudo {
 		t.Errorf("topgrade previewed as %+v, want sudo, not root", s)
@@ -93,7 +94,7 @@ func TestPlanPreviewFullCleanupPolkit(t *testing.T) {
 			asks = append(asks, s.Title)
 		}
 	}
-	if combined != 6 || !slices.Equal(asks, []string{"Deleting entire package cache…"}) {
+	if combined != 5 || len(asks) != 0 {
 		t.Errorf("combined %d asks %q", combined, asks)
 	}
 }
@@ -103,7 +104,7 @@ func TestPlanPreviewFullCleanupSudo(t *testing.T) {
 	if !ok {
 		t.Fatal("no preview")
 	}
-	if n := len(p.Steps); n != 9 || p.Steps[n-1].Title != "Checking package integrity…" {
+	if n := len(p.Steps); n != 8 || p.Steps[n-1].Title != "Checking package integrity…" {
 		t.Errorf("sudo plan without hyprpm: %q", titles(p))
 	}
 	for _, s := range p.Steps {
@@ -111,8 +112,8 @@ func TestPlanPreviewFullCleanupSudo(t *testing.T) {
 			t.Errorf("%q combined outside polkit", s.Title)
 		}
 	}
-	if p.Root != 5 || p.Sudo != 1 || !p.Orphans {
-		t.Errorf("root %d sudo %d orphans %v, want 5, 1 and true", p.Root, p.Sudo, p.Orphans)
+	if p.Root != 4 || p.Sudo != 1 || !p.Orphans {
+		t.Errorf("root %d sudo %d orphans %v, want 4, 1 and true", p.Root, p.Sudo, p.Orphans)
 	}
 }
 
@@ -125,7 +126,7 @@ func TestPlanPreviewOthers(t *testing.T) {
 	if p, ok := PlanPreview(env, actions.IDUserCache); !ok || len(p.Steps) != 1 || p.Root != 0 || !p.Steps[0].Asks {
 		t.Errorf("user cache: ok %v %+v", ok, p)
 	}
-	for _, id := range []string{actions.IDRepair, actions.IDDownloads, actions.IDServices, actions.IDAURAudit,
+	for _, id := range []string{actions.IDRepair, actions.IDDownloads, actions.IDWipeCache, actions.IDServices, actions.IDAURAudit,
 		actions.IDViewLog, actions.IDEditConfig, "nope"} {
 		if _, ok := PlanPreview(env, id); ok {
 			t.Errorf("%s: a preview for an action without a static queue", id)

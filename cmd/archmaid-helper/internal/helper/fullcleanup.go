@@ -8,13 +8,13 @@ import (
 
 // cleanupArgs are full-cleanup's explicit flags:
 //
-//	full-cleanup --keep N [--wipe] [--uninstalled] [--orphans sha256:…] --journal D
+//	full-cleanup --keep N [--uninstalled] [--orphans sha256:…] --journal D
 type cleanupArgs struct {
 	keep, orphans, journal string
-	wipe, uninstalled      bool
+	uninstalled            bool
 }
 
-const fullCleanupUsage = "full-cleanup --keep N [--wipe] [--uninstalled] [--orphans sha256:<hash>] --journal 1week|2weeks|1month"
+const fullCleanupUsage = "full-cleanup --keep N [--uninstalled] [--orphans sha256:<hash>] --journal 1week|2weeks|1month"
 
 // parseCleanupArgs is deliberately strict: every flag at most once, values
 // as the next argument (no --flag=value), no positionals, no unknown flags.
@@ -48,8 +48,6 @@ func parseCleanupArgs(args []string) (cleanupArgs, error) {
 			if c.orphans, err = value(); err == nil && !hashPattern.MatchString(c.orphans) {
 				err = fmt.Errorf("--orphans must be a plan hash (sha256:<64 hex>)")
 			}
-		case "--wipe":
-			c.wipe = true
 		case "--uninstalled":
 			c.uninstalled = true
 		default:
@@ -75,7 +73,6 @@ func parseCleanupArgs(args []string) (cleanupArgs, error) {
 const (
 	PartRemoveOrphans = "remove-orphans"
 	PartPaccache      = "paccache"
-	PartPaccacheWipe  = "paccache-wipe"
 	// PartCleanUninstalled is the one part that is no verb of its own: it
 	// exists only inside full-cleanup (no polkit action of its own).
 	PartCleanUninstalled = "clean-uninstalled"
@@ -85,7 +82,7 @@ const (
 )
 
 // runFullCleanup runs the fixed cleanup sequence under one polkit dialog:
-// [remove-orphans H], paccache -k N, [paccache -k 0], [pacman -Sc],
+// [remove-orphans H], paccache -k N, [pacman -Sc],
 // tmpfiles clean, journal vacuum, pacman -Qk. pacman -Sc (--uninstalled)
 // drops the cached packages of what is no longer installed — what yay -Sc
 // ran through sudo — after the orphan removal, so the orphans' packages go
@@ -118,9 +115,6 @@ func runFullCleanup(s *session, args []string) int {
 		steps = append(steps, cstep{part: PartRemoveOrphans})
 	}
 	steps = append(steps, cstep{part: PartPaccache, label: "Cleaning package cache (keep " + c.keep + ")", argv: paccacheArgv(c.keep)})
-	if c.wipe {
-		steps = append(steps, cstep{part: PartPaccacheWipe, label: "Removing every cached package", argv: paccacheArgv("0")})
-	}
 	if c.uninstalled {
 		steps = append(steps, cstep{part: PartCleanUninstalled, label: "Removing uninstalled packages from the cache", argv: cleanUninstalledArgv()})
 	}

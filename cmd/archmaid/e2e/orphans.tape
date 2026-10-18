@@ -1,5 +1,5 @@
 # Full Cleanup: the orphan confirm must show "2 ... 3 total" (pacman is a shim).
-# Declines the optional package-cache wipe, accepts the orphan removal.
+# Accepts the orphan removal (Full Cleanup has no cache-wipe question).
 # Driven by e2e/run.sh (scratch HOME, shimmed PATH).
 
 Output e2e/orphans.txt
@@ -21,10 +21,6 @@ Enter
 Sleep 800ms
 Type "y"
 Sleep 2s
-
-# "Delete ENTIRE package cache?" -> no.
-Type "n"
-Sleep 1s
 
 # Orphan confirm: hold it on screen, then accept.
 Sleep 1s

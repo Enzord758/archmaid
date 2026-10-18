@@ -234,7 +234,7 @@ func TestFullCleanupPolkitOneCall(t *testing.T) {
 			t.Errorf("sudo: %s is combined", s.ID)
 		}
 	}
-	if want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDPaccache, steps.IDPaccacheWipe, steps.IDOrphansProbe,
+	if want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDPaccache, steps.IDOrphansProbe,
 		steps.IDYayCache, steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity, steps.IDHyprpm}; !slices.Equal(idsOf(sudoQ), want) {
 		t.Errorf("sudo order %q, want %q", idsOf(sudoQ), want)
 	}
@@ -242,7 +242,7 @@ func TestFullCleanupPolkitOneCall(t *testing.T) {
 	env.Polkit = true
 	env.PlanOrphans = func(context.Context) (steps.OrphanPlan, error) { return testPlan, nil }
 	q := a.Steps(env)
-	want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDOrphansProbe, steps.IDPaccache, steps.IDPaccacheWipe,
+	want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDOrphansProbe, steps.IDPaccache,
 		steps.IDPkgCacheUninstalled, steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity, steps.IDYayCache, steps.IDHyprpm}
 	if !slices.Equal(idsOf(q), want) {
 		t.Fatalf("polkit order %q, want %q", idsOf(q), want)

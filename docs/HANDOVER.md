@@ -9,7 +9,7 @@ than appending dated ones.
 
 ## Status
 
-Feature-complete: all nine menu actions work, with `--dryrun` for a safe end to
+Feature-complete: all ten menu actions work, with `--dryrun` for a safe end to
 end. The gate is `scripts/check.sh`: race tests, vet, gofmt and coverage
 floors (see `TESTING.md`). Verified live against a real Arch system: Full
 Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
@@ -831,27 +831,46 @@ comments and `git log`; this is the "read before you touch it" list.
   own final step. `TestNoPrivilegedStepAfterHyprpm` (`internal/actions`) fails
   any action whose queue has a root step, or any in-process step (it may insert
   one, as the orphan probe does), after hyprpm.
-- **Full Cleanup's order:** AUR audit → topgrade → `paccache -r` → optional
-  `paccache -rk0` → orphan probe → (orphan removal, inserted by the probe) →
+- **Full Cleanup's order:** AUR audit → topgrade → `paccache -r` (keeps 3;
+  no "delete the entire cache" step since 2026-10-18, see "Delete entire
+  package cache" below) → orphan probe → (orphan removal, inserted by the probe) →
   `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Under
   polkit (the GUI) it is AUR audit → topgrade → orphan probe → (orphan
-  removal) → paccache → wipe → `pacman -Sc` → tmpfiles → journal →
+  removal) → paccache → `pacman -Sc` → tmpfiles → journal →
   integrity → `yay -Sc --aur` → hyprpm, the root steps as one call (next
   entry). Building the
   queue runs nothing; the only work `activate` starts is the audit prefetch,
   off the UI thread. `BenchmarkActivateFullCleanup` (~5 µs) holds that in the
   opt-in perf guard, with a fixed 1 ms limit.
+- **Delete entire package cache is its own menu action, not a Full Cleanup
+  step (owner's decision, 2026-10-18, task #186).** Step 04's `paccache -r`
+  (keep 3) is the cache cleaning; `actions.IDWipeCache` ("Delete entire
+  package cache", `internal/actions/wipecache.go`) is a Discover action, in
+  the TUI menu and the GUI Overview, not in the DMS widget. Its discovery
+  runs the read-only dry run `paccache --nocolor -dk0` as the user (the
+  cache is world-readable; no root, no password), parses its
+  "finished dry run: N candidates (disk space saved: S)" line with a strict
+  pattern, and returns a Pending step whose confirm (default No) shows S and
+  N and "You can't reinstall or downgrade these packages without internet".
+  An empty cache is a Notice; a failing or unreadable dry run is a failure
+  Notice (log category `pkgcache`), never a confirm without its numbers.
+  The step is `steps.IDPaccacheWipe` / `VerbPaccacheWipe`, `sudo paccache
+  -rk0` in the TUI; under polkit it is the helper's existing standalone
+  `paccache-wipe` verb (argv `paccache-wipe`, no arguments, `auth_admin`),
+  so the policy file and the `pkaction` count (9) are unchanged.
+  `full-cleanup` no longer has `--wipe`: the helper rejects it as an unknown
+  flag, and `helperclient` rejects a wipe part inside a combined call.
 - **One polkit dialog per Full Cleanup run (owner's decision E).** The
   TUI asks one sudo password per run; the GUI must ask polkit once, not
   once per root step (the first live GUI run showed five dialogs). So
-  under polkit Full Cleanup's root steps (orphan removal, paccache, wipe,
+  under polkit Full Cleanup's root steps (orphan removal, paccache,
   `pacman -Sc`, tmpfiles, journal, integrity) are consecutive and carry
   `Step.Combine = full-cleanup` (`actions.polkitFullCleanup`), and the
   engine (`combine.go`) runs such a run as ONE helper call: it asks every
-  confirm among them first (the orphan list, bound by its plan hash, and
-  the cache wipe), reads faillock once, then one `StartStep` whose Step has
+  confirm among them first (the orphan list, bound by its plan hash),
+  reads faillock once, then one `StartStep` whose Step has
   `Parts`; `helperclient` builds `pkexec --disable-internal-agent
-  archmaid-helper full-cleanup --keep 3 --journal 2weeks [--orphans H] [--wipe] [--uninstalled]` from the parts and
+  archmaid-helper full-cleanup --keep 3 --journal 2weeks [--orphans H] [--uninstalled]` from the parts and
   maps the helper's per-part `progress`/`done` events back to
   `PartStarted`/`PartDone`, so every row still starts and ends on its own.
   A refused dialog marks exactly the steps it covered AuthRefused; the run
@@ -866,7 +885,7 @@ comments and `git log`; this is the "read before you touch it" list.
   Trade-off: once the dialog is granted, an Abort can't stop the parts
   still to come (the helper runs as root; the per-step design stopped
   before the next step's dialog). The polkit message is fixed text, so the
-  in-app confirms are what say whether orphans and the wipe are included.
+  in-app confirm is what says whether orphans are included.
   A GUI dry run takes the same route without asking: the engine combines
   under polkit in a dry run too (no faillock read, no polkit wait), and the
   Driver hands a dry-run helper step to `helperclient.DryRun`, which prints

@@ -6,6 +6,11 @@ the commit that made the change; the range is `5585358..v2.0.0` (554 commits, ti
 
 ## [Unreleased]
 
+### Changed
+
+- **"Delete entire package cache" is a menu action of its own, no longer a step of Full Cleanup** (owner's decision, 2026-10-18). Full Cleanup already trims the cache to the 3 newest versions, so it has one step and one confirm fewer: 8 steps in the TUI (9 with hyprpm), and in the GUI the root call covers 5 steps, not 6. The new action is in the TUI menu and the GUI Overview (not in the bar widget). It first runs `paccache -dk0` as you, a read-only dry run, and its confirm (default No) shows how much it frees and how many package files, with the warning that you can't reinstall or downgrade those packages without internet; only a yes runs `paccache -rk0` as root (sudo in the TUI, the existing `paccache-wipe` helper verb through polkit in the GUI, so the polkit policy is unchanged). An empty cache or a failing dry run ends in a notice, recorded under the new log category "Package cache check".
+- `archmaid-helper full-cleanup` no longer takes `--wipe` (it exits 2 as for any unknown flag); `paccache-wipe` stays a verb of its own.
+
 ## [2.0.0] - 2026-10-18
 
 The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` = 4fdc62b). The package version stays `rN.sha` from `pkgver()`; the tag `v2.0.0` marks this release.

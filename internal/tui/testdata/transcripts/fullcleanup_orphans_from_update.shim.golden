@@ -2,17 +2,16 @@ action "Full Cleanup (Recommended)"
 exec  pacman -Qqm --color never
 exec  sudo -n -v
 ask   "Proceed with full cleanup?" -> yes
-plan  10 steps
+plan  9 steps
 plan  1 "Auditing AUR packages…" inproc alwayslog cat=audit
 plan  2 "Updating system with topgrade…" argv=topgrade -y --no-retry --disable hyprpm sudo alwayslog cat=topgrade
 plan  3 "Cleaning package cache…" argv=sudo paccache -r sudo cat=cleanup
-plan  4 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo confirm optional alwayslog cat=cleanup
-plan  5 "Finding orphaned packages…" inproc cat=orphans
-plan  6 "Cleaning AUR cache…" argv=yay -Sc --noconfirm --color always cat=cleanup
-plan  7 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
-plan  8 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
-plan  9 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
-plan  10 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
+plan  4 "Finding orphaned packages…" inproc cat=orphans
+plan  5 "Cleaning AUR cache…" argv=yay -Sc --noconfirm --color always cat=cleanup
+plan  6 "Cleaning old temp files…" argv=sudo systemd-tmpfiles --clean sudo alwayslog cat=cleanup
+plan  7 "Vacuuming logs…" argv=sudo journalctl --vacuum-time=2weeks sudo alwayslog cat=cleanup
+plan  8 "Checking package integrity…" argv=sudo pacman -Qkq sudo cat=cleanup
+plan  9 "Updating Hyprland plugins…" argv=hyprpm update cat=cleanup
 step  1 running
 out   1 1 foreign package(s) checked against the AUR: 0 high, 0 glance, 1 clean
 out   1
@@ -29,40 +28,37 @@ log   topgrade OK: Topgrade completed
 step  3 running
 exec  sudo -A paccache -r
 step  3 ok
-ask   "Delete ENTIRE package cache? (can't reinstall without internet)" -> no
-step  4 skipped
-log   cleanup SKIP: Entire package cache removed (declined)
-step  5 running
+step  4 running
 exec  pacman -Qdtq --color never
 exec  pacman -Rs --print --color never -- libold python-oldthing
-out   5 2 orphaned package(s): libold python-oldthing
-out   5 pacman -Rns would remove 3 package(s):
-out   5   libold
-out   5   python-oldthing
-out   5   python-olddep
-step  5 ok
-plan  11 steps
-plan  +6 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm -- libold python-oldthing sudo confirm optional alwayslog cat=orphans
+out   4 2 orphaned package(s): libold python-oldthing
+out   4 pacman -Rns would remove 3 package(s):
+out   4   libold
+out   4   python-oldthing
+out   4   python-olddep
+step  4 ok
+plan  10 steps
+plan  +5 "Removing orphaned packages…" argv=sudo pacman -Rns --noconfirm -- libold python-oldthing sudo confirm optional alwayslog cat=orphans
 ask   "Remove 2 orphaned package(s) — 3 total once dependencies cascade?" -> yes
-step  6 running
+step  5 running
 exec  sudo -A pacman -Rns --noconfirm -- libold python-oldthing
-step  6 ok
+step  5 ok
 log   orphans OK: Orphaned packages removed
-step  7 running
+step  6 running
 exec  yay -Sc --noconfirm --color always
-step  7 ok
-step  8 running
+step  6 ok
+step  7 running
 exec  sudo -A systemd-tmpfiles --clean
-step  8 ok
+step  7 ok
 log   cleanup OK: Temp files cleaned per tmpfiles.d rules
-step  9 running
+step  8 running
 exec  sudo -A journalctl --vacuum-time=2weeks
-step  9 ok
+step  8 ok
 log   cleanup OK: Old logs removed
-step  10 running
+step  9 running
 exec  sudo -A pacman -Qkq
-step  10 ok
-step  11 running
+step  9 ok
+step  10 running
 exec  hyprpm update
-step  11 ok
-end   outcome=completed errs=0 skipped=1
+step  10 ok
+end   outcome=completed errs=0 skipped=0

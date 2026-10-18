@@ -28,7 +28,7 @@ the GUI was started from, which fails anyway on polkit 126+ (see
 |---|---|---|---|
 | `check-files [pkg…]` | `pacman -Qk`, or with names `pacman -Qk -- …` | read-only. Exit 1 from pacman means "missing files found", which is a result, not a failure. With no names it checks every package. With names (Repair's root recheck of the user scan's candidates) it takes 1–256 of them, each =~ the `repair` name pattern (so none starts with `-`), none twice, and each installed (`pacman -Qq`); anything else exits 2 before `-Qk` runs. Either way it then emits one `check` event (`checked`, `broken`) before the result: with names, a name without a summary line is skipped (`could not check its files`); without, it lists every package pacman printed a summary for. Any pacman exit but 0/1 exits 1 with no `check` event | `…check-files` (keep) |
 | `paccache N` | `paccache -r -k N` | `N` ∈ `1`–`9` | `…paccache` (keep) |
-| `paccache-wipe` | `paccache -r -k 0` | none | `…paccache-wipe` (admin) |
+| `paccache-wipe` | `paccache -r -k 0` | none. The "Delete entire package cache" menu action runs it, after a confirm that shows the user-side dry run's total; Full Cleanup does not (it keeps 3 versions, and `full-cleanup` takes no `--wipe`) | `…paccache-wipe` (admin) |
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
 | `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan right before `-Rns`; a mismatch emits the new plan and exits **3**, a pacman running then exits **5**, both removing nothing | `…remove-orphans` (admin) |
 | `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Q`), in a sync repo (`-Si`), really missing files (`-Qk -- pkg`) and installed at exactly the version the first repo listing it has (`-Q` vs. `-Si` → `Version`), so a repair is never a partial upgrade or a downgrade. Any other package is skipped and listed, a version mismatch with the reason `repo has a different version (installed X, repo Y) — update the system first`. If nothing is left to reinstall and a version mismatch is among the reasons, it exits **3**. Then the whole transaction is checked: `pacman -Sp --noconfirm --print-format '%n %v' -- …` (stdout only) must list exactly the packages left, each at its installed version. A dependency it would install or upgrade too, a version that changed meanwhile or a package missing from it exits **3**, reinstalls nothing, and lists every package as skipped (the extra packages are named in the reasons and in `error`). Unparseable `-Sp` output or a failing `-Sp` exits 1. Note: the reinstall comes from the first repo (pacman.conf order) that lists the package, which then carries the installed version; that need not be the repo it was installed from. On CachyOS, a package installed from `core` is reinstalled from `cachyos-core-v4` when that repo lists the same version first: same version, that repo's build | `…repair` (admin) |
@@ -151,18 +151,17 @@ disabled together (a failed service and its inactive socket named in `Also=`)
 is allowed.
 
 **full-cleanup** takes
-`full-cleanup --keep N [--wipe] [--uninstalled] [--orphans sha256:…] --journal D`. Flags take
+`full-cleanup --keep N [--uninstalled] [--orphans sha256:…] --journal D`. Flags take
 their value as the next argument, never `--flag=value`. Each flag may appear
 once; unknown flags and positionals exit 2. The steps ("parts") always run in
 this order, each named by the verb it stands for (`clean-uninstalled` has a name of its own):
 
 1. `remove-orphans`: remove-orphans `H` (only with `--orphans`; a stale plan is skipped and reported, not run). First, right after the lock check, while the confirmed plan is freshest
 2. `paccache`: `paccache -r -k N`
-3. `paccache-wipe`: `paccache -r -k 0` (only with `--wipe`)
-4. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog. Before `-Sc`, holding pacman's own `db.lck`, it removes the empty `download-XXXXXX` folders pacman left in the cache (after an interrupted download, and after every transaction that downloaded nothing), which `-Sc` would otherwise report one red `error: could not open file …` line each for (see "Download leftovers" below)
-5. `clean-tmp`: `systemd-tmpfiles --clean`
-6. `vacuum-journal`: `journalctl --vacuum-time=D`
-7. `check-files`: `pacman -Qk --color always` (relayed only, no `check` event here; the `check-files` verb's own `-Qk` runs with `--color never`)
+3. `clean-uninstalled`: `pacman -Sc --noconfirm` (only with `--uninstalled`): the cached packages of what is no longer installed (pacman.conf's `CleanMethod`) and unused sync databases. It is the root half of `yay -Sc`, which the GUI runs here instead of through sudo, after the orphan removal so the orphans' packages go too. It is the one part that is no verb of its own (no polkit action): it only ever runs under `full-cleanup`'s dialog. Before `-Sc`, holding pacman's own `db.lck`, it removes the empty `download-XXXXXX` folders pacman left in the cache (after an interrupted download, and after every transaction that downloaded nothing), which `-Sc` would otherwise report one red `error: could not open file …` line each for (see "Download leftovers" below)
+4. `clean-tmp`: `systemd-tmpfiles --clean`
+5. `vacuum-journal`: `journalctl --vacuum-time=D`
+6. `check-files`: `pacman -Qk --color always` (relayed only, no `check` event here; the `check-files` verb's own `-Qk` runs with `--color never`)
 
 The parts are independent, so a failing part doesn't stop the rest. Each
 part's `progress` events carry `part`, and the part ends with a `done` event

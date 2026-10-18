@@ -17,8 +17,8 @@ Enter
 Sleep 1.5s
 Show
 
-# Menu row 5 (Disable unused services) -> notice -> dismiss -> quit.
-Down 5
+# Menu row 6 (Disable unused services) -> notice -> dismiss -> quit.
+Down 6
 Sleep 400ms
 Enter
 Sleep 2s

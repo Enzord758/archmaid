@@ -76,7 +76,7 @@ func TestNoPrivilegedStepAfterHyprpm(t *testing.T) {
 // only when it is installed.
 func TestFullCleanupOrder(t *testing.T) {
 	a, _ := ByID(IDFullCleanup)
-	want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDPaccache, steps.IDPaccacheWipe,
+	want := []string{steps.IDAURAudit, steps.IDTopgrade, steps.IDPaccache,
 		steps.IDOrphansProbe, steps.IDYayCache, steps.IDTmpfiles, steps.IDJournal, steps.IDIntegrity}
 	if got := ids(a.Steps(testEnv(false))); !slices.Equal(got, want) {
 		t.Fatalf("without hyprpm: %v, want %v", got, want)

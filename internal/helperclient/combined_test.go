@@ -13,8 +13,9 @@ import (
 
 // fullCleanupCall is the step the engine builds for Full Cleanup's combined
 // call: its parts in the helper's order, the orphan removal, the cache
-// wipe and the uninstalled packages' cache only when asked for.
-func fullCleanupCall(orphans, wipe, uninstalled bool) steps.Step {
+// and the uninstalled packages' cache only when asked for. (The cache wipe is
+// no part: it is the standalone paccache-wipe verb.)
+func fullCleanupCall(orphans, uninstalled bool) steps.Step {
 	part := func(id, verb string) steps.Step {
 		return steps.Step{ID: id, Verb: verb, Combine: steps.VerbFullCleanup, NeedsPriv: true}
 	}
@@ -26,9 +27,6 @@ func fullCleanupCall(orphans, wipe, uninstalled bool) steps.Step {
 		parts = append(parts, o)
 	}
 	parts = append(parts, part(steps.IDPaccache, steps.VerbPaccache))
-	if wipe {
-		parts = append(parts, part(steps.IDPaccacheWipe, steps.VerbPaccacheWipe))
-	}
 	if uninstalled {
 		parts = append(parts, part(steps.IDPkgCacheUninstalled, steps.VerbFullCleanup))
 	}
@@ -38,33 +36,37 @@ func fullCleanupCall(orphans, wipe, uninstalled bool) steps.Step {
 }
 
 func TestArgvFullCleanup(t *testing.T) {
-	got, err := Argv(fullCleanupCall(true, true, true))
+	got, err := Argv(fullCleanupCall(true, true))
 	want := []string{Pkexec, DisableInternalAgent, HelperPath, "full-cleanup", "--keep", PaccacheKeep, "--journal", JournalSpan,
-		"--orphans", goodPlan().Hash, "--wipe", "--uninstalled"}
+		"--orphans", goodPlan().Hash, "--uninstalled"}
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("Argv = %q, %v\nwant %q", got, err, want)
 	}
-	got, err = Argv(fullCleanupCall(false, false, false))
+	got, err = Argv(fullCleanupCall(false, false))
 	if want := want[:8]; err != nil || !slices.Equal(got, want) {
 		t.Fatalf("Argv = %q, %v\nwant %q", got, err, want)
 	}
 
 	bad := map[string]func(*steps.Step){
 		"out of order":           func(s *steps.Step) { s.Parts[0], s.Parts[1] = s.Parts[1], s.Parts[0] },
-		"missing":                func(s *steps.Step) { s.Parts = slices.Delete(s.Parts, 4, 5) }, // clean-tmp
-		"uninstalled with items": func(s *steps.Step) { s.Parts[3].Items = []string{"a"} },
-		"another verb-less part": func(s *steps.Step) { s.Parts[3].ID = steps.IDYayCache },
+		"missing":                func(s *steps.Step) { s.Parts = slices.Delete(s.Parts, 3, 4) }, // clean-tmp
+		"uninstalled with items": func(s *steps.Step) { s.Parts[2].Items = []string{"a"} },
+		"another verb-less part": func(s *steps.Step) { s.Parts[2].ID = steps.IDYayCache },
 		"twice":                  func(s *steps.Step) { s.Parts = append(s.Parts, s.Parts[len(s.Parts)-1]) },
 		"foreign":                func(s *steps.Step) { s.Parts = append(s.Parts, steps.Step{ID: "x", Verb: steps.VerbRepair}) },
 		"not combined":           func(s *steps.Step) { s.Parts[1].Combine = "" },
 		"nested":                 func(s *steps.Step) { s.Parts[1].Parts = []steps.Step{{}} },
 		"names":                  func(s *steps.Step) { s.Parts[len(s.Parts)-1].Items = []string{"a"} },
 		"items":                  func(s *steps.Step) { s.Items = []string{"a"} },
-		"bad plan":               func(s *steps.Step) { s.Parts[0].Items = []string{"other"} },
+		"a cache wipe part": func(s *steps.Step) {
+			wipe := steps.Step{ID: steps.IDPaccacheWipe, Verb: steps.VerbPaccacheWipe, Combine: steps.VerbFullCleanup, NeedsPriv: true}
+			s.Parts = slices.Insert(s.Parts, 2, wipe)
+		},
+		"bad plan": func(s *steps.Step) { s.Parts[0].Items = []string{"other"} },
 	}
 	for name, f := range bad {
 		t.Run(name, func(t *testing.T) {
-			st := fullCleanupCall(true, true, true)
+			st := fullCleanupCall(true, true)
 			f(&st)
 			if got, err := Argv(st); err == nil {
 				t.Fatalf("Argv accepted it: %q", got)
@@ -84,10 +86,10 @@ func doneLine(n, of int, part string, code int, msg string) string {
 }
 
 // fullCleanupStream is a whole full-cleanup run over the parts of
-// fullCleanupCall(true, true, true); fail names a part that fails (exit 1), and
+// fullCleanupCall(true, true); fail names a part that fails (exit 1), and
 // stale makes the orphan part find a changed plan.
 func fullCleanupStream(fail string, stale bool) (code string, ls []string) {
-	parts := []string{"remove-orphans", "paccache", "paccache-wipe", "clean-uninstalled", "clean-tmp", "vacuum-journal", "check-files"}
+	parts := []string{"remove-orphans", "paccache", "clean-uninstalled", "clean-tmp", "vacuum-journal", "check-files"}
 	ls = []string{`{"v":1,"t":"start","verb":"full-cleanup","version":"0.1.0"}`}
 	res := 0
 	for i, p := range parts {
@@ -141,14 +143,13 @@ func trace(r recorded) []string {
 func TestRunFullCleanup(t *testing.T) {
 	code, ls := fullCleanupStream("", false)
 	argvFile := shim(t, lines(code, ls...))
-	r := runStep(t, fullCleanupCall(true, true, true))
+	r := runStep(t, fullCleanupCall(true, true))
 	if got := readArgv(t, argvFile); got[0] != DisableInternalAgent || got[2] != "full-cleanup" {
 		t.Errorf("pkexec argv %q", got)
 	}
 	want := []string{"granted",
 		"| doing remove-orphans", "| out of remove-orphans", "done orphans-remove",
 		"start paccache", "| doing paccache", "| out of paccache", "done paccache",
-		"start paccache-wipe", "| doing paccache-wipe", "| out of paccache-wipe", "done paccache-wipe",
 		"start pkg-cache-uninstalled", "| doing clean-uninstalled", "| out of clean-uninstalled", "done pkg-cache-uninstalled",
 		"start tmpfiles", "| doing clean-tmp", "| out of clean-tmp", "done tmpfiles",
 		"start journal", "| doing vacuum-journal", "| out of vacuum-journal", "done journal",
@@ -174,7 +175,7 @@ func TestRunFullCleanupPartOutcomes(t *testing.T) {
 	} {
 		code, ls := fullCleanupStream(c.fail, c.stale)
 		shim(t, lines(code, ls...))
-		r := runStep(t, fullCleanupCall(true, true, true))
+		r := runStep(t, fullCleanupCall(true, true))
 		if e := r.exited(t); e.Err != nil {
 			t.Errorf("StepExited.Err = %v, want nil (the last part was fine)", e.Err)
 		}
@@ -200,7 +201,7 @@ func TestRunFullCleanupPartOutcomes(t *testing.T) {
 	// The last part failing is the call's error.
 	code, ls := fullCleanupStream("check-files", false)
 	shim(t, lines(code, ls...))
-	if e := runStep(t, fullCleanupCall(true, true, true)).exited(t); e.Err == nil || !strings.Contains(e.Err.Error(), "check-files broke") {
+	if e := runStep(t, fullCleanupCall(true, true)).exited(t); e.Err == nil || !strings.Contains(e.Err.Error(), "check-files broke") {
 		t.Errorf("StepExited.Err = %v", e.Err)
 	}
 }
@@ -226,7 +227,7 @@ func TestRunFullCleanupProtocol(t *testing.T) {
 				code = "1"
 			}
 			shim(t, lines(code, ls...))
-			if e := runStep(t, fullCleanupCall(true, true, true)).exited(t); e.Err == nil || e.NotGranted {
+			if e := runStep(t, fullCleanupCall(true, true)).exited(t); e.Err == nil || e.NotGranted {
 				t.Fatalf("StepExited = %+v, want a failure", e)
 			}
 		})
@@ -237,13 +238,13 @@ func TestRunFullCleanupProtocol(t *testing.T) {
 // event at all; a refusal at the helper's lock is the call's error.
 func TestRunFullCleanupRefused(t *testing.T) {
 	shim(t, "exit 127")
-	r := runStep(t, fullCleanupCall(false, false, false))
+	r := runStep(t, fullCleanupCall(false, false))
 	if e := r.exited(t); !e.NotGranted || len(r.inputs) != 1 {
 		t.Fatalf("inputs %#v", r.inputs)
 	}
 	shim(t, lines("5", `{"v":1,"t":"start","verb":"full-cleanup","version":"0.1.0"}`,
 		`{"v":1,"t":"result","ok":false,"code":5,"child_exit":null,"skipped":[],"error":"pacman is running"}`))
-	if e := runStep(t, fullCleanupCall(false, false, false)).exited(t); e.Err == nil || !strings.Contains(e.Err.Error(), "pacman is running") {
+	if e := runStep(t, fullCleanupCall(false, false)).exited(t); e.Err == nil || !strings.Contains(e.Err.Error(), "pacman is running") {
 		t.Fatalf("StepExited.Err = %v", e.Err)
 	}
 }
@@ -252,7 +253,7 @@ func TestRunFullCleanupRefused(t *testing.T) {
 // too (the engine settles every part it covered with it).
 func TestRunFullCleanupNoAgent(t *testing.T) {
 	shim(t, "echo 'Error executing command as another user: No authentication agent found.' >&2\nexit 127")
-	ex := runStep(t, fullCleanupCall(true, true, true)).exited(t)
+	ex := runStep(t, fullCleanupCall(true, true)).exited(t)
 	if !ex.NotGranted || !errors.Is(ex.Err, ErrNotGranted) || !errors.Is(ex.Err, engine.ErrNoAuthAgent) {
 		t.Fatalf("StepExited %+v, want NotGranted with ErrNoAuthAgent", ex)
 	}

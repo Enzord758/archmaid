@@ -33,7 +33,6 @@ func helperColourShims(t *testing.T) {
 p=
 case " $* " in *" --orphans "*) p=remove-orphans ;; esac
 p="$p paccache"
-case " $* " in *" --wipe "*) p="$p paccache-wipe" ;; esac
 case " $* " in *" --uninstalled "*) p="$p clean-uninstalled" ;; esac
 p="$p clean-tmp vacuum-journal check-files"
 n=0

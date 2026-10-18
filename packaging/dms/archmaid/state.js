@@ -218,6 +218,7 @@ var ACTION_LABELS = {
     usercache: "Clear user cache",
     repair: "Repair broken packages",
     downloads: "Delete old downloads",
+    wipecache: "Delete entire package cache",
     topgrade: "Run topgrade",
     services: "Disable unused services",
     auraudit: "Audit AUR packages"

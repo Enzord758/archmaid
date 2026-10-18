@@ -64,7 +64,7 @@ func TestSystemdColoursReachTheRunner(t *testing.T) {
 	h := PlanHash([]string{"a"}, []string{"a 1-1", "dep 1-1"})
 	f := orphanFake("a\n", "a 1-1\ndep 1-1\n")
 	o, out := rootOpts(t, f)
-	if code := Run([]string{"full-cleanup", "--keep", "2", "--wipe", "--uninstalled", "--orphans", h, "--journal", "1month"}, o); code != ExitOK {
+	if code := Run([]string{"full-cleanup", "--keep", "2", "--uninstalled", "--orphans", h, "--journal", "1month"}, o); code != ExitOK {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	for _, q := range f.queries {

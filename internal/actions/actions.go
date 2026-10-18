@@ -214,6 +214,7 @@ const (
 	IDUserCache   = "usercache"
 	IDRepair      = "repair"
 	IDDownloads   = "downloads"
+	IDWipeCache   = "wipecache"
 	IDTopgrade    = "topgrade"
 	IDServices    = "services"
 	IDAURAudit    = "auraudit"
@@ -228,6 +229,7 @@ var Menu = []Action{
 	{ID: IDUserCache, Icon: "󰃨", Label: "Clear user cache", Steps: userCacheSteps},
 	{ID: IDRepair, Icon: "󰚰", Label: "Repair broken packages", Discover: discoverRepair, Busy: "Scanning for broken packages…", Record: logstore.Repair},
 	{ID: IDDownloads, Icon: "󰋊", Label: "Delete old downloads", Discover: discoverDownloads, Busy: "Checking Downloads…", Record: logstore.Downloads},
+	{ID: IDWipeCache, Icon: "󰩺", Label: "Delete entire package cache", Discover: discoverWipeCache, Busy: "Measuring the package cache…", Record: logstore.PkgCache},
 	{ID: IDTopgrade, Icon: "󰏗", Label: "Run topgrade (system update)", Steps: topgradeSteps, Gate: "Run a system update with topgrade?"},
 	{ID: IDServices, Icon: "󰒔", Label: "Disable unused services", Discover: discoverServices, Busy: "Finding unused services…", Record: logstore.Services},
 	{ID: IDAURAudit, Icon: "󰶚", Label: "Audit AUR packages", Discover: discoverAURAudit, Busy: "Checking foreign packages against the AUR…", Record: logstore.AURAudit},

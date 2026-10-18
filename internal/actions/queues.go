@@ -56,14 +56,6 @@ func fullCleanupSteps(env Env) []steps.Step {
 			Title: "Cleaning package cache…", LogLabel: "Old package cache cleaned",
 			Argv: []string{"sudo", "paccache", "-r"}, NeedsPriv: true,
 		},
-		{
-			ID: steps.IDPaccacheWipe, Verb: steps.VerbPaccacheWipe,
-			Title: "Deleting entire package cache…", LogLabel: "Entire package cache removed",
-			Argv: []string{"sudo", "paccache", "-rk0"}, NeedsPriv: true,
-			Confirm:   "Delete ENTIRE package cache? (can't reinstall without internet)",
-			Optional:  true,
-			AlwaysLog: true,
-		},
 		// Orphans are looked for here, after the update, not when the queue
 		// is built: an upgrade can orphan packages of its own, and the list
 		// the removal acts on must be the one its confirm showed. The probe
@@ -125,7 +117,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 // fullCleanupRoot are Full Cleanup's root steps, in the order the root
 // helper's full-cleanup runs them (after the orphan removal, which the
 // probe inserts in front of them).
-var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPaccacheWipe, steps.IDPkgCacheUninstalled, steps.IDTmpfiles,
+var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPkgCacheUninstalled, steps.IDTmpfiles,
 	steps.IDJournal, steps.IDIntegrity}
 
 // polkitFullCleanup is Full Cleanup's queue under polkit, where the owner's
