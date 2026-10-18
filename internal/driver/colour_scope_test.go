@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -29,7 +30,9 @@ func TestCLICOLORForceStaysInTopgradesTree(t *testing.T) {
 	}
 	dir := filepath.Dir(calls)
 	record := func(name string) string {
-		return "printf '%s\\n' \"${CLICOLOR_FORCE-unset}\" >> '" + filepath.Join(dir, name+".clicolor") + "'\n"
+		// atomic: the file appears with its line or not at all
+		f := filepath.Join(dir, name+".clicolor")
+		return "printf '%s\\n' \"${CLICOLOR_FORCE-unset}\" > '" + f + ".tmp' && mv '" + f + ".tmp' '" + f + "'\n"
 	}
 	for name, body := range map[string]string{
 		// the second line is a descendant: sudo, then the askpass relay
@@ -84,5 +87,43 @@ func TestCLICOLORForceStaysInTopgradesTree(t *testing.T) {
 	waitFor(t, "the updates script", func() bool { return len(readFileLines(t, filepath.Join(dir, "updates.clicolor"))) > 0 })
 	if got := readFileLines(t, filepath.Join(dir, "updates.clicolor")); !slices.Equal(got, []string{"unset"}) {
 		t.Errorf("the updates script saw CLICOLOR_FORCE %q, want unset", got)
+	}
+}
+
+// An empty file is "nothing written yet", not one empty line (#185).
+func TestReadFileLinesEmptyIsNil(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "f")
+	if err := os.WriteFile(p, []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFileLines(t, p); got != nil {
+		t.Errorf("readFileLines(empty) = %q, want nil", got)
+	}
+	if err := os.WriteFile(p, []byte("a\nb\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFileLines(t, p); !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("readFileLines = %q", got)
+	}
+}
+
+// The flake of #185 made deterministic: a recorder that creates its file,
+// pauses, then writes (what a plain shell redirect does under load). Polling
+// with waitFor must not take the empty file for the observation.
+func TestWaitForARecorderThatCreatesBeforeItWrites(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "slow.clicolor")
+	script := filepath.Join(dir, "slow")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n: > '"+f+"'\nsleep 0.3\necho unset >> '"+f+"'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(script)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Wait() })
+	waitFor(t, "the slow recorder", func() bool { return len(readFileLines(t, f)) > 0 })
+	if got := readFileLines(t, f); !slices.Equal(got, []string{"unset"}) {
+		t.Errorf("saw %q, want [unset]", got)
 	}
 }

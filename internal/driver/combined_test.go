@@ -191,7 +191,9 @@ func TestFullCleanupPolkitOneDialog(t *testing.T) {
 	}
 }
 
-// readFileLines is path's lines, nil when it doesn't exist.
+// readFileLines is path's lines, nil when it doesn't exist or holds nothing
+// yet (a fake script's redirect creates the file an instant before it writes
+// the line, so an empty file is "not written yet", never one empty line).
 func readFileLines(t *testing.T, path string) []string {
 	t.Helper()
 	b, err := os.ReadFile(path)
@@ -200,6 +202,9 @@ func readFileLines(t *testing.T, path string) []string {
 	}
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(b)) == "" {
+		return nil
 	}
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
 }
