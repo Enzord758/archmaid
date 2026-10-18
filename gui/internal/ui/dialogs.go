@@ -56,6 +56,7 @@ func (w *Window) answer(id engine.PromptID, cmd func() engine.Command) {
 	if !w.model.Answer(id) {
 		return
 	}
+	w.setStatus() // no longer "Waiting…"
 	w.send(cmd())
 }
 

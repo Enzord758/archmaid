@@ -359,6 +359,7 @@ func (m *Model) Answer(id engine.PromptID) bool {
 
 func (m *Model) open(c *Change, p Prompt) {
 	m.Prompt, c.Opened = &p, &p
+	c.Status = true // the status line says "Waiting…" while a prompt is open
 }
 
 // Apply folds a batch of events, in order, into the model and says what
@@ -485,6 +486,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		case engine.PromptClosed:
 			if m.Prompt != nil && m.Prompt.ID == ev.ID {
 				m.Prompt = nil
+				c.Status = true
 				if c.Opened != nil && c.Opened.ID == ev.ID {
 					c.Opened = nil
 				}
