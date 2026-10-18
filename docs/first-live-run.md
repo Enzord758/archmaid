@@ -1,7 +1,8 @@
 # First live run of the new archmaid
 
 > **Status (2026-10-05).** Written for `refactor/p0` as of 2026-10-04,
-> before it was merged. Two parts are out of date for any later commit:
+> before it was merged (it has since been merged, and the first live runs
+> are done; see `docs/merge-to-main.md`). Two parts are out of date for any later commit:
 > **C4** describes one polkit dialog per root step, but since 0f83f65 the
 > GUI's Full Cleanup runs all its root steps as **one** `full-cleanup`
 > call with one dialog (asked after topgrade, the orphan list and the

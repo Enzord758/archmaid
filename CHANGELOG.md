@@ -2,16 +2,23 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit that made the change; the range is `5585358..refactor/p0` (308 commits, tip d0bd9f9).
+the commit that made the change; the range is `5585358..v2.0.0` (554 commits, tip 4fdc62b).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-18
+
+The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` = 4fdc62b). The package version stays `rN.sha` from `pkgver()`; the tag `v2.0.0` marks this release.
+
 ### Read this first
 
-- **The TUI is new underneath.** It now runs on the engine and the real Driver, and the old queue logic is deleted. It should behave the same (all 31 transcript goldens, the view goldens and the 9 e2e checks are identical), and it has been run live (`docs/first-live-run.md`) (4a2fb23, 1fe2148, 7652f35).
-- **Remove an old `~/.local/bin/archmaid` before you use the package:** run `~/archmaid/install.sh --uninstall && hash -r` (README → First run). The old binary comes first on `PATH`, prunes run folders at every start and rewrites the new AUR snapshot in the old format.
+- **The TUI is new underneath.** It now runs on the engine and the real Driver, and the old queue logic is deleted. It behaves the same (all 31 transcript goldens, the view goldens and the 9 e2e checks are identical), and it has been run live, by the owner and in the test VM (`docs/first-live-run.md`) (4a2fb23, 1fe2148, 7652f35).
+- **Install both packages from `main`, together:** `archmaid-git` (the TUI, helper, polkit policy, widget and updates timer; a complete install on its own) and `archmaid-gui-git` (the GUI, which needs the exact `archmaid-git` of the same build). Build and install: README → Install, `packaging/arch/README.md`. Both are installed on the owner's machine.
+- **Only if you still have an old `install.sh` build:** remove `~/.local/bin/archmaid` with `~/archmaid/install.sh --uninstall && hash -r` (README → First run). It comes first on `PATH`, prunes run folders at every start and rewrites the new AUR snapshot in the old format. A fresh install needs nothing of this.
+- **One password per GUI run is in this release** (`internal/privilege/kept.go`, `gui/internal/polkitagent`): the first password you give is kept for the run and answers the later sudo and polkit prompts; the dialog and the Proceed sheet say so, or say why it is not kept. Under polkit, Full Cleanup's root steps are one `full-cleanup` helper call with one dialog.
+- **The GUI (`archmaid-gui`) has been run live**, on the owner's desktop and in the test VM. Only the GUI shows in the app launcher; the TUI has no desktop entry and no icon. The DMS widget opens the GUI when it is installed.
+- After updating, restart the widget's timer: `systemctl --user restart archmaid-updates-check.timer`. On a first install enable it (`systemctl --user enable --now archmaid-updates-check.timer`) and add the widget in DMS (`docs/dms-widget.md`).
 - If the engine stops unexpectedly (an internal panic), the TUI now shows "archmaid's engine stopped unexpectedly: ..." and any key quits; the full reports go to stderr. Ctrl-C always gets you out, also from a password check that never answers (5de7e0c, 73b22cd).
-- **The GUI (`archmaid-gui`, package `archmaid-gui-git`) has been run live** (your run and the VM runs). One password per GUI run (`feat/gui-one-password`) is not in this range. `archmaid-git` (the TUI, helper, policy and widget) is a complete install on its own (afc0991, 4a1ca95).
 - `archmaid --help` now prints help and exits 0, and unknown options now exit 2 instead of being ignored (13eb21a).
 - History rotation now keeps 5 runs including the current one, instead of 5 old ones plus the current one (420733b, 13eb21a).
 
@@ -222,13 +229,12 @@ the commit that made the change; the range is `5585358..refactor/p0` (308 commit
 
 ### Notes for the maintainer
 
-- The live polkit/faillock test (`packaging/polkit/LIVE-TEST-AGENT.md`) has been run once, against a scratch user (see `docs/polkit-live-test.md`); still re-check that `auth_admin_keep` is scoped per process inside a real login session (tty3).
-- Try the package with `makepkg -si` in `packaging/arch/` and run `namcap` on the result; the PKGBUILD has not been through either.
-- Pick a license: the repo has none, the PKGBUILD has `LicenseRef-unknown` and a TODO to install `LICENSE`.
+- The live polkit/faillock test (`packaging/polkit/LIVE-TEST-AGENT.md`) was run against a scratch user (`docs/polkit-live-test.md`). `auth_admin_keep` is kept for the scope of the agent that asked: answered for the graphical session by the owner on 2026-10-11/12 (`docs/polkit-keep-session-check.md`, Results); the optional tty3 part is open.
+- Pick a license: the repo has none, the PKGBUILD has `LicenseRef-unknown` and a TODO to install `LICENSE`. `namcap` has not been run on the packages.
 - The first audit after upgrading rewrites `aur-maintainers.json` in the new format.
-- Still to check by you: `auth_admin_keep` scope in a real login session (above), the bench CI job (it has not run on GitHub yet) and the widget in the live bar (it has only been loaded in a scratch quickshell).
 - Enable the widget after installing the package: `systemctl --user enable --now archmaid-updates-check.timer`, then enable "archmaid" in DMS Settings, Plugins and add it in Dank Bar (`docs/dms-widget.md`).
-- The first live runs are done, of both the TUI and the GUI (`docs/first-live-run.md`; its C4 step predates the one-dialog call). Before merging, follow `docs/merge-to-main.md`.
-- The GUI's frame p95 on a quiet machine has not been re-measured, and the perf-guard baselines need re-measuring after E7b (`make perf`, `make bench`), because the benchmarks changed shape.
-- The `auth_admin_keep` check in a real session now has a guide: `docs/polkit-keep-session-check.md`.
-- CI failed on 2783217 and 6e6f70e: `TestStepCannotReadTheTerminal` under `CI=true`, fixed by 4d3b11d. Confirm that CI is green on the final tip (image, e2e, bench, and one of each core and gui pair; the other of each pair is skipped).
+- The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
+- The merge itself is recorded in `docs/merge-to-main.md`.
+
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Enzord758/archmaid/compare/5585358...v2.0.0

@@ -32,16 +32,16 @@ is a choice:
 - **For the split:** a terminal-only or minimal machine doesn't pull in the
   GTK4/libadwaita stack (and its GStreamer, Vulkan and X11 libraries); you
   pick the front end the widget opens by installing `archmaid-gui-git` or
-  not; and the GUI can be held back (it has not been run live yet, see
-  below) without holding back the TUI and helper.
+  not; and the GUI can be held back without holding back the TUI and
+  helper.
 - **Against:** one more package name, and building either still needs the
   GUI's makedepends (makepkg runs one `build()` for both).
 
-**Install `archmaid-gui-git` only for the first live run.** The GUI runs on
+**Install the two packages together, from the same build.** The GUI runs on
 the real engine and Driver (root steps through polkit, topgrade's sudo
-through its password dialog), but so far only against test shims. The DMS
-widget opens it when it is installed, so keep it off machines where you rely
-on the widget until the live run has passed.
+through its password dialog) and has been run live, on the owner's desktop
+and in the test VM. The DMS widget opens it when it is installed. On a
+machine where you want the TUI only, install `archmaid-git` alone.
 
 ## Build locally (no install)
 
@@ -52,13 +52,12 @@ Only committed state is built, so commit first. Build in a scratch copy, so
 Set `W` to the checkout whose commit you want to build, and check that it is
 the branch you mean. It must contain `packaging/arch/`; an old checkout on
 `main` from before the refactor doesn't, and its HEAD would build the old
-code. Before `refactor/p0` is merged that is the live-run worktree
-`~/archmaid-live` (`docs/first-live-run.md`, step S0). After the merge it is
-`~/archmaid` itself, on `main` brought up to date first (`git -C ~/archmaid
-pull --ff-only`); then set `W=~/archmaid` below:
+code. Normally that is `~/archmaid` itself, on `main` brought up to date
+first (`git -C ~/archmaid pull --ff-only`). To build another branch or
+commit, make a separate worktree of it and use that as `W`:
 
 ```sh
-W=~/archmaid-live && git -C "$W" log -1 --format='%h %s' && \
+W=~/archmaid && git -C "$W" log -1 --format='%h %s' && \
 P=$(mktemp -d) && cp "$W"/packaging/arch/PKGBUILD "$W"/packaging/arch/archmaid.install "$P"/ && cd "$P" && \
 ARCHMAID_REPO="file://$HOME/archmaid" ARCHMAID_FRAGMENT="commit=$(git -C "$W" rev-parse HEAD)" makepkg -s
 ```
