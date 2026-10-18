@@ -236,6 +236,18 @@ func covDialogs(c *covEnv) {
 		},
 		func() {
 			c.ok(slices.Contains(c.sent(), "cancel 97"), "sent %q, want the cancel of 97", c.sent())
+			c.feed(engine.NeedsSelection{ID: 99, Title: "Clear caches", Items: []string{"x", "y"}, Go: "clear",
+				Rows: []actions.PickRow{{Label: "x"}, {Label: "y"}}})
+		},
+		func() { // a destructive pick: Clear is drawn destructive and is not the default
+			if dialog(99) == nil {
+				return
+			}
+			c.ok(d.ResponseLabel("ok") == "Clear" && d.ResponseAppearance("ok") == adw.ResponseDestructive, "ok is %q", d.ResponseLabel("ok"))
+			c.ok(d.DefaultResponse() == "cancel", "default response %q, want cancel", d.DefaultResponse())
+			c.press(d, "cancel")
+		},
+		func() {
 			c.feed(engine.NeedsConfirm{ID: 98, Title: "Still open"})
 		},
 		func() { // closing the window takes its open dialogs with it

@@ -520,14 +520,18 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *amDialog {
 	}
 	d := newWideDialog(title, wideText)
 	d.AddResponse("cancel", "Cancel")
+	// A destructive go button is never the default response: Enter on the
+	// dialog (or on a row) must not clear anything, so Cancel is the default.
+	def := "ok"
 	if len(p.Rows) == len(p.Items) && p.Go != "" {
 		d.AddResponse("ok", strings.ToUpper(p.Go[:1])+p.Go[1:])
 		d.SetResponseAppearance("ok", adw.ResponseDestructive)
+		def = "cancel"
 	} else {
 		d.AddResponse("ok", "Continue")
 		d.SetResponseAppearance("ok", adw.ResponseSuggested)
 	}
-	d.SetDefaultResponse("ok")
+	d.SetDefaultResponse(def)
 	d.SetCloseResponse("cancel")
 	list := gtk.NewListBox()
 	list.AddCSSClass("boxed-list")

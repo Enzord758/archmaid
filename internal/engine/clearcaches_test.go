@@ -361,3 +361,22 @@ func TestClearCachesPolkitUserOnlyAsksNothing(t *testing.T) {
 	}
 	effect[StartStep](t, o)
 }
+
+// A pick whose Rows don't match its Items (here one row for two items) has no
+// row that could be meant as enabled: every item counts as disabled and
+// nothing runs, even for a front end that sends the keys.
+func TestClearCachesMismatchedRowsAreAllDisabled(t *testing.T) {
+	for _, rows := range [][]actions.PickRow{
+		{{Label: "~/.cache — 1 MiB"}},
+		{{Label: "a"}, {Label: "b"}, {Label: "c"}},
+	} {
+		h, ns := startPick(t, Options{}, cachePick(rows...))
+		o := h.do(h.s.Select(ns.ID, []string{actions.PickUserCache, actions.PickPkgCache}))
+		if hasEffect[StartStep](o) || hasEffect[Probe](o) {
+			t.Errorf("%d rows for 2 items ran: %#v", len(rows), o.Effects)
+		}
+		if f := event[Finished](t, o); f.Outcome != OutcomeCancelled {
+			t.Errorf("%d rows: Finished %+v", len(rows), f)
+		}
+	}
+}

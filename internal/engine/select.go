@@ -44,7 +44,7 @@ func (s *Session) selected(o *Output, picked []string) {
 	r.prompt, r.sel = 0, nil
 	var sel []string
 	for i, sh := range r.selShown {
-		if slices.Contains(picked, sh) && !(i < len(d.Rows) && d.Rows[i].Disabled) {
+		if slices.Contains(picked, sh) && !rowDisabled(d, i) {
 			sel = append(sel, d.Items[i])
 		}
 	}
@@ -59,6 +59,17 @@ func (s *Session) selected(o *Output, picked []string) {
 	}
 	r.pickQueue = true
 	s.plan(o, queue, "")
+}
+
+// rowDisabled reports whether item i of the pick can't be picked: its row is
+// disabled, or the pick's Rows don't match its Items (a front end shows no
+// rows then, so no row could have been meant to be enabled): every item is
+// disabled. A pick with no Rows at all (Services) has no disabled item.
+func rowDisabled(d *actions.NeedsSelection, i int) bool {
+	if len(d.Rows) == 0 {
+		return false
+	}
+	return len(d.Rows) != len(d.Items) || d.Rows[i].Disabled
 }
 
 // shownRows makes a pick's rows safe to list (one line each, as shown
