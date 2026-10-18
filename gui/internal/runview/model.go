@@ -13,6 +13,7 @@ import (
 	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -214,6 +215,8 @@ type Change struct {
 	// Status: Phase, Status, Notice or the counters changed. Finished: the
 	// action ended in this batch.
 	Status, Finished bool
+	// Report: a run report arrived (Model.Report changed).
+	Report bool
 	// Toasts are one-off messages to pop up (ReportAccepted's text).
 	Toasts []string
 }
@@ -236,6 +239,11 @@ type Model struct {
 	// (nothing found, or the look failed): the page shows it as the run of
 	// one "Discovery" step. nil for any other run.
 	Discovery *engine.DiscoveryResult
+	// Report is the finished run's report (engine.RunReport, which comes
+	// right before Finished), or nil: a dry run, an action that is no
+	// queue, a Driver without a report configuration. A new queue, a
+	// discovery result or a report page clears it. Summary() draws it.
+	Report *report.Report
 	// StartDry: the action being started is a dry run (the window knows;
 	// a DiscoveryResult doesn't say).
 	StartDry bool
@@ -367,7 +375,7 @@ func (m *Model) Apply(evs []engine.Event) Change {
 		switch ev := ev.(type) {
 		case engine.QueueStarted:
 			m.Action, m.DryRun, m.Running, m.Finished, m.Notice, m.Stopped = ev.Action, ev.DryRun, true, nil, "", ""
-			m.Discovery = nil
+			m.Discovery, m.Report = nil, nil
 			m.Lines, m.Dropped = 0, 0
 			m.Rows, m.Auth, m.pendingLock, m.Started = m.Rows[:0], nil, nil, ev.Started
 			// A new run starts with an empty page (Q12); one action
@@ -387,6 +395,9 @@ func (m *Model) Apply(evs []engine.Event) Change {
 			m.discover(ev)
 			c.Reset, c.Inserted, c.Status = true, nil, true
 			clear(touched)
+		case engine.RunReport:
+			r := ev.Report
+			m.Report, c.Report = &r, true
 		case engine.StepInserted:
 			i := min(max(ev.Index, 0), len(m.Rows))
 			m.Rows = append(m.Rows[:i], append([]Row{newRow(ev.Step)}, m.Rows[i:]...)...)
@@ -598,7 +609,7 @@ func (m *Model) discover(d engine.DiscoveryResult) {
 		r.State = RowFailed
 	}
 	m.Rows = append(m.Rows[:0], r)
-	m.Discovery = &d
+	m.Discovery, m.Report = &d, nil
 	head := "── " + r.Title
 	m.out.push(entry{raw: head, text: head, step: r.ID, head: true})
 	for _, l := range d.Details {
@@ -614,7 +625,7 @@ func (m *Model) ShowReport(action string) Change {
 	m.Action, m.DryRun, m.Running, m.Finished, m.Stopped = action, m.StartDry, true, nil, ""
 	m.Auth, m.pendingLock, m.Started = nil, nil, time.Time{}
 	m.Lines, m.Dropped = 0, 0
-	m.Discovery = nil
+	m.Discovery, m.Report = nil, nil
 	c := m.Clear()
 	c.Status = true
 	return c

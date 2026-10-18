@@ -54,6 +54,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/helperclient"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/privilege"
+	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -107,6 +108,14 @@ type Config struct {
 	// --user, else the packaged script); tests must set a fake, because
 	// that reaches systemctl and a script outside the test.
 	RefreshUpdates func(context.Context) error
+
+	// RunReport is driver.Deps.RunReport: the run report (package changes,
+	// space freed, what needs the user; internal/report) the Run page's
+	// finished state draws. Nil, the default, means none, and a nil one is
+	// what every test gets: the real config (report.DefaultConfig, which
+	// archmaid-gui's main sets, ui.realConfig) reads the machine's
+	// pacman.log and runs paccache and pacman, which testenv traps.
+	RunReport *report.Config
 
 	// Now is read once per Driver (New) to stamp its run directory; nil
 	// is time.Now. Log entries are stamped with the real time.
@@ -217,6 +226,8 @@ func (w *Wiring) New(o engine.Options) engine.Driver {
 		Pty:      true,
 		TermCols: w.cfg.TermCols,
 		Report:   w.cfg.Report,
+		// The run report, for the Run page's summary and last-run.json.
+		RunReport: w.cfg.RunReport,
 		// The widget's update count, refreshed after a topgrade run.
 		RefreshUpdates: w.cfg.RefreshUpdates,
 		// One password per run: the first the user gives answers the

@@ -24,6 +24,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/stub"
+	"github.com/Enzord758/archmaid/internal/report"
 )
 
 // AppID is the application id (D-Bus name, .desktop file, icon).
@@ -183,11 +184,7 @@ func parseLaunch(args []string, getenv func(string) string) (launch, error) {
 // mainReal runs the window on the real Driver. The Wiring outlives every
 // Driver: Run closes the last one before it returns.
 func mainReal(args []string, confirm string) int {
-	wr := realdriver.Start(realdriver.Config{
-		Report: func(err error) { fmt.Fprintln(os.Stderr, "archmaid-gui:", err) },
-		// each step's pty is as wide as the Run view (termcols.go)
-		TermCols: TermCols,
-	})
+	wr := realdriver.Start(realConfig())
 	defer wr.Close()
 	base := wr.Options()
 	// A missing piece of the actions' wiring would otherwise fail
@@ -197,6 +194,18 @@ func mainReal(args []string, confirm string) int {
 		return 1
 	}
 	return Run(args, realOptions(base, wr.New, wr.SetNotice, confirm, wr.CloseAskpass))
+}
+
+// realConfig is the binary's realdriver.Config: errors to stderr, each
+// step's pty as wide as the Run view (termcols.go), and the real run report
+// (report.DefaultConfig: pacman's log, paccache, pacman), which no test
+// config sets.
+func realConfig() realdriver.Config {
+	return realdriver.Config{
+		Report:    func(err error) { fmt.Fprintln(os.Stderr, "archmaid-gui:", err) },
+		TermCols:  TermCols,
+		RunReport: report.DefaultConfig(),
+	}
 }
 
 // realOptions are the window's Options on the real Driver: it keeps the
