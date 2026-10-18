@@ -12,7 +12,7 @@ subcommand (sections 2 and 3 describe that older design). It reads, never writes
 
 | File | Writer | Fields the widget uses |
 |---|---|---|
-| `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run` |
+| `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run`, and, when the run had something to report (added within v1, absent in older files), `summary{upgraded, aur, freed_bytes, attention[]}` (read by `state.js` as `summary`, null when absent; the QML does not show it yet) |
 | `audit-state.json` | `internal/audit` | `v`, `checked`, `packages`, `high[{pkg,reason}]` |
 | `updates-cache.json` | `archmaid-updates-check` | `v` (1 or 2), `count` (repo + AUR past the cooldown), `repo`, `aur` (null = unknown), `aur_held` (AUR updates younger than 72 h), `checked` |
 

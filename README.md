@@ -140,7 +140,9 @@ startup.
 
 Next to the run directories are:
 
-- `last-run.json`: how the last action ended;
+- `last-run.json`: how the last action ended, and, when the run changed
+  something, a `summary` (packages upgraded, how many from the AUR, bytes
+  freed, short attention items such as "Restart recommended");
 - `aur-maintainers.json`: the AUR snapshot the audit compares against;
 - `audit-state.json`: the high findings not yet accepted;
 - `updates-cache.json`: the pending update count, written by the timer.

@@ -23,7 +23,11 @@ straight over via `lipgloss`).
   `update.go` (`Update`/`handleKey`), and `view.go` (`View` + renderers) —
   twelve screens: menu, password, confirm, running, summary, log-category
   picker, log pager, notice, discovery spinner, services multi-select,
-  abort-confirm, and the AUR-audit report.
+  abort-confirm, and the AUR-audit report. The summary screen shows the
+  run report (`summary.go`, from `internal/report`): packages upgraded,
+  installed and removed, the space each cleaning step freed, what the package
+  cache still holds, and what needs the user (a restart, new `.pacnew` files,
+  a high AUR finding).
 - **Live streaming command output** (`tasks.go`) — the whole point. A command's
   combined stdout/stderr streams into a scrollable viewport line by line while a
   spinner runs, instead of gum swallowing it and dumping a pager afterward. One

@@ -50,6 +50,7 @@ charmbracelet (`check.sh` layering, which also bars every package under
 | `internal/logstore` | the on-disk log: `New(Options{Dir, DryRun, Now})`, `Append` (plain text, 0700/0600 + chmod on write), `Read` (`ErrEmpty` when there is nothing; the TUI renders that text), `Prune(keep)`, `Root`, `RunDir`, `Path`, `Categories` (the four step categories and the four discovery ones, `Services`/`Repair`/`Downloads`/`AURAudit`, `Category.Discovery`; see "The discovery record"); `WriteLastRun`/`ReadLastRun` for `last-run.json` (`RunRecord`, see state files below) |
 | `internal/audit` | the AUR audit itself: `Run(ctx, Config, now) (Result, error)` with `Config{RPCURL, SnapshotPath, StatePath, Deadline, DryRun, Foreign, Log}`; `Result` (`Total`, `Findings`, `Baseline`; `Text()` plain report, `GateReason()`, `Commit(holdHigh, accepting)`, `LogSummary()`, `Note()`, `High()`/`Clean()`); `Prefetch(Config) *Fetch` with `Wait(ctx)`/`Cancel()`/`Done()`; the RPC (chunked POST, 8 MiB cap, unrequested names dropped), classification, the snapshot (`Entry`, `LoadSnapshot`, `WriteSnapshot`: atomic 0600 + flock, old-format compatible), `State`/`WriteState`/`ReadState` (audit-state.json), `ErrNoForeign`, `ErrSnapshotLocked`, `ShortErr`. No UI, no globals: everything comes in through `Config` |
 | `internal/sysstat` | `Paths`/`DefaultPaths`, `Read(Paths) Status`, `Status.Line()`, the df/du/free-style size formatters; no UI imports |
+| `internal/report` | the run report (#188, see "The run report"): `Collector` (`New(Config, action, started)`, `StepStarting`, `StepDone`, `StepResult`, `Finish(ctx, FinishInfo) Report`), `Report`/`Packages`/`Area`/`CacheHold`/`Attention`, `ReadLog`/`ParseLog`/`MarkLog` (pacman.log by byte offset), `DirSize`/`Freed` (user-side, bounded, clamped), `ParsePaccacheDry`/`CacheDirs`, `HumanBytes`, `DefaultConfig()`. UI-free; reads and runs only as the user. `internal/tui/summary.go` draws it; the Driver (`driver/runreport.go`) feeds it |
 
 Shared packages under `internal/` are UI-free (the gate fails any that imports
 charmbracelet, except `internal/tui`, and any that imports gotk4):
@@ -1080,6 +1081,90 @@ comments and `git log`; this is the "read before you touch it" list.
   action is the menu `id` (the three static actions have ids `fullcleanup`, `usercache`,
   `topgrade` for this). A dry run writes `dryrun/last-run.json` instead and never touches
   the real one. `audit-state.json`: see its own entry below.
+- **The run report (#188) is the Driver's, not the Session's.** The engine stays
+  pure. A Driver given `Deps.RunReport` (a `*report.Config`; nil, the default,
+  means none) makes a `report.Collector` at each real `QueueStarted` (never in
+  a dry run), tells it each `StartStep` effect (the sizes of that step's
+  targets are measured *before* the child starts) and each `StepDone`/`Aborted`
+  event (measured again), and `apply` splits the Output that carries
+  `Finished`: the events before it go out, the report is made (bounded), the
+  `WriteLastRun` effect is written with the summary object, then
+  `engine.RunReport` and `Finished` go out. The TUI's `driverDeps` sets
+  `RunReport: report.DefaultConfig()` through the `runReportConfig` seam (its
+  `TestMain` swaps in nil: the real config reads the machine's pacman log and
+  runs `paccache`/`pacman`, which testenv traps). **The GUI's `realdriver` does
+  not set it yet** (Dev 4's step; one line, `RunReport: report.DefaultConfig()`,
+  and its `TestMain`-level fake): until then a GUI run's `last-run.json` has no
+  `summary`. Sources, as built:
+  - *Packages*: the `[ALPM] upgraded|installed|removed|downgraded` lines of
+    `/var/log/pacman.log` written after the **byte offset and inode** the log
+    had at queue start (not timestamps), folded per package to its net change
+    (installed-then-removed cancels; upgraded twice is one upgrade). A log with
+    another inode (rotated) or smaller than the mark (truncated) is read from
+    its start and marked `Partial` (a note says so). Any other pacman run while
+    archmaid runs writes to the same log and counts too (a second terminal, a
+    timer): the report says what changed on the machine, not what topgrade did.
+    AUR = `pacman -Qqm` once, at the end; if it fails the AUR counts are
+    unknown (`AURKnown` false, a note), exit 1 with no output is "none".
+  - *Orphans removed*: the orphan step's own `Items`/`Cascade` (a combined
+    helper call's Parts included), only when its step ended OK.
+  - *Freed per area*: `DirSize` (allocated blocks, symlinks not followed,
+    hard links once, other filesystems not entered) of each step's targets as the user,
+    before and after, `Freed` clamps a negative delta to 0, a target that
+    can't be read (ENOTDIR/EACCES on the top folder) or a walk past its time
+    is **unknown**, never 0. Budget: 4 s per walk, 15 s per run (`Config`),
+    after which every walk is unknown at once; a `Close` cancels them
+    (`Driver.live`). Areas by step ID (`report.Area*`; a step that isn't in
+    the queue has no row, a skipped/refused step none either): `paccache`,
+    `paccache-wipe`, `pkg-cache-uninstalled`, `yay-cache`, `journal`,
+    `tmpfiles`, `user-cache`. Under sudo `yay -Sc` does `pacman -Sc` and yay's
+    own cleaning, so that one step has two rows (`pkg-cache-uninstalled` and
+    `yay-cache`); under polkit (`--aur` in its argv) only `yay-cache`.
+    A combined call's parts are all measured before the call, and each part's
+    end moves the next part's start on the same folders to where it left off,
+    so `paccache` and `pacman -Sc` don't count each other's work (a step ends
+    a moment before its event is handled, so a second's work can land in the
+    next row; the total is right). Folders: `pacman-conf CacheDir` (fallback
+    `/var/cache/pacman/pkg`), yay's `buildDir` from `~/.config/yay/config.json`
+    else `$XDG_CACHE_HOME/yay`, `/tmp` and `/var/tmp`, `/var/log/journal` and
+    `/run/log/journal` (files are only stat-ed, so a 0640 journal is
+    measurable), `~/.cache`. Temp files covers only those two folders: tmpfiles.d
+    rules clean other paths too, which are not counted.
+  - *Cache still holds*: `paccache -dk0 --nocolor` as the user (dry run, nothing
+    removed), parsed from its `finished dry run: N candidates (disk space
+    saved: S)` line (or `no candidate packages found for pruning`);
+    if it is missing, fails or prints something else, the cache folders are
+    summed (`Source` "folder"). The TUI's line names the menu entry "Delete
+    entire package cache" (`cacheMenuLabel`: keep it equal to the entry's label).
+  - *Attention*: **restart** when the running kernel's module folder
+    (`/usr/lib/modules/<uname -r>`) is gone — every kernel package leaves
+    `<release>/pkgbase` there, so a replaced kernel shows as a missing folder,
+    and the installed release is the folder of an upgraded kernel package — or
+    when `systemd`, `mesa` or an `nvidia*` driver package (32-bit builds too;
+    not `nvidia-settings`/`-prime`) was upgraded; **.pacnew/.pacsave**
+    from the log's `warning: … installed as …pacnew` / `saved as …pacsave`
+    lines; **audit** only for high findings (the audit step's `Result.Audit`;
+    the TUI's own Audit line shows any finding).
+  - *The run*: `Elapsed` and `Steps{Done, Skipped, Failed}` (a step an abort
+    left pending counts skipped).
+  - **Left out on purpose: AUR updates held back by the 72 h yay cooldown.**
+    `updates-cache.json`'s `aur_held` is a count from the last timer run, and
+    the refresh after a run is only queued (`systemctl --no-block`), so at report
+    time it still describes the system *before* the run; it has no names or
+    install time; the cooldown hook lives in the owner's dotfiles and logs
+    nothing archmaid knows. A stale "held back" is worse than none. To add it,
+    the check would have to finish before the report (a synchronous run of
+    `archmaid-updates-check`, ~10 s of yay) and the script would have to write
+    the held packages and their ages.
+  - `last-run.json` gets `summary{upgraded, aur, freed_bytes, attention[]}`
+    (`logstore.RunSummary`) only when the report has data; the schema stays
+    `v:1` (added within v1, like `steps_refused`). `state.js` reads it
+    (`parseLastRun().summary`, null for old or damaged), the QML does not use it yet.
+  - Tests never see the machine's files: `testenv.Run` points
+    `ARCHMAID_PACMAN_LOG` and `ARCHMAID_MODULES_DIR` (`report.Env*`, which
+    `DefaultConfig` honours) at nothing, and traps `pacman-conf` with the other
+    tools. Fixtures: `internal/report/*_test.go`, `driver/runreport_test.go`,
+    `tui/summary_test.go` (goldens `TestSummaryReportGolden`).
 - **Untrusted text goes through `sanitize.String`.** Command output (topgrade, yay, AUR
   build scripts) can carry escapes that retitle the terminal, write the
   clipboard (OSC 52) or redraw what the user reads. Streamed output keeps only
