@@ -159,17 +159,9 @@ func BuildSummary(r report.Report, clean bool) Summary {
 	return s
 }
 
-// doneHeadline is what a clean run of an action that is not an update says:
-// "Everything is up to date" would claim something about updates the action
-// never looked at. Actions not listed (Full Cleanup, topgrade, an unknown or
-// empty id) keep ALL QUIET.
-var doneHeadline = map[string]string{
-	actions.IDClearCaches: "Caches cleared",
-	actions.IDRepair:      "Broken packages repaired",
-	actions.IDDownloads:   "Old downloads deleted",
-	actions.IDServices:    "Unused services disabled",
-	actions.IDAURAudit:    "AUR audit finished",
-}
+// doneHeadline is what a clean run of an action that is not an update says;
+// the wording is shared with the TUI (actions.DoneHeadlines).
+var doneHeadline = actions.DoneHeadlines
 
 // quietHeadline is the kicker, tone and headline of a clean run with nothing
 // that needs the user.

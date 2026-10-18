@@ -301,3 +301,24 @@ func TestDriverDepsRunReport(t *testing.T) {
 		t.Errorf("the binary's config %+v (under testenv its log must not be the machine's)", c)
 	}
 }
+
+// A clean run of an action that is not an update ends on the same words as
+// the GUI's DONE hero (actions.DoneHeadlines, shared); Full Cleanup and an
+// action without an entry keep "Cleanup completed successfully".
+func TestSummaryOutcomeLineSaysWhatTheActionDid(t *testing.T) {
+	for _, tc := range []struct{ action, want string }{
+		{actions.IDClearCaches, "✔ Caches cleared"},
+		{actions.IDRepair, "✔ Broken packages repaired"},
+		{actions.IDFullCleanup, "✔ Cleanup completed successfully"},
+		{actions.IDTopgrade, "✔ Cleanup completed successfully"},
+		{"", "✔ Cleanup completed successfully"},
+	} {
+		m := sizedModel()
+		m = feed(m, engine.QueueStarted{Action: tc.action, Steps: []engine.PlanStep{{ID: "a", Title: "A…", LogLabel: "A"}}})
+		m = feed(m, engine.StepStarted{ID: "a", Index: 0}, engine.StepDone{ID: "a", Index: 0, Status: steps.OK})
+		m = feed(m, engine.Finished{Action: tc.action, Outcome: engine.OutcomeCompleted})
+		if v := m.View(); !strings.Contains(v, tc.want) {
+			t.Errorf("%q: want %q in\n%s", tc.action, tc.want, v)
+		}
+	}
+}

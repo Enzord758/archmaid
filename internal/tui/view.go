@@ -246,7 +246,11 @@ func (m model) viewSummary() string {
 	case m.skipped > 0:
 		line = stepSkipStyle.Render(fmt.Sprintf("Completed — %d step(s) skipped", m.skipped))
 	default:
-		line = stepOKStyle.Render("✔ Cleanup completed successfully")
+		if h, ok := actions.DoneHeadlines[m.queueAction]; ok {
+			line = stepOKStyle.Render("✔ " + h)
+		} else {
+			line = stepOKStyle.Render("✔ Cleanup completed successfully")
+		}
 	}
 	return m.summaryScreen(line)
 }

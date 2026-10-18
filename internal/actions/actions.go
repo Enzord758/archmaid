@@ -236,6 +236,19 @@ const (
 	IDExit        = "exit"
 )
 
+// DoneHeadlines is what a clean run of an action that is not an update says
+// in both front ends (the GUI's DONE hero, the TUI's outcome line):
+// "Everything is up to date" would claim something about updates the action
+// never looked at. Actions not listed (Full Cleanup, topgrade, an unknown or
+// empty id) are not in it and keep their own wording.
+var DoneHeadlines = map[string]string{
+	IDClearCaches: "Caches cleared",
+	IDRepair:      "Broken packages repaired",
+	IDDownloads:   "Old downloads deleted",
+	IDServices:    "Unused services disabled",
+	IDAURAudit:    "AUR audit finished",
+}
+
 // Menu is the main menu, in order.
 var Menu = []Action{
 	{ID: IDFullCleanup, Icon: "󰓦", Label: "Full Cleanup (Recommended)", Steps: fullCleanupSteps, Gate: "Proceed with full cleanup?"},

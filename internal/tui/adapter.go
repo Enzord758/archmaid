@@ -205,6 +205,7 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		}
 		m.current, m.errs, m.skipped, m.aborted, e.aborted = -1, 0, 0, false, false
 		m.runReport = nil
+		m.queueAction = ev.Action
 		m.screen = screenRunning
 		m.resizeOutput() // checklist length is now known
 	case engine.StepInserted:

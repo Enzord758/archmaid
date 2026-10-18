@@ -100,6 +100,10 @@ type model struct {
 	// when the Driver made none (a dry run, a test's Driver) or the run
 	// isn't over.
 	runReport *report.Report
+	// queueAction is the menu action id of the queue on screen
+	// (QueueStarted.Action); the summary's outcome line says what that
+	// action did (actions.DoneHeadlines).
+	queueAction string
 
 	// confirm-modal state: gateActive marks the action's proceed-gate, as
 	// opposed to a step's confirm.
