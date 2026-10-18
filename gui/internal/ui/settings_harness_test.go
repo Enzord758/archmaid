@@ -36,6 +36,11 @@ func TestGUISettingsCards(t *testing.T) {
 	if b, err := os.ReadFile(conf); err != nil || string(b) != frontend.DefaultTopgradeConfig {
 		t.Errorf("topgrade config %q %v, want the defaults", b, err)
 	}
+	// The About line names the build: no link-time version in a test
+	// binary, so the VCS stamp or "unknown" follows the prefix.
+	if !strings.HasPrefix(rep.About, "About: archmaid ") || len(rep.About) <= len("About: archmaid ") {
+		t.Errorf("About line %q", rep.About)
+	}
 	if rep.ConfigError != "" || rep.Problem != "" {
 		t.Errorf("config error %q problem %q", rep.ConfigError, rep.Problem)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Enzord758/archmaid/internal/testenv"
+	"github.com/Enzord758/archmaid/internal/version"
 )
 
 // TestMain isolates HOME and the XDG dirs and traps the privileged binaries
@@ -54,6 +55,10 @@ func TestStartupDeletesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	oldVersion := version.Version
+	version.Version = "2.0.0-3-g6ba8744"
+	t.Cleanup(func() { version.Version = oldVersion })
+
 	for _, tc := range []struct {
 		name      string
 		args      []string
@@ -67,6 +72,8 @@ func TestStartupDeletesNothing(t *testing.T) {
 		{name: "downloads", args: []string{"--downloads", "/data/dl", "--dryrun"}, start: true,
 			flags: flags{dryRun: true, downloads: "/data/dl"}},
 		{name: "help", args: []string{"--help"}, out: "Usage: archmaid"},
+		{name: "version", args: []string{"--version"}, out: "archmaid 2.0.0-3-g6ba8744\n"},
+		{name: "version after a flag", args: []string{"--dryrun", "--version"}, out: "archmaid 2.0.0-3-g6ba8744\n"},
 		{name: "-h", args: []string{"--dryrun", "-h"}, out: "Usage: archmaid"},
 		{name: "unknown flag", args: []string{"--bogus"}, code: 2, errs: `unknown option "--bogus"`},
 		{name: "typo of dryrun", args: []string{"--dry-run"}, code: 2, errs: `unknown option "--dry-run"`},

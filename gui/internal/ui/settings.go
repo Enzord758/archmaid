@@ -12,6 +12,7 @@ import (
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/frontend"
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/version"
 )
 
 // The Settings page (P8 row 15): cards for dry run and the downloads
@@ -31,6 +32,8 @@ type settingsPage struct {
 	// choose is Choose…, editor Open in editor, logFolder the log card's
 	// Open folder (the harness presses them).
 	choose, editor, logFolder *gtk.Button
+	// about is the About line: "About: archmaid 2.0.0-3-g6ba8744".
+	about *gtk.Label
 }
 
 func (w *Window) newSettings() gtk.Widgetter {
@@ -109,6 +112,11 @@ func (w *Window) newSettings() gtk.Widgetter {
 	box.SetMarginEnd(18)
 	box.Append(cards)
 	box.Append(saved)
+	p.about = gtk.NewLabel(aboutText())
+	p.about.AddCSSClass("dim-label")
+	p.about.SetXAlign(0)
+	p.about.SetSelectable(true)
+	box.Append(p.about)
 	box.Append(p.problem)
 	clamp := adw.NewClamp()
 	clamp.SetMaximumSize(960)
@@ -128,6 +136,9 @@ func (w *Window) newSettings() gtk.Widgetter {
 	bin.AddBreakpoint(bp)
 	return bin
 }
+
+// aboutText is the Settings page's About line: which build this is.
+func aboutText() string { return "About: archmaid " + version.String() }
 
 // settingsNarrow is the width under which the Settings cards stack.
 const settingsNarrow = 720

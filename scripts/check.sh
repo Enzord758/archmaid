@@ -180,7 +180,7 @@ done
 # Only the e2e harness's test build sets internal/sysbin back to bare names
 # (-ldflags -X): the package, the owner's own build (install.sh, into
 # ~/.local/bin) and the VM's cover builds keep /usr/bin. The package and
-# install.sh set no variable at all (the cover build sets coverdir's).
+# install.sh set no variable but internal/version.Version (the cover build sets coverdir's).
 # A missing or renamed file would read as clean to grep: each must exist.
 for f in packaging/arch/PKGBUILD install.sh scripts/cover-build.sh; do
 	test -f "$f" || {
@@ -192,8 +192,8 @@ if grep -nE -- 'sysbin' packaging/arch/PKGBUILD install.sh scripts/cover-build.s
 	echo "FAIL: a product or cover build names internal/sysbin; its /usr/bin paths must stay as built (only cmd/archmaid/e2e/run.sh sets them bare)"
 	exit 1
 fi
-if grep -nE -- '-X' packaging/arch/PKGBUILD install.sh; then
-	echo "FAIL: packaging/arch/PKGBUILD or install.sh sets a variable at link time (-X); a product build sets none (internal/sysbin's /usr/bin paths stay as built)"
+if grep -nE -- '-X' packaging/arch/PKGBUILD install.sh | grep -vE -- '-X github\.com/Enzord758/archmaid/internal/version\.Version='; then
+	echo "FAIL: packaging/arch/PKGBUILD or install.sh sets a variable at link time (-X) other than internal/version.Version; a product build sets no other (internal/sysbin's /usr/bin paths stay as built)"
 	exit 1
 fi
 

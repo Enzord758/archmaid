@@ -115,6 +115,7 @@ type report struct {
 	// kept), and the problem line at the end.
 	DlErrors []string
 	Problem  string
+	About    string // the Settings page's About line
 	Toasts   []string
 	// Narrow: real-narrow's measures (minwidth_harness_test.go).
 	Narrow []string
@@ -1177,6 +1178,9 @@ func changeSettings(w *Window, rep *report) {
 	p.dryRun.SetActive(true)
 	if p.problem.Visible() {
 		rep.Problem = p.problem.Text()
+	}
+	if p.about != nil {
+		rep.About = p.about.Text()
 	}
 }
 

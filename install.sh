@@ -77,7 +77,14 @@ do_install() {
 
 	echo "Building archmaid…"
 	mkdir -p "$BINDIR"
-	( cd "$SCRIPT_DIR" && go build -trimpath -ldflags='-s -w' -o "$BIN" ./cmd/archmaid )
+	# The version `archmaid --version` prints: git describe, else rN.sha, else
+	# the build's own VCS stamp (internal/version).
+	local ver
+	ver=$(git -C "$SCRIPT_DIR" describe --tags --dirty 2>/dev/null) || ver=''
+	[[ -n "$ver" ]] || ver=$(printf 'r%s.%s' "$(git -C "$SCRIPT_DIR" rev-list --count HEAD 2>/dev/null)" \
+		"$(git -C "$SCRIPT_DIR" rev-parse --short=7 HEAD 2>/dev/null)") || ver=''
+	[[ "$ver" != 'r.' ]] || ver=''
+	( cd "$SCRIPT_DIR" && go build -trimpath -ldflags="-s -w -X github.com/Enzord758/archmaid/internal/version.Version=$ver" -o "$BIN" ./cmd/archmaid )
 	info "binary  → $BIN"
 
 	remove_stale_desktop

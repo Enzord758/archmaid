@@ -19,6 +19,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/tui"
+	"github.com/Enzord758/archmaid/internal/version"
 )
 
 func main() {
@@ -67,7 +68,7 @@ func main() {
 }
 
 // usage is what --help prints.
-const usage = `Usage: archmaid [--dryrun] [--downloads <folder>]
+const usage = `Usage: archmaid [--dryrun] [--downloads <folder>] | --version
 
 A terminal UI for Arch Linux maintenance.
 
@@ -76,10 +77,14 @@ Options:
   --downloads <folder>  the folder "Delete old downloads" cleans
                         (also --downloads=<folder>)
   -h, --help            show this help and exit
+  --version             print the version and exit
 `
 
 // errHelp is parseArgs' answer to --help or -h: print usage, exit 0.
 var errHelp = errors.New("help requested")
+
+// errVersion is parseArgs' answer to --version: print the version, exit 0.
+var errVersion = errors.New("version requested")
 
 // flags is the command line: --dryrun and --downloads' folder ("" for none).
 type flags struct {
@@ -108,6 +113,10 @@ func startup(args []string, stdout, stderr io.Writer) (f flags, code int, start 
 	switch {
 	case errors.Is(err, errHelp):
 		fmt.Fprint(stdout, usage)
+		return flags{}, 0, false
+	case errors.Is(err, errVersion):
+		// Like --help: nothing is read or written, only printed.
+		fmt.Fprintln(stdout, "archmaid", version.String())
 		return flags{}, 0, false
 	case err != nil:
 		fmt.Fprintln(stderr, "archmaid:", err)
@@ -149,6 +158,8 @@ func parseArgs(args []string) (flags, error) {
 			f.downloads = v
 		case a == "--help" || a == "-h":
 			return flags{}, errHelp
+		case a == "--version":
+			return flags{}, errVersion
 		case strings.HasPrefix(a, "-"):
 			return flags{}, fmt.Errorf("unknown option %q", a)
 		default:

@@ -52,6 +52,20 @@ pkgver() {
   printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
 }
 
+# The version `archmaid --version` and the GUI's About line show: what
+# `git describe --tags --dirty` says ("v2.0.0-3-g6ba8744", the leading v
+# dropped at run time; the bare hash with --always is not wanted), or rN.sha
+# (pkgver's own form) when git has no tag to describe from. makepkg's clone
+# is a full mirror, so the tags are there; if they are not, or git fails, the
+# fallback applies and the build still succeeds. pkgver() is unchanged.
+_version() {
+  local v
+  v=$(git -C "$srcdir/$_pkgname" describe --tags --dirty 2>/dev/null) || v=''
+  [[ $v ]] || v=$(printf 'r%s.%s' "$(git -C "$srcdir/$_pkgname" rev-list --count HEAD)" \
+    "$(git -C "$srcdir/$_pkgname" rev-parse --short=7 HEAD)")
+  printf '%s' "$v"
+}
+
 _goenv() {
   export GOPATH="$srcdir/gopath"
   export CGO_CPPFLAGS="$CPPFLAGS"
@@ -75,12 +89,13 @@ build() {
   _goenv
   mkdir -p "$srcdir/build"
   cd "$srcdir/$_pkgname"
-  go build -o "$srcdir/build/archmaid" ./cmd/archmaid
+  local _ldflags="-X github.com/Enzord758/archmaid/internal/version.Version=$(_version)"
+  go build -ldflags "$_ldflags" -o "$srcdir/build/archmaid" ./cmd/archmaid
   go build -o "$srcdir/build/archmaid-helper" ./cmd/archmaid-helper
   # Same GOFLAGS and CGO flags as the TUI; gotk4's cgo makes this the slow
   # one (minutes on a cold cache).
   cd gui
-  go build -o "$srcdir/build/archmaid-gui" ./cmd/archmaid-gui
+  go build -ldflags "$_ldflags" -o "$srcdir/build/archmaid-gui" ./cmd/archmaid-gui
 }
 
 check() {
