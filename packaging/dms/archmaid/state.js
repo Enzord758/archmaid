@@ -47,8 +47,34 @@ function _count(n) {
     return (typeof n === "number" && isFinite(n) && n >= 0 && Math.floor(n) === n) ? n : 0;
 }
 
+var MAX_ATTENTION = 4;        // run-summary items kept for the popout
+var MAX_ATTENTION_LEN = 60;
+
+// _summary: the optional "summary" object of last-run.json (the run report's
+// headline numbers, added within v1: an older archmaid writes none) as
+// {upgraded, aur, freedBytes, attention:[string]}, or null when absent or not
+// an object. A damaged field reads as 0 / skipped, never throws.
+function _summary(o) {
+    if (o === null || typeof o !== "object" || Array.isArray(o))
+        return null;
+    var att = [];
+    if (Array.isArray(o.attention)) {
+        for (var i = 0; i < o.attention.length && att.length < MAX_ATTENTION; i++) {
+            if (typeof o.attention[i] === "string" && o.attention[i].length > 0)
+                att.push(o.attention[i].slice(0, MAX_ATTENTION_LEN));
+        }
+    }
+    return {
+        upgraded: _count(o.upgraded),
+        aur: _count(o.aur),
+        freedBytes: _count(o.freed_bytes),
+        attention: att
+    };
+}
+
 // parseLastRun: {action, finished(ms), outcome, stepsFailed, stepsRefused,
-// stepsSkipped} or null. A dry-run record is not a real run: null.
+// stepsSkipped, summary} or null. summary is null for a record without one.
+// A dry-run record is not a real run: null.
 function parseLastRun(text) {
     var o = _obj(text);
     if (!o)
@@ -63,7 +89,8 @@ function parseLastRun(text) {
         outcome: outcome,
         stepsFailed: _count(o.steps_failed),
         stepsRefused: _count(o.steps_refused),
-        stepsSkipped: _count(o.steps_skipped)
+        stepsSkipped: _count(o.steps_skipped),
+        summary: _summary(o.summary)
     };
 }
 
@@ -294,7 +321,8 @@ function popout(s, now) {
             tag: outcomeTag(r.outcome, r.stepsRefused),
             tint: outcomeTint(r.outcome, r.stepsRefused),
             stamp: stamp(r.finished, now),
-            notes: notes
+            notes: notes,
+            summary: r.summary || null
         };
     }
     if (s.updates !== null) {

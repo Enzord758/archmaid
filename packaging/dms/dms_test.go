@@ -45,6 +45,20 @@ func lastRun(t *testing.T, outcome string, failed int) string {
 	return read(t, filepath.Join(dir, logstore.LastRunFile))
 }
 
+// lastRunSummary is last-run.json as the real writer produces it for a run
+// that carries the run report's summary.
+func lastRunSummary(t *testing.T, sum logstore.RunSummary) string {
+	t.Helper()
+	dir := t.TempDir()
+	s := logstore.New(logstore.Options{Dir: dir})
+	err := s.WriteLastRun(logstore.RunRecord{Action: "fullcleanup", Started: t0.Add(-time.Minute),
+		Finished: t0, Outcome: logstore.OutcomeOK, Summary: &sum})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return read(t, filepath.Join(dir, logstore.LastRunFile))
+}
+
 // withRefused turns a real record into the "incomplete" shape (outcome
 // "incomplete" plus steps_refused) that the engine is gaining; the Go
 // RunRecord does not carry those yet, so the two fields are set on the
@@ -334,11 +348,24 @@ func TestStateJS(t *testing.T) {
 		"lastFailed2Refused1": withRefused(t, lastRun(t, logstore.OutcomeFailed, 2), 1, logstore.OutcomeFailed),
 		"lastAbortedRefused":  withRefused(t, lastRun(t, logstore.OutcomeAborted, 0), 2, logstore.OutcomeAborted),
 		"lastIncomplete":      withRefused(t, okRaw, 2),
-		"lastUnknownField":    strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),
-		"lastV2":              strings.Replace(okRaw, `"v":1`, `"v":2`, 1),
-		"lastTorn":            okRaw[:len(okRaw)/2],
-		"lastDry":             strings.Replace(okRaw, `"dry_run":false`, `"dry_run":true`, 1),
-		"auditClean":          auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true}),
+		// The run report's summary object: from the real writer, with an
+		// empty attention list, damaged (a string, an array, null, odd
+		// members) and with too many long items.
+		"lastSummary": lastRunSummary(t, logstore.RunSummary{Upgraded: 47, AUR: 6, FreedBytes: 3328599654,
+			Attention: []string{"Restart recommended", "1 new .pacnew"}}),
+		"lastSummaryQuiet": lastRunSummary(t, logstore.RunSummary{Upgraded: 6, AUR: 1, FreedBytes: 429916160}),
+		"lastSummaryStr":   withField(t, okRaw, "summary", "47 upgraded"),
+		"lastSummaryArray": withField(t, okRaw, "summary", []int{1, 2}),
+		"lastSummaryNull":  strings.Replace(okRaw, `"v":1`, `"v":1,"summary":null`, 1),
+		"lastSummaryOdd": withField(t, okRaw, "summary", map[string]any{"upgraded": "47", "aur": -1, "freed_bytes": 1.5,
+			"attention": []any{1, nil, "", "fine", map[string]any{}}}),
+		"lastSummaryMany": withField(t, okRaw, "summary", map[string]any{"upgraded": 1, "aur": 0, "freed_bytes": 0,
+			"attention": []string{strings.Repeat("x", 100), "b", "c", "d", "e", "f"}}),
+		"lastUnknownField": strings.Replace(okRaw, `"v":1`, `"v":1,"future":{"x":1}`, 1),
+		"lastV2":           strings.Replace(okRaw, `"v":1`, `"v":2`, 1),
+		"lastTorn":         okRaw[:len(okRaw)/2],
+		"lastDry":          strings.Replace(okRaw, `"dry_run":false`, `"dry_run":true`, 1),
+		"auditClean":       auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true}),
 		"auditHigh": auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true,
 			High: []audit.StateFinding{{Pkg: "foo", Reason: "maintainer alice → mallory"}, {Pkg: "bar", Reason: "adopted by x"}}}),
 		"updates3":     updatesFile(t, "a\nb\nc\n", 0),

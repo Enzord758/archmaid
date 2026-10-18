@@ -316,6 +316,46 @@ TestCase {
         compare(note(clean).note, "9 repo · 3 AUR · checked 5 min ago");
     }
 
+    // The run report's summary object (added within v1 of last-run.json): the
+    // widget reads old files (none), new ones from the real Go writer, and
+    // damaged ones without throwing; the existing decisions don't change.
+    function test_runSummary() {
+        // An older archmaid's record has none.
+        compare(State.parseLastRun(F.fx.lastOK).summary, null);
+        compare(State.popout(sum(F.fx.lastOK, null, null, t0), t0).lastRun.summary, null);
+        // A new record: what the Go writer put there.
+        const s = State.parseLastRun(F.fx.lastSummary);
+        verify(s !== null);
+        compare(s.outcome, "ok");
+        compare(s.summary.upgraded, 47);
+        compare(s.summary.aur, 6);
+        compare(s.summary.freedBytes, 3328599654);
+        compare(s.summary.attention, ["Restart recommended", "1 new .pacnew"]);
+        const p = State.popout(sum(F.fx.lastSummary, null, null, t0), t0);
+        compare(p.lastRun.summary.upgraded, 47);
+        compare(p.lastRun.tag, "OK");
+        compare(sum(F.fx.lastSummary, null, null, t0).level, "ok");
+        // A run with an empty attention list (written as []).
+        compare(State.parseLastRun(F.fx.lastSummaryQuiet).summary.attention, []);
+        // Damaged: the record still parses, the summary degrades.
+        const bad = ["lastSummaryStr", "lastSummaryArray", "lastSummaryNull"];
+        for (let i = 0; i < bad.length; i++) {
+            const r = State.parseLastRun(F.fx[bad[i]]);
+            verify(r !== null, bad[i]);
+            compare(r.outcome, "ok", bad[i]);
+            compare(r.summary, null, bad[i]);
+        }
+        const odd = State.parseLastRun(F.fx.lastSummaryOdd).summary;
+        compare(odd.upgraded, 0);
+        compare(odd.aur, 0);
+        compare(odd.freedBytes, 0);
+        compare(odd.attention, ["fine"]);
+        // At most MAX_ATTENTION items of at most 60 characters.
+        const many = State.parseLastRun(F.fx.lastSummaryMany).summary;
+        compare(many.attention.length, 4);
+        compare(many.attention[0].length, 60);
+    }
+
     function test_launchPlan() {
         compare(State.launchPlan(true, "kitty", true).argv, ["archmaid-gui", "--confirm", "fullcleanup"]);
         compare(State.launchPlan(false, "kitty", true).argv, ["kitty", "-e", "archmaid"]);
