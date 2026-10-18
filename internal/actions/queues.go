@@ -193,16 +193,6 @@ func topgradeSteps(env Env) []steps.Step {
 	}
 }
 
-func userCacheSteps(Env) []steps.Step {
-	return []steps.Step{{
-		ID:    steps.IDUserCache,
-		Title: "Cleaning user cache…", LogLabel: "User cache cleared",
-		Argv:      []string{"bash", "-c", "rm -rf \"$HOME/.cache/\"*"},
-		Confirm:   "Clear all user cache?",
-		AlwaysLog: true,
-	}}
-}
-
 // orphanProbeStep is Full Cleanup's orphan check: an in-process step that runs
 // after the update and, if it finds orphans, puts their removal right after
 // itself (see findOrphans; under polkit, findOrphansPolkit). It only reads,

@@ -1,0 +1,12 @@
+action "Clear caches"
+exec  paccache --nocolor -dk0
+row   ~/.cache — 3 MiB |
+row   Entire package cache — 412 MiB (2 files) | Can't reinstall or downgrade those packages without internet
+pick  [~/.cache pkgcache] -> [~/.cache]
+plan  1 steps
+plan  1 "Cleaning user cache…" argv=bash -c rm -rf "$HOME/.cache/"* alwayslog cat=cleanup
+log   cleanup CHECK: Measured the caches: ~/.cache 3 MiB; package cache 412 MiB, 2 files.
+step  1 running
+step  1 ok
+log   cleanup OK: User cache cleared
+end   outcome=completed errs=0 skipped=0

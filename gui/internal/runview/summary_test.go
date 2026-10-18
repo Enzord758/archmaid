@@ -98,7 +98,7 @@ func TestSummaryBusy(t *testing.T) {
 	if f == nil || f.Total != "3.18 GiB" || len(f.Rows) != 5 || f.Rows[0].Fraction != 1 || f.Rows[0].Value != "1.92 GiB" {
 		t.Fatalf("freed %+v", f)
 	}
-	if want := `The package cache still holds 4.2 GiB (312 packages). "Delete entire package cache" in the menu frees it.`; s.Cache != want {
+	if want := `The package cache still holds 4.2 GiB (312 packages). "Clear caches" in the menu frees it.`; s.Cache != want {
 		t.Errorf("cache %q, want %q", s.Cache, want)
 	}
 	if s.Audit != "" {
@@ -177,8 +177,15 @@ func TestSummaryHeadlinePerAction(t *testing.T) {
 			t.Errorf("%s with attention: %q", id, s.Kicker)
 		}
 	}
-	if got := doneHeadline[actions.IDWipeCache]; got != "Package cache deleted" {
-		t.Errorf("wipe: %q", got)
+	if got := doneHeadline[actions.IDClearCaches]; got != "Caches cleared" {
+		t.Errorf("Clear caches: %q", got)
+	}
+	// The retired actions never finish a run any more (no menu entry), so
+	// they need no headline.
+	for _, id := range []string{actions.IDUserCache, actions.IDWipeCache} {
+		if _, ok := doneHeadline[id]; ok {
+			t.Errorf("headline for the retired action %q", id)
+		}
 	}
 }
 
@@ -233,8 +240,8 @@ func TestSummaryManyPackagesAndOrphans(t *testing.T) {
 // TestSummaryCacheLabelIsTheMenu: the "still holds" line names the menu
 // entry that frees the cache, in the entry's own words.
 func TestSummaryCacheLabelIsTheMenu(t *testing.T) {
-	a, ok := actions.ByID(actions.IDWipeCache)
-	if !ok || a.Label != CacheMenuLabel || CacheMenuLabel != "Delete entire package cache" {
+	a, ok := actions.ByID(actions.IDClearCaches)
+	if !ok || a.Label != CacheMenuLabel || CacheMenuLabel != "Clear caches" {
 		t.Errorf("CacheMenuLabel %q, the menu entry %q", CacheMenuLabel, a.Label)
 	}
 }

@@ -1,9 +1,0 @@
-action "Clear user cache"
-plan  1 steps
-plan  1 "Cleaning user cache…" argv=bash -c rm -rf "$HOME/.cache/"* confirm alwayslog cat=cleanup
-ask   "Clear all user cache?" -> yes
-step  1 running
-out   1 [dry-run] would run: bash -c rm -rf "$HOME/.cache/"*
-step  1 ok
-log   cleanup DRYRUN: User cache cleared
-end   outcome=completed errs=0 skipped=0

@@ -171,9 +171,23 @@ type Pending struct {
 // NeedsSelection asks the user to pick from Items; Steps builds the queue
 // for what was picked (nothing picked: nothing to run).
 type NeedsSelection struct {
-	Items   []string
+	// Items are the pick's keys: what Steps gets back, and what a front
+	// end answers with. For a plain list (services) they are also the rows.
+	Items []string
+	// Rows, if set (one per item), says how each row reads and whether it
+	// can be ticked; nil shows the Items as they are.
+	Rows    []PickRow
 	Steps   func(selected []string) []steps.Step
 	Checked Checked
+}
+
+// PickRow is one row of a pick that needs more than its key: Label is the
+// row ("Entire package cache — 7.3 GiB (1398 files)"), Note a line that
+// stays visible under or beside it (a warning, or why the row is disabled).
+// A Disabled row can't be ticked; a pick of it is ignored.
+type PickRow struct {
+	Label, Note string
+	Disabled    bool
 }
 
 // Report is a read-only report to show (the AUR audit). Accept, if set,
@@ -211,10 +225,9 @@ func (NeedsRoot) discovery()      {}
 // records them (the DMS widget reads that), so never rename one.
 const (
 	IDFullCleanup = "fullcleanup"
-	IDUserCache   = "usercache"
+	IDClearCaches = "clearcaches"
 	IDRepair      = "repair"
 	IDDownloads   = "downloads"
-	IDWipeCache   = "wipecache"
 	IDTopgrade    = "topgrade"
 	IDServices    = "services"
 	IDAURAudit    = "auraudit"
@@ -226,10 +239,9 @@ const (
 // Menu is the main menu, in order.
 var Menu = []Action{
 	{ID: IDFullCleanup, Icon: "󰓦", Label: "Full Cleanup (Recommended)", Steps: fullCleanupSteps, Gate: "Proceed with full cleanup?"},
-	{ID: IDUserCache, Icon: "󰃨", Label: "Clear user cache", Steps: userCacheSteps},
+	{ID: IDClearCaches, Icon: "󰃨", Label: "Clear caches", Discover: discoverClearCaches, Busy: "Measuring the caches…", Record: logstore.PkgCache},
 	{ID: IDRepair, Icon: "󰚰", Label: "Repair broken packages", Discover: discoverRepair, Busy: "Scanning for broken packages…", Record: logstore.Repair},
 	{ID: IDDownloads, Icon: "󰋊", Label: "Delete old downloads", Discover: discoverDownloads, Busy: "Checking Downloads…", Record: logstore.Downloads},
-	{ID: IDWipeCache, Icon: "󰩺", Label: "Delete entire package cache", Discover: discoverWipeCache, Busy: "Measuring the package cache…", Record: logstore.PkgCache},
 	{ID: IDTopgrade, Icon: "󰏗", Label: "Run topgrade (system update)", Steps: topgradeSteps, Gate: "Run a system update with topgrade?"},
 	{ID: IDServices, Icon: "󰒔", Label: "Disable unused services", Discover: discoverServices, Busy: "Finding unused services…", Record: logstore.Services},
 	{ID: IDAURAudit, Icon: "󰶚", Label: "Audit AUR packages", Discover: discoverAURAudit, Busy: "Checking foreign packages against the AUR…", Record: logstore.AURAudit},
@@ -237,6 +249,23 @@ var Menu = []Action{
 	{ID: IDViewLog, Icon: "󰑇", Label: "View log"},
 	{ID: IDExit, Icon: "󰗼", Label: "Exit"},
 }
+
+// Legacy action IDs: "Clear user cache" and "Delete entire package cache"
+// were two menu entries until they became "Clear caches" (IDClearCaches).
+// Old last-run.json and history files still carry these, so they keep a
+// label (LegacyLabel); they are not on the menu.
+const (
+	IDUserCache = "usercache"
+	IDWipeCache = "wipecache"
+)
+
+var legacyLabels = map[string]string{
+	IDUserCache: "Clear user cache",
+	IDWipeCache: "Delete entire package cache",
+}
+
+// LegacyLabel is the label of a retired action ID, "" for any other.
+func LegacyLabel(id string) string { return legacyLabels[id] }
 
 // ByID is the menu action with id.
 func ByID(id string) (Action, bool) {

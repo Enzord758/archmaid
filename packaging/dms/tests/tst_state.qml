@@ -194,6 +194,10 @@ TestCase {
         for (let i = 0; i < ids.length; i++)
             verify(State.actionLabel(ids[i]) !== ids[i], "no name for the runnable action " + ids[i]);
         compare(State.actionLabel("fullcleanup"), "Full Cleanup");
+        compare(State.actionLabel("clearcaches"), "Clear caches");
+        // Records from before Clear caches replaced the two cache actions.
+        compare(State.actionLabel("usercache"), "Clear user cache");
+        compare(State.actionLabel("wipecache"), "Delete entire package cache");
         compare(State.actionLabel("brand-new"), "brand-new");
         compare(State.actionLabel(""), "Unknown action");
         compare(State.actionLabel("toString"), "toString");

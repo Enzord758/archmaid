@@ -233,7 +233,7 @@ func (tg *driverTarget) take(evs []engine.Event) {
 		case engine.NeedsPassword:
 			tg.open(ev.ID, tt.NeedsPassword{})
 		case engine.NeedsSelection:
-			tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items)})
+			tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items), Rows: pickLines(ev.Rows)})
 		case engine.PromptClosed:
 			if ev.ID == tg.promptID {
 				tg.prompt, tg.promptID = nil, 0
@@ -292,4 +292,17 @@ func TestSyncDriverClose(t *testing.T) {
 		t.Errorf("Pull after Close = %v", evs)
 	}
 	d.Close()
+}
+
+// pickLines is a pick's rows as the transcript writes them.
+func pickLines(rows []actions.PickRow) []string {
+	var out []string
+	for _, r := range rows {
+		line := r.Label + " | " + r.Note
+		if r.Disabled {
+			line += " | disabled"
+		}
+		out = append(out, line)
+	}
+	return out
 }

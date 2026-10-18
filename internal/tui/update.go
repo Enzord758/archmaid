@@ -232,7 +232,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.serviceCursor++
 			}
 		case " ", "x":
-			m.serviceOn[m.serviceCursor] = !m.serviceOn[m.serviceCursor]
+			if !m.pickDisabled(m.serviceCursor) {
+				m.serviceOn[m.serviceCursor] = !m.serviceOn[m.serviceCursor]
+			}
 		}
 	}
 	return m, nil

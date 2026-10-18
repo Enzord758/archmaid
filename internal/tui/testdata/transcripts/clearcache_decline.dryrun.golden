@@ -1,6 +1,0 @@
-action "Clear user cache"
-plan  1 steps
-plan  1 "Cleaning user cache…" argv=bash -c rm -rf "$HOME/.cache/"* confirm alwayslog cat=cleanup
-ask   "Clear all user cache?" -> no
-step  1 skipped
-end   outcome=aborted errs=0 skipped=1

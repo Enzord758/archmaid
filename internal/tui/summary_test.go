@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/exp/teatest"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -147,7 +148,7 @@ func TestSummaryReportWording(t *testing.T) {
 		"Freed       3.1 GiB",
 		"Package cache (keeps 3)",
 		"Package cache still holds 4.2 GiB (312 packages).",
-		`"Delete entire package cache" in the menu frees it.`,
+		`"Clear caches" in the menu frees it.`,
 		"Needs your attention",
 		"⚠ Restart recommended: linux-cachyos",
 		"Audit       2 findings (1 high): evil-bin, meh-git",
@@ -172,8 +173,11 @@ func TestSummaryReportWording(t *testing.T) {
 // TestSummaryCacheLabelIsTheMenu: the "still holds" line names the menu entry
 // that frees the cache; the wording is the entry's own.
 func TestSummaryCacheLabelIsTheMenu(t *testing.T) {
-	if cacheMenuLabel != "Delete entire package cache" {
+	if cacheMenuLabel != "Clear caches" {
 		t.Errorf("cacheMenuLabel = %q: the owner's wording for the menu entry", cacheMenuLabel)
+	}
+	if e, ok := actions.ByID(actions.IDClearCaches); !ok || e.Label != cacheMenuLabel {
+		t.Errorf("the menu's entry is %+v (%v): the cache line must name it as the menu does, %q", e, ok, cacheMenuLabel)
 	}
 }
 

@@ -192,6 +192,9 @@ func (r *Recorder) event(tg Target, ev Event) {
 		r.reply(tg, a)
 	case NeedsSelection:
 		a := r.next("select", strings.Join(ev.Options, " "))
+		for _, row := range ev.Rows {
+			r.emit("row", "%s", row)
+		}
 		r.emit("pick", "[%s] -> [%s]", strings.Join(ev.Options, " "), strings.Join(strings.Fields(a.Reply), " "))
 		r.reply(tg, a)
 	default:

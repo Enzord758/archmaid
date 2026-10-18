@@ -114,7 +114,7 @@ func covRunReport(c *covEnv) {
 	}
 	busy, quiet := uiBusyReport(), uiQuietReport()
 	quiet.Action = "fullcleanup"
-	wipe := rr.Report{Action: "wipecache", Elapsed: 4 * time.Second,
+	wipe := rr.Report{Action: "clearcaches", Elapsed: 4 * time.Second,
 		Freed:      []rr.Area{{ID: rr.AreaPaccache, Label: "Package cache", Bytes: 3 << 30, Known: true}},
 		FreedBytes: 3 << 30}
 	cases := []kase{{"busy", &busy, false, true}, {"quiet", &quiet, false, true}, {"wipe", &wipe, false, true}, {"none", nil, false, false}, {"dry", &busy, true, false}}
@@ -206,13 +206,13 @@ func checkRunSummary(c *covEnv, moment, name string, r *rr.Report) {
 	want := []string{"ALL QUIET", "Everything is up to date", "3 packages upgraded · 382 MiB freed · 6 m 08 s", "3 upgraded (1 AUR)", "ripgrep, python-pip, yay-bin", "0 B", "382 MiB",
 		"The package cache still holds 3.9 GiB (298 packages)."}
 	if name == "wipe" {
-		want = []string{"DONE", "Package cache deleted", "3 GiB freed"}
-		c.ok(!strings.Contains(texts, "Everything is up to date") && !strings.Contains(texts, "ALL QUIET"), "%s: a package cache deletion says it is up to date:\n%s", moment, texts)
+		want = []string{"DONE", "Caches cleared", "3 GiB freed"}
+		c.ok(!strings.Contains(texts, "Everything is up to date") && !strings.Contains(texts, "ALL QUIET"), "%s: a caches clearing says it is up to date:\n%s", moment, texts)
 	}
 	if name == "busy" {
 		want = []string{"NEEDS YOUR ATTENTION", "Restart recommended", "1 new .pacnew", "47 packages upgraded · at least 2.76 GiB freed · 14 m 52 s",
 			"47 upgraded (6 AUR)", "linux-cachyos, systemd, nvidia-utils +44 more", "Installed", "Removed", "unknown", "at least 2.76 GiB",
-			`"Delete entire package cache" in the menu frees it.`, "2 findings (1 high): evil-bin, meh", "Note: pacman.log was rotated"}
+			`"Clear caches" in the menu frees it.`, "2 findings (1 high): evil-bin, meh", "Note: pacman.log was rotated"}
 	}
 	for _, x := range want {
 		c.ok(strings.Contains(texts, x), "%s: the summary lacks %q:\n%s", moment, x, texts)

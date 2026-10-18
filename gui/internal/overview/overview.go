@@ -42,10 +42,9 @@ type Entry struct {
 // icons maps the menu's actions to Adwaita symbolic icons.
 var icons = map[string]string{
 	actions.IDFullCleanup: "edit-clear-all-symbolic",
-	actions.IDUserCache:   "user-trash-symbolic",
+	actions.IDClearCaches: "user-trash-symbolic",
 	actions.IDRepair:      "emblem-system-symbolic",
 	actions.IDDownloads:   "folder-download-symbolic",
-	actions.IDWipeCache:   "edit-delete-symbolic",
 	actions.IDTopgrade:    "software-update-available-symbolic",
 	actions.IDServices:    "system-run-symbolic",
 	actions.IDAURAudit:    "security-medium-symbolic",
@@ -78,6 +77,9 @@ func Entries() []Entry {
 func Label(id string) string {
 	if a, ok := actions.ByID(id); ok {
 		return a.Label
+	}
+	if l := actions.LegacyLabel(id); l != "" {
+		return l // "Clear user cache" in an old last-run.json
 	}
 	return id
 }

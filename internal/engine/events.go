@@ -4,6 +4,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	runreport "github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -246,6 +247,13 @@ type NeedsSelection struct {
 	ID    PromptID
 	Title string
 	Items []string
+	// Rows, if set (one per item), is how each row reads: its Label and
+	// Note (a warning, or why it is disabled), one line each. A disabled
+	// row can't be ticked; Select ignores a pick of it. nil: show Items.
+	Rows []actions.PickRow
+	// Go is the verb of the pick's go-ahead key ("disable", "clear");
+	// "" for a front end's own default.
+	Go string
 }
 
 // PromptClosed: the engine withdrew the open prompt with ID without an

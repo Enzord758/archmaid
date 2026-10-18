@@ -570,7 +570,7 @@ func (w *Window) updateOverview() {
 			}
 		} else if running {
 			sub = "Running"
-		} else if id == actions.IDUserCache {
+		} else if id == actions.IDClearCaches {
 			sub = w.cache.line
 		}
 		r.sub.SetText(sub)

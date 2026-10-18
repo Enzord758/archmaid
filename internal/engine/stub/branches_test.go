@@ -158,10 +158,10 @@ func TestCatalogEveryBranch(t *testing.T) {
 			{engine.OutcomeCompleted, 1}: true,
 			{engine.OutcomeCancelled, 0}: true,
 		},
-		actions.IDUserCache: {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeAborted, 1}: true},
-		actions.IDServices:  {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeCancelled, 0}: true},
-		actions.IDAURAudit:  {{engine.OutcomeReport, 0}: true},
-		actions.IDRepair:    {{engine.OutcomeNotice, 0}: true},
+		actions.IDClearCaches: {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeCancelled, 0}: true},
+		actions.IDServices:    {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeCancelled, 0}: true},
+		actions.IDAURAudit:    {{engine.OutcomeReport, 0}: true},
+		actions.IDRepair:      {{engine.OutcomeNotice, 0}: true},
 	}
 	for id := range cat {
 		if want[id] == nil {

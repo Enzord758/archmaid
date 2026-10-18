@@ -124,7 +124,7 @@ type report struct {
 	Chips   []string
 	Menu    []string // the Overview's rows
 	MenuSub string   // the started row's subtitle right after the click
-	// usercache-size: the Clear user cache cell's sub line (text, or
+	// usercache-size: the Clear caches cell's sub line (text, or
 	// "<hidden>") before the run, while it waits at its gate, and once
 	// the run has ended and the cell re-measured.
 	CacheStart, CacheRunning, CacheEnd string
@@ -361,10 +361,12 @@ func runChild(scenario, path string) int {
 		action = stub.IDFullCleanupAskpass
 	case "audit": // the AUR audit report, accepted
 		action = actions.IDAURAudit
-	case "usercache-no": // a declined required step
-		action, answerNo = actions.IDUserCache, true
+	case "caches-no", "caches-no-narrow": // the Clear caches pick, cancelled (narrow: at 630x372)
+		action, answerNo = actions.IDClearCaches, true
+	case "caches-pick": // the Clear caches pick, both rows ticked (the stub runs ~/.cache)
+		action = actions.IDClearCaches
 	case "usercache-size", "usercache-none": // the cell's size line, before and after a run
-		action = actions.IDUserCache
+		action = actions.IDClearCaches
 	case "repair", "disc-scroll": // a discovery that ends in a notice (disc-scroll: then a long one, injected)
 		action = actions.IDRepair
 	case "settings": // home refused, a folder and dry run kept, then a run
@@ -376,7 +378,7 @@ func runChild(scenario, path string) int {
 	case "toast-markup": // a toast whose message looks like markup
 	case "dry-first": // Full Cleanup from the hero's Dry run first
 	case "audit-rerun": // Full Cleanup, then the AUR audit (a report, no queue): the audit's page
-	case "clear-rerun": // Full Cleanup, then Repair (a notice), then Clear user cache: when the page clears
+	case "clear-rerun": // Full Cleanup, then Repair (a notice), then Clear caches: when the page clears
 	case "confirm-flag": // --confirm fullcleanup: the window opens into the gate; "no"
 		answerNo = true
 	case "engine-stops", "engine-stops-rerun": // the Driver dies at the second step
@@ -483,7 +485,7 @@ func runChild(scenario, path string) int {
 		if scenario == "real-wide" { // widedialogs_harness_test.go
 			w.win.SetDefaultSize(wideSize())
 		}
-		if scenario == "real-small" || scenario == "narrow-nav" || strings.HasPrefix(scenario, "small-") {
+		if scenario == "real-small" || scenario == "narrow-nav" || scenario == "caches-no-narrow" || strings.HasPrefix(scenario, "small-") {
 			w.win.SetDefaultSize(630, 372) // half a 1280x800 screen, split (spec 1.8)
 		}
 		w.win.ConnectRealize(func() {
@@ -669,6 +671,10 @@ func runChild(scenario, path string) int {
 						// The pick list as shown: its heading, its rows
 						// and how many boxes there are to tick.
 						rep.Picks = append(rep.Picks, fmt.Sprintf("%s\n%s\n%d boxes", d.Heading(), dialogLabels(d, nil), len(w.checks)))
+						if answerNo {
+							resp = "cancel"
+							break
+						}
 						w.checks[0].SetActive(true)
 						w.checks[1].SetActive(true)
 						resp = "ok"
@@ -842,7 +848,7 @@ func runChild(scenario, path string) int {
 					poll = func() {
 						polls++
 						rep.CacheEnd = cacheCell(w)
-						if rep.CacheEnd == "Empty" || (scenario == "usercache-none" && cacheMeasures.Load() >= 2) || polls > 60 {
+						if rep.CacheEnd == "~/.cache is empty" || (scenario == "usercache-none" && cacheMeasures.Load() >= 2) || polls > 60 {
 							rep.CacheMeasures = cacheMeasures.Load()
 							w.win.Close()
 							return
@@ -903,7 +909,7 @@ func runChild(scenario, path string) int {
 					// page clears when it starts).
 					next := actions.IDRepair
 					if len(rep.Outcomes) == 2 {
-						next = actions.IDUserCache
+						next = actions.IDClearCaches
 					}
 					glib.TimeoutAdd(50, func() { w.menu[next].start() })
 					return
@@ -1526,9 +1532,13 @@ const repairNone = "No broken packages found."
 func TestGUIOverviewStarts(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "repair")
-	want := []string{"fullcleanup", "usercache", "repair", "downloads", "wipecache", "topgrade", "services", "auraudit"}
+	want := []string{"fullcleanup", "clearcaches", "repair", "downloads", "topgrade", "services", "auraudit"}
 	if !slices.Equal(rep.Menu, want) {
 		t.Errorf("menu %q, want %q", rep.Menu, want)
+	}
+	// The hero (Full Cleanup) and six cells (owner decision 2026-10-18).
+	if len(rep.Menu) != 7 {
+		t.Errorf("%d Overview entries, want the hero and six cells", len(rep.Menu))
 	}
 	if rep.Page != "run" || rep.Outcome != "notice" || rep.Notice != repairNone {
 		t.Errorf("page %q outcome %q notice %q", rep.Page, rep.Outcome, rep.Notice)
@@ -1545,18 +1555,18 @@ func TestGUIOverviewStarts(t *testing.T) {
 	}
 }
 
-// cacheCell is the Clear user cache cell's sub line as shown, or "<hidden>".
+// cacheCell is the Clear caches cell's sub line as shown, or "<hidden>".
 func cacheCell(w *Window) string {
-	r := w.menu[actions.IDUserCache]
+	r := w.menu[actions.IDClearCaches]
 	if !r.sub.Visible() {
 		return "<hidden>"
 	}
 	return r.sub.Label()
 }
 
-// TestGUIUserCacheSize: the Clear user cache cell shows how much is in
+// TestGUIUserCacheSize: the Clear caches cell shows how much is in
 // ~/.cache while idle, "Running" while its action goes, and re-measures when
-// the run ends ("Empty" once the step emptied it). XDG_CACHE_HOME points at
+// the run ends ("~/.cache is empty" once the step emptied it). XDG_CACHE_HOME points at
 // a folder elsewhere: the action deletes $HOME/.cache, so that is what is
 // measured. A dot entry stays after rm -rf .cache/*, so it isn't counted.
 func TestGUIUserCacheSize(t *testing.T) {
@@ -1585,11 +1595,11 @@ func TestGUIUserCacheSize(t *testing.T) {
 	if rep.CacheStart != "3.1M in ~/.cache" && rep.CacheStart != "3.0M in ~/.cache" {
 		t.Errorf("idle line %q, want the 3 MiB fixture", rep.CacheStart)
 	}
-	if rep.CacheRunning != "Running" {
-		t.Errorf("line while running %q", rep.CacheRunning)
+	if rep.CacheRunning != "Measuring the caches…" {
+		t.Errorf("line while the pick is open %q", rep.CacheRunning)
 	}
-	if rep.CacheEnd != "Empty" {
-		t.Errorf("line after the run %q, want Empty", rep.CacheEnd)
+	if rep.CacheEnd != "~/.cache is empty" {
+		t.Errorf("line after the run %q, want ~/.cache is empty", rep.CacheEnd)
 	}
 }
 
@@ -1695,7 +1705,7 @@ func runPage(w *Window) string {
 // new run's queue starts, not when the action starts. Repair, which ends at
 // its discovery (nothing found), is its own result, not Full Cleanup's page
 // tagged "previous run" (owner's decision): the page switches to it with the
-// discovery's result; Clear user cache (a queue) then shows only its own
+// discovery's result; Clear caches (a pick, then a queue) then shows only its own
 // steps.
 func TestGUIClearRerun(t *testing.T) {
 	needDisplay(t)
@@ -1710,10 +1720,10 @@ func TestGUIClearRerun(t *testing.T) {
 		t.Errorf("Repair's page isn't its own Discovery result: %s", rep.Pages[1])
 	}
 	if strings.Contains(rep.Pages[2], steps.IDTopgrade) || !strings.Contains(rep.Pages[2], "steps="+steps.IDUserCache) {
-		t.Errorf("Clear user cache's page still holds Full Cleanup's steps: %s", rep.Pages[2])
+		t.Errorf("Clear caches' page still holds Full Cleanup's steps: %s", rep.Pages[2])
 	}
 	// No page is tagged "previous run"; each is titled for its own action.
-	if want := []string{`prev=false title="Full Cleanup (Recommended)"`, `prev=false title="Repair broken packages"`, `prev=false title="Clear user cache"`}; !slices.Equal(rep.Heads, want) {
+	if want := []string{`prev=false title="Full Cleanup (Recommended)"`, `prev=false title="Repair broken packages"`, `prev=false title="Clear caches"`}; !slices.Equal(rep.Heads, want) {
 		t.Errorf("the page's tag and title %q, want %q", rep.Heads, want)
 	}
 }
@@ -1863,15 +1873,54 @@ func TestGUILastRunTones(t *testing.T) {
 	}
 }
 
-// TestGUIDeclined: "no" at a required step's confirm (the Catalog's
-// declined path) ends the run aborted with the step skipped.
+// TestGUIDeclined: cancelling the Clear caches pick (the Catalog's
+// declined path) runs nothing: the action ends cancelled with no step.
 func TestGUIDeclined(t *testing.T) {
 	needDisplay(t)
-	rep, _ := child(t, "usercache-no")
-	if !slices.Equal(rep.Sent, []string{"confirm 1 false"}) || !slices.Equal(rep.Buttons, []string{"1 Clear/Cancel"}) {
-		t.Errorf("sent %q buttons %q", rep.Sent, rep.Buttons)
+	rep, _ := child(t, "caches-no")
+	if !slices.Equal(rep.Sent, []string{"cancel 1"}) {
+		t.Errorf("sent %q", rep.Sent)
 	}
-	if rep.Outcome != "aborted" || !slices.Equal(rep.Rows, []string{steps.IDUserCache + "=skipped"}) {
+	if rep.Outcome != "cancelled" || len(rep.Rows) != 0 {
+		t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
+	}
+	// The pick as shown: both rows with the sizes, the warning and a
+	// destructive go button, nothing ticked, six cells behind it.
+	if len(rep.Picks) != 1 {
+		t.Fatalf("picks %q", rep.Picks)
+	}
+	for _, want := range []string{"Clear caches", "~/.cache — 2.3 GiB", "Entire package cache — 7.3 GiB (1398 files)",
+		"Can't reinstall or downgrade those packages without internet", "2 boxes"} {
+		if !strings.Contains(rep.Picks[0], want) {
+			t.Errorf("the pick lacks %q:\n%s", want, rep.Picks[0])
+		}
+	}
+}
+
+// TestGUIDeclinedNarrow: the same pick in a 630x372 window still lists both
+// rows, the warning, and the way out.
+func TestGUIDeclinedNarrow(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "caches-no-narrow")
+	if !slices.Equal(rep.Sent, []string{"cancel 1"}) || rep.Outcome != "cancelled" || len(rep.Picks) != 1 {
+		t.Fatalf("sent %q outcome %q picks %q", rep.Sent, rep.Outcome, rep.Picks)
+	}
+	for _, want := range []string{"~/.cache — 2.3 GiB", "Can't reinstall or downgrade those packages without internet", "2 boxes"} {
+		if !strings.Contains(rep.Picks[0], want) {
+			t.Errorf("the narrow pick lacks %q:\n%s", want, rep.Picks[0])
+		}
+	}
+}
+
+// TestGUICachesPick: ticking both rows and pressing Clear sends the pick and
+// runs the stub's user-cache step; no password and no second confirm.
+func TestGUICachesPick(t *testing.T) {
+	needDisplay(t)
+	rep, _ := child(t, "caches-pick")
+	if !slices.Equal(rep.Sent, []string{"select 1 [~/.cache pkgcache]"}) {
+		t.Errorf("sent %q", rep.Sent)
+	}
+	if rep.Outcome != "completed" || !slices.Equal(rep.Rows, []string{steps.IDUserCache + "=ok"}) {
 		t.Errorf("outcome %q rows %q", rep.Outcome, rep.Rows)
 	}
 }

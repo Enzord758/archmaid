@@ -11,7 +11,8 @@ import (
 // keeps today's menu, View log included, until the window switches over.
 type Card struct {
 	Entry
-	// Desc is the cell's one line ("Deletes everything under ~/.cache").
+	// Desc is the cell's one line ("Files untouched for 30 days"), at most
+	// MaxDescLen characters; Full Cleanup's hero text is the exception.
 	Desc string
 	// Root: the action has a step that needs root (sudo or polkit).
 	Root bool
@@ -20,6 +21,10 @@ type Card struct {
 	// root through their own sudo (topgrade), "" when it needs neither.
 	Tag string
 }
+
+// MaxDescLen is how long a cell's text may be (the owner's 2026-10-18
+// decision: short cells; Full Cleanup's hero text is the one long text).
+const MaxDescLen = 40
 
 // cardInfo is each action's description and privilege tag. The tag is
 // static on purpose: a discovery's steps exist only once it has run, and
@@ -30,14 +35,12 @@ var cardInfo = map[string]struct {
 }{
 	actions.IDFullCleanup: {"Audits your AUR packages, updates the system with topgrade, then removes orphans (you confirm the list), " +
 		"trims the package cache, clears old temp files, vacuums the journal, checks package integrity and cleans the AUR build cache.", "root"},
-	actions.IDUserCache: {"Deletes everything under ~/.cache", ""},
-	actions.IDRepair:    {"Finds packages with missing files and reinstalls them", "root"},
-	actions.IDDownloads: {"Files and folders not changed in 30 days, from your downloads folder", ""},
-	actions.IDWipeCache: {"Shows how much space the whole package cache takes, then deletes all of it if you confirm. " +
-		"You can't reinstall or downgrade those packages without internet", "root"},
-	actions.IDTopgrade: {"Audits your AUR packages, then updates the system with topgrade", "sudo"},
-	actions.IDServices: {"Pick from enabled services that aren't running", "root"},
-	actions.IDAURAudit: {"Read-only check of foreign packages against the AUR", ""},
+	actions.IDClearCaches: {"Pick ~/.cache, the package cache or both", "root"},
+	actions.IDRepair:      {"Reinstalls packages with missing files", "root"},
+	actions.IDDownloads:   {"Files untouched for 30 days", ""},
+	actions.IDTopgrade:    {"AUR audit, then a full update", "sudo"},
+	actions.IDServices:    {"Enabled services that aren't running", "root"},
+	actions.IDAURAudit:    {"Read-only check against the AUR", ""},
 }
 
 // Cards is the Overview's action cells, in the menu's order: every entry
@@ -61,7 +64,7 @@ type PlanItem struct {
 	// Sudo: it runs as the user and gets root through its own sudo
 	// (topgrade). They are runview.PrivTag's "root" and "sudo", which the
 	// gate and the Run page tag the step with. Asks: it has its own
-	// confirm (Clear user cache). Combined: it runs inside the one
+	// confirm. Combined: it runs inside the one
 	// root-helper call (polkit's one dialog per Full Cleanup).
 	Root, Sudo, Asks, Combined bool
 }

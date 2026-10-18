@@ -281,6 +281,7 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		m.services = slices.Clone(ev.Items)
 		m.serviceOn = make([]bool, len(ev.Items))
 		m.serviceCursor = 0
+		m.pickRows, m.pickTitle, m.pickGo = slices.Clone(ev.Rows), ev.Title, ev.Go
 		m.screen = screenServices
 	case engine.DiscoveryResult:
 		// The record of a discovery that ends the action: its Notice follows
@@ -572,7 +573,7 @@ func (m model) engineKey(msg tea.KeyMsg) (tea.Model, tea.Cmd, bool) {
 		case "enter":
 			var sel []string
 			for i, on := range m.serviceOn {
-				if on {
+				if on && !m.pickDisabled(i) {
 					sel = append(sel, m.services[i])
 				}
 			}

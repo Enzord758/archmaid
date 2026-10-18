@@ -103,6 +103,11 @@ run_tape() {
 	local shims="$dir/shims"
 	HOME_DIR="$dir/home"; SHIM_LOG="$dir/shim.log"; TXT="$E2E/$name.txt"
 	mkdir -p "$HOME_DIR" "$shims"; : >"$SHIM_LOG"
+	# SEED_USER_CACHE=1: a ~/.cache with something in it (a row to tick).
+	if [[ -n "${SEED_USER_CACHE:-}" ]]; then
+		mkdir -p "$HOME_DIR/.cache/app"
+		head -c 1048576 /dev/urandom >"$HOME_DIR/.cache/app/blob"
+	fi
 	for c in "${SHIMMED[@]}"; do ln -s "$E2E/shim.sh" "$shims/$c"; done
 	for c in "${SHIMMED[@]}"; do
 		[[ "$(PATH="$shims:$PATH" command -v "$c")" == "$shims/$c" ]] ||
@@ -132,11 +137,11 @@ run_tape() {
 			fi
 			continue
 		fi
-		# paccache is allowed only as the wipe's read-only dry run.
+		# paccache is allowed only as Clear caches' read-only dry run.
 		if [[ $c == paccache ]]; then
 			if grep '^paccache ' "$SHIM_LOG" | grep -qvE '^paccache --nocolor -dk0$'; then
 				echo "--- shim log ---"; cat "$SHIM_LOG"
-				fail "$name: paccache was invoked for more than the wipe's dry run"
+				fail "$name: paccache was invoked for more than the dry run"
 			fi
 			continue
 		fi
@@ -163,11 +168,20 @@ refuse() { # refuse FILE PATTERN WHAT
 only=("$@")
 want() { [[ ${#only[@]} -eq 0 ]] || [[ " ${only[*]} " == *" $1 "* ]]; }
 
-if want clear-cache; then
-	run_tape clear-cache
-	[[ -f "$CLEANUP_LOG" ]] || fail "clear-cache: no dry-run log at $CLEANUP_LOG"
-	need "$CLEANUP_LOG" "DRYRUN: User cache cleared" "clear-cache: DRYRUN entry missing"
-	echo "PASS: clear-cache logged the DRYRUN entry"
+if want clearcaches-user; then
+	SEED_USER_CACHE=1 run_tape clearcaches-user
+	[[ -f "$CLEANUP_LOG" ]] || fail "clearcaches-user: no dry-run log at $CLEANUP_LOG"
+	# The pick shows both rows, with the package cache's warning, before anything ran.
+	need "$TXT" "Clear caches" "clearcaches-user: the pick was not shown"
+	need "$TXT" "~/.cache — 1 MiB" "clearcaches-user: the pick did not show ~/.cache's size"
+	need "$TXT" "412 MiB \\(2 files\\)" "clearcaches-user: the pick did not show the package cache's size and count"
+	need "$TXT" "without internet" "clearcaches-user: the pick lacks the package cache's warning"
+	need "$CLEANUP_LOG" "DRYRUN: User cache cleared" "clearcaches-user: DRYRUN entry missing"
+	refuse "$CLEANUP_LOG" "Entire package cache" "clearcaches-user: the package cache step ran although it was not ticked"
+	# ~/.cache alone needs no root: no sudo at all, not even the ticket probe.
+	refuse "$SHIM_LOG" "^sudo " "clearcaches-user: sudo was called for ~/.cache alone"
+	need "$SHIM_LOG" "^paccache --nocolor -dk0$" "clearcaches-user: the dry run never ran"
+	echo "PASS: Clear caches with ~/.cache ticked logged the DRYRUN entry and asked for no root"
 	echo "--- $CLEANUP_LOG ---"; cat "$CLEANUP_LOG"
 fi
 
@@ -226,37 +240,35 @@ if want orphans; then
 	echo "PASS: orphan confirm showed 2/3 total and logged the dry-run removal"
 fi
 
-if want wipecache-declined; then
-	run_tape wipecache-declined
-	need "$TXT" "Delete the ENTIRE package cache" "wipecache-declined: the confirm was not shown"
-	# The confirm carries the dry run's total and the warning, before anything ran.
-	need "$TXT" "412.50 MiB" "wipecache-declined: the confirm did not show what it frees"
-	need "$TXT" "2 package files" "wipecache-declined: the confirm did not show the package count"
-	need "$TXT" "without internet" "wipecache-declined: the confirm lacks the warning"
-	need "$SHIM_LOG" "^paccache --nocolor -dk0$" "wipecache-declined: the dry run never ran"
-	refuse "$SHIM_LOG" "-rk0" "wipecache-declined: the wipe ran although it was declined"
-	refuse "$SHIM_LOG" "^sudo -[^n]" "wipecache-declined: sudo ran a command"
-	need "$CLEANUP_LOG" "SKIP: Entire package cache removed \(declined\)" "wipecache-declined: the declined wipe was not logged"
-	refuse "$CLEANUP_LOG" "DRYRUN: Entire package cache removed" "wipecache-declined: a declined wipe was logged as done"
-	echo "PASS: the wipe's confirm showed 412.50 MiB / 2 files, No ran nothing"
+if want clearcaches-none; then
+	SEED_USER_CACHE=1 run_tape clearcaches-none
+	need "$TXT" "without internet" "clearcaches-none: the pick lacks the warning"
+	need "$TXT" "\\[ \\] ~/.cache" "clearcaches-none: ~/.cache is not shown unticked"
+	need "$SHIM_LOG" "^paccache --nocolor -dk0$" "clearcaches-none: the dry run never ran"
+	refuse "$SHIM_LOG" "-rk0" "clearcaches-none: the wipe ran with nothing ticked"
+	refuse "$SHIM_LOG" "^sudo " "clearcaches-none: sudo was called with nothing ticked"
+	refuse "$CLEANUP_LOG" "." "clearcaches-none: an empty pick wrote to the cleanup log"
+	echo "PASS: an empty pick ran nothing and asked for no password"
 fi
 
-if want wipecache; then
-	run_tape wipecache
-	need "$TXT" "412.50 MiB" "wipecache: the confirm did not show what it frees"
-	need "$SHIM_LOG" "^paccache --nocolor -dk0$" "wipecache: the dry run never ran"
-	refuse "$SHIM_LOG" "-rk0" "wipecache: a dry run executed the wipe"
-	need "$CLEANUP_LOG" "DRYRUN: Entire package cache removed" "wipecache: the DRYRUN entry is missing"
-	need "$CLEANUP_LOG" "would run: sudo paccache -rk0$" "wipecache: the log does not name the wipe command"
-	echo "PASS: the wipe, confirmed under --dryrun, logged what it would run and ran nothing"
+if want clearcaches-pkg; then
+	SEED_USER_CACHE=1 run_tape clearcaches-pkg
+	need "$TXT" "412 MiB \\(2 files\\)" "clearcaches-pkg: the pick did not show what it frees"
+	need "$TXT" "without internet" "clearcaches-pkg: the pick lacks the warning"
+	need "$SHIM_LOG" "^paccache --nocolor -dk0$" "clearcaches-pkg: the dry run never ran"
+	refuse "$SHIM_LOG" "-rk0" "clearcaches-pkg: a dry run executed the wipe"
+	need "$CLEANUP_LOG" "DRYRUN: Entire package cache removed" "clearcaches-pkg: the DRYRUN entry is missing"
+	need "$CLEANUP_LOG" "would run: sudo paccache -rk0$" "clearcaches-pkg: the log does not name the wipe command"
+	refuse "$CLEANUP_LOG" "User cache cleared" "clearcaches-pkg: ~/.cache was cleared although it was not ticked"
+	echo "PASS: the package cache alone, under --dryrun, logged what it would run and ran nothing"
 fi
 
-if want wipecache-empty; then
-	run_tape wipecache-empty SHIM_CACHE_EMPTY=1
-	need "$TXT" "package cache is empty" "wipecache-empty: the notice was not shown"
-	need "$STATE_DIR/dryrun/pkgcache.log" "CHECK: The package cache is empty" "wipecache-empty: no discovery record"
-	refuse "$CLEANUP_LOG" "." "wipecache-empty: a notice-only run wrote to the cleanup log"
-	echo "PASS: an empty cache is a notice, nothing asked, nothing run"
+if want clearcaches-empty; then
+	run_tape clearcaches-empty SHIM_CACHE_EMPTY=1
+	need "$TXT" "Nothing to clear" "clearcaches-empty: the notice was not shown"
+	need "$STATE_DIR/dryrun/pkgcache.log" "CHECK: Nothing to clear" "clearcaches-empty: no discovery record"
+	refuse "$CLEANUP_LOG" "." "clearcaches-empty: a notice-only run wrote to the cleanup log"
+	echo "PASS: two empty caches are a notice, nothing asked, nothing run"
 fi
 
 if want abort; then

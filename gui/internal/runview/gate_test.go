@@ -14,8 +14,8 @@ import (
 // gate; one-password's text when the Driver keeps the password.
 func TestGateNotes(t *testing.T) {
 	// A step with a confirm of its own is named by its number. Full Cleanup
-	// has none (the cache wipe is its own menu action, task #186): it is
-	// Clear user cache that asks.
+	// has none (the cache wipe is part of Clear caches, whose pick is its
+	// confirm): a step with a confirm of its own is the exception.
 	asking := []engine.PlanStep{{ID: steps.IDUserCache, Confirm: true}}
 	if got := GateNotes(asking, true, false, "", false); !slices.Equal(got, []string{"Step 1 asks before it runs."}) {
 		t.Errorf("asking step: %q", got)

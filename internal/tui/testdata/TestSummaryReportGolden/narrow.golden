@@ -21,8 +21,7 @@ Freed       3.1 GiB
             Temp files                        54 MiB
             Package cache still holds 4.2 GiB (312
             packages).
-            "Delete entire package cache" in the menu frees
-            it.
+            "Clear caches" in the menu frees it.
 
 Needs your attention
 ⚠ Restart recommended: linux-cachyos, systemd, nvidia-utils,

@@ -410,7 +410,7 @@ func (tg *sessionTarget) apply(o engine.Output) {
 		case engine.NeedsPassword:
 			tg.open(ev.ID, tt.NeedsPassword{})
 		case engine.NeedsSelection:
-			tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items)})
+			tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items), Rows: pickLines(ev.Rows)})
 		case engine.Finished:
 			tg.fin = &ev
 		case engine.DiscoveryResult: // no transcript line: its record is the log line

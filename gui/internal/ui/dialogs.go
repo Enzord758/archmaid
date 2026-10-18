@@ -508,7 +508,11 @@ func passwordText(p engine.NeedsPassword) (heading, caller, body string) {
 }
 
 // selectionDialog is a checkbox list; "Continue" sends the checked items
-// (in the engine's order), "Cancel" cancels.
+// (in the engine's order), "Cancel" cancels. A pick with rows (Clear
+// caches) shows each row's label with its note under it (the package
+// cache's warning stays visible), a disabled row has no way to be ticked
+// and says why, and the go button is named by what it does ("Clear") and
+// drawn destructive: the pick is the confirm.
 func (w *Window) selectionDialog(p engine.NeedsSelection) *amDialog {
 	title := p.Title
 	if title == "" {
@@ -516,8 +520,13 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *amDialog {
 	}
 	d := newWideDialog(title, wideText)
 	d.AddResponse("cancel", "Cancel")
-	d.AddResponse("ok", "Continue")
-	d.SetResponseAppearance("ok", adw.ResponseSuggested)
+	if len(p.Rows) == len(p.Items) && p.Go != "" {
+		d.AddResponse("ok", strings.ToUpper(p.Go[:1])+p.Go[1:])
+		d.SetResponseAppearance("ok", adw.ResponseDestructive)
+	} else {
+		d.AddResponse("ok", "Continue")
+		d.SetResponseAppearance("ok", adw.ResponseSuggested)
+	}
 	d.SetDefaultResponse("ok")
 	d.SetCloseResponse("cancel")
 	list := gtk.NewListBox()
@@ -529,6 +538,17 @@ func (w *Window) selectionDialog(p engine.NeedsSelection) *amDialog {
 		row.SetUseMarkup(false)
 		row.SetTitle(item)
 		checks[i] = gtk.NewCheckButton()
+		if len(p.Rows) == len(p.Items) {
+			r := p.Rows[i]
+			row.SetTitle(r.Label)
+			row.SetSubtitle(r.Note)
+			row.SetTitleLines(0)
+			row.SetSubtitleLines(0)
+			if r.Disabled {
+				checks[i].SetSensitive(false)
+				row.SetSensitive(false)
+			}
+		}
 		row.AddPrefix(checks[i])
 		row.SetActivatableWidget(checks[i])
 		list.Append(row)

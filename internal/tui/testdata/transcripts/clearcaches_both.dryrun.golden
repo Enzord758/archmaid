@@ -1,0 +1,18 @@
+action "Clear caches"
+exec  paccache --nocolor -dk0
+row   ~/.cache — 3 MiB |
+row   Entire package cache — 412 MiB (2 files) | Can't reinstall or downgrade those packages without internet
+pick  [~/.cache pkgcache] -> [~/.cache pkgcache]
+plan  2 steps
+plan  1 "Cleaning user cache…" argv=bash -c rm -rf "$HOME/.cache/"* alwayslog cat=cleanup
+plan  2 "Deleting entire package cache…" argv=sudo paccache -rk0 sudo optional alwayslog cat=cleanup
+log   cleanup CHECK: Measured the caches: ~/.cache 3 MiB; package cache 412 MiB, 2 files.
+step  1 running
+out   1 [dry-run] would run: bash -c rm -rf "$HOME/.cache/"*
+step  1 ok
+log   cleanup DRYRUN: User cache cleared
+step  2 running
+out   2 [dry-run] would run: sudo paccache -rk0
+step  2 ok
+log   cleanup DRYRUN: Entire package cache removed
+end   outcome=completed errs=0 skipped=0

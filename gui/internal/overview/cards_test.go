@@ -21,7 +21,7 @@ func TestCards(t *testing.T) {
 			t.Errorf("%s: kind %v, want a run", c.ID, c.Kind)
 		}
 	}
-	want := []string{actions.IDFullCleanup, actions.IDUserCache, actions.IDRepair, actions.IDDownloads, actions.IDWipeCache,
+	want := []string{actions.IDFullCleanup, actions.IDClearCaches, actions.IDRepair, actions.IDDownloads,
 		actions.IDTopgrade, actions.IDServices, actions.IDAURAudit}
 	if !slices.Equal(ids, want) {
 		t.Errorf("cards %q, want %q (the menu without View log, Edit config and Exit)", ids, want)
@@ -123,11 +123,8 @@ func TestPlanPreviewOthers(t *testing.T) {
 	if !ok || !slices.Equal(titles(p), []string{"Auditing AUR packages…", "Updating system with topgrade…"}) || p.Root != 0 || p.Sudo != 1 || p.Orphans {
 		t.Errorf("topgrade: ok %v %+v", ok, p)
 	}
-	if p, ok := PlanPreview(env, actions.IDUserCache); !ok || len(p.Steps) != 1 || p.Root != 0 || !p.Steps[0].Asks {
-		t.Errorf("user cache: ok %v %+v", ok, p)
-	}
-	for _, id := range []string{actions.IDRepair, actions.IDDownloads, actions.IDWipeCache, actions.IDServices, actions.IDAURAudit,
-		actions.IDViewLog, actions.IDEditConfig, "nope"} {
+	for _, id := range []string{actions.IDClearCaches, actions.IDRepair, actions.IDDownloads, actions.IDServices, actions.IDAURAudit,
+		actions.IDViewLog, actions.IDEditConfig, actions.IDUserCache, actions.IDWipeCache, "nope"} {
 		if _, ok := PlanPreview(env, id); ok {
 			t.Errorf("%s: a preview for an action without a static queue", id)
 		}
@@ -157,6 +154,49 @@ func TestCardsRootMatchesPlan(t *testing.T) {
 		}
 		if c.Tag != want {
 			t.Errorf("%s: card tag %q, plan root %d sudo %d wants %q", c.ID, c.Tag, p.Root, p.Sudo, want)
+		}
+	}
+}
+
+// TestCardTextsAreShort pins the six approved cell texts (owner decision
+// 2026-10-18): each at most MaxDescLen characters. Full Cleanup's hero text
+// is the one long text and is not a cell's.
+func TestCardTextsAreShort(t *testing.T) {
+	want := map[string]string{
+		actions.IDClearCaches: "Pick ~/.cache, the package cache or both",
+		actions.IDRepair:      "Reinstalls packages with missing files",
+		actions.IDDownloads:   "Files untouched for 30 days",
+		actions.IDTopgrade:    "AUR audit, then a full update",
+		actions.IDServices:    "Enabled services that aren't running",
+		actions.IDAURAudit:    "Read-only check against the AUR",
+	}
+	cells := 0
+	for _, c := range Cards() {
+		if c.ID == actions.IDFullCleanup {
+			continue
+		}
+		cells++
+		if c.Desc != want[c.ID] {
+			t.Errorf("%s: text %q, want %q", c.ID, c.Desc, want[c.ID])
+		}
+		if n := len([]rune(c.Desc)); n > MaxDescLen {
+			t.Errorf("%s: text is %d characters, at most %d", c.ID, n, MaxDescLen)
+		}
+	}
+	if cells != 6 {
+		t.Errorf("%d cells besides Full Cleanup, want 6", cells)
+	}
+}
+
+// TestLabelKnowsRetiredActions: last-run.json and the history written
+// before Clear caches carry "usercache" and "wipecache"; they keep a label.
+func TestLabelKnowsRetiredActions(t *testing.T) {
+	for id, want := range map[string]string{
+		actions.IDUserCache: "Clear user cache", actions.IDWipeCache: "Delete entire package cache",
+		actions.IDClearCaches: "Clear caches", "nope": "nope",
+	} {
+		if got := Label(id); got != want {
+			t.Errorf("Label(%q) = %q, want %q", id, got, want)
 		}
 	}
 }

@@ -349,7 +349,14 @@ func (m model) viewDiscovering() string {
 func (m model) viewServices() string {
 	var b strings.Builder
 	b.WriteString(m.header() + "\n")
-	b.WriteString(stepRunStyle.Render("Enabled but not running — select services to disable:") + "\n\n")
+	title, verb := m.pickTitle, m.pickGo
+	if title == "" {
+		title = "Enabled but not running — select services to disable"
+	}
+	if verb == "" {
+		verb = "disable"
+	}
+	b.WriteString(stepRunStyle.Render(title+":") + "\n\n")
 	for i, svc := range m.services {
 		cursor := "  "
 		if i == m.serviceCursor {
@@ -359,8 +366,20 @@ func (m model) viewServices() string {
 		if m.serviceOn[i] {
 			box = selectedStyle.Render("[x]")
 		}
-		b.WriteString(cursor + box + " " + itemStyle.Render(svc) + "\n")
+		text, note := svc, ""
+		if i < len(m.pickRows) {
+			text, note = m.pickRows[i].Label, m.pickRows[i].Note
+		}
+		if m.pickDisabled(i) {
+			// Can't be ticked: no box, the reason where the warning would be.
+			b.WriteString(cursor + hintStyle.Render("[-] "+text) + "\n      " + hintStyle.Render(note) + "\n")
+			continue
+		}
+		b.WriteString(cursor + box + " " + itemStyle.Render(text) + "\n")
+		if note != "" {
+			b.WriteString("      " + noteStyle.Render(note) + "\n") // the warning stays visible
+		}
 	}
-	b.WriteString("\n" + hintStyle.Render("↑/↓ move · space toggle · enter disable · esc cancel"))
+	b.WriteString("\n" + hintStyle.Render("↑/↓ move · space toggle · enter "+verb+" · esc cancel"))
 	return b.String()
 }

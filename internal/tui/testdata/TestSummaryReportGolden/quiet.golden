@@ -17,7 +17,7 @@ Freed       410 MiB
             Journal vacuum                       0 B
             Temp files                        28 MiB
             Package cache still holds 3.9 GiB (298 packages).
-            "Delete entire package cache" in the menu frees it.
+            "Clear caches" in the menu frees it.
 
 ✔ Nothing needs your attention.
 

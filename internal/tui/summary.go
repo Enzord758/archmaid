@@ -25,7 +25,7 @@ import (
 //	            Package cache (keeps 3)            1.83 GiB
 //	            ...
 //	            Package cache still holds 4.2 GiB (312 packages).
-//	            "Delete entire package cache" in the menu frees it.
+//	            "Clear caches" in the menu frees it.
 //
 //	Needs your attention
 //	⚠ Restart recommended: linux-cachyos, systemd upgraded (running ...)
@@ -39,8 +39,8 @@ import (
 
 // cacheMenuLabel is the menu's name for the step that empties the package
 // cache; the "still holds" line points at it. It must read as the menu entry
-// does (internal/actions): the wipe is its own menu action since #186.
-const cacheMenuLabel = "Delete entire package cache"
+// does (internal/actions): the wipe is part of Clear caches (owner decision 2026-10-18).
+const cacheMenuLabel = "Clear caches"
 
 const (
 	summaryIndent  = 12 // the label column: "Downgraded " and a space

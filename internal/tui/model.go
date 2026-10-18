@@ -7,8 +7,12 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/report"
 )
+
+// pickDisabled: row i of the open pick can't be ticked.
+func (m model) pickDisabled(i int) bool { return i < len(m.pickRows) && m.pickRows[i].Disabled }
 
 // ── screens ──────────────────────────────────────────────────────────────────
 
@@ -66,6 +70,12 @@ type model struct {
 	services      []string
 	serviceOn     []bool
 	serviceCursor int
+	// pickRows, if set (one per entry), is how a pick's rows read: label
+	// and note, and which can't be ticked (Clear caches). pickTitle and
+	// pickGo head the pick and name its enter key; "" is the services pick's.
+	pickRows  []actions.PickRow
+	pickTitle string
+	pickGo    string
 
 	// log viewer state
 	logCursor int         // screenLogPicker selection

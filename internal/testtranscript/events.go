@@ -131,7 +131,12 @@ type NeedsConfirm struct{ Text string }
 type NeedsPassword struct{}
 
 // NeedsSelection: a multi-select (the services list) is open.
-type NeedsSelection struct{ Options []string }
+type NeedsSelection struct {
+	Options []string
+	// Rows, if any (one per option), are the rows as the user reads them:
+	// "label | note", with " | disabled" after a row that can't be ticked.
+	Rows []string
+}
 
 // Aborted: the abort answer was carried out on the running step at Index.
 type Aborted struct{ Index int }

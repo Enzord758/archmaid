@@ -283,13 +283,16 @@ function outcomeTint(outcome, refused) {
 // internal/actions has one. An unknown ID shows as itself.
 var ACTION_LABELS = {
     fullcleanup: "Full Cleanup",
-    usercache: "Clear user cache",
+    clearcaches: "Clear caches",
     repair: "Repair broken packages",
     downloads: "Delete old downloads",
-    wipecache: "Delete entire package cache",
     topgrade: "Run topgrade",
     services: "Disable unused services",
-    auraudit: "Audit AUR packages"
+    auraudit: "Audit AUR packages",
+    // Retired (they became "Clear caches"), kept so a last-run.json or a
+    // history entry written before still shows a name.
+    usercache: "Clear user cache",
+    wipecache: "Delete entire package cache"
 };
 
 function actionLabel(id) {

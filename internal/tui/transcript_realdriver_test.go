@@ -308,7 +308,7 @@ func (tg *realDriverTarget) take(ev engine.Event) {
 	case engine.NeedsPassword:
 		tg.open(ev.ID, tt.NeedsPassword{})
 	case engine.NeedsSelection:
-		tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items)})
+		tg.open(ev.ID, tt.NeedsSelection{Options: slices.Clone(ev.Items), Rows: pickLines(ev.Rows)})
 	case engine.PromptClosed:
 		if ev.ID == tg.promptID {
 			tg.prompt, tg.promptID = nil, 0

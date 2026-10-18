@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -17,7 +18,14 @@ import (
 
 // selectTitle heads an action's pick list.
 var selectTitle = map[string]string{
-	actions.IDServices: "Enabled but not running — select services to disable",
+	actions.IDServices:    "Enabled but not running — select services to disable",
+	actions.IDClearCaches: "Clear caches — tick what to delete",
+}
+
+// selectGo is the verb of the go-ahead key of an action's pick.
+var selectGo = map[string]string{
+	actions.IDServices:    "disable",
+	actions.IDClearCaches: "clear",
 }
 
 // askSelection opens the pick list d.
@@ -25,7 +33,8 @@ func (s *Session) askSelection(o *Output, d actions.NeedsSelection) {
 	r := s.run
 	r.sel, r.selShown = &d, shown(d.Items)
 	r.prompt, r.promptFor = s.promptID(), promptSelect
-	o.event(NeedsSelection{ID: r.prompt, Title: selectTitle[r.action], Items: slices.Clone(r.selShown)})
+	o.event(NeedsSelection{ID: r.prompt, Title: selectTitle[r.action], Items: slices.Clone(r.selShown),
+		Rows: shownRows(d.Rows, len(d.Items)), Go: selectGo[r.action]})
 }
 
 // selected takes the user's pick and plans its queue.
@@ -35,7 +44,7 @@ func (s *Session) selected(o *Output, picked []string) {
 	r.prompt, r.sel = 0, nil
 	var sel []string
 	for i, sh := range r.selShown {
-		if slices.Contains(picked, sh) {
+		if slices.Contains(picked, sh) && !(i < len(d.Rows) && d.Rows[i].Disabled) {
 			sel = append(sel, d.Items[i])
 		}
 	}
@@ -49,4 +58,17 @@ func (s *Session) selected(o *Output, picked []string) {
 		return
 	}
 	s.plan(o, queue, "")
+}
+
+// shownRows makes a pick's rows safe to list (one line each, as shown
+// does for the items); nil unless there is one per item.
+func shownRows(rows []actions.PickRow, n int) []actions.PickRow {
+	if len(rows) != n || n == 0 {
+		return nil
+	}
+	out := make([]actions.PickRow, n)
+	for i, r := range rows {
+		out[i] = actions.PickRow{Label: sanitize.QuoteName(r.Label, 200), Note: sanitize.QuoteName(r.Note, 300), Disabled: r.Disabled}
+	}
+	return out
 }

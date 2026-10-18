@@ -128,7 +128,7 @@ type Window struct {
 	logs        *logsPage
 	// shownOverview is what the Overview's widgets show (nil: not drawn).
 	shownOverview *overviewState
-	// The Clear user cache cell's size line (usercache.go): what was
+	// The Clear caches cell's size line (usercache.go): what was
 	// measured, whether a measurement goes, whether another was asked for
 	// meanwhile, and the run count that tells a stale result.
 	cache cacheMeter

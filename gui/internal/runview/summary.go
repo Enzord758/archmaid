@@ -20,10 +20,10 @@ import (
 // (ui/summary.go) only draws them. Nothing in it runs a command: the one
 // action, copying a command to the clipboard, is the window's.
 
-// CacheMenuLabel is the menu's name for the step that empties the package
+// CacheMenuLabel is the menu's name for the action that empties the package
 // cache; the "still holds" line points at it. It must read as the menu
-// entry does (internal/actions, IDWipeCache); a test holds them together.
-const CacheMenuLabel = "Delete entire package cache"
+// entry does (internal/actions, IDClearCaches); a test holds them together.
+const CacheMenuLabel = "Clear caches"
 
 // PacdiffCommand is what "Copy pacdiff command" puts on the clipboard: the
 // merge tool from pacman-contrib, as root because /etc is. archmaid never
@@ -164,12 +164,11 @@ func BuildSummary(r report.Report, clean bool) Summary {
 // never looked at. Actions not listed (Full Cleanup, topgrade, an unknown or
 // empty id) keep ALL QUIET.
 var doneHeadline = map[string]string{
-	actions.IDUserCache: "User cache cleared",
-	actions.IDRepair:    "Broken packages repaired",
-	actions.IDDownloads: "Old downloads deleted",
-	actions.IDWipeCache: "Package cache deleted",
-	actions.IDServices:  "Unused services disabled",
-	actions.IDAURAudit:  "AUR audit finished",
+	actions.IDClearCaches: "Caches cleared",
+	actions.IDRepair:      "Broken packages repaired",
+	actions.IDDownloads:   "Old downloads deleted",
+	actions.IDServices:    "Unused services disabled",
+	actions.IDAURAudit:    "AUR audit finished",
 }
 
 // quietHeadline is the kicker, tone and headline of a clean run with nothing

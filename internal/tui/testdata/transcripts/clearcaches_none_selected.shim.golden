@@ -1,0 +1,6 @@
+action "Clear caches"
+exec  paccache --nocolor -dk0
+row   ~/.cache — 3 MiB |
+row   Entire package cache — 412 MiB (2 files) | Can't reinstall or downgrade those packages without internet
+pick  [~/.cache pkgcache] -> []
+end   outcome=cancelled errs=0 skipped=0

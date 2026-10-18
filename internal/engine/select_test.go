@@ -38,7 +38,7 @@ func TestSessionSelection(t *testing.T) {
 	shownB := ns.Items[1]
 	if ns.ID == 0 || ns.Title != "Enabled but not running — select services to disable" ||
 		len(ns.Items) != 3 || ns.Items[0] != "a.service" || shownB == "b\x1b[2J.service" {
-		t.Errorf("NeedsSelection = %+q, want the items one line each, escapes made harmless", ns)
+		t.Errorf("NeedsSelection = %+v, want the items one line each, escapes made harmless", ns)
 	}
 	noOutput(t, "a Select for another ID", h.s.Select(ns.ID+1, []string{"a.service"}))
 	noOutput(t, "a Confirm on a selection", h.s.Confirm(ns.ID, true))

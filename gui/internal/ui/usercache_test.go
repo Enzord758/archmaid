@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// The Clear user cache cell's measurement, without a display: the line text,
+// The Clear caches cell's measurement, without a display: the line text,
 // the failure paths (unreadable folder, cancelled or timed-out walk) and the
 // stale-generation bookkeeping.
 
@@ -40,8 +40,8 @@ func TestCacheLineOfReadable(t *testing.T) {
 func TestCacheLineOfEmpty(t *testing.T) {
 	dir := t.TempDir()
 	randomFile(t, filepath.Join(dir, ".only-hidden"), 1<<20)
-	if got := cacheLineOf(context.Background(), dir); got != "Empty" {
-		t.Errorf("line %q, want Empty", got)
+	if got := cacheLineOf(context.Background(), dir); got != "~/.cache is empty" {
+		t.Errorf("line %q, want ~/.cache is empty", got)
 	}
 }
 
@@ -93,8 +93,8 @@ func TestCacheLineOfCancelledAndTimedOut(t *testing.T) {
 func TestCacheLineOfEmptyFolderIsNotCancelled(t *testing.T) {
 	// A control for the two above: the same call with a live context on an
 	// empty folder says Empty, so "" there is the context's doing.
-	if got := cacheLineOf(context.Background(), t.TempDir()); got != "Empty" {
-		t.Errorf("line %q, want Empty", got)
+	if got := cacheLineOf(context.Background(), t.TempDir()); got != "~/.cache is empty" {
+		t.Errorf("line %q, want ~/.cache is empty", got)
 	}
 }
 

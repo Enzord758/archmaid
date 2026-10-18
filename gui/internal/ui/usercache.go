@@ -10,8 +10,8 @@ import (
 	"github.com/Enzord758/archmaid/internal/sysstat"
 )
 
-// The Clear user cache cell's size line ("3.2G in ~/.cache"). The action
-// runs `rm -rf "$HOME/.cache/"*` (internal/actions userCacheSteps), so this
+// The Clear caches cell's size line ("3.2G in ~/.cache"). The action's
+// ~/.cache step runs `rm -rf "$HOME/.cache/"*` (internal/actions), so this
 // measures $HOME/.cache, not $XDG_CACHE_HOME, and only what that glob removes
 // (sysstat.EntriesUsage). It is measured off the GTK thread, at the start and
 // after every run, one measurement at a time; a request that arrives while one
@@ -24,7 +24,7 @@ const cacheMeasureLimit = 5 * time.Second
 // prove the feature ran when the cell stayed hidden).
 var cacheMeasures atomic.Int64
 
-// userCacheDir is the folder Clear user cache empties, "" without a $HOME.
+// userCacheDir is the folder Clear caches empties, "" without a $HOME.
 func userCacheDir() string {
 	home := os.Getenv("HOME")
 	if home == "" {
@@ -33,14 +33,14 @@ func userCacheDir() string {
 	return filepath.Join(home, ".cache")
 }
 
-// userCacheLine is the sub line for a measured size: "Empty", or the size
+// userCacheLine is the sub line for a measured size: "~/.cache is empty", or the size
 // and the folder. "" (hidden) when the measurement failed.
 func userCacheLine(size string, bytes uint64, err error) string {
 	switch {
 	case err != nil:
 		return ""
 	case bytes == 0:
-		return "Empty"
+		return "~/.cache is empty"
 	}
 	return size + " in ~/.cache"
 }

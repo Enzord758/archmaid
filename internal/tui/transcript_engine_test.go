@@ -259,7 +259,7 @@ func (tg *tuiEngineTarget) prompt() (tt.Event, error) {
 	case screenPassword:
 		return tt.NeedsPassword{}, nil
 	case screenServices:
-		return tt.NeedsSelection{Options: slices.Clone(tg.m.services)}, nil
+		return tt.NeedsSelection{Options: slices.Clone(tg.m.services), Rows: pickLines(tg.m.pickRows)}, nil
 	case screenRunning, screenDiscovering, screenAbortConfirm:
 		return nil, fmt.Errorf("stalled on screen %d with nothing left to run", tg.m.screen)
 	}

@@ -25,7 +25,7 @@ func Catalog(start time.Time) map[string]Script {
 		actions.IDFullCleanup: FullCleanupBranches(start),
 		IDFullCleanupUncached: FullCleanupUncached(start),
 		IDFullCleanupAskpass:  FullCleanupAskpass(start),
-		actions.IDUserCache:   UserCache(start),
+		actions.IDClearCaches: ClearCaches(start),
 		actions.IDServices:    Services(start),
 		actions.IDAURAudit:    AURAudit(start),
 		actions.IDRepair:      RepairNone(start),
@@ -46,33 +46,39 @@ func CatalogUncached(start time.Time) map[string]Script {
 	return c
 }
 
-// UserCache is "Clear user cache", shaped like the clearcache transcripts:
-// the plan of one step with its confirm (prompt 1). Yes runs the step and
-// completes. No or cancel skips it and ends Finished{OutcomeAborted,
-// Skipped: 1}, as a declined required step does.
-func UserCache(start time.Time) Script {
+// ClearCaches is "Clear caches", shaped like the Services script: the
+// measuring discovery, then the pick (prompt 1) of ~/.cache (2.3 GiB) and
+// the entire package cache (7.3 GiB, 1398 files, with its warning). A pick
+// runs the one user-cache step whatever was ticked (the stub doesn't read
+// the pick, and asks no password: ~/.cache needs none) and completes.
+// Picking nothing, or cancelling, ends Finished{OutcomeCancelled} with no
+// step run.
+func ClearCaches(start time.Time) Script {
 	b := &builder{now: start, started: start, at: map[string]time.Time{}, branches: true}
 	b.plan = []engine.PlanStep{{
 		ID: steps.IDUserCache, Title: "Cleaning user cache…",
-		Argv:    []string{"bash", "-c", `rm -rf "$HOME/.cache/"*`},
-		Confirm: true, AlwaysLog: true, Category: logstore.Cleanup,
+		Argv:      []string{"bash", "-c", `rm -rf "$HOME/.cache/"*`},
+		AlwaysLog: true, Category: logstore.Cleanup,
 	}}
-	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
-	b.emit(engine.QueueStarted{Action: actions.IDUserCache, Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
-	const q = "Clear all user cache?"
-	b.emit(engine.NeedsConfirm{
-		ID: 1, Kind: engine.ConfirmStep, Step: steps.IDUserCache,
-		Title: q, Msg: q, Destructive: true, YesLabel: "Clear",
+	b.emit(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Measuring the caches…"})
+	b.wait(400 * time.Millisecond)
+	b.emit(engine.NeedsSelection{
+		ID: 1, Title: "Clear caches — tick what to delete", Go: "clear",
+		Items: []string{actions.PickUserCache, actions.PickPkgCache},
+		Rows: []actions.PickRow{
+			{Label: "~/.cache — 2.3 GiB"},
+			{Label: "Entire package cache — 7.3 GiB (1398 files)", Note: "Can't reinstall or downgrade those packages without internet"},
+		},
 	})
 	sb := b.branch()
-	sb.skipped++
-	sb.emit(engine.StepDone{ID: steps.IDUserCache, Index: 0, Status: steps.Skipped})
-	sb.finish(actions.IDUserCache, engine.OutcomeAborted)
+	sb.finish(actions.IDClearCaches, engine.OutcomeCancelled)
 	b.script[len(b.script)-1].OnNo = sb.script
 
+	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
+	b.emit(engine.QueueStarted{Action: actions.IDClearCaches, Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
 	b.run(steps.IDUserCache, 600*time.Millisecond)
 	b.log(logstore.Cleanup, "OK: User cache cleared")
-	b.finish(actions.IDUserCache, engine.OutcomeCompleted)
+	b.finish(actions.IDClearCaches, engine.OutcomeCompleted)
 	return b.script
 }
 

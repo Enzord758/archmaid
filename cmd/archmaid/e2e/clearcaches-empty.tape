@@ -1,7 +1,7 @@
-# Menu -> Clear user cache -> confirm -> dry-run -> summary, then quit.
+# Clear caches with both caches empty (no ~/.cache, an empty package cache): a notice, no pick, nothing run.
 # Driven by e2e/run.sh (scratch HOME, shimmed PATH).
 
-Output e2e/clear-cache.txt
+Output e2e/clearcaches-empty.txt
 
 Set Shell "bash"
 Set Width 1100
@@ -15,14 +15,11 @@ Enter
 Sleep 1.5s
 Show
 
+# Menu row 1 (Clear caches) -> notice -> dismiss -> quit.
 Down
 Sleep 400ms
 Enter
-Sleep 500ms
-
-Type "y"
-Sleep 1s
-
+Sleep 2s
 Enter
 Sleep 400ms
 Type "q"

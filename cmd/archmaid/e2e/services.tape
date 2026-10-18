@@ -16,8 +16,8 @@ Enter
 Sleep 1.5s
 Show
 
-# Menu row 6 (Disable unused services).
-Down 6
+# Menu row 5 (Disable unused services).
+Down 5
 Sleep 400ms
 Enter
 Sleep 1.5s

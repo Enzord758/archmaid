@@ -71,7 +71,7 @@ func TestGUIShots(t *testing.T) {
 	needShots(t)
 	dir := t.TempDir()
 	t.Setenv(shotsEnv, dir)
-	child(t, "usercache-no")
+	child(t, "caches-no")
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestGUIShots(t *testing.T) {
 			t.Errorf("%s: not a window-sized PNG (%dx%d, png %v)", e.Name(), w, h, ok)
 		}
 	}
-	for _, want := range []string{"usercache-no-start.png", "usercache-no-prompt-1.png", "usercache-no-end-1.png"} {
+	for _, want := range []string{"caches-no-start.png", "caches-no-prompt-1.png", "caches-no-end-1.png"} {
 		if !slices.Contains(names, want) {
 			t.Errorf("shots %q: no %s", names, want)
 		}

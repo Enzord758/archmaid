@@ -1,5 +1,0 @@
-action "Delete entire package cache"
-exec  paccache --nocolor -dk0
-log   pkgcache CHECK: The package cache is empty: nothing to delete.
-note  "The package cache is empty: nothing to delete."
-end   outcome=notice errs=0 skipped=0

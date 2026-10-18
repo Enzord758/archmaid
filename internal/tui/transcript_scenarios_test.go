@@ -187,19 +187,6 @@ echo python-oldthing`}}, sh["pacman"]...)
 		return d
 	}},
 
-	// ── Clear user cache ─────────────────────────────────────────────────────
-
-	{"clearcache_accept.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
-		transcriptEnv(t, true)
-		shimLog := installShims(t, nil)
-		return record(t, mk, shimLog, "Clear user cache", Answer{"confirm", "Clear all user cache", "yes"})
-	}},
-	{"clearcache_decline.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
-		transcriptEnv(t, true)
-		shimLog := installShims(t, nil)
-		return record(t, mk, shimLog, "Clear user cache", Answer{"confirm", "Clear all user cache", "no"})
-	}},
-
 	// ── Run topgrade ─────────────────────────────────────────────────────────
 
 	{"topgrade_ok.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
@@ -368,33 +355,61 @@ echo python-oldthing`}}, sh["pacman"]...)
 		return record(t, mk, shimLog, "Disable unused services")
 	}},
 
-	// ── Delete entire package cache ──────────────────────────────────────────
-	// The dry run `paccache --nocolor -dk0` runs as the user and fills the
-	// confirm (default No) with its total; only a yes runs sudo paccache -rk0.
+	// ── Clear caches ─────────────────────────────────────────────────────────
+	// Both caches are measured first as the user (a file under ~/.cache, the
+	// dry run `paccache --nocolor -dk0`), then the pick opens with nothing
+	// ticked. The pick is the confirm: no password before it, none after it
+	// unless the package cache was ticked, and no second question.
 
-	{"wipecache_declined.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+	{"clearcaches_user_only.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true)})
-		return record(t, mk, shimLog, "Delete entire package cache",
-			Answer{"confirm", "ENTIRE package cache", "no"})
+		cacheBytes(t, 3<<20)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true)}, "bash", "rm")
+		return record(t, mk, shimLog, "Clear caches", Answer{"select", "", "~/.cache"})
 	}},
-	{"wipecache_confirmed.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+	{"clearcaches_pkg_only.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
-		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true, Rule{Prefix: "-A paccache -rk0"})})
-		return record(t, mk, shimLog, "Delete entire package cache",
-			Answer{"confirm", "ENTIRE package cache", "yes"})
+		cacheBytes(t, 3<<20)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true, Rule{Prefix: "-A paccache -rk0"})}, "bash", "rm")
+		return record(t, mk, shimLog, "Clear caches", Answer{"select", "", "pkgcache"})
 	}},
-	{"wipecache_empty.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+	{"clearcaches_pkg_only_password.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		transcriptEnv(t, false)
+		cacheBytes(t, 3<<20)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(false, Rule{Prefix: "-A paccache -rk0"}), "su": suRules()}, "bash", "rm")
+		return record(t, mk, shimLog, "Clear caches", Answer{"select", "", "pkgcache"}, Answer{"password", "", "correct"})
+	}},
+	{"clearcaches_both.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		transcriptEnv(t, false)
+		cacheBytes(t, 3<<20)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true, Rule{Prefix: "-A paccache -rk0"})}, "bash", "rm")
+		return record(t, mk, shimLog, "Clear caches", Answer{"select", "", "~/.cache pkgcache"})
+	}},
+	{"clearcaches_none_selected.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		transcriptEnv(t, false)
+		cacheBytes(t, 3<<20)
+		shimLog := installShims(t, Shims{"paccache": wipeDryRun, "sudo": sudoRules(true)}, "bash", "rm")
+		return record(t, mk, shimLog, "Clear caches", Answer{"select", "", ""})
+	}},
+	{"clearcaches_pkg_empty.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
+		// An empty package cache is a disabled row; ticking it as well runs only ~/.cache.
+		transcriptEnv(t, false)
+		cacheBytes(t, 3<<20)
+		shimLog := installShims(t, Shims{"paccache": {{Prefix: "--nocolor -dk0", Out: "==> no candidate packages found for pruning"}},
+			"sudo": sudoRules(true)}, "bash", "rm")
+		return record(t, mk, shimLog, "Clear caches", Answer{"select", "", "~/.cache pkgcache"})
+	}},
+	{"clearcaches_both_empty.shim", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, false)
 		shimLog := installShims(t, Shims{"paccache": {{Prefix: "--nocolor -dk0", Out: "==> no candidate packages found for pruning"}},
 			"sudo": sudoRules(true)})
-		return record(t, mk, shimLog, "Delete entire package cache")
+		return record(t, mk, shimLog, "Clear caches")
 	}},
-	{"wipecache_confirmed.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
+	{"clearcaches_both.dryrun", func(t *testing.T, mk newTarget) *tt.Recorder {
 		transcriptEnv(t, true)
+		cacheBytes(t, 3<<20)
 		shimLog := installShims(t, Shims{"paccache": wipeDryRun})
-		return record(t, mk, shimLog, "Delete entire package cache",
-			Answer{"confirm", "ENTIRE package cache", "yes"})
+		return record(t, mk, shimLog, "Clear caches", Answer{"select", "", "~/.cache pkgcache"})
 	}},
 
 	// ── Audit AUR packages ───────────────────────────────────────────────────
@@ -595,4 +610,11 @@ func downloadsDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return dl
+}
+
+// cacheBytes puts one file of n bytes in the scratch home's ~/.cache, so the
+// measuring step has a size to show.
+func cacheBytes(t *testing.T, n int) {
+	t.Helper()
+	writeFile(t, filepath.Join(os.Getenv("HOME"), ".cache", "blob"), strings.Repeat("x", n))
 }
