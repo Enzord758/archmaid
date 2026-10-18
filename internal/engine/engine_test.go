@@ -46,7 +46,7 @@ var (
 		OutputChunk{}, Aborted{}, LogWritten{}, NeedsConfirm{}, NeedsPassword{},
 		NeedsSelection{}, PromptClosed{}, AuthWaiting{}, AuthResolved{},
 		FaillockState{}, PhaseChanged{}, StatusUpdated{}, Notice{}, OutputReport{},
-		Finished{}, ReportAccepted{}, DiscoveryResult{},
+		Finished{}, ReportAccepted{}, DiscoveryResult{}, RunReport{},
 	}
 	allEffects = []Effect{
 		Probe{}, Authenticate{}, KeepAlive{}, ReadFaillock{}, Discover{}, StartStep{},

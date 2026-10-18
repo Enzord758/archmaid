@@ -41,6 +41,23 @@ type RunRecord struct {
 	// sees 0.
 	StepsRefused int  `json:"steps_refused"`
 	DryRun       bool `json:"dry_run"`
+	// Summary is what the run changed (the run report's headline numbers),
+	// for the widget's popout. Added within v1, like StepsRefused: a reader
+	// of an older record sees nil, an older reader ignores it. Nil for a run
+	// with nothing to report (an action that changes no packages and freed
+	// nothing measurable), and absent on a record written by a front end
+	// that makes no run report.
+	Summary *RunSummary `json:"summary,omitempty"`
+}
+
+// RunSummary is the run report reduced to what last-run.json keeps.
+type RunSummary struct {
+	Upgraded   int    `json:"upgraded"`    // packages upgraded (pacman.log)
+	AUR        int    `json:"aur"`         // of them foreign (AUR)
+	FreedBytes uint64 `json:"freed_bytes"` // the measured cleaning steps' total
+	// Attention are short items that need the user ("Restart recommended",
+	// "1 new .pacnew"); never nil in a written record.
+	Attention []string `json:"attention"`
 }
 
 // lastRunPath is where the record lives: <root>/last-run.json, except that a
@@ -61,6 +78,11 @@ func (s *Store) WriteLastRun(r RunRecord) error {
 		return s.err
 	}
 	r.V = 1
+	if r.Summary != nil && r.Summary.Attention == nil {
+		s := *r.Summary
+		s.Attention = []string{}
+		r.Summary = &s
+	}
 	b, err := json.Marshal(r)
 	if err != nil {
 		return err

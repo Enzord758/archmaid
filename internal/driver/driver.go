@@ -50,6 +50,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/proc"
+	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/Enzord758/archmaid/internal/sysstat"
 )
@@ -141,6 +142,14 @@ type Deps struct {
 	// those on the terminal after it quits); it never fails the run.
 	RefreshUpdates func(ctx context.Context) error
 
+	// RunReport, when set, has the Driver make a run report (internal/report)
+	// for every real run that reaches its queue: it measures around the
+	// cleaning steps, and at the end adds engine.RunReport to the events and
+	// the summary object to the last-run record. Nil (the default) means no
+	// report: a Driver built for a test must not read the machine's pacman
+	// log. See runreport.go.
+	RunReport *report.Config
+
 	// Report is told what no Event carries: a log write that failed, a
 	// hook's error, a recovered panic. Nil drops them. It may run on the
 	// loop and must not call Close.
@@ -192,13 +201,18 @@ type Driver struct {
 	detachedMu sync.Mutex
 	detached   []*proc.Child
 
-	root    context.Context // every worker's; cancelled at teardown
-	cancel  context.CancelFunc
-	wg      sync.WaitGroup // every goroutine but the loop and the publisher
-	pubDone chan struct{}
+	root   context.Context // every worker's; cancelled at teardown
+	cancel context.CancelFunc
+	// live is root until Close: the run report's measuring gives up at once
+	// when the owner is closing the Driver.
+	live       context.Context
+	cancelLive context.CancelFunc
+	wg         sync.WaitGroup // every goroutine but the loop and the publisher
+	pubDone    chan struct{}
 
 	// Owned by the loop.
-	local      []msg // Inputs the loop made itself (HookDone)
+	rep        *report.Collector // the run in progress's report, or nil (runreport.go)
+	local      []msg             // Inputs the loop made itself (HookDone)
 	children   map[uint64]*proc.Child
 	stopped    []*proc.Child                      // Deps.Detach: children stopped, their groups to await at teardown
 	lastChild  uint64                             // the newest child still running
@@ -267,27 +281,30 @@ func New(s *engine.Session, cfg Deps) *Driver {
 		cfg.Status = func() sysstat.Status { return sysstat.Read(sysstat.DefaultPaths()) }
 	}
 	root, cancel := context.WithCancel(context.Background())
+	live, cancelLive := context.WithCancel(root)
 	d := &Driver{
-		cfg:       cfg,
-		s:         s,
-		events:    make(chan engine.Event),
-		out:       newOutbox(cfg.FlushEvery, cfg.MaxLines),
-		inputs:    make(chan msg, 64),
-		cmdReady:  make(chan struct{}, 1),
-		quit:      make(chan struct{}),
-		stop:      make(chan struct{}),
-		done:      make(chan struct{}),
-		aborted:   make(chan struct{}),
-		root:      root,
-		cancel:    cancel,
-		pubDone:   make(chan struct{}),
-		children:  map[uint64]*proc.Child{},
-		cancels:   map[uint64]context.CancelCauseFunc{},
-		prefetch:  map[string]Prefetch{},
-		asks:      map[uint64]asker{},
-		childPriv: map[uint64]bool{},
-		helpers:   map[uint64]bool{},
-		askedBy:   map[sudoKey]bool{},
+		cfg:        cfg,
+		s:          s,
+		events:     make(chan engine.Event),
+		out:        newOutbox(cfg.FlushEvery, cfg.MaxLines),
+		inputs:     make(chan msg, 64),
+		cmdReady:   make(chan struct{}, 1),
+		quit:       make(chan struct{}),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+		aborted:    make(chan struct{}),
+		root:       root,
+		cancel:     cancel,
+		live:       live,
+		cancelLive: cancelLive,
+		pubDone:    make(chan struct{}),
+		children:   map[uint64]*proc.Child{},
+		cancels:    map[uint64]context.CancelCauseFunc{},
+		prefetch:   map[string]Prefetch{},
+		asks:       map[uint64]asker{},
+		childPriv:  map[uint64]bool{},
+		helpers:    map[uint64]bool{},
+		askedBy:    map[sudoKey]bool{},
 	}
 	if cfg.KeepPassword {
 		keepFor := cfg.KeepFor
@@ -373,7 +390,10 @@ func (d *Driver) Close() {
 	d.mu.Lock()
 	d.closed = true
 	d.mu.Unlock()
-	d.quitOnce.Do(func() { close(d.quit) })
+	d.quitOnce.Do(func() {
+		close(d.quit)
+		d.cancelLive()
+	})
 	<-d.done
 }
 
@@ -561,6 +581,9 @@ func (d *Driver) handle(m msg) bool {
 			delete(d.asks, in.Req) // answered: the request is over
 		}
 	}
+	if r, isResult := in.(engine.StepResult); isResult {
+		d.reportStepResult(r.Result)
+	}
 	o, ok := d.call(func() engine.Output { return d.s.Handle(in) })
 	if !ok {
 		return false
@@ -605,12 +628,33 @@ func (d *Driver) verify(r *privilege.Request) (in engine.Input, from privilege.R
 
 // apply starts o's Effects in order, then publishes its Events. A Finished
 // ends the run, and with it the kept password (keep.go).
+//
+// With a run report configured (Deps.RunReport) it also watches the run
+// (runreport.go): the steps starting in o's Effects and ending in its
+// Events are measured around, and the Output that ends the run is split at
+// Finished: the events before it go out first, then the report is made
+// (bounded), the last-run record is written with its summary, and
+// RunReport and Finished follow.
 func (d *Driver) apply(o engine.Output) {
+	d.reportBegin(o)
+	finishing := d.rep != nil && slices.ContainsFunc(o.Events, func(ev engine.Event) bool {
+		_, ok := ev.(engine.Finished)
+		return ok
+	})
+	var lastRun *engine.WriteLastRun
 	written := map[logstore.Category]bool{} // logs this Output's WriteLogs wrote
 	for _, e := range o.Effects {
-		if w, ok := e.(engine.WriteLog); ok {
-			written[w.Category] = d.writeLog(w)
+		switch e := e.(type) {
+		case engine.WriteLog:
+			written[e.Category] = d.writeLog(e)
 			continue
+		case engine.StartStep:
+			d.reportStarting(e)
+		case engine.WriteLastRun:
+			if finishing {
+				lastRun = &e // written once the report is made
+				continue
+			}
 		}
 		d.effect(e)
 	}
@@ -626,8 +670,25 @@ func (d *Driver) apply(o engine.Output) {
 				}
 				o.Events[i] = ev
 			}
+		case engine.StepDone:
+			d.reportStepDone(ev.ID, ev.Status)
+		case engine.Aborted:
+			d.reportStepDone(ev.ID, steps.Aborted)
 		case engine.Finished:
 			d.keep.Wipe()
+			if finishing {
+				d.out.push(o.Events[:i]) // the last steps show while the report is made
+				rep := d.reportFinish(ev)
+				if lastRun != nil {
+					d.writeLastRun(*lastRun, rep)
+				}
+				rest := o.Events[i:]
+				if rep != nil {
+					rest = append([]engine.Event{engine.RunReport{Report: *rep}}, rest...)
+				}
+				d.out.push(rest)
+				return
+			}
 		case engine.DiscoveryResult:
 			// The record went out with this Output (engine.DiscoveryResult):
 			// say where, once it is on disk.

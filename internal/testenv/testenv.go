@@ -83,6 +83,7 @@ var Privileged = []string{"su", "sudo", "pkexec", "runuser", "faillock", "pkttya
 var Mutators = []string{
 	"topgrade", "yay", "paru", "pacman", "paccache", "systemctl", "journalctl",
 	"systemd-tmpfiles", "hyprpm", "flatpak", "fwupdmgr",
+	"pacman-conf", // read-only, but the run report asks it for the cache folders
 }
 
 // Trapped are the binaries Run traps: Privileged and Mutators.
@@ -206,8 +207,12 @@ func run(m interface{ Run() int }, made *[]string) int {
 		"XDG_CONFIG_HOME": filepath.Join(home, ".config"),
 		"XDG_CACHE_HOME":  filepath.Join(home, ".cache"),
 		"XDG_RUNTIME_DIR": run,
-		"PATH":            trapBin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		MarkerEnv:         marker,
+		// The run report reads pacman's log and the kernels' module folders
+		// (internal/report): a test must never see the machine's own.
+		"ARCHMAID_PACMAN_LOG":  filepath.Join(home, "no-pacman.log"),
+		"ARCHMAID_MODULES_DIR": filepath.Join(home, "no-modules"),
+		"PATH":                 trapBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		MarkerEnv:              marker,
 	} {
 		if old, ok := os.LookupEnv(k); ok {
 			saved[k] = old

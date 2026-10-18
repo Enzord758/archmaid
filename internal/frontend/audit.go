@@ -203,7 +203,10 @@ func auditStepResult(cfg audit.Config, res audit.Result, err error) steps.Result
 	case err != nil:
 		return steps.Result{Output: "Couldn't reach the AUR: " + audit.ShortErr(err, cfg.Deadline), Err: err}
 	}
-	r := steps.Result{Output: res.Text()}
+	r := steps.Result{Output: res.Text(), Audit: &steps.AuditNote{Total: res.Total}}
+	for _, f := range res.Findings {
+		r.Audit.Findings = append(r.Audit.Findings, steps.AuditFinding{Name: f.Name, High: f.High})
+	}
 	if why := res.GateReason(); why != "" {
 		// Name the packages: the popup covers the report that explains it.
 		r.ConfirmNext = why + " Update anyway?"

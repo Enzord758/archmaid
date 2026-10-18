@@ -73,6 +73,10 @@
 //     record's LogWritten, Notice and Finished{OutcomeNotice}; every
 //     Finished{OutcomeNotice} has one. A DiscoveryFound result comes before
 //     whatever it leads to (a prompt, QueueStarted).
+//   - RunReport is not the Session's: a Driver given a report configuration
+//     adds it, once, to the Output that carries Finished, after every
+//     StepDone and right before Finished (driver/runreport.go). A front end
+//     that doesn't know it ignores it.
 //   - Finished is the last event of every action, exactly once; nothing
 //     about that action follows it.
 //

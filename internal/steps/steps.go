@@ -151,6 +151,22 @@ type Result struct {
 	// into the queue when the result is taken (the orphan probe's removal);
 	// it carries its own Confirm.
 	InsertNext *Step
+	// Audit, set only by the AUR audit step, is what its run report keeps
+	// of the outcome (internal/report). The engine ignores it.
+	Audit *AuditNote
+}
+
+// AuditNote is an audit's outcome as the run report keeps it: how many
+// foreign packages were checked and which were flagged.
+type AuditNote struct {
+	Total    int
+	Findings []AuditFinding
+}
+
+// AuditFinding is one flagged package; High marks the severe ones.
+type AuditFinding struct {
+	Name string
+	High bool
 }
 
 // ErrResultTaken is the cause a front end cancels an in-process step's ctx

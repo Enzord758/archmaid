@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/logstore"
+	runreport "github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
 	"github.com/Enzord758/archmaid/internal/sysstat"
 )
@@ -464,6 +465,15 @@ type Finished struct {
 	NotRun int
 }
 
+// RunReport: what the run changed on the machine (internal/report), made by
+// a Driver that was given a report configuration (driver.Deps.RunReport)
+// for a real run that reached its queue. The Session never emits it: the
+// Driver adds it to the Output that carries Finished, right before
+// Finished, and it comes after every step's StepDone. A front end that
+// doesn't know it ignores it. Plain data, sanitized: package names and
+// files come from pacman.log.
+type RunReport struct{ Report runreport.Report }
+
 // ReportAccepted: the user accepted an OutputReport's findings (Confirm(ID,
 // true) on a report whose Audit.CanAccept). It follows the RunHook that ran
 // the report's Accept (and its HookDone), and comes before
@@ -495,5 +505,6 @@ func (StatusUpdated) isEvent()   {}
 func (Notice) isEvent()          {}
 func (OutputReport) isEvent()    {}
 func (Finished) isEvent()        {}
+func (RunReport) isEvent()       {}
 func (ReportAccepted) isEvent()  {}
 func (DiscoveryResult) isEvent() {}
