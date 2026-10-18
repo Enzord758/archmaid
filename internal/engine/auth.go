@@ -22,6 +22,11 @@ import (
 //     Exception (lateAuth, queue.go): a queue of ONE confirmed root step
 //     with no gate (Delete entire package cache) asks its confirm first;
 //     the probe and password come only after a yes, so a no costs no password.
+//     Exception (lateRoot, queue.go): a pick's queue that starts with a
+//     step needing no root (Clear caches with both caches: ~/.cache, then
+//     the package cache) runs those first; the probe, faillock read and
+//     password come only when the first root step is next. A cancelled
+//     prompt then skips the rest and ends the run aborted, what ran stays done.
 //   - Repair's NeedsRoot authenticates the same way, then runs its Rescan;
 //     its queue needs no second probe. Three wrong passwords end it in its
 //     AuthFailed notice.
@@ -185,7 +190,8 @@ func (s *Session) lateGo(o *Output) {
 	r.keepAlive = true
 	o.effect(KeepAlive{On: true})
 	s.setPhase(o, PhaseRunning, "")
-	s.startStep(o, true)
+	// A lone confirmed step was just answered yes; a pick's root step has no confirm.
+	s.startStep(o, r.plan[r.cur].step.Confirm != "")
 }
 
 // wrongPassword is a failed attempt's Error: detail (a lockout notice)

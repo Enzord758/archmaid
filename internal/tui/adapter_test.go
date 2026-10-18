@@ -393,3 +393,31 @@ func TestReportLogFlush(t *testing.T) {
 		t.Fatalf("a second flush wrote %q", b.String())
 	}
 }
+
+// A late up-front password (a pick's root step after steps that ran, engine
+// lateRoot) sits over the running screen, not the menu, and the run is back
+// on screen once it is granted, so the wipe's output shows. Cancelled, the
+// run ends aborted: the summary, with the step that ran still done.
+func TestEngineLatePasswordOverTheRun(t *testing.T) {
+	m, _ := engineModel()
+	m = feed(m, engine.QueueStarted{Action: "clearcaches", Steps: []engine.PlanStep{{ID: "u", Title: "U…", LogLabel: "U"}, {ID: "w", Title: "W…", LogLabel: "W", NeedsPriv: true}}})
+	m = feed(m, engine.StepStarted{ID: "u", Index: 0}, engine.StepDone{ID: "u", Index: 0, Status: steps.OK})
+	m = feed(m, engine.NeedsPassword{ID: 5, Kind: engine.PasswordUpFront, AttemptsLeft: 3})
+	if m.screen != screenPassword || m.bg != screenRunning || !strings.Contains(m.View(), "✔ U") {
+		t.Fatalf("late prompt: screen %d bg %d\n%s", m.screen, m.bg, m.View())
+	}
+	g := feed(m, engine.AuthWaiting{Kind: engine.WaitPasswordCheck}, engine.AuthResolved{Granted: true})
+	if g.screen != screenRunning {
+		t.Errorf("granted: screen %d", g.screen)
+	}
+	c := feed(m, engine.StepDone{ID: "w", Index: 1, Status: steps.Skipped}, engine.Finished{Action: "clearcaches", Outcome: engine.OutcomeAborted, Skipped: 1})
+	if v := c.View(); c.screen != screenSummary || !strings.Contains(v, "✔ U") || !strings.Contains(v, "Aborted") {
+		t.Errorf("cancelled: screen %d\n%s", c.screen, v)
+	}
+	// The ordinary up-front prompt is still over the menu.
+	u, _ := engineModel()
+	u = feed(u, engine.NeedsPassword{ID: 6, Kind: engine.PasswordUpFront, AttemptsLeft: 3})
+	if u.bg != screenMenu {
+		t.Errorf("up-front bg %d", u.bg)
+	}
+}

@@ -37,15 +37,15 @@ func TestClearCachesKeysMatchExactly(t *testing.T) {
 func TestClearCachesDuplicateKeysRunEachStepOnce(t *testing.T) {
 	h, ns := startPick(t, Options{}, cachePick())
 	o := h.do(h.s.Select(ns.ID, []string{actions.PickPkgCache, actions.PickPkgCache, actions.PickUserCache, actions.PickUserCache}))
+	if ss := effect[StartStep](t, o); ss.Step.ID != steps.IDUserCache {
+		t.Fatalf("first step %+v", ss.Step)
+	}
+	o = h.ok()
 	effect[Probe](t, o)
 	h.handle(ProbeDone{Cached: false})
 	h.handle(FaillockRead{Failures: 0, Deny: 3})
 	h.password("pw")
 	o = h.handle(AuthDone{OK: true})
-	if ss := effect[StartStep](t, o); ss.Step.ID != steps.IDUserCache {
-		t.Fatalf("first step %+v", ss.Step)
-	}
-	o = h.ok()
 	if ss := effect[StartStep](t, o); ss.Step.ID != steps.IDPaccacheWipe {
 		t.Fatalf("second step %+v", ss.Step)
 	}

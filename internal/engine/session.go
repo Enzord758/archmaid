@@ -8,6 +8,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/sanitize"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // Options configure a Session. The zero value is a real run with the sudo
@@ -214,6 +215,15 @@ func (s *Session) CancelPrompt(id PromptID) Output {
 		return o
 	}
 	r.prompt = 0
+	if r.anyStarted() {
+		// A late password prompt (lateRoot) cancelled after steps ran: what
+		// ran stays done, the rest is skipped, and the run says aborted.
+		for ; r.cur < len(r.plan); r.cur++ {
+			s.settle(&o, steps.Skipped, "")
+		}
+		s.finish(&o, OutcomeAborted)
+		return o
+	}
 	s.finish(&o, OutcomeCancelled)
 	return o
 }

@@ -252,7 +252,13 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		}
 		e.prompt = ev.ID
 		m.authInFlight = false
-		m.bg, m.screen = screenMenu, screenPassword
+		// The up-front prompt sits over the menu; a late one (a pick's
+		// root step after steps that ran, engine lateRoot) over the run.
+		m.bg = screenMenu
+		if m.screen == screenRunning {
+			m.bg = screenRunning
+		}
+		m.screen = screenPassword
 		m.pwErr = ev.Error
 		m.password.Reset()
 		return m.password.Focus()
@@ -262,6 +268,9 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		}
 	case engine.AuthResolved:
 		m.authInFlight = false
+		if m.screen == screenPassword && m.bg == screenRunning && e.askpass == 0 && (ev.Granted || ev.AttemptsLeft == 0) {
+			m.screen = screenRunning // the late prompt is done: back to the run
+		}
 		if e.askpass != 0 && (ev.Granted || ev.AttemptsLeft == 0) {
 			m.closeEngineAskpass()
 		}

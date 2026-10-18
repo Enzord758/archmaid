@@ -23,10 +23,16 @@ type run struct {
 	probing     bool   // a Probe is in flight
 	lateAuth    bool   // a lone confirmed root step: its confirm comes first, root only after a yes
 	lateGoing   bool   // ... and that yes came: the Probe / password prompt now in flight is for it
-	planned     bool   // the action reached its queue (auth, gate or run): it gets a last-run record
-	gate        string
-	pending     []steps.Step // the plan, until QueueStarted
-	prefetch    []string     // prefetches started and not yet cancelled
+	pickQueue   bool   // the queue was built from the user's pick (selected)
+	// lateRoot: a pick's queue that starts with steps that need no root
+	// (Clear caches: ~/.cache, then the package cache): they run first and
+	// root is settled (probe, faillock, password) only when the first root
+	// step is next (advance), not before the queue.
+	lateRoot bool
+	planned  bool // the action reached its queue (auth, gate or run): it gets a last-run record
+	gate     string
+	pending  []steps.Step // the plan, until QueueStarted
+	prefetch []string     // prefetches started and not yet cancelled
 
 	queued  bool
 	plan    []slot
@@ -142,9 +148,29 @@ func (s *Session) plan(o *Output, queue []steps.Step, gate string) {
 		s.authorized(o)
 		return
 	}
+	if r.pickQueue && lateRoot(queue, gate) {
+		r.lateRoot = true
+		s.authorized(o)
+		return
+	}
 	r.probing = true
 	s.setPhase(o, PhaseProbing, "")
 	o.effect(Probe{})
+}
+
+// lateRoot reports whether queue, built from a pick, runs its steps that
+// need no root first and settles root only before the first one that does:
+// no gate, more than one step, the first needs no root, and no root step
+// has a confirm or runs in process or combined (those keep their own flows,
+// which would otherwise ask before root). Today that is Clear caches with
+// both caches picked: [~/.cache, package cache].
+func lateRoot(queue []steps.Step, gate string) bool {
+	if gate != "" || len(queue) < 2 || queue[0].NeedsPriv {
+		return false
+	}
+	return !slices.ContainsFunc(queue, func(st steps.Step) bool {
+		return st.NeedsPriv && (st.Confirm != "" || st.Run != nil || st.Combine != "")
+	})
 }
 
 // lateAuth reports whether queue is one confirmed root step with no gate:
@@ -210,7 +236,7 @@ func (s *Session) startQueue(o *Output) {
 	if len(queue) > 0 {
 		s.writeFound(o, queue[0].LogCategory()) // what the discovery found heads the run's log
 	}
-	if !s.opts.DryRun && s.opts.Auth == AuthSudo && !r.sudoGone && needsPriv(queue) && !r.lateAuth {
+	if !s.opts.DryRun && s.opts.Auth == AuthSudo && !r.sudoGone && needsPriv(queue) && !r.lateAuth && !r.lateRoot {
 		r.keepAlive = true
 		o.effect(KeepAlive{On: true})
 	}
@@ -279,6 +305,14 @@ func (s *Session) advance(o *Output) {
 		s.settle(o, steps.AuthRefused, "")
 		s.log(o, st.LogCategory(), "SKIP", st.LogLabel+" (sudo authentication failed)", "")
 		s.advance(o)
+		return
+	}
+	if r.lateRoot && r.plan[r.cur].step.NeedsPriv {
+		// The first root step of a pick's queue: the steps before it have
+		// run; root is settled now, and lateGo / authDone go on from here.
+		r.lateRoot, r.lateGoing, r.probing = false, true, true
+		s.setPhase(o, PhaseProbing, "")
+		o.effect(Probe{})
 		return
 	}
 	if s.combineAt(o) {

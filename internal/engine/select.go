@@ -57,6 +57,7 @@ func (s *Session) selected(o *Output, picked []string) {
 		s.finish(o, OutcomeCancelled)
 		return
 	}
+	r.pickQueue = true
 	s.plan(o, queue, "")
 }
 

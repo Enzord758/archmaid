@@ -9,6 +9,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	. "github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/enginetest"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -171,34 +172,172 @@ func TestClearCachesPackageCacheAsksPasswordAfterThePick(t *testing.T) {
 	enginetest.CheckContract(t, h.evs)
 }
 
-// Both ticked: one up-front password (the root step is in the queue), then
-// ~/.cache first and the wipe second.
-func TestClearCachesBothAskPasswordThenRunBothInOrder(t *testing.T) {
-	h, ns := startPick(t, Options{}, cachePick())
+// bothToRoot picks both caches and runs ~/.cache; it returns the output of
+// the user-cache step's exit, where root is settled (the Probe).
+func bothToRoot(t *testing.T, h *harness, ns NeedsSelection) Output {
+	t.Helper()
 	o := h.do(h.s.Select(ns.ID, []string{actions.PickPkgCache, actions.PickUserCache}))
-	effect[Probe](t, o)
-	if hasEffect[StartStep](o) {
-		t.Fatal("a step started before root")
+	for _, e := range o.Effects {
+		switch e.(type) {
+		case Probe, ReadFaillock, Authenticate, KeepAlive:
+			t.Fatalf("both picked: %#v before ~/.cache ran", e)
+		}
 	}
-	h.handle(ProbeDone{Cached: false})
-	h.handle(FaillockRead{Failures: 0, Deny: 3})
-	h.password("pw")
-	o = h.handle(AuthDone{OK: true})
+	if _, ok := find[NeedsPassword](o.Events); ok {
+		t.Fatal("both picked: a password before ~/.cache ran")
+	}
 	if ss := effect[StartStep](t, o); ss.Step.ID != steps.IDUserCache {
-		t.Errorf("first step %+v, want ~/.cache", ss.Step)
+		t.Fatalf("first step %+v, want ~/.cache", ss.Step)
 	}
 	o = h.ok()
+	effect[Probe](t, o)
+	if hasEffect[StartStep](o) {
+		t.Fatal("the wipe started before root")
+	}
+	return o
+}
+
+// Both ticked: ~/.cache runs first with no password; root (probe, faillock,
+// prompt) is settled only when the wipe is next, and the keep-alive starts
+// only after it.
+func TestClearCachesBothRunUserCacheThenAskPasswordThenWipe(t *testing.T) {
+	h, ns := startPick(t, Options{}, cachePick())
+	bothToRoot(t, h, ns)
+	o := h.handle(ProbeDone{Cached: false})
+	effect[ReadFaillock](t, o)
+	o = h.handle(FaillockRead{Failures: 0, Deny: 3})
+	if _, ok := find[NeedsPassword](o.Events); !ok {
+		t.Fatalf("no password prompt after the faillock read: %#v", o.Events)
+	}
+	if hasEffect[KeepAlive](o) {
+		t.Fatal("keep-alive before the password")
+	}
+	effect[Authenticate](t, h.password("pw"))
+	o = h.handle(AuthDone{OK: true})
+	if _, ok := find[NeedsConfirm](o.Events); ok {
+		t.Fatal("the pick was the confirm: the wipe asked again")
+	}
 	if ss := effect[StartStep](t, o); ss.Step.ID != steps.IDPaccacheWipe {
 		t.Errorf("second step %+v, want the wipe", ss.Step)
+	}
+	if !slices.Contains(o.Effects, Effect(KeepAlive{On: true})) {
+		t.Errorf("no keep-alive after auth: %#v", o.Effects)
+	}
+	o = h.ok()
+	if !slices.Contains(o.Effects, Effect(KeepAlive{On: false})) {
+		t.Errorf("no keep-alive off at the end: %#v", o.Effects)
+	}
+	if f := event[Finished](t, o); f.Outcome != OutcomeCompleted || f.Errs != 0 || f.Skipped != 0 {
+		t.Errorf("Finished %+v", f)
+	}
+	enginetest.CheckContract(t, h.evs)
+}
+
+// A cached ticket: no prompt at all, the wipe follows ~/.cache at once.
+func TestClearCachesBothCachedTicketAsksNothing(t *testing.T) {
+	h, ns := startPick(t, Options{}, cachePick())
+	bothToRoot(t, h, ns)
+	o := h.handle(ProbeDone{Cached: true})
+	if _, ok := find[NeedsPassword](o.Events); ok || hasEffect[ReadFaillock](o) {
+		t.Fatalf("a cached ticket asked: %#v", o)
+	}
+	if ss := effect[StartStep](t, o); ss.Step.ID != steps.IDPaccacheWipe {
+		t.Errorf("step %+v", ss.Step)
+	}
+	if !slices.Contains(o.Effects, Effect(KeepAlive{On: true})) {
+		t.Errorf("no keep-alive: %#v", o.Effects)
 	}
 	h.ok()
 	enginetest.CheckContract(t, h.evs)
 }
 
-// Cancelling the password after the pick runs neither step.
-func TestClearCachesPasswordCancelRunsNothing(t *testing.T) {
+// A locked account is read (and reported) before the prompt, as up front.
+func TestClearCachesBothFaillockReadBeforeThePrompt(t *testing.T) {
 	h, ns := startPick(t, Options{}, cachePick())
-	h.do(h.s.Select(ns.ID, []string{actions.PickPkgCache, actions.PickUserCache}))
+	bothToRoot(t, h, ns)
+	o := h.handle(ProbeDone{Cached: false})
+	effect[ReadFaillock](t, o)
+	o = h.handle(FaillockRead{Failures: 3, Deny: 3})
+	if fs := event[FaillockState](t, o); !fs.Locked {
+		t.Errorf("state %+v", fs)
+	}
+	if _, ok := find[NeedsPassword](o.Events); !ok {
+		t.Errorf("no prompt: %#v", o.Events)
+	}
+}
+
+// Three wrong passwords: ~/.cache stays done, the wipe is refused (not run),
+// and the run is incomplete, not ok.
+func TestClearCachesBothThreeWrongRefusesTheWipe(t *testing.T) {
+	h, ns := startPick(t, Options{}, cachePick())
+	bothToRoot(t, h, ns)
+	h.handle(ProbeDone{Cached: false})
+	h.handle(FaillockRead{Failures: 0, Deny: 3})
+	var o Output
+	for i := 0; i < 3; i++ {
+		effect[Authenticate](t, h.password("bad"))
+		o = h.handle(AuthDone{OK: false})
+	}
+	if hasEffect[StartStep](o) || hasEffect[KeepAlive](o) {
+		t.Errorf("the wipe ran after three wrong passwords: %#v", o.Effects)
+	}
+	f := event[Finished](t, o)
+	if f.Outcome != OutcomeCompleted || f.Refused != 1 || f.Errs != 0 {
+		t.Errorf("Finished %+v", f)
+	}
+	if rec := h.lastRun(); rec.Outcome != logstore.OutcomeIncomplete || rec.StepsRefused != 1 {
+		t.Errorf("record %+v", rec)
+	}
+	enginetest.CheckContract(t, h.evs)
+}
+
+// Cancelling the late password: ~/.cache stays a done step, the wipe is
+// skipped, nothing more runs, and the run ends aborted (honestly: something
+// ran), not cancelled.
+func TestClearCachesBothPasswordCancelKeepsUserCacheDone(t *testing.T) {
+	h, ns := startPick(t, Options{}, cachePick())
+	bothToRoot(t, h, ns)
+	h.handle(ProbeDone{Cached: false})
+	o := h.handle(FaillockRead{Failures: 0, Deny: 3})
+	np := event[NeedsPassword](t, o)
+	o = h.cancel(np.ID)
+	if hasEffect[StartStep](o) || hasEffect[Authenticate](o) {
+		t.Errorf("a cancelled password ran something: %#v", o.Effects)
+	}
+	if f := event[Finished](t, o); f.Outcome != OutcomeAborted || f.Skipped != 1 || f.Errs != 0 {
+		t.Errorf("Finished %+v", f)
+	}
+	if rec := h.lastRun(); rec.Outcome != logstore.OutcomeAborted || rec.StepsSkipped != 1 {
+		t.Errorf("record %+v", rec)
+	}
+	enginetest.CheckContract(t, h.evs)
+}
+
+// Dry run and polkit never probe, with both picked too.
+func TestClearCachesBothDryRunAndPolkitNeverProbe(t *testing.T) {
+	for _, opts := range []Options{{DryRun: true}, {Auth: AuthPolkit}} {
+		h, ns := startPick(t, opts, cachePick())
+		o := h.do(h.s.Select(ns.ID, []string{actions.PickPkgCache, actions.PickUserCache}))
+		if hasEffect[Probe](o) || hasEffect[KeepAlive](o) {
+			t.Errorf("%+v: %#v", opts, o.Effects)
+		}
+		h.ok()
+	}
+}
+
+// The wipe alone keeps the early password: a one-step queue has nothing to
+// run first (lateRoot needs a root-free step before it).
+func TestClearCachesWipeAloneKeepsEarlyPassword(t *testing.T) {
+	h, ns := startPick(t, Options{}, cachePick())
+	o := h.do(h.s.Select(ns.ID, []string{actions.PickPkgCache}))
+	effect[Probe](t, o)
+}
+
+// Cancelling the password after the pick, with only the wipe picked, runs
+// nothing and is a plain cancel.
+func TestClearCachesWipeAlonePasswordCancelRunsNothing(t *testing.T) {
+	h, ns := startPick(t, Options{}, cachePick())
+	h.do(h.s.Select(ns.ID, []string{actions.PickPkgCache}))
 	h.handle(ProbeDone{Cached: false})
 	o := h.handle(FaillockRead{Failures: 0, Deny: 3})
 	np := event[NeedsPassword](t, o)
