@@ -60,7 +60,7 @@ region below has a narrow form (1.8).
 |---|---|---|---|
 | Hero cell (2×2 of a 4×3 hairline grid, corner marks) | kicker "Recommended · 7 of 9 steps as root", "Full Cleanup" in 46 px condensed, a description, the numbered step list (2 columns), buttons **Run Full Cleanup** (primary) and **Dry run first** | the "Full Cleanup (Recommended)" menu row | label: `actions.Menu`; steps and root count: **addition A2** (plan preview); Run = `startAction(IDFullCleanup)`; Dry run first = **addition A3** |
 | Last run cell | "LAST RUN", action name, outcome tag (`OK`), "Mon 5 Oct 2026, 00:45 · 17 h ago", the run's log files, **Open in Logs** | the "Last Run" row (`overview.ReadLastRun`: title, issues, level icon) | restyle; level → tag tone (ok/warn/error), `Issues` lines kept; file list + Open in Logs: **addition A4** |
-| Six action cells | icon, `root` tag, title, one-line description: Clear user cache, Repair broken packages, Delete old downloads, Run topgrade, Disable unused services, Audit AUR packages | the menu rows (same six, same order) | `overview.Entries()`; description and `root` tag are static per entry (**A2**, small); click = `startAction(id)`, insensitive while busy, spinner + "Running"/Busy text on the running one as today |
+| Six action cells | icon, `root` tag, title, one-line description: Clear caches, Repair broken packages, Delete old downloads, Run topgrade, Disable unused services, Audit AUR packages | the menu rows (same six, same order) | `overview.Entries()`; description and `root` tag are static per entry (**A2**, small); click = `startAction(id)`, insensitive while busy, spinner + "Running"/Busy text on the running one as today |
 | — | "View log" is gone | the View log row (`KindLogs`) | removed (the IA change in the design notes; the Logs page covers it) |
 
 ### 1.3 Confirm run (the gate)
@@ -626,5 +626,5 @@ section 6 is final.
     change). It applies to the TUI too (shown when the sudo ticket is cached;
     otherwise the password prompt is the gate, as for Full Cleanup); the
     `topgrade_*` transcript goldens change on purpose. The other actions
-    already confirm before they change anything (Clear user cache, Repair,
+    already confirm before they change anything (Clear caches, Repair,
     downloads and services ask with their lists; the AUR audit is read-only).

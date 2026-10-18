@@ -41,7 +41,7 @@ Everything is built from `refactor/p0` in a separate worktree,
 |---|---|
 | A full system upgrade by topgrade (repo, AUR, and whatever else your topgrade config enables) | sudoers, PAM, `/etc/security/faillock.conf`, polkit rules |
 | Package cache thinned to 3 versions (`paccache -r`); the whole cache only if you say yes | `~/.local/bin/archmaid` (the old build) and its `.desktop` entry; `install.sh` isn't used |
-| Orphaned packages removed, **only** if you say yes at a confirm that lists them | Your Downloads folder, user cache, services (those actions aren't run) |
+| Orphaned packages removed, **only** if you say yes at a confirm that lists them | Your Downloads folder, `~/.cache`, services (those actions aren't run) |
 | AUR build cache cleaned (`yay -Sc`), `/tmp` and `/var/tmp` aged per tmpfiles.d, journal entries older than 2 weeks deleted (gone for good) | No unit is enabled; no setuid file is installed |
 | Hyprland plugins updated (`hyprpm update`) | The DMS shell: the widget files are installed by Part B, but nothing shows until you enable the plugin (optional, last) |
 | `~/.local/state/archmaid`: new run folders (rotation keeps the 5 newest), `last-run.json` overwritten, the AUR snapshot and `audit-state.json` written | |
@@ -290,24 +290,26 @@ internal/engine/queue.go plan() (a dry run never probes; the gate);
 internal/actions/queues.go; internal/logstore lastRunPath; view.go viewRunning,
 viewSummary; cmd/archmaid/e2e/orphans.tape -->
 
-### A3b. Dry run: Delete entire package cache
+### A3b. Dry run: Clear caches
 
 ```sh
-"$T/archmaid" --dryrun 2>"$T/tui-dry-wipe-stderr.txt"; echo "rc=$?"; cat "$T/tui-dry-wipe-stderr.txt"
+"$T/archmaid" --dryrun 2>"$T/tui-dry-caches-stderr.txt"; echo "rc=$?"; cat "$T/tui-dry-caches-stderr.txt"
 ```
 
-1. **Menu:** "Delete entire package cache" (after "Delete old downloads");
-   press enter. archmaid runs `paccache --nocolor -dk0` as you, a read-only
-   dry run of the cache (no sudo, no password).
-2. **Confirm:** "⚠ Delete the ENTIRE package cache?", the size it frees and
-   the number of package files from that dry run, and "You can't reinstall
-   or downgrade these packages without internet." The default button is
-   **No**. Write down the size and count, press `n`: back to the summary,
-   nothing ran.
-3. Run it again and press `y`: under `--dryrun` it only prints
-   `[dry-run] would run: sudo paccache -rk0`. (Never answer `y` without
-   `--dryrun` here: it deletes every cached package file.) An empty cache
-   shows a notice instead of a confirm.
+1. **Menu:** "Clear caches" (second entry, after Full Cleanup); press enter.
+   archmaid measures `~/.cache` and runs `paccache --nocolor -dk0` as you,
+   a read-only dry run of the package cache (no sudo, no password).
+2. **The pick:** two rows, nothing ticked: "~/.cache — <size>" and
+   "Entire package cache — <size> (<n> files)" with the line "Can't
+   reinstall or downgrade those packages without internet" under it. A row
+   with nothing in it is greyed out with the reason. Write down both sizes.
+   Press `esc`: back to the menu, nothing ran, no password was asked.
+3. Run it again, tick `~/.cache` (space) and press enter: under `--dryrun`
+   it only prints `[dry-run] would run: bash -c rm -rf "$HOME/.cache/"*`,
+   and no password is asked. Then tick the package cache: it prints
+   `[dry-run] would run: sudo paccache -rk0`. (Never tick a row without
+   `--dryrun` here: it deletes it.) Two empty caches show a notice instead
+   of a pick.
 
 ### A4. One real Full Cleanup
 
@@ -346,7 +348,7 @@ What to watch, in order:
    line.
 4. **Package cache:** `paccache -r` runs (keeps 3 versions). Full Cleanup
    asks nothing more about the cache: deleting the entire cache is the
-   separate menu action "Delete entire package cache" (A3b).
+   row of the menu action "Clear caches" (A3b).
 5. **The orphan confirm.** The probe's output lists the orphans and
    "pacman -Rns would remove M package(s):" with the full cascade. The
    confirm says "Remove N orphaned package(s) — M total once dependencies

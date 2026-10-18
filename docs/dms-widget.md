@@ -264,7 +264,7 @@ user timer does and writes the cache).
   `{"v":1,"action":"fullcleanup","started":"<RFC3339>","finished":"<RFC3339>",
   "outcome":"ok|failed|incomplete|aborted|cancelled","steps_failed":0,"steps_skipped":0,
   "steps_refused":0,"dry_run":false}`.
-  `action` is the menu id (`fullcleanup`, `usercache`, `repair`, `downloads`,
+  `action` is the menu id (`fullcleanup`, `clearcaches`, `repair`, `downloads`,
   `topgrade`, `services`, `auraudit`). `cancelled` = nothing ran (declined gate or
   password prompt, sudo gave up with every step skipped); `aborted` = stopped part-way
   (ctrl+c, or a declined required step); `incomplete` = nothing failed, but some steps

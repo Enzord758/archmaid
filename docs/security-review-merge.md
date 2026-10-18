@@ -26,7 +26,7 @@ only through sudo, as on main.
 | `paccache` | auth_admin_keep | `paccache -r -k N` | N in 1–9 |
 | `vacuum-journal` | auth_admin_keep | `journalctl --vacuum-time=D` | 1week, 2weeks or 1month |
 | `clean-tmp` | auth_admin_keep | `systemd-tmpfiles --clean` | nothing |
-| `paccache-wipe` | auth_admin | `paccache -r -k 0` (the "Delete entire package cache" action, after a confirm) | nothing |
+| `paccache-wipe` | auth_admin | `paccache -r -k 0` (the "Clear caches" action, when the package cache is ticked in its pick) | nothing |
 | `remove-orphans` | auth_admin | `pacman -Rns` of the plan, recomputed as root | the plan hash only |
 | `repair` | auth_admin | `pacman -S` of broken packages at their installed version | names, vetted against `pacman -Sp` |
 | `disable-unit` | auth_admin | `systemctl disable --now` | `*.service` names; denylist |
