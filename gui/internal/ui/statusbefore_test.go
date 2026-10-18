@@ -148,3 +148,32 @@ func TestStatusTextGateOpen(t *testing.T) {
 		t.Errorf("gate/password open: status %q", got)
 	}
 }
+
+// TestStatusTextPickAndConfirmWait: a pick or a confirm waiting for the user
+// reads "Waiting…", not the discovery's busy line ("Measuring the caches…",
+// which stays set while the pick is open) or "Running".
+func TestStatusTextPickAndConfirmWait(t *testing.T) {
+	w := &Window{model: runview.NewModel()}
+	startNext(w, "clearcaches", false)
+	w.model.Apply([]engine.Event{
+		engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Measuring the caches…"},
+	})
+	if got := w.statusText(); got != "Measuring the caches…" {
+		t.Fatalf("while measuring: %q", got)
+	}
+	w.model.Apply([]engine.Event{engine.NeedsSelection{ID: 3, Items: []string{"a"}}})
+	if got := w.statusText(); got != "Waiting…" {
+		t.Errorf("pick open: status %q", got)
+	}
+	// A step's confirm inside the running queue.
+	w2 := &Window{model: runview.NewModel()}
+	w2.model.Apply([]engine.Event{
+		engine.QueueStarted{Action: "downloads", Steps: []engine.PlanStep{{ID: "d", Title: "D", Confirm: true}}},
+		engine.PhaseChanged{Phase: engine.PhaseRunning},
+		engine.NeedsConfirm{ID: 4, Kind: engine.ConfirmStep, Step: "d"},
+	})
+	w2.queued = true
+	if got := w2.statusText(); got != "Waiting…" {
+		t.Errorf("step confirm open: status %q", got)
+	}
+}

@@ -479,11 +479,14 @@ func (w *Window) statusText() string {
 		if n := m.Finished.NotRun; n > 0 {
 			parts = append(parts, fmt.Sprintf("%d not run", n))
 		}
+	case m.Prompt != nil && (!w.queued || m.Prompt.Confirm != nil):
+		// A gate, the up-front password or a pick, before the queue
+		// starts, or a step's confirm in the queue. Before the busy line:
+		// a discovery's Busy ("Measuring the caches…") stays set while its
+		// pick waits for the user.
+		parts = append(parts, "Waiting…")
 	case m.Busy != "":
 		parts = append(parts, m.Busy)
-	case m.Prompt != nil && !w.queued:
-		// A gate or the up-front password, before the queue starts.
-		parts = append(parts, "Waiting…")
 	case m.Auth != nil && m.Auth.Kind == engine.WaitPolkit:
 		s := "Waiting for authorisation"
 		if w.agentNotice != "" {
