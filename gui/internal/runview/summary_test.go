@@ -106,6 +106,34 @@ func TestSummaryBusy(t *testing.T) {
 	}
 }
 
+// TestSummaryButtons: the one button is "Copy pacdiff command" on a .pacnew
+// or .pacsave row, copying `sudo pacdiff`; a restart or audit row has none,
+// and no row offers a reminder or runs anything.
+func TestSummaryButtons(t *testing.T) {
+	r := report.Report{Freed: []report.Area{{ID: report.AreaTmpfiles, Label: "Temp files", Known: true}}, Attention: []report.Attention{
+		{Kind: report.KindRestart, Short: "Restart recommended", Text: "Restart recommended: systemd upgraded"},
+		{Kind: report.KindPacnew, Short: "1 new .pacnew", Text: "1 new .pacnew: /etc/a.pacnew (merge it with pacdiff)"},
+		{Kind: report.KindPacsave, Short: "1 new .pacsave", Text: "1 new .pacsave: /etc/b.pacsave (a removed package left your edited config)"},
+		{Kind: report.KindAudit, Short: "1 AUR warning", Text: "AUR audit: 1 high-severity finding (see the audit log)"},
+	}}
+	got := map[string]string{}
+	for _, a := range BuildSummary(r, true).Attention {
+		got[a.Kind] = a.Button + "|" + a.Command
+		if strings.Contains(strings.ToLower(a.Button), "remind") {
+			t.Errorf("%s row offers %q", a.Kind, a.Button)
+		}
+	}
+	want := map[string]string{"restart": "|", "pacnew": "Copy pacdiff command|sudo pacdiff", "pacsave": "Copy pacdiff command|sudo pacdiff", "audit": "|"}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s row: %q, want %q", k, got[k], v)
+		}
+	}
+	if a := BuildSummary(r, true).Attention[3]; a.Text != "AUR audit: 1 high-severity finding (see the audit log)" {
+		t.Errorf("a text that doesn't start with its title is kept whole: %q", a.Text)
+	}
+}
+
 func TestSummaryQuiet(t *testing.T) {
 	s := BuildSummary(quietReport(), true)
 	if s.Kicker != "ALL QUIET" || s.Tone != "ok" || s.Headline != "Everything is up to date" || len(s.Attention) != 0 {

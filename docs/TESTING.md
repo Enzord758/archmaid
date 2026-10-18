@@ -450,6 +450,27 @@ wording, at 1460x930 and at 636x754 (the VM's half screen): every note drawn
 whole and the middle needs no scroll (`gate-notes-<w>x<h>-<case>.png`).
 Between 500 and 640 px the columns stack but a plan's tags stay at their
 step's end (`wideTight`).
+`TestGUIRunReport` (`runreport_harness_test.go`, in the same part, #191): a
+busy report (restart, .pacnew, 47 upgrades with a one-word package name,
+five freed areas with an unknown one, the cache line, an audit line, a note) and a
+quiet one, fed as a finished run at 1460x930, 600x800, 360x700 and the low
+960x372. At each: the hero's kicker, headline and sub line, the Packages and
+Space freed texts (Installed, Removed and Audit only when not zero), the
+columns side by side wide and stacked narrow (the space bars left out
+narrow), nothing wider than the window, the output folded and unfolding on a
+click (and folding again), "Copy pacdiff command" copying exactly `sudo pacdiff`
+(the window's record and the GDK clipboard read back), no reminder button, and
+in the low window a scroll that reaches the fold row. A run with no report and
+a dry run's report keep the timeline alone. No GTK warning (the stderr is
+read). `gui/internal/runview/summary_test.go` is the plain half (the words:
+kickers and headlines, the sub line, "at least" for a partial total,
+"unknown" rows, zero rows, the cache line equal to the menu entry's label,
+the button on .pacnew and .pacsave rows only, the model's `Report` and
+`Summary()`); `realdriver/runreport_test.go` (`TestRunReportWired`: a real run
+sends `RunReport` right before `Finished` when `Config.RunReport` is set, a
+dry run and a nil config send none) and `ui/realconfig_test.go` (the binary's
+config sets it) the wiring. Screenshots: `run-report-<w>x<h>-<busy|quiet|none|dry>[-output].png`.
+
 `TestGUIWideDialogsLongResize` (`widelongresize_harness_test.go`, scenario
 `wide-resize`, a part of its own) leaves the orphans, downloads and report
 dialogs open while the window goes 1460x930, 1460x500, 1460x930 and so
@@ -1091,6 +1112,11 @@ answers...)`. Run with `-update-transcripts` and read the new golden line by lin
   popout's `lastRun` carries it (`summary`); no existing decision changes.
 - `TestUpdatesScript` (count, none, failure leaves no file, 0600/0700) and `TestManifest`.
 - `TestWidgetTextIsPlain`: every `StyledText` in the widget sets `textFormat: Text.PlainText`.
+- `test_humanBytes`, `test_summaryLines` and `test_runSummary` (#191): the popout's
+  LAST RUN lines from the summary (`summaryLine` "47 upgraded · 3.1 GiB freed",
+  `warnLine` "⚠ Restart recommended · 1 new .pacnew"; each "" without a summary or without
+  attention, so an old file shows nothing new), and `TestWidgetSummaryLines` reads the QML
+  source: both lines are plain text, hidden when empty, the warning in the warning tone.
 - `TestPopoutReloadsOnOpen`: the popout re-reads the state files on every open (a
   `Connections` on its `parentPopout`'s `shouldBeVisible`; DMS loads the content once), and the
   bar keeps its 60 s reload timer. Both read the widget's source: it can't load outside DMS.

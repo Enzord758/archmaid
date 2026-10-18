@@ -1092,10 +1092,11 @@ comments and `git log`; this is the "read before you touch it" list.
   `engine.RunReport` and `Finished` go out. The TUI's `driverDeps` sets
   `RunReport: report.DefaultConfig()` through the `runReportConfig` seam (its
   `TestMain` swaps in nil: the real config reads the machine's pacman log and
-  runs `paccache`/`pacman`, which testenv traps). **The GUI's `realdriver` does
-  not set it yet** (Dev 4's step; one line, `RunReport: report.DefaultConfig()`,
-  and its `TestMain`-level fake): until then a GUI run's `last-run.json` has no
-  `summary`. Sources, as built:
+  runs `paccache`/`pacman`, which testenv traps). **The GUI sets it too (#191):**
+  `realdriver.Config.RunReport` (nil, the default, means none, which every
+  test config leaves) is handed to `driver.Deps.RunReport`, and the binary's
+  config (`ui.realConfig`, tested by `TestRealConfigHasRunReport`) sets
+  `report.DefaultConfig()`; the GUI part is below the sources. Sources, as built:
   - *Packages*: the `[ALPM] upgraded|installed|removed|downgraded` lines of
     `/var/log/pacman.log` written after the **byte offset and inode** the log
     had at queue start (not timestamps), folded per package to its net change
@@ -1159,7 +1160,34 @@ comments and `git log`; this is the "read before you touch it" list.
   - `last-run.json` gets `summary{upgraded, aur, freed_bytes, attention[]}`
     (`logstore.RunSummary`) only when the report has data; the schema stays
     `v:1` (added within v1, like `steps_refused`). `state.js` reads it
-    (`parseLastRun().summary`, null for old or damaged), the QML does not use it yet.
+    (`parseLastRun().summary`, null for old or damaged); the popout shows it
+    under LAST RUN (#191: `popout().lastRun.summaryLine` "47 upgraded · 3.1 GiB
+    freed", `warnLine` "⚠ Restart recommended · 1 new .pacnew" only with
+    attention items; `docs/dms-widget.md`).
+  - **The GUI's part (#191, the owner's variant C of the #187 mockup).** The
+    model keeps the event (`runview.Model.Report`, `Change.Report`; cleared by a
+    new queue, a discovery result or a report page). `runview.Summary()` (pure,
+    `runview/summary.go`) turns it into the words and numbers, or nil (a run
+    still going, a dry run, no report, a report without `HasData`): then the
+    Run page is what it always was. With a summary, `ui/summary.go` draws the
+    finished page: the hero card (corner marks; kicker "NEEDS YOUR ATTENTION" /
+    "ALL QUIET", headline = the first attention item's short text or
+    "Everything is up to date", the sub line "47 packages upgraded · 3.1 GiB
+    freed · 14 m 52 s", the attention rows), the Packages and Space freed
+    columns (a grid: side by side, stacked under the narrow breakpoint, where
+    the space bars are left out; a GtkBox of wrapping labels made GTK warn
+    about its minimum height), the audit line only with findings, and "Steps
+    and output" folded below: the timeline is the same widget (its scroll is
+    shown and hidden, never moved), with a minimum height of 420 px, inside one
+    scroll for the whole page so a low window reaches everything. A run that
+    ended unclean with nothing else to say is "CHECK THE STEPS" instead of
+    "ALL QUIET" (the brief's two kickers would call a failed run quiet).
+    The only button is "Copy pacdiff command" on a .pacnew/.pacsave row; it
+    copies `sudo pacdiff` (`runview.PacdiffCommand`; the docs prefer no other
+    spelling, and /etc needs root), never runs it. No reminder button. The
+    cache line is the TUI's wording, `runview.CacheMenuLabel`, held to the menu
+    entry by `TestSummaryCacheLabelIsTheMenu`. AUR held back is not shown (not
+    in the data).
   - Tests never see the machine's files: `testenv.Run` points
     `ARCHMAID_PACMAN_LOG` and `ARCHMAID_MODULES_DIR` (`report.Env*`, which
     `DefaultConfig` honours) at nothing, and traps `pacman-conf` with the other
