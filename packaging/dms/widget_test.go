@@ -192,3 +192,31 @@ func TestWidgetRetriesUntilFileAppears(t *testing.T) {
 		t.Error("three failing views must count as one try (guard on retryTimer.running)")
 	}
 }
+
+// TestWidgetSummaryLines: under LAST RUN the popout shows the run report's
+// two lines (state.js's summaryLine and warnLine), each hidden when empty (an
+// older last-run.json has no summary; a quiet run no warning), as plain
+// text, the warning in the warning tone. Like the tests above this reads the
+// source: the widget can't be loaded outside DMS.
+func TestWidgetSummaryLines(t *testing.T) {
+	b, err := os.ReadFile("archmaid/ArchmaidWidget.qml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ field, tone string }{{"summaryLine", "Theme.surfaceText"}, {"warnLine", `root.tone("warning")`}} {
+		var block string
+		for _, blk := range strings.Split(string(b), "StyledText {")[1:] {
+			if end := strings.Index(blk, "}"); end >= 0 && strings.Contains(blk[:end], "text: root.view.lastRun ? root.view.lastRun."+c.field+" :") {
+				block = blk[:end]
+			}
+		}
+		if block == "" {
+			t.Fatalf("no StyledText shows lastRun.%s", c.field)
+		}
+		for _, want := range []string{"textFormat: Text.PlainText", "root.view.lastRun." + c.field + ` !== ""`, "wrapMode: Text.WordWrap", "color: " + c.tone} {
+			if !strings.Contains(block, want) {
+				t.Errorf("the %s text lacks %q:%s", c.field, want, block)
+			}
+		}
+	}
+}

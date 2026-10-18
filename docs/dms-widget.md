@@ -12,7 +12,7 @@ subcommand (sections 2 and 3 describe that older design). It reads, never writes
 
 | File | Writer | Fields the widget uses |
 |---|---|---|
-| `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run`, and, when the run had something to report (added within v1, absent in older files), `summary{upgraded, aur, freed_bytes, attention[]}` (read by `state.js` as `summary`, null when absent; the QML does not show it yet) |
+| `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run`, and, when the run had something to report (added within v1, absent in older files), `summary{upgraded, aur, freed_bytes, attention[]}` (read by `state.js` as `summary`, null when absent; the popout shows it under LAST RUN, see below) |
 | `audit-state.json` | `internal/audit` | `v`, `checked`, `packages`, `high[{pkg,reason}]` |
 | `updates-cache.json` | `archmaid-updates-check` | `v` (1 or 2), `count` (repo + AUR past the cooldown), `repo`, `aur` (null = unknown), `aur_held` (AUR updates younger than 72 h), `checked` |
 
@@ -26,7 +26,12 @@ warning (orange) for `incomplete` (root steps refused), `aborted`, `cancelled`, 
 run older than 14 days; dimmed when no file is readable. **Popout** (the GUI's Workbench
 sections, DMS's chrome): **LAST RUN** (the action's name, an outcome tag `OK`/`FAILED`/
 `INCOMPLETE`/`ABORTED`/`CANCELLED` tinted primary/error/warning/warning/muted, "Mon 5 Oct,
-00:45 · 17 h ago", and the failed, refused or stale note), **UPDATES** (the count, then "9 repo · 3 AUR (2 held, <72h) · checked 5 min ago"
+00:45 · 17 h ago", the failed, refused or stale note and, from a record that has a `summary`, the run
+report's line "47 upgraded · 3.1 GiB freed" (each part only when not zero; sizes written as the GUI
+writes them, binary units, three significant digits) and, only when `summary.attention` is
+not empty, a warning-tone line "⚠ Restart recommended · 1 new .pacnew" (the report's short
+texts, at most 4 of 60 characters); an older `last-run.json` without `summary` shows
+neither line), **UPDATES** (the count, then "9 repo · 3 AUR (2 held, <72h) · checked 5 min ago"
 when) and **AUR** (packages audited, up to 5 high findings, "+N more"), numbers in DMS's
 mono font; and two buttons: Run Full Cleanup (primary), Log folder.
 Bar only: no control-center tile.

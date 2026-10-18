@@ -323,6 +323,9 @@ TestCase {
         // An older archmaid's record has none.
         compare(State.parseLastRun(F.fx.lastOK).summary, null);
         compare(State.popout(sum(F.fx.lastOK, null, null, t0), t0).lastRun.summary, null);
+        // ... and so no new line: the popout shows nothing for it.
+        compare(State.popout(sum(F.fx.lastOK, null, null, t0), t0).lastRun.summaryLine, "");
+        compare(State.popout(sum(F.fx.lastOK, null, null, t0), t0).lastRun.warnLine, "");
         // A new record: what the Go writer put there.
         const s = State.parseLastRun(F.fx.lastSummary);
         verify(s !== null);
@@ -333,6 +336,13 @@ TestCase {
         compare(s.summary.attention, ["Restart recommended", "1 new .pacnew"]);
         const p = State.popout(sum(F.fx.lastSummary, null, null, t0), t0);
         compare(p.lastRun.summary.upgraded, 47);
+        // The popout's two lines: the numbers, and the warning only when the
+        // run left something that needs the user.
+        compare(p.lastRun.summaryLine, "47 upgraded \u00b7 3.1 GiB freed");
+        compare(p.lastRun.warnLine, "\u26a0 Restart recommended \u00b7 1 new .pacnew");
+        const q = State.popout(sum(F.fx.lastSummaryQuiet, null, null, t0), t0).lastRun;
+        compare(q.summaryLine, "6 upgraded \u00b7 410 MiB freed");
+        compare(q.warnLine, "", "a quiet run has no warning line");
         compare(p.lastRun.tag, "OK");
         compare(sum(F.fx.lastSummary, null, null, t0).level, "ok");
         // A run with an empty attention list (written as []).
@@ -354,6 +364,25 @@ TestCase {
         const many = State.parseLastRun(F.fx.lastSummaryMany).summary;
         compare(many.attention.length, 4);
         compare(many.attention[0].length, 60);
+    }
+
+    // humanBytes writes sizes as the Go side's report.HumanBytes does.
+    function test_humanBytes() {
+        const cases = [[0, "0 B"], [1023, "1023 B"], [1024, "1 KiB"], [54 << 20, "54 MiB"], [212 << 20, "212 MiB"],
+                       [1964000000, "1.83 GiB"], [4509715661, "4.2 GiB"], [3328599654, "3.1 GiB"], [1048575 * 1024 + 900, "1 GiB"]];
+        for (let i = 0; i < cases.length; i++)
+            compare(State.humanBytes(cases[i][0]), cases[i][1], String(cases[i][0]));
+    }
+
+    // summaryLine and warnLine: each part only when there is something to say.
+    function test_summaryLines() {
+        compare(State.summaryLine(null), "");
+        compare(State.summaryLine({upgraded: 0, aur: 0, freedBytes: 0, attention: []}), "");
+        compare(State.summaryLine({upgraded: 1, aur: 0, freedBytes: 0, attention: []}), "1 upgraded");
+        compare(State.summaryLine({upgraded: 0, aur: 0, freedBytes: 54 << 20, attention: []}), "54 MiB freed");
+        compare(State.warnLine(null), "");
+        compare(State.warnLine({upgraded: 0, aur: 0, freedBytes: 0, attention: []}), "");
+        compare(State.warnLine({upgraded: 0, aur: 0, freedBytes: 0, attention: ["Restart recommended"]}), "\u26a0 Restart recommended");
     }
 
     function test_launchPlan() {

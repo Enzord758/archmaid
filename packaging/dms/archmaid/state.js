@@ -72,6 +72,47 @@ function _summary(o) {
     };
 }
 
+// humanBytes writes n as the Go side's report.HumanBytes does (and the
+// GUI's summary): binary units, three significant digits, no trailing zeros:
+// "0 B", "54 MiB", "1.83 GiB", "3.1 GiB".
+function humanBytes(n) {
+    var units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"];
+    var v = n, i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i++;
+    }
+    if (i === 0)
+        return n + " B";
+    var t = v >= 99.5 ? v.toFixed(0) : (v >= 9.995 ? v.toFixed(1) : v.toFixed(2));
+    if (t.indexOf(".") >= 0)
+        t = t.replace(/0+$/, "").replace(/\.$/, "");
+    if (t === "1024" && i < units.length - 1)
+        return "1 " + units[i + 1];
+    return t + " " + units[i];
+}
+
+// summaryLine: the popout's "47 upgraded \u00b7 3.1 GiB freed" from a parsed
+// summary (null or without numbers: ""). Each part only when not zero.
+function summaryLine(sm) {
+    if (!sm)
+        return "";
+    var parts = [];
+    if (sm.upgraded > 0)
+        parts.push(sm.upgraded + " upgraded");
+    if (sm.freedBytes > 0)
+        parts.push(humanBytes(sm.freedBytes) + " freed");
+    return parts.join(" \u00b7 ");
+}
+
+// warnLine: "\u26a0 Restart recommended \u00b7 1 new .pacnew" when the run had things
+// that need the user, else "".
+function warnLine(sm) {
+    if (!sm || sm.attention.length === 0)
+        return "";
+    return "\u26a0 " + sm.attention.join(" \u00b7 ");
+}
+
 // parseLastRun: {action, finished(ms), outcome, stepsFailed, stepsRefused,
 // stepsSkipped, summary} or null. summary is null for a record without one.
 // A dry-run record is not a real run: null.
@@ -298,8 +339,10 @@ function updatesNote(s, now) {
 
 // popout(s, now): the popout's three sections, in Workbench's order, from
 // summarize's result s. Plain strings and numbers only.
-//   lastRun  null (no record) or {action, tag, tint, stamp, notes:[{text, tint}]}
-//            (a note: the failed steps "error", refused steps or staleness "warning")
+//   lastRun  null (no record) or {action, tag, tint, stamp, notes:[{text, tint}],
+//            summary, summaryLine, warnLine} (summaryLine "47 upgraded \u00b7 3.1 GiB
+//            freed" and warnLine "\u26a0 Restart recommended \u00b7 1 new .pacnew" are
+//            "" without a summary or without attention; a note: the failed steps "error", refused steps or staleness "warning")
 //   updates  {count (number|null), note}
 //   aur      {packages (number|null), note, high:[{pkg,reason}], more}
 function popout(s, now) {
@@ -322,7 +365,9 @@ function popout(s, now) {
             tint: outcomeTint(r.outcome, r.stepsRefused),
             stamp: stamp(r.finished, now),
             notes: notes,
-            summary: r.summary || null
+            summary: r.summary || null,
+            summaryLine: summaryLine(r.summary),
+            warnLine: warnLine(r.summary)
         };
     }
     if (s.updates !== null) {

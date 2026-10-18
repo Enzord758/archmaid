@@ -332,6 +332,28 @@ PluginComponent {
                         font.pixelSize: Theme.fontSizeMedium
                         color: Theme.surfaceText
                     }
+                    // The run report's headline numbers ("47 upgraded · 3.1 GiB
+                    // freed"), when the record has a summary; nothing for an
+                    // older last-run.json.
+                    StyledText {
+                        textFormat: Text.PlainText // state-file strings are data, never markup
+                        visible: root.view.lastRun !== null && root.view.lastRun.summaryLine !== ""
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        text: root.view.lastRun ? root.view.lastRun.summaryLine : ""
+                        font.pixelSize: Theme.fontSizeMedium
+                        color: Theme.surfaceText
+                    }
+                    // What needs the user, only when the run left something.
+                    StyledText {
+                        textFormat: Text.PlainText // state-file strings are data, never markup
+                        visible: root.view.lastRun !== null && root.view.lastRun.warnLine !== ""
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        text: root.view.lastRun ? root.view.lastRun.warnLine : ""
+                        font.pixelSize: Theme.fontSizeSmall
+                        color: root.tone("warning")
+                    }
                     Repeater {
                         model: root.view.lastRun ? root.view.lastRun.notes : []
                         StyledText {
