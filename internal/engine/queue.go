@@ -21,6 +21,8 @@ type run struct {
 
 	discoverSeq uint64 // the Discover in flight, or 0
 	probing     bool   // a Probe is in flight
+	lateAuth    bool   // a lone confirmed root step: its confirm comes first, root only after a yes
+	lateGoing   bool   // ... and that yes came: the Probe / password prompt now in flight is for it
 	planned     bool   // the action reached its queue (auth, gate or run): it gets a last-run record
 	gate        string
 	pending     []steps.Step // the plan, until QueueStarted
@@ -131,9 +133,26 @@ func (s *Session) plan(o *Output, queue []steps.Step, gate string) {
 		s.authorized(o)
 		return
 	}
+	if lateAuth(queue, gate) {
+		// "Delete entire package cache" and the like: a lone root step
+		// whose confirm is the whole question. A no must not cost a
+		// password (a wrong one counts toward faillock), so the confirm
+		// comes first and root is settled only after a yes (launch).
+		r.lateAuth = true
+		s.authorized(o)
+		return
+	}
 	r.probing = true
 	s.setPhase(o, PhaseProbing, "")
 	o.effect(Probe{})
+}
+
+// lateAuth reports whether queue is one confirmed root step with no gate:
+// asked before any password. A queue with a gate (Full Cleanup) or more
+// steps keeps its up-front password, which is its proceed-gate (#149/#153).
+func lateAuth(queue []steps.Step, gate string) bool {
+	return gate == "" && len(queue) == 1 && queue[0].NeedsPriv && queue[0].Confirm != "" &&
+		queue[0].Run == nil && queue[0].Combine == ""
 }
 
 func needsPriv(queue []steps.Step) bool {
@@ -152,6 +171,8 @@ func (s *Session) probed(o *Output, in ProbeDone) {
 	switch {
 	case in.Cached && r.root != nil:
 		s.rescan(o)
+	case in.Cached && r.lateGoing:
+		s.lateGo(o)
 	case in.Cached:
 		s.authorized(o)
 	default:
@@ -189,7 +210,7 @@ func (s *Session) startQueue(o *Output) {
 	if len(queue) > 0 {
 		s.writeFound(o, queue[0].LogCategory()) // what the discovery found heads the run's log
 	}
-	if !s.opts.DryRun && s.opts.Auth == AuthSudo && !r.sudoGone && needsPriv(queue) {
+	if !s.opts.DryRun && s.opts.Auth == AuthSudo && !r.sudoGone && needsPriv(queue) && !r.lateAuth {
 		r.keepAlive = true
 		o.effect(KeepAlive{On: true})
 	}
@@ -347,6 +368,13 @@ func (s *Session) launch(o *Output, accepted bool) {
 		r.plan[r.cur].accepted = true
 		r.cur++
 		s.combineNext(o)
+		return
+	}
+	if r.lateAuth && accepted {
+		// The confirm was answered yes: root now, then the step.
+		r.lateAuth, r.lateGoing, r.probing = false, true, true
+		s.setPhase(o, PhaseProbing, "")
+		o.effect(Probe{})
 		return
 	}
 	if s.polkitStep(r.plan[r.cur].step) {

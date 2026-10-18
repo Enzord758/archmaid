@@ -19,6 +19,9 @@ import (
 //     queue then runs with every NeedsPriv step AuthRefused ("sudo
 //     authentication failed"). Wrong passwords are counted per run, with
 //     the askpass prompts (E4) on the same count.
+//     Exception (lateAuth, queue.go): a queue of ONE confirmed root step
+//     with no gate (Delete entire package cache) asks its confirm first;
+//     the probe and password come only after a yes, so a no costs no password.
 //   - Repair's NeedsRoot authenticates the same way, then runs its Rescan;
 //     its queue needs no second probe. Three wrong passwords end it in its
 //     AuthFailed notice.
@@ -132,6 +135,10 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 			s.rescan(o)
 			return
 		}
+		if r.lateGoing {
+			s.lateGo(o)
+			return
+		}
 		s.startQueue(o)
 		return
 	}
@@ -162,7 +169,23 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 	}
 	// The queue runs anyway; its NeedsPriv steps are refused (advance).
 	r.sudoGone = true
+	if r.lateGoing {
+		r.lateGoing = false
+		r.cur-- // the confirmed step, refused by advance
+		s.advance(o)
+		return
+	}
 	s.startQueue(o)
+}
+
+// lateGo starts the confirmed root step once root is settled (lateAuth).
+func (s *Session) lateGo(o *Output) {
+	r := s.run
+	r.lateGoing = false
+	r.keepAlive = true
+	o.effect(KeepAlive{On: true})
+	s.setPhase(o, PhaseRunning, "")
+	s.startStep(o, true)
 }
 
 // wrongPassword is a failed attempt's Error: detail (a lockout notice)
