@@ -1,6 +1,6 @@
 action "Clear caches"
 exec  paccache --nocolor -dk0
-row   ~/.cache — 3 MiB |
+row   ~/.cache — 3 MiB | Hidden files are kept
 row   Entire package cache | Empty: nothing to delete | disabled
 pick  [~/.cache pkgcache] -> [~/.cache pkgcache]
 plan  1 steps

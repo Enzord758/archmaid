@@ -46,6 +46,11 @@ var wipeTimeout = 60 * time.Second
 var userCacheTimeout = 10 * time.Second
 
 // pkgWarning stays visible on the package-cache row.
+// userKeepNote is the ~/.cache row's subtitle: the step is
+// rm -rf "$HOME/.cache/"*, which leaves dot entries alone (owner decision
+// 2026-10-18: keep that). The size above does not count them either.
+const userKeepNote = "Hidden files are kept"
+
 const pkgWarning = "Can't reinstall or downgrade those packages without internet"
 
 // cacheMeasure is one cache's measurement: bytes and a count when it
@@ -117,7 +122,7 @@ func discoverClearCaches(ctx context.Context, env Env) Discovery {
 	go func() { defer wg.Done(); pkg = measurePkgCache(ctx, env) }()
 	wg.Wait()
 
-	userRow := PickRow{Label: "~/.cache"}
+	userRow := PickRow{Label: "~/.cache", Note: userKeepNote}
 	switch {
 	case user.fail != "":
 		userRow.Disabled, userRow.Note = true, "Couldn't measure it: "+user.fail

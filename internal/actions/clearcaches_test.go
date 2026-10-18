@@ -128,7 +128,7 @@ func TestClearCachesPickRows(t *testing.T) {
 	if !ok || !slices.Equal(sel.Items, []string{PickUserCache, PickPkgCache}) || len(sel.Rows) != 2 {
 		t.Fatalf("got %#v", sel)
 	}
-	if sel.Rows[0].Label != "~/.cache — 3 MiB" || sel.Rows[0].Disabled || sel.Rows[0].Note != "" {
+	if sel.Rows[0].Label != "~/.cache — 3 MiB" || sel.Rows[0].Disabled || sel.Rows[0].Note != "Hidden files are kept" {
 		t.Errorf("user-cache row %+v", sel.Rows[0])
 	}
 	pk := sel.Rows[1]
