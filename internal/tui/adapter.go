@@ -13,6 +13,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/privilege"
+	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -53,8 +54,17 @@ func driverDeps(askpass <-chan *privilege.Request) driver.Deps {
 		Report:   driverReports.add,
 		// The widget's update count, refreshed after a topgrade run.
 		RefreshUpdates: refreshUpdates,
+		// The run report: package changes, space freed, what needs the
+		// user (internal/report), for the summary screen and last-run.json.
+		RunReport: runReportConfig(),
 	}
 }
+
+// runReportConfig is driverDeps' RunReport: the real config (pacman's log,
+// the commands by name). The package's TestMain swaps in a nil one for every
+// test: the real config reads the machine's pacman log and runs paccache
+// and pacman, which testenv traps.
+var runReportConfig = report.DefaultConfig
 
 // refreshUpdates is driverDeps' RefreshUpdates: driver.RefreshUpdates,
 // which runs systemctl and, failing that, the installed update check by
@@ -194,6 +204,7 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 			m.queue[i] = stepState{step: planned(p), status: steps.Pending, plan: p}
 		}
 		m.current, m.errs, m.skipped, m.aborted, e.aborted = -1, 0, 0, false, false
+		m.runReport = nil
 		m.screen = screenRunning
 		m.resizeOutput() // checklist length is now known
 	case engine.StepInserted:
@@ -294,6 +305,9 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		m.bg, m.screen = screenAudit, screenNotice
 	case engine.StatusUpdated:
 		m.status = ev.Status.Line()
+	case engine.RunReport:
+		r := ev.Report
+		m.runReport = &r
 	case engine.Finished:
 		return m.finished(ev)
 	}

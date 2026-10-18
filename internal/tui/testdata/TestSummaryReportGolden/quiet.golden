@@ -1,0 +1,26 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM avail: 8G   Cache: 512M
+
+✔ AUR audit
+✔ Old package cache cleaned
+✔ Orphaned packages removed
+✔ Old logs removed
+
+Summary  ·  took 6 m 08 s  ·  9 steps: 9 done, 0 skipped, 0 failed
+────────────────────────────────────────────────────────────────────────────────
+Packages    6 upgraded (1 AUR)
+            ripgrep, python-pip, yay-bin, a +2 more
+Freed       410 MiB
+            Package cache (keeps 3)          286 MiB
+            Uninstalled packages' cache          0 B
+            AUR build cache                   96 MiB
+            Journal vacuum                       0 B
+            Temp files                        28 MiB
+            Package cache still holds 3.9 GiB (298 packages).
+            "Delete entire package cache" in the menu frees it.
+
+✔ Nothing needs your attention.
+
+✔ Cleanup completed successfully
+
+l view log · enter back to menu · q quit

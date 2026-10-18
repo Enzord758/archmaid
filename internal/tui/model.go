@@ -6,6 +6,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"time"
+
+	"github.com/Enzord758/archmaid/internal/report"
 )
 
 // ── screens ──────────────────────────────────────────────────────────────────
@@ -83,6 +85,11 @@ type model struct {
 	// (privilege.NoTicketNote: sudo keeps no ticket, so each sudo asks
 	// through the popup). "" for none; cleared when the action ends.
 	runNote string
+	// runReport is the run's report (engine.RunReport), drawn on the summary
+	// screen between the checklist and the outcome line (summary.go); nil
+	// when the Driver made none (a dry run, a test's Driver) or the run
+	// isn't over.
+	runReport *report.Report
 
 	// confirm-modal state: gateActive marks the action's proceed-gate, as
 	// opposed to a step's confirm.

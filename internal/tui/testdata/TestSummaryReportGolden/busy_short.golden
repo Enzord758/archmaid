@@ -1,0 +1,30 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM avail: 8G   Cache: 512M
+
+– Cleaning package cache… (skipped)
+
+Summary  ·  took 14 m 52 s  ·  9 steps: 8 done, 1 skipped, 0 failed
+────────────────────────────────────────────────────────────────────────────────
+Packages    47 upgraded (6 AUR)
+            linux-cachyos, systemd, nvidia-utils, mesa +43 more
+Installed   3 · cachyos-gaming-meta, lib32-vulkan-icd-loader, zenity
+Removed     2 · python-pyxdg-old, gtk2
+Freed       3.1 GiB
+            Package cache (keeps 3)         1.83 GiB
+            Uninstalled packages' cache      212 MiB
+            AUR build cache                  648 MiB
+            Journal vacuum                   381 MiB
+            Temp files                        54 MiB
+            Package cache still holds 4.2 GiB (312 packages).
+            "Delete entire package cache" in the menu frees it.
+
+Needs your attention
+⚠ Restart recommended: linux-cachyos, systemd, nvidia-utils, mesa upgraded
+  (running 7.2.10-1-cachyos, installed 7.2.12-1-cachyos)
+⚠ 1 new .pacnew: /etc/pacman.d/mirrorlist.pacnew (merge it with pacdiff)
+⚠ AUR audit: 1 high-severity finding (see the audit log)
+Audit       2 findings (1 high): evil-bin, meh-git
+
+Completed — 1 step(s) skipped
+
+l view log · enter back to menu · q quit

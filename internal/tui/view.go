@@ -204,8 +204,16 @@ func (m model) viewAbortConfirm() string {
 }
 
 func (m model) checklist() string {
+	return m.checklistWhere(func(stepState) bool { return true })
+}
+
+// checklistWhere is the checklist of the steps keep accepts.
+func (m model) checklistWhere(keep func(stepState) bool) string {
 	var b strings.Builder
 	for _, st := range m.queue {
+		if !keep(st) {
+			continue
+		}
 		var glyph, text string
 		switch st.status {
 		case steps.Pending:
@@ -240,8 +248,34 @@ func (m model) viewSummary() string {
 	default:
 		line = stepOKStyle.Render("✔ Cleanup completed successfully")
 	}
-	return m.header() + "\n" + m.checklist() + "\n" + line + "\n\n" +
-		hintStyle.Render("l view log · enter back to menu · q quit")
+	return m.summaryScreen(line)
+}
+
+// summaryScreen is the summary: header, checklist, the run report's block
+// (summary.go), the outcome line and the hint. On a terminal too short for
+// it the checklist keeps only the steps that didn't succeed (the block's
+// first line already counts them), and then the block loses its zero rows.
+func (m model) summaryScreen(outcome string) string {
+	hint := hintStyle.Render("l view log · enter back to menu · q quit")
+	build := func(compact, trim bool) string {
+		list := m.checklist()
+		if compact {
+			list = m.checklistWhere(func(st stepState) bool { return st.status != steps.OK })
+		}
+		blk := summaryBlock(m.runReport, summaryOpts{width: m.termWidth, trimZeros: trim})
+		if blk != "" {
+			blk += "\n"
+		}
+		return m.header() + "\n" + list + "\n" + blk + outcome + "\n\n" + hint
+	}
+	out := build(false, false)
+	if m.termHeight > 0 && m.runReport != nil && strings.Count(out, "\n")+1 > m.termHeight {
+		out = build(true, false)
+		if strings.Count(out, "\n")+1 > m.termHeight {
+			out = build(true, true)
+		}
+	}
+	return out
 }
 
 func (m model) viewLogPicker() string {

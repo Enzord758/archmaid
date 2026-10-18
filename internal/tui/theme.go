@@ -21,6 +21,8 @@ var (
 	hintStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colGray))
 	// noteStyle is the running screen's note for the run (runNote).
 	noteStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colYellow))
+	// reportInfoStyle is the run report's "package cache still holds" line.
+	reportInfoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colCyan))
 
 	cursorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colBlue)).Bold(true)
 	selectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colGreen)).Bold(true)

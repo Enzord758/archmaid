@@ -15,6 +15,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/Enzord758/archmaid/internal/privilege"
+	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/testenv"
 )
 
@@ -37,6 +38,8 @@ func fixedModel() model {
 var (
 	prodRefreshUpdates func(context.Context) error
 	fakeRefreshes      atomic.Int32
+	// prodRunReportConfig is runReportConfig as the binary has it.
+	prodRunReportConfig func() *report.Config
 )
 
 // TestMain forces lipgloss to the Ascii (no-color) profile so rendered frames
@@ -70,6 +73,10 @@ func TestMain(m *testing.M) {
 	// tests build (driverDeps, newDriver) off them.
 	prodRefreshUpdates = refreshUpdates
 	refreshUpdates = func(context.Context) error { fakeRefreshes.Add(1); return nil }
+	// Nor may a test's Driver make the run report for real: it reads the
+	// machine's pacman log and runs paccache and pacman (driverdeps_test.go).
+	prodRunReportConfig = runReportConfig
+	runReportConfig = func() *report.Config { return nil }
 	// No test may write the user's real state dir either (appendLog, and now
 	// last-run.json): default to a throwaway one; tests that inspect the logs
 	// still point logDir at their own.
