@@ -84,6 +84,9 @@ do_install() {
 	[[ -n "$ver" ]] || ver=$(printf 'r%s.%s' "$(git -C "$SCRIPT_DIR" rev-list --count HEAD 2>/dev/null)" \
 		"$(git -C "$SCRIPT_DIR" rev-parse --short=7 HEAD 2>/dev/null)") || ver=''
 	[[ "$ver" != 'r.' ]] || ver=''
+	# Ref names may hold quotes and backslashes, which go build's -ldflags
+	# parsing would act on: keep only characters it takes literally.
+	ver=${ver//[^A-Za-z0-9._+~-]/_}
 	( cd "$SCRIPT_DIR" && go build -trimpath -ldflags="-s -w -X github.com/Enzord758/archmaid/internal/version.Version=$ver" -o "$BIN" ./cmd/archmaid )
 	info "binary  → $BIN"
 

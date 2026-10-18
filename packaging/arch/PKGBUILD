@@ -63,7 +63,9 @@ _version() {
   v=$(git -C "$srcdir/$_pkgname" describe --tags --dirty 2>/dev/null) || v=''
   [[ $v ]] || v=$(printf 'r%s.%s' "$(git -C "$srcdir/$_pkgname" rev-list --count HEAD)" \
     "$(git -C "$srcdir/$_pkgname" rev-parse --short=7 HEAD)")
-  printf '%s' "$v"
+  # Ref names may hold quotes and backslashes, which go build's -ldflags
+  # parsing would act on: keep only characters it takes literally.
+  printf '%s' "${v//[^A-Za-z0-9._+~-]/_}"
 }
 
 _goenv() {

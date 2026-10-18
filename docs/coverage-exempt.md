@@ -57,8 +57,8 @@ The atomic-write pattern (CreateTemp, write, chmod, fsync, close, rename, fsync 
 | `cmd/archmaid-helper/dev_off.go:9-9` | `devLockPath` | 1 | yes | devLockPath is only called when devBuild, which is false in this build |
 | `cmd/archmaid-helper/internal/helper/checks.go:38-39` | `LstatFile` | 1 | yes | os.FileInfo.Sys() is always a *syscall.Stat_t on Linux |
 | `cmd/archmaid-helper/internal/helper/checks.go:135-135` | `acquireLock` | 1 | yes | flock(LOCK_EX|LOCK_NB) on a regular file just opened fails only with EWOULDBLOCK (busy, covered); ENOLCK/EBADF/EINTR are not producible |
-| `cmd/archmaid/main.go:33-34` | `main` | 1 |  | prctl(PR_SET_DUMPABLE) on our own process doesn't fail |
-| `cmd/archmaid/main.go:40-42` | `main` | 2 |  | tui.ActionEnv always fills every required field (Env.Validate is the guard for a future change) |
+| `cmd/archmaid/main.go:34-35` | `main` | 1 |  | prctl(PR_SET_DUMPABLE) on our own process doesn't fail |
+| `cmd/archmaid/main.go:41-43` | `main` | 2 |  | tui.ActionEnv always fills every required field (Env.Validate is the guard for a future change) |
 | `gui/internal/polkitagent/polkitagent.go:298-299` | `Start` | 1 | yes | openPTY failing |
 | `gui/internal/polkitagent/polkitagent.go:370-373` | `Start` | 3 | yes | TIOCEXCL on the pty just opened can't fail |
 | `gui/internal/polkitagent/polkitagent.go:718-719` | `Agent.waitNoEcho` | 1 | yes | the termios read fails only on a closed pty |

@@ -215,17 +215,23 @@ func (s *Session) CancelPrompt(id PromptID) Output {
 		return o
 	}
 	r.prompt = 0
-	if r.anyStarted() {
-		// A late password prompt (lateRoot) cancelled after steps ran: what
-		// ran stays done, the rest is skipped, and the run says aborted.
-		for ; r.cur < len(r.plan); r.cur++ {
-			s.settle(&o, steps.Skipped, "")
-		}
-		s.finish(&o, OutcomeAborted)
-		return o
-	}
-	s.finish(&o, OutcomeCancelled)
+	s.giveUpOnRoot(&o)
 	return o
+}
+
+// giveUpOnRoot ends a run that can't get root now: nothing started, it is
+// cancelled; steps ran (lateRoot: ~/.cache before the package cache), what
+// ran stays done, the rest is skipped and the run says aborted.
+func (s *Session) giveUpOnRoot(o *Output) {
+	r := s.run
+	if r.anyStarted() {
+		for ; r.cur < len(r.plan); r.cur++ {
+			s.settle(o, steps.Skipped, "")
+		}
+		s.finish(o, OutcomeAborted)
+		return
+	}
+	s.finish(o, OutcomeCancelled)
 }
 
 // Select answers the open NeedsSelection with id; picked is a subset of its

@@ -407,7 +407,7 @@
   },
   {
    "file": "cmd/archmaid/main.go",
-   "lines": "33-34",
+   "lines": "34-35",
    "func": "main",
    "stmts": 1,
    "cat": "E",
@@ -418,7 +418,7 @@
   },
   {
    "file": "cmd/archmaid/main.go",
-   "lines": "40-42",
+   "lines": "41-43",
    "func": "main",
    "stmts": 2,
    "cat": "E",

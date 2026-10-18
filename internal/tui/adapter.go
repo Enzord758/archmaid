@@ -254,9 +254,11 @@ func (m *model) applyEvent(ev engine.Event) tea.Cmd {
 		m.authInFlight = false
 		// The up-front prompt sits over the menu; a late one (a pick's
 		// root step after steps that ran, engine lateRoot) over the run.
-		m.bg = screenMenu
-		if m.screen == screenRunning {
+		// (A wrong try asks again on the same screen: bg stays.)
+		if m.screen == screenRunning || (m.screen == screenPassword && m.bg == screenRunning) {
 			m.bg = screenRunning
+		} else {
+			m.bg = screenMenu
 		}
 		m.screen = screenPassword
 		m.pwErr = ev.Error

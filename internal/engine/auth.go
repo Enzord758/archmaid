@@ -154,7 +154,7 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 		r.attempts = 0
 		o.event(AuthResolved{})
 		o.event(Notice{Text: sanitize.String(in.Detail, sanitize.Plain)})
-		s.finish(o, OutcomeCancelled)
+		s.giveUpOnRoot(o)
 		return
 	}
 	r.attempts++

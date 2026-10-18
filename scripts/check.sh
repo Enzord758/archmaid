@@ -192,7 +192,10 @@ if grep -nE -- 'sysbin' packaging/arch/PKGBUILD install.sh scripts/cover-build.s
 	echo "FAIL: a product or cover build names internal/sysbin; its /usr/bin paths must stay as built (only cmd/archmaid/e2e/run.sh sets them bare)"
 	exit 1
 fi
-if grep -nE -- '-X' packaging/arch/PKGBUILD install.sh | grep -vE -- '-X github\.com/Enzord758/archmaid/internal/version\.Version='; then
+# The one allowed flag is cut out of each line first, so a second -X on the
+# same line (another variable, another package) still trips the guard.
+if grep -nE -- '-X' packaging/arch/PKGBUILD install.sh |
+	sed -E 's/-X github\.com\/Enzord758\/archmaid\/internal\/version\.Version=//' | grep -E -- '-X'; then
 	echo "FAIL: packaging/arch/PKGBUILD or install.sh sets a variable at link time (-X) other than internal/version.Version; a product build sets no other (internal/sysbin's /usr/bin paths stay as built)"
 	exit 1
 fi
