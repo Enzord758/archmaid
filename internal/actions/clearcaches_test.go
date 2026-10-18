@@ -3,6 +3,7 @@ package actions
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -323,5 +324,52 @@ func TestClearCachesStepsFollowThePick(t *testing.T) {
 	w := ClearCachesSteps([]string{PickPkgCache})[0]
 	if !w.NeedsPriv || w.Verb != steps.VerbPaccacheWipe || !w.Optional || !slices.Equal(w.Argv, []string{"sudo", "paccache", "-rk0"}) || len(w.Items) != 0 {
 		t.Errorf("package-cache step %+v: root, takes no argument", w)
+	}
+}
+
+// The user-cache step's real command, run in a scratch HOME: it empties the
+// non-dot entries of ~/.cache, removes a symlink without following it (what
+// it points to outside ~/.cache survives), keeps ~/.cache itself and its
+// dot entries, and with an empty ~/.cache is harmless.
+func TestUserCacheStepCommandStaysInsideTheCache(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	cache := filepath.Join(home, ".cache")
+	for _, d := range []string{filepath.Join(cache, "app", "sub"), filepath.Join(outside, "keep")} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files := map[string]string{
+		filepath.Join(cache, "app", "sub", "blob"): "x",
+		filepath.Join(cache, ".hidden"):            "dot",
+		filepath.Join(outside, "keep", "precious"): "p",
+	}
+	for p, c := range files {
+		if err := os.WriteFile(p, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(filepath.Join(outside, "keep"), filepath.Join(cache, "link")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	argv := ClearCachesSteps([]string{PickUserCache})[0].Argv
+	run := func() {
+		t.Helper()
+		if out, err := exec.Command(argv[0], argv[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", argv, err, out)
+		}
+	}
+	run()
+	if ents, _ := os.ReadDir(cache); len(ents) != 1 || ents[0].Name() != ".hidden" {
+		t.Errorf("~/.cache left %v, want only .hidden", ents)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep", "precious")); err != nil {
+		t.Errorf("a symlink was followed out of ~/.cache: %v", err)
+	}
+	run() // nothing matches the glob: still harmless
+	if _, err := os.Stat(filepath.Join(cache, ".hidden")); err != nil {
+		t.Error(err)
 	}
 }
