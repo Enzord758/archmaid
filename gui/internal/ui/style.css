@@ -159,6 +159,11 @@
 .archmaid .am-step-header.am-step-failed { border-left: 3px solid @am_danger; }
 .archmaid .am-step-header.am-step-running { border-left: 3px solid @am_running; }
 .archmaid .am-timeline > row { padding: 0; min-height: 0; }
+/* The header's line is the target that folds and opens a step (#207): it
+   takes the hover highlight and the focus ring, the lines under it don't. */
+.archmaid .am-step-row { border-radius: 6px; }
+.archmaid .am-step-row:hover { background-color: alpha(currentColor, 0.08); }
+.archmaid .am-step-row:focus-visible { background-color: alpha(currentColor, 0.08); }
 .archmaid .am-step-title { font-weight: 700; }
 .archmaid .am-step-actions { margin-left: 34px; }
 .archmaid .am-step-action { padding: 2px 10px; min-height: 26px; }

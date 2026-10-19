@@ -64,6 +64,7 @@ type stepHeader struct {
 	line  *tagLine       // the title, then root and sub
 	acts  *failedActions // a failed step's actions (failed.go)
 	sec   *section
+	row   *gtk.Box // its clickable, focusable line
 }
 
 // timeline is the Run page's list and its sections.
@@ -86,6 +87,10 @@ type timeline struct {
 	segs                           []*gtk.Box
 	ticking                        bool
 	foldQueued                     bool // foldNow is queued
+	// cursor is the step whose row the keyboard was last on; left when a
+	// row last lost the focus (focusStep).
+	cursor string
+	left   time.Time
 }
 
 // newRunPage builds the Run page: the run header over the timeline.
@@ -106,10 +111,21 @@ func (w *Window) newRunPage() gtk.Widgetter {
 		label.SetWrap(true)
 		label.SetWrapMode(pango.WrapWordChar)
 		label.AddCSSClass("am-line")
-		obj.Cast().(*gtk.ListItem).SetChild(label)
+		item := obj.Cast().(*gtk.ListItem)
+		item.SetChild(label)
+		// A line does nothing when activated (#207): the step's header
+		// row is the target that folds and opens, so no line takes the
+		// hover highlight or an Enter.
+		item.SetActivatable(false)
+		item.SetSelectable(false)
 	})
 	lines.ConnectBind(func(obj *coreglib.Object) {
 		item := obj.Cast().(*gtk.ListItem)
+		// The summary under a folded header is part of that header's
+		// target: never focused of its own (Tab and the arrows land on the
+		// header row instead). Output lines stay focusable so the keys
+		// still scroll the list.
+		item.SetFocusable(item.Item().Cast().(*gtk.StringObject).String() != summaryItem)
 		w.bindLine(item.Child().(*gtk.Label), item.Item().Cast().(*gtk.StringObject).String(), item.Position())
 	})
 	headers := gtk.NewSignalListItemFactory()
@@ -127,6 +143,43 @@ func (w *Window) newRunPage() gtk.Widgetter {
 			}
 		})
 		row.AddController(click)
+		// The same target for the keyboard (#207): the row takes the focus;
+		// Enter or Space folds and opens, as the click does; Up and Down,
+		// Home and End move between the steps' rows (the list view is one
+		// Tab stop, and its own arrows move between lines, not headers).
+		h.row = row
+		row.SetFocusable(true)
+		row.AddCSSClass("am-step-row")
+		keys := gtk.NewEventControllerKey()
+		keys.ConnectKeyPressed(func(keyval, _ uint, _ gdk.ModifierType) bool {
+			if h.sec == nil {
+				return false
+			}
+			switch keyval {
+			case gdk.KEY_Return, gdk.KEY_KP_Enter, gdk.KEY_ISO_Enter, gdk.KEY_space:
+				w.toggleStep(h.sec)
+			case gdk.KEY_Down, gdk.KEY_KP_Down:
+				w.focusStep(h.sec, +1)
+			case gdk.KEY_Up, gdk.KEY_KP_Up:
+				w.focusStep(h.sec, -1)
+			case gdk.KEY_Home, gdk.KEY_KP_Home:
+				w.focusStep(nil, +1)
+			case gdk.KEY_End, gdk.KEY_KP_End:
+				w.focusStep(nil, -1)
+			default:
+				return false
+			}
+			return true
+		})
+		row.AddController(keys)
+		focus := gtk.NewEventControllerFocus()
+		focus.ConnectEnter(func() {
+			if h.sec != nil {
+				tl.cursor = h.sec.step
+			}
+		})
+		focus.ConnectLeave(func() { tl.left = time.Now() })
+		row.AddController(focus)
 	})
 	headers.ConnectBind(func(obj *coreglib.Object) {
 		lh := obj.Cast().(*gtk.ListHeader)
@@ -198,6 +251,24 @@ func (w *Window) newRunPage() gtk.Widgetter {
 		return false
 	})
 	tl.view.AddController(keys)
+	// Tab into the list lands on the view itself (its lines are not
+	// tab stops of their own for a folded run): hand the focus to the
+	// step row the keyboard was last on, the first one otherwise. Not
+	// when it just came from a row (Shift+Tab out of the list passes the
+	// view on its way).
+	enter := gtk.NewEventControllerFocus()
+	enter.ConnectEnter(func() {
+		if time.Since(tl.left) < 200*time.Millisecond {
+			return
+		}
+		coreglib.IdleAdd(func() bool {
+			if tl.view.IsFocus() {
+				w.focusStep(tl.sectionOf(tl.cursor), 0)
+			}
+			return false
+		})
+	})
+	tl.view.AddController(enter)
 	tl.scroll.ConnectEdgeReached(func(pos gtk.PositionType) {
 		if pos == gtk.PosBottom {
 			w.follow = true
@@ -776,4 +847,76 @@ func fmtClock(d time.Duration) string {
 		return fmt.Sprintf("%d:%02d:%02d", s/3600, s/60%60, s%60)
 	}
 	return fmt.Sprintf("%02d:%02d", s/60, s%60)
+}
+
+// sectionOf is the section of step, or the first with a drawn-able header
+// when there is none (or step is ""): nil without sections.
+func (tl *timeline) sectionOf(step string) *section {
+	if s := tl.byStep[step]; s != nil && step != "" {
+		return s
+	}
+	return tl.neighbour(nil, +1)
+}
+
+// neighbour is the section after (dir > 0) or before from, skipping the
+// lines outside any step (no header); from nil starts at the first or last.
+func (tl *timeline) neighbour(from *section, dir int) *section {
+	n := len(tl.sections)
+	i := -1
+	if dir < 0 {
+		i = n
+	}
+	for k, s := range tl.sections {
+		if s == from {
+			i = k
+		}
+	}
+	for i += dir; i >= 0 && i < n; i += dir {
+		if tl.sections[i].step != "" {
+			return tl.sections[i]
+		}
+	}
+	return nil
+}
+
+// focusStep moves the keyboard to a step's row: the one after from (dir
+// > 0), before it (dir < 0), or from itself (dir 0); from nil is the first
+// (dir > 0) or last. The row may not be drawn (the list only holds the
+// visible ones): the view scrolls to the step first and the focus follows.
+func (w *Window) focusStep(from *section, dir int) {
+	tl := w.tl
+	target := from
+	if dir != 0 {
+		target = tl.neighbour(from, dir)
+		if target == nil {
+			return // already at the end
+		}
+	}
+	if target == nil {
+		return
+	}
+	tl.cursor = target.step
+	w.follow = false
+	var try func(left int)
+	try = func(left int) {
+		if w.closed {
+			return
+		}
+		if h := target.header; h != nil && h.sec == target && h.row != nil && h.row.IsDrawable() {
+			h.row.GrabFocus()
+			return
+		}
+		if left > 0 {
+			start := uint(0)
+			for _, s := range tl.sections {
+				if s == target {
+					break
+				}
+				start += uint(s.items)
+			}
+			tl.view.ScrollTo(start, gtk.ListScrollNone, nil)
+			coreglib.TimeoutAdd(30, func() bool { try(left - 1); return false })
+		}
+	}
+	try(8)
 }

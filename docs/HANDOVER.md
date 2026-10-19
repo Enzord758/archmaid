@@ -1677,3 +1677,30 @@ to:
   shows on systemd warnings or errors.
 - Test gaps (e2e breadth, hand-only checks) are tracked in
   `TESTING.md` → Known gaps.
+
+- **The Run page's keyboard target is the step's title row (#207).** The
+  timeline is one `GtkListView` with a header per step (`ListHeader`); the
+  headers are not in the view's focus chain, and the view is one Tab stop.
+  So `timeline.go` gives each header's clickable line (`stepHeader.row`)
+  `focusable` + the `am-step-row` class (hover and `:focus-visible` highlight
+  in `style.css`), its own key controller (Enter/Space toggles, Up/Down/
+  Home/End call `focusStep`, which scrolls an undrawn header into view and
+  focuses it), and a focus controller on the view that hands a Tab arriving
+  on the view itself to the row the keyboard was last on (`tl.cursor`; not
+  within 200 ms of a row losing focus, or Shift+Tab out of the list would be
+  caught again). The list items: never activatable or selectable; the summary
+  item of a folded step is not focusable either (`ConnectBind` sets it per
+  item, a recycled row is rebound); output lines stay focusable so the keys
+  still scroll. Don't make the summary item activatable to "fix" the
+  highlight: the owner wants the title row highlighted.
+- **Clear caches with both caches empty never takes the Run page (#207).**
+  The engine still ends it as a discovery (`DiscoveryResult{Nothing}` with
+  `actions.NoCacheText` as its Notice, last-run `nothing-found`, the CHECK
+  log line); `ui/nothing.go` drops that one `DiscoveryResult` for
+  `actions.IDClearCaches` from the batch before the model sees it (so the
+  Run page keeps the last run, as for a declined gate), and on the action's
+  `Finished{Notice}` goes back to the page `Start` left (`Window.pageBefore`)
+  and shows an AdwAlertDialog (`Window.nothingDialog`) headed
+  `actions.NoCacheHeading`. A failed look is `DiscoveryFailed`, not
+  `Nothing`, so it still gets the Run page. The Run page is shown during
+  the measuring (it was always); a slow measure flashes it.
