@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine/stub"
 )
 
@@ -23,14 +24,17 @@ func TestGUICovNoCache(t *testing.T) { covChild(t, "cov-nocache") }
 func covNoCache(c *covEnv) {
 	w := c.w
 	c.quiet()
+	var seen []string
+	w.stack.NotifyProperty("visible-child-name", func() { seen = append(seen, w.stack.VisibleChildName()) })
 	c.seq(900,
 		func() {
 			w.pickPage("overview")
+			seen = nil
 			c.ok(w.stack.VisibleChildName() == "overview", "not on the Overview to start with")
 			w.startAction(stub.IDClearCachesNone)
 		},
 		func() {
-			c.ok(w.stack.VisibleChildName() == "overview", "page %q after Clear caches found nothing, want overview", w.stack.VisibleChildName())
+			c.ok(w.stack.VisibleChildName() == "overview" && len(seen) == 0, "page %q after Clear caches found nothing, want overview, never another; visited %v", w.stack.VisibleChildName(), seen)
 			d := w.nothingDialog
 			c.ok(d != nil, "no \"No cache to clear\" dialog")
 			if d != nil {
@@ -49,6 +53,60 @@ func covNoCache(c *covEnv) {
 		func() {
 			c.ok(w.nothingDialog == nil, "the dialog stayed after OK")
 			c.ok(w.stack.VisibleChildName() == "overview", "page %q after OK", w.stack.VisibleChildName())
+		},
+	)
+}
+
+func init() { covScenarios["cov-cachesstay"] = covCachesStay }
+
+func TestGUICovCachesStay(t *testing.T) { covChild(t, "cov-cachesstay") }
+
+// covCachesStay (#207 follow-up): Clear caches stays on the Overview while
+// it measures, while the pick is open and after a cancel; the Run page
+// comes when the queue of a non-empty pick starts.
+func covCachesStay(c *covEnv) {
+	w := c.w
+	c.quiet()
+	var seen []string
+	w.stack.NotifyProperty("visible-child-name", func() { seen = append(seen, w.stack.VisibleChildName()) })
+	ranPage := func() bool {
+		for _, p := range seen {
+			if p == "run" {
+				return true
+			}
+		}
+		return false
+	}
+	c.seq(900,
+		func() {
+			w.pickPage("overview")
+			seen = nil
+			w.startAction(actions.IDClearCaches)
+			c.ok(w.stack.VisibleChildName() == "overview" && !ranPage(), "measuring: page %q, visited %v", w.stack.VisibleChildName(), seen)
+			c.ok(w.busy, "not busy while measuring")
+		},
+		func() {
+			c.ok(w.dialogs[1] != nil, "no pick dialog")
+			c.ok(w.stack.VisibleChildName() == "overview" && !ranPage(), "pick: page %q, visited %v", w.stack.VisibleChildName(), seen)
+			shoot(w, "cov-cachesstay", "pick")
+			if d := w.dialogs[1]; d != nil {
+				c.press(d, "cancel")
+			}
+		},
+		func() {
+			c.ok(!w.busy && w.stack.VisibleChildName() == "overview" && !ranPage(), "after Cancel: busy %v page %q, visited %v", w.busy, w.stack.VisibleChildName(), seen)
+			w.startAction(actions.IDClearCaches)
+		},
+		func() {
+			c.ok(w.dialogs[1] != nil && len(w.checks) > 0, "no second pick")
+			c.ok(!ranPage(), "the Run page showed before the queue: %v", seen)
+			if d := w.dialogs[1]; d != nil && len(w.checks) > 0 {
+				w.checks[0].SetActive(true)
+				c.press(d, "ok")
+			}
+		},
+		func() {
+			c.ok(ranPage() && w.queued && w.stack.VisibleChildName() == "run", "queue started: page %q queued %v, visited %v", w.stack.VisibleChildName(), w.queued, seen)
 		},
 	)
 }

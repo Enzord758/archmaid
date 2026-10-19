@@ -1702,5 +1702,13 @@ to:
   `Finished{Notice}` goes back to the page `Start` left (`Window.pageBefore`)
   and shows an AdwAlertDialog (`Window.nothingDialog`) headed
   `actions.NoCacheHeading`. A failed look is `DiscoveryFailed`, not
-  `Nothing`, so it still gets the Run page. The Run page is shown during
-  the measuring (it was always); a slow measure flashes it.
+  `Nothing`, so it still gets the Run page. Clear caches (only it: `Window.stayUntilQueue`, set in `start` for
+  `actions.IDClearCaches`) stays on the page it was started from while it
+  measures (the status line and the cell say "Measuring the caches…") and
+  while its pick is open or cancelled; `redraw` switches to Run at `c.Reset`,
+  the queue start of a non-empty pick (or a failed look's Discovery page).
+  Every other action still switches at Start: their discovery results (Repair
+  "No broken packages found", services, downloads, the audit's report) are
+  pages of their own that the user came for, and Repair's and the audit's
+  look can be the whole action; a generic "stay until the first step" would
+  hide those and was not asked for.

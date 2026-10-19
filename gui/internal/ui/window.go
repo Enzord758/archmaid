@@ -13,6 +13,7 @@ import (
 	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 )
 
@@ -91,6 +92,8 @@ type Window struct {
 	pageBefore     string
 	nothingDialog  *amDialog
 	nothingPending bool
+	// stayUntilQueue: the action's page change waits for its queue.
+	stayUntilQueue bool
 	// quitDialog is the open "Stop the run and quit?" dialog, or nil.
 	quitDialog *amDialog
 	// The latest selection's check boxes and password entry, for the
@@ -276,7 +279,12 @@ func (w *Window) start(id string, dry bool) {
 	w.updateRunHeader()
 	w.setBusy(true)
 	w.pageBefore, w.nothingPending = w.stack.VisibleChildName(), false
-	w.stack.SetVisibleChildName("run")
+	// Clear caches stays where it was while it measures and while its pick
+	// is open; the Run page comes when its queue starts (redraw, c.Reset).
+	w.stayUntilQueue = strings.HasPrefix(id, actions.IDClearCaches)
+	if !w.stayUntilQueue {
+		w.stack.SetVisibleChildName("run")
+	}
 	w.updateTitle()
 	w.updateOverview()
 	w.send(engine.Start{Action: id})
@@ -371,6 +379,10 @@ func (w *Window) redraw(c runview.Change) {
 	if c.Reset {
 		// Only QueueStarted resets the model: the run's queue started.
 		w.queued, w.pagePrev = true, false
+		if w.stayUntilQueue {
+			w.stayUntilQueue = false
+			w.stack.SetVisibleChildName("run")
+		}
 		w.rebuild()
 		// A queue run follows its newest line; a discovery result is a
 		// finished page that opens at its top, header in view.

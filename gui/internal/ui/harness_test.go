@@ -576,8 +576,12 @@ func runChild(scenario, path string) int {
 							} else {
 								r.start()
 							}
-							if rep.Page = w.stack.VisibleChildName(); rep.Page != "run" {
-								fail("starting %s left the %q page up", action, rep.Page)
+							want := "run"
+							if action == actions.IDClearCaches {
+								want = "overview" // it waits for its queue (#207)
+							}
+							if rep.Page = w.stack.VisibleChildName(); rep.Page != want {
+								fail("starting %s left the %q page up, want %q", action, rep.Page, want)
 							}
 							rep.MenuSub = r.sub.Label()
 						} else {
