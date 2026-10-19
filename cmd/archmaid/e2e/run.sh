@@ -265,8 +265,8 @@ fi
 
 if want clearcaches-empty; then
 	run_tape clearcaches-empty SHIM_CACHE_EMPTY=1
-	need "$TXT" "Nothing to clear" "clearcaches-empty: the notice was not shown"
-	need "$STATE_DIR/dryrun/pkgcache.log" "CHECK: Nothing to clear" "clearcaches-empty: no discovery record"
+	need "$TXT" "No cache to clear" "clearcaches-empty: the notice was not shown"
+	need "$STATE_DIR/dryrun/pkgcache.log" "CHECK: No cache to clear" "clearcaches-empty: no discovery record"
 	refuse "$CLEANUP_LOG" "." "clearcaches-empty: a notice-only run wrote to the cleanup log"
 	echo "PASS: two empty caches are a notice, nothing asked, nothing run"
 fi

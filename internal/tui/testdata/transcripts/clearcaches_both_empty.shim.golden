@@ -1,5 +1,5 @@
 action "Clear caches"
 exec  paccache --nocolor -dk0
-log   pkgcache CHECK: Nothing to clear. ~/.cache: Empty: nothing to clear. Package cache: Empty: nothing to delete.
-note  "Nothing to clear. ~/.cache: Empty: nothing to clear. Package cache: Empty: nothing to delete."
+log   pkgcache CHECK: No cache to clear: ~/.cache and the package cache are both empty.
+note  "No cache to clear: ~/.cache and the package cache are both empty."
 end   outcome=notice errs=0 skipped=0

@@ -112,6 +112,15 @@ func measurePkgCache(ctx context.Context, env Env) cacheMeasure {
 	return cacheMeasure{bytes: b, files: n, log: cmd + "\n" + string(out)}
 }
 
+// The notice when both caches are empty (nothing failed): the TUI shows
+// NoCacheText as its notice screen, and the GUI answers with a popup headed
+// NoCacheHeading whose line is NoCacheReason.
+const (
+	NoCacheHeading = "No cache to clear"
+	NoCacheReason  = "~/.cache and the package cache are both empty."
+	NoCacheText    = NoCacheHeading + ": " + NoCacheReason
+)
+
 // discoverClearCaches measures both caches (side by side: the package
 // cache's dry run can take a while) and offers the pick.
 func discoverClearCaches(ctx context.Context, env Env) Discovery {
@@ -150,9 +159,9 @@ func discoverClearCaches(ctx context.Context, env Env) Discovery {
 		Log:     user.log + pkg.log,
 	}
 	if userRow.Disabled && pkgRow.Disabled {
-		n := Notice{Text: "Nothing to clear. ~/.cache: " + userRow.Note + ". Package cache: " + pkgRow.Note + ".",
-			Details: chk.Details, Log: chk.Log}
+		n := Notice{Text: NoCacheText, Details: chk.Details, Log: chk.Log}
 		if user.fail != "" || pkg.fail != "" {
+			n.Text = "No cache to clear. ~/.cache: " + userRow.Note + ". Package cache: " + pkgRow.Note + "."
 			n.Err = sanitize.OneLine("Couldn't measure the caches: " + userRow.Note + "; " + pkgRow.Note)
 		}
 		return n

@@ -193,7 +193,7 @@ func TestClearCachesNothingToClear(t *testing.T) {
 	homeWithCache(t, 0)
 	shimPaccache(t, "echo '==> no candidate packages found for pruning'\n")
 	n, ok := discoverCaches(t).(Notice)
-	if !ok || n.Err != "" || !strings.Contains(n.Text, "Nothing to clear") {
+	if !ok || n.Err != "" || n.Text != "No cache to clear: ~/.cache and the package cache are both empty." {
 		t.Fatalf("both empty: %#v", n)
 	}
 	shimPaccache(t, "echo boom >&2\nexit 1\n")

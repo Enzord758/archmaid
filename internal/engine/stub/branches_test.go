@@ -162,6 +162,7 @@ func TestCatalogEveryBranch(t *testing.T) {
 		actions.IDServices:    {{engine.OutcomeCompleted, 0}: true, {engine.OutcomeCancelled, 0}: true},
 		actions.IDAURAudit:    {{engine.OutcomeReport, 0}: true},
 		actions.IDRepair:      {{engine.OutcomeNotice, 0}: true},
+		IDClearCachesNone:     {{engine.OutcomeNotice, 0}: true},
 	}
 	for id := range cat {
 		if want[id] == nil {
@@ -176,7 +177,7 @@ func TestCatalogEveryBranch(t *testing.T) {
 			got := map[end]bool{}
 			for _, p := range walk(t, id, cat) {
 				f := p.finished()
-				if f.Action != strings.TrimSuffix(strings.TrimSuffix(id, "-uncached"), "-askpass") {
+				if f.Action != strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(id, "-uncached"), "-askpass"), "-none") {
 					t.Errorf("%s: Finished.Action = %q", p, f.Action)
 				}
 				e := end{f.Outcome, f.Skipped}

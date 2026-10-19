@@ -86,6 +86,11 @@ type Window struct {
 	scrollQueued bool
 
 	dialogs map[engine.PromptID]*amDialog
+	// pageBefore is the page Start left; nothingDialog is the open "No cache
+	// to clear" popup, nothingPending that its end is awaited (nothing.go).
+	pageBefore     string
+	nothingDialog  *amDialog
+	nothingPending bool
 	// quitDialog is the open "Stop the run and quit?" dialog, or nil.
 	quitDialog *amDialog
 	// The latest selection's check boxes and password entry, for the
@@ -270,6 +275,7 @@ func (w *Window) start(id string, dry bool) {
 	w.model.Notice = "" // the last action's; this one's comes with its end
 	w.updateRunHeader()
 	w.setBusy(true)
+	w.pageBefore, w.nothingPending = w.stack.VisibleChildName(), false
 	w.stack.SetVisibleChildName("run")
 	w.updateTitle()
 	w.updateOverview()
@@ -350,7 +356,7 @@ func (w *Window) apply(evs []engine.Event) {
 	if w.closed {
 		return
 	}
-	w.redraw(w.model.Apply(evs))
+	w.redraw(w.model.Apply(w.takeNothing(evs)))
 }
 
 // redraw redraws exactly what c says changed.
@@ -412,9 +418,13 @@ func (w *Window) redraw(c runview.Change) {
 		w.setBusy(false)
 		w.refreshLastRun()
 		w.invalidateUserCache()
-		if f != nil {
+		switch {
+		case w.nothingPending && f != nil && f.Outcome == engine.OutcomeNotice:
+			w.showNothing()
+		case f != nil:
 			w.toast(w.model.EndToast(*f))
 		}
+		w.nothingPending = false
 	}
 	if c.Reset || len(c.Rows) > 0 || c.Status || c.Finished {
 		w.updateRunHeader()

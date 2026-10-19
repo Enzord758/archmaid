@@ -29,6 +29,7 @@ func Catalog(start time.Time) map[string]Script {
 		actions.IDServices:    Services(start),
 		actions.IDAURAudit:    AURAudit(start),
 		actions.IDRepair:      RepairNone(start),
+		IDClearCachesNone:     ClearCachesNone(start),
 	}
 }
 
@@ -36,6 +37,8 @@ func Catalog(start time.Time) map[string]Script {
 const (
 	IDFullCleanupUncached = actions.IDFullCleanup + "-uncached"
 	IDFullCleanupAskpass  = actions.IDFullCleanup + "-askpass"
+	// IDClearCachesNone is Clear caches finding both caches empty.
+	IDClearCachesNone = actions.IDClearCaches + "-none"
 )
 
 // CatalogUncached is Catalog with Full Cleanup run without a cached sudo
@@ -165,5 +168,23 @@ func RepairNone(start time.Time) Script {
 	b.emit(engine.LogWritten{Category: logstore.Repair, Header: "CHECK: " + summary})
 	b.emit(engine.Notice{Text: summary})
 	b.finish(actions.IDRepair, engine.OutcomeNotice)
+	return b.script
+}
+
+// ClearCachesNone is "Clear caches" finding both caches empty (#207), shaped
+// like the real discovery's end: DiscoveryResult{Nothing}, the record's
+// LogWritten, the Notice (actions.NoCacheText) and Finished{OutcomeNotice}.
+// No pick and no queue.
+func ClearCachesNone(start time.Time) Script {
+	b := &builder{now: start, started: start, at: map[string]time.Time{}}
+	b.emit(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Measuring the caches…"})
+	b.wait(400 * time.Millisecond)
+	const summary = actions.NoCacheText
+	b.emit(engine.DiscoveryResult{Action: actions.IDClearCaches, Outcome: engine.DiscoveryNothing, Summary: summary,
+		Details:  []string{"~/.cache: empty", "package cache: empty"},
+		Category: logstore.PkgCache, Started: start, Elapsed: 400 * time.Millisecond})
+	b.emit(engine.LogWritten{Category: logstore.PkgCache, Header: "CHECK: " + summary})
+	b.emit(engine.Notice{Text: summary})
+	b.finish(actions.IDClearCaches, engine.OutcomeNotice)
 	return b.script
 }
