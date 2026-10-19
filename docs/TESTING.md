@@ -636,8 +636,14 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every push and pull request; a newer push to
-the same ref cancels the older run. Paths are in the workflow's `env:` block.
+**CI of record is the test VM** (task #209, owner decision 2026-10-19: GitHub
+Actions minutes are used up). After the local gate, the lead or the VM tester
+runs `~/archmaid-vmtest/run.sh ci <sha>`: core, e2e, gui and bench on a clean
+Arch install (harness README, "CI i VM'en"). `.github/workflows/ci.yml` and
+`ci-image.yml` are `workflow_dispatch` only: nothing runs on push, pull request
+or a schedule, and nothing bills unless the owner starts it by hand. The table
+below describes the jobs (the VM runs the same ones). Paths are in the
+workflow's `env:` block.
 
 | Job | Where | Runs |
 |---|---|---|

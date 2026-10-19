@@ -1,4 +1,4 @@
-# Entry points for the checks CI runs. Run `make all` before pushing.
+# Entry points for the checks CI runs (in the test VM; GitHub Actions is manual-only). Run `make all` before pushing.
 #
 # One Go module at the repo root; the TUI binary is cmd/archmaid (its code internal/tui), the root helper
 # cmd/archmaid-helper. The GUI is its own module in gui/ (gotk4 needs cgo and

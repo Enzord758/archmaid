@@ -1,8 +1,12 @@
+# MANUAL ONLY (task #209, owner decision 2026-10-19): GitHub Actions minutes are
+# used up, so nothing here runs on push, pull request or a schedule. CI of record
+# is the test VM: `~/archmaid-vmtest/run.sh ci <sha>` runs core, e2e, gui and
+# bench on a clean Arch install (harness README, "CI i VM'en"). Start this
+# workflow by hand (workflow_dispatch) only if the owner wants it.
 name: ci
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}

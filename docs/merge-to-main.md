@@ -26,6 +26,12 @@ git's record of `origin/main` shows (local push times):
 `v2.0.0` (`CHANGELOG.md`); the package version stays `rN.sha` from
 `pkgver()`.
 
+> **CI note (2026-10-19):** GitHub Actions is manual-only now (minutes used
+> up). "CI green" below, and for every later merge, means
+> `~/archmaid-vmtest/run.sh ci <sha>` passed in the test VM (harness README,
+> "CI i VM'en"), after the local gate. The ticks below record what was true at
+> the 2.0.0 merge.
+
 ## The checklist, as it was ticked
 
 **Before the merge**

@@ -1,16 +1,14 @@
+# MANUAL ONLY (task #209, owner decision 2026-10-19): GitHub Actions minutes are
+# used up, so nothing here runs on push, pull request or a schedule. CI of record
+# is the test VM: `~/archmaid-vmtest/run.sh ci <sha>` runs core, e2e, gui and
+# bench on a clean Arch install (harness README, "CI i VM'en"). Start this
+# workflow by hand (workflow_dispatch) only if the owner wants it.
 name: ci-image
 
 # Builds the CI base image on GitHub's own registry, so the core and gui jobs
 # don't depend on an anonymous pull from a rate-limited registry (see ci.yml).
 on:
-  schedule:
-    - cron: '17 3 * * 1'   # weekly, Monday 03:17 UTC
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - .github/ci-image/**
-      - .github/workflows/ci-image.yml
 
 concurrency:
   group: ci-image

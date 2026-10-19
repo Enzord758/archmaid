@@ -6,6 +6,10 @@ the commit that made the change; the range is `5585358..v2.0.0` (554 commits, ti
 
 ## [Unreleased]
 
+### Changed
+
+- **CI moves off GitHub (#209).** `ci.yml` and `ci-image.yml` keep only `workflow_dispatch` (no push, pull request or schedule), so nothing runs or bills unless started by hand. CI of record is the test VM, `~/archmaid-vmtest/run.sh ci <sha>` (core, e2e, gui, bench on a clean Arch install), run after the local gate; `docs/TESTING.md`, `docs/merge-to-main.md`, `docs/HANDOVER.md` and the README say so.
+
 ### Added
 
 - **`archmaid --version` and an About line in the GUI's Settings (#204).** `archmaid --version` prints `archmaid 2.0.0-3-g6ba8744` and exits 0 like `--help`: nothing is read from or written to the state folder, nothing is rotated (`TestStartupDeletesNothing` covers it). The GUI's Settings page ends with "About: archmaid <version>". The version comes from a new `internal/version` package: `Version`, set at link time (`-ldflags -X`) by the PKGBUILD and `install.sh` from `git describe --tags --dirty` (`rN.sha` when git has no tag), else the commit Go stamped into the binary (`vcs.revision`, `-dirty` if modified), else "unknown". `pkgver()` is unchanged. The gate's check that the packaging sets no link-time variable now allows exactly this one. `archmaid-helper` has no `--version`: its argv is a protocol the root helper parses, and it is left as it is.

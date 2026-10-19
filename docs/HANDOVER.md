@@ -72,7 +72,7 @@ charmbracelet, except `internal/tui`, and any that imports gotk4):
 ### `gui/` (its own Go module: the GTK4/libadwaita GUI, on the real Driver's polkit path; `--stub` for demos)
 
 `gui/go.mod` is `github.com/Enzord758/archmaid/gui`, with a `replace` onto the
-root module, so the root's `go test ./...`, `check.sh` and CI's `core` job
+root module, so the root's `go test ./...`, `check.sh` and the CI `core` job (run in the test VM: `~/archmaid-vmtest/run.sh ci <sha>`)
 never compile gotk4. gotk4 `v0.4.1` and gotk4-adwaita
 `v0.0.0-20260808200908-d4aecaa0ff32` are pinned exactly. No `go.work` is
 committed (`.gitignore`d): it would pin a toolchain line and fold the GUI's

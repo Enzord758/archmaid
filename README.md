@@ -170,3 +170,10 @@ that matters: what runs as root, what gets deleted, what ships.
 
 Read the code with the same skepticism you'd apply to any code, and run a
 dry run first to see exactly what it would do to your system.
+
+## CI
+
+GitHub Actions is manual-only (`workflow_dispatch`). CI runs in the test VM:
+`~/archmaid-vmtest/run.sh ci <sha>` (core, e2e, gui, bench on a clean Arch
+install), after the local gate (`./scripts/check.sh`, `make e2e`). See
+`docs/TESTING.md` -> CI.
