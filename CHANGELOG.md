@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Clear caches: the Overview cell's "Measuring the caches…" line goes away when the measuring ends** (#211): with the pick open it showed the cell's normal lines again (the status line already said "Waiting…"); it stayed until the pick was answered.
+
 ## [2.1.0] - 2026-10-22
 
 Everything here is merged into `main` (= `refactor/p0`, r647) and was tested by the owner; it passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

@@ -1603,8 +1603,8 @@ func TestGUIUserCacheSize(t *testing.T) {
 	if rep.CacheStart != "3.1M in ~/.cache" && rep.CacheStart != "3.0M in ~/.cache" {
 		t.Errorf("idle line %q, want the 3 MiB fixture", rep.CacheStart)
 	}
-	if rep.CacheRunning != "Measuring the caches…" {
-		t.Errorf("line while the pick is open %q", rep.CacheRunning)
+	if strings.Contains(rep.CacheRunning, "Measuring") {
+		t.Errorf("line while the pick is open %q, want no busy line", rep.CacheRunning)
 	}
 	if rep.CacheEnd != "~/.cache is empty" {
 		t.Errorf("line after the run %q, want ~/.cache is empty", rep.CacheEnd)

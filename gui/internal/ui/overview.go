@@ -547,14 +547,14 @@ func (w *Window) refreshLastRun() {
 type overviewState struct {
 	current, busyText string
 	cache             string
-	busy              bool
+	busy, prompt      bool
 	phase             engine.Phase
 }
 
 // updateOverview redraws the cells' running lines and sensitivity, when
 // what they show changed.
 func (w *Window) updateOverview() {
-	st := overviewState{w.current, w.model.Busy, w.cache.line, w.busy, w.model.Phase}
+	st := overviewState{w.current, w.model.Busy, w.cache.line, w.busy, w.model.Prompt != nil, w.model.Phase}
 	if w.shownOverview != nil && *w.shownOverview == st {
 		return
 	}
@@ -563,7 +563,14 @@ func (w *Window) updateOverview() {
 		running := w.busy && id == w.current
 		setShown(r.spin, running)
 		sub := ""
-		if running && w.model.Phase == engine.PhaseDiscovering {
+		if running && w.model.Phase == engine.PhaseDiscovering && w.model.Prompt != nil {
+			// The discovery is over, its pick (or gate) waits for the user:
+			// the cell is back to its idle lines, as the status line says
+			// "Waiting…". Busy stays set in the model until the next phase.
+			if id == actions.IDClearCaches {
+				sub = w.cache.line
+			}
+		} else if running && w.model.Phase == engine.PhaseDiscovering {
 			sub = w.model.Busy
 			if sub == "" {
 				sub = r.entry.Busy

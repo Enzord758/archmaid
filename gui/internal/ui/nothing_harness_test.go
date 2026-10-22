@@ -35,6 +35,7 @@ func covNoCache(c *covEnv) {
 		},
 		func() {
 			c.ok(w.stack.VisibleChildName() == "overview" && len(seen) == 0, "page %q after Clear caches found nothing, want overview, never another; visited %v", w.stack.VisibleChildName(), seen)
+			c.ok(!strings.Contains(cacheCell(w), "Measuring"), "cell with the nothing dialog open %q", cacheCell(w))
 			d := w.nothingDialog
 			c.ok(d != nil, "no \"No cache to clear\" dialog")
 			if d != nil {
@@ -52,6 +53,7 @@ func covNoCache(c *covEnv) {
 		},
 		func() {
 			c.ok(w.nothingDialog == nil, "the dialog stayed after OK")
+			c.ok(!strings.Contains(cacheCell(w), "Measuring"), "cell after OK %q", cacheCell(w))
 			c.ok(w.stack.VisibleChildName() == "overview", "page %q after OK", w.stack.VisibleChildName())
 		},
 	)
@@ -88,6 +90,7 @@ func covCachesStay(c *covEnv) {
 		func() {
 			c.ok(w.dialogs[1] != nil, "no pick dialog")
 			c.ok(w.stack.VisibleChildName() == "overview" && !ranPage(), "pick: page %q, visited %v", w.stack.VisibleChildName(), seen)
+			c.ok(!strings.Contains(cacheCell(w), "Measuring"), "cell while the pick is open %q", cacheCell(w))
 			shoot(w, "cov-cachesstay", "pick")
 			if d := w.dialogs[1]; d != nil {
 				c.press(d, "cancel")
@@ -95,6 +98,7 @@ func covCachesStay(c *covEnv) {
 		},
 		func() {
 			c.ok(!w.busy && w.stack.VisibleChildName() == "overview" && !ranPage(), "after Cancel: busy %v page %q, visited %v", w.busy, w.stack.VisibleChildName(), seen)
+			c.ok(!strings.Contains(cacheCell(w), "Measuring"), "cell after Cancel %q", cacheCell(w))
 			w.startAction(actions.IDClearCaches)
 		},
 		func() {
