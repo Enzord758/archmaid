@@ -60,6 +60,8 @@ PluginComponent {
             return light ? "#4e7d1a" : "#9ece6a";
         case "warn":
             return light ? "#9a6a10" : "#e0af68";
+        case "neutral":
+            return Theme.surfaceText;
         case "danger":
             return light ? "#c4223f" : "#f7768e";
         default:
@@ -72,6 +74,7 @@ PluginComponent {
     // A section's small uppercase heading, as the GUI's kickers.
     component Kicker: StyledText {
         textFormat: Text.PlainText // fixed strings, plain like every text here
+        wrapMode: Text.NoWrap
         font.pixelSize: Theme.fontSizeSmall
         font.capitalization: Font.AllUppercase
         font.letterSpacing: 1.2
@@ -91,6 +94,7 @@ PluginComponent {
 
         StyledText {
             textFormat: Text.PlainText // state-file strings are data, never markup
+            wrapMode: Text.NoWrap
             id: tagLabel
             anchors.centerIn: parent
             text: tg.text
@@ -112,7 +116,7 @@ PluginComponent {
         signal toggled
 
         width: parent.width
-        height: 36
+        height: 38
         activeFocusOnTab: expandable
         Keys.onPressed: event => {
             if (sr.expandable && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
@@ -139,11 +143,12 @@ PluginComponent {
             anchors.fill: parent
             anchors.leftMargin: 2
             anchors.rightMargin: 2
-            spacing: Theme.spacingS
+            spacing: Theme.spacingXS + 2
 
             StyledText {
                 textFormat: Text.PlainText // fixed strings, plain like every text here
-                width: 62
+                wrapMode: Text.NoWrap
+                width: 54
                 elide: Text.ElideRight
                 text: sr.row.label
                 font.pixelSize: Theme.fontSizeMedium
@@ -152,7 +157,8 @@ PluginComponent {
             }
             StyledText {
                 textFormat: Text.PlainText // state-file strings are data, never markup
-                width: Math.max(0, line.width - 62 - (chev.visible ? chev.width + line.spacing : 0) - (rowTag.visible ? rowTag.width + line.spacing : 0) - line.spacing)
+                wrapMode: Text.NoWrap
+                width: Math.max(0, line.width - 54 - (chev.visible ? chev.width + line.spacing : 0) - (rowTag.visible ? rowTag.width + line.spacing : 0) - line.spacing)
                 elide: Text.ElideRight
                 text: sr.row.value
                 font.pixelSize: Theme.fontSizeMedium
@@ -324,6 +330,7 @@ PluginComponent {
             }
             StyledText {
                 textFormat: Text.PlainText // state-file strings are data, never markup
+                wrapMode: Text.NoWrap
                 visible: root.pillText !== ""
                 text: root.pillText
                 font.pixelSize: Theme.fontSizeSmall
@@ -344,6 +351,7 @@ PluginComponent {
             }
             StyledText {
                 textFormat: Text.PlainText // state-file strings are data, never markup
+                wrapMode: Text.NoWrap
                 visible: root.pillText !== ""
                 text: root.pillText
                 font.pixelSize: Theme.fontSizeSmall
@@ -366,6 +374,13 @@ PluginComponent {
             property bool updatesOpen: false
             readonly property var upList: root.view.updateList
             readonly property bool listOpen: updatesOpen && upList !== null
+            // A folded list (or a closed popout) starts at the top next time.
+            onListOpenChanged: {
+                if (!listOpen) {
+                    pkgView.positionViewAtBeginning();
+                    pkgView.contentY = pkgView.originY;
+                }
+            }
             // The list's model is filled only when its content changed, so the
             // 60 s refresh does not throw the scroll position away.
             property string listSig: ""
@@ -474,6 +489,7 @@ PluginComponent {
                         }
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            wrapMode: Text.NoWrap
                             width: parent.width
                             elide: Text.ElideRight
                             text: root.view.hero.headline
@@ -483,6 +499,7 @@ PluginComponent {
                         }
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            wrapMode: Text.NoWrap
                             visible: root.view.hero.sub !== ""
                             width: parent.width
                             elide: Text.ElideRight
@@ -506,6 +523,7 @@ PluginComponent {
                                 }
                                 StyledText {
                                     textFormat: Text.PlainText // state-file strings are data, never markup
+                                    wrapMode: Text.NoWrap
                                     width: attRow.width - attIcon.width - attRow.spacing
                                     elide: Text.ElideRight
                                     text: attRow.modelData
@@ -521,6 +539,7 @@ PluginComponent {
                 // The run's numbers: "47 upgraded · 3.1 GiB freed".
                 StyledText {
                     textFormat: Text.PlainText // state-file strings are data, never markup
+                    wrapMode: Text.NoWrap
                     visible: root.view.lastRun !== null && root.view.lastRun.summaryLine !== ""
                     width: parent.width
                     elide: Text.ElideRight
@@ -557,11 +576,13 @@ PluginComponent {
                     Column {
                         visible: pop.listOpen
                         width: parent.width
-                        spacing: Theme.spacingXS
+                        spacing: Theme.spacingS
+                        topPadding: Theme.spacingS
                         bottomPadding: Theme.spacingS
 
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            wrapMode: Text.NoWrap
                             width: parent.width
                             elide: Text.ElideRight
                             text: pop.upList ? pop.upList.checked : ""
@@ -611,6 +632,7 @@ PluginComponent {
 
                                     StyledText {
                                         textFormat: Text.PlainText // state-file strings are data, never markup
+                                        wrapMode: Text.NoWrap
                                         width: Math.max(0, parent.width - verText.width - tagBox.width - 2 * parent.spacing)
                                         elide: Text.ElideRight
                                         text: pkgRow.name
@@ -623,6 +645,7 @@ PluginComponent {
                                         width: Math.min(implicitWidth, 150)
                                         elide: Text.ElideRight
                                         textFormat: Text.PlainText // state-file strings are data, never markup
+                                        wrapMode: Text.NoWrap
                                         text: pkgRow.from + " → " + pkgRow.to
                                         font.family: Theme.monoFontFamily
                                         font.pixelSize: Theme.fontSizeSmall
@@ -646,6 +669,7 @@ PluginComponent {
                         }
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
+                            wrapMode: Text.NoWrap
                             visible: pop.upList !== null && pop.upList.more > 0
                             width: parent.width
                             elide: Text.ElideRight

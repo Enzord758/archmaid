@@ -487,7 +487,7 @@ function _tone(role) {
     return { primary: "ok", error: "danger", warning: "warn" }[role] || "muted";
 }
 
-// hero(s, now): {tone ("ok" "warn" "danger" "muted"), kicker, headline, sub,
+// hero(s, now): {tone ("ok" "warn" "danger" "neutral" "muted"), kicker, headline, sub,
 // attention:[string]}. The headline says the state in words: the worst issue
 // (a failed run before AUR warnings), else the run's first attention item
 // ("Restart recommended"), else "N updates waiting", else "Everything is up
@@ -524,15 +524,15 @@ function hero(s, now) {
             subs.push(plural(r.stepsRefused, "step", "steps") + " not authorised");
         if (a && a.highCount > 0 && main.kind !== "aur")
             subs.push(plural(a.highCount, "AUR warning", "AUR warnings"));
+        // The AUR finding itself is the AUR row's; the sub line counts them.
         lines = att.slice();
-        if (a && a.high.length > 0)
-            lines.push(a.high[0].pkg + (a.high[0].reason ? ": " + a.high[0].reason : ""));
     } else if (att.length > 0) {
         h.tone = "warn";
         h.headline = att[0];
         lines = att.slice(1);
     } else if (waiting) {
         h.headline = plural(s.updates, "update", "updates") + " waiting";
+        h.tone = "neutral"; // pending is not "up to date" (green), nor a problem
         waitingHead = true;
     } else {
         h.headline = "Everything is up to date";
@@ -545,6 +545,9 @@ function hero(s, now) {
     var upd = waiting && !waitingHead ? plural(s.updates, "update", "updates") + " waiting" : "";
     if (held > 0)
         upd = upd ? upd + " · " + held + " held" : held + " held";
+    // With an issue as the headline the Updates row says all this: no updates part.
+    if (s.issues.length > 0)
+        upd = "";
     if (upd !== "")
         subs.push(upd);
     else if (s.updates === null && s.updatesChecked !== null && s.updatesChecked !== undefined)
@@ -691,10 +694,10 @@ function ago(then, now) {
     var s = Math.max(0, now - then) / 1000;
     if (s < 90)
         return "just now";
-    if (s < 5400)
-        return Math.round(s / 60) + " min ago";
+    if (s < 3600)
+        return Math.min(59, Math.round(s / 60)) + " min ago";
     if (s < 129600)
-        return Math.round(s / 3600) + " h ago";
+        return Math.floor(s / 3600) + " h ago";
     return plural(Math.floor(s / 86400), "day", "days") + " ago";
 }
 

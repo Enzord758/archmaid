@@ -168,6 +168,76 @@ TestCase {
         verify(!find(o.pop, "updatesRow").expandable);
     }
 
+    // Every Text under item whose text is str (visible only).
+    function textOf(item, str) {
+        const all = [];
+        collect(item, all);
+        for (let i = 0; i < all.length; i++)
+            if (all[i].text === str)
+                return all[i];
+        return null;
+    }
+    function collect(item, out) {
+        if (item.text !== undefined && item.lineCount !== undefined && item.visible)
+            out.push(item);
+        for (let i = 0; i < item.children.length; i++)
+            collect(item.children[i], out);
+        if (item.contentItem)
+            for (let j = 0; j < item.contentItem.children.length; j++)
+                collect(item.contentItem.children[j], out);
+    }
+
+    // DMS's real StyledText wraps by default, and WordWrap beats elide: every
+    // single-line text must say NoWrap, or a long value runs onto a second line
+    // (the VM check, #223). The stub has the real defaults.
+    function test_singleLineTextsNeverWrap() {
+        const now = Date.now();
+        const o = popout(3, 0);
+        const chk = new Date(now - 17 * 60000).toISOString();
+        const long = [{name: "gtk4-with-a-rather-long-package-name-in-it-x", from: "2:1.26.1-1", to: "2:1.26.2-1", src: "repo"},
+                      {name: "systemd", from: "2:1.26.1-1", to: "2:1.26.2-1", src: "repo"}];
+        o.w.audit = {checked: now - 3600000, packages: 29, highCount: 1, snapshotPresent: true, snapshotReadable: true,
+                     high: [{pkg: "foo-bin", reason: "maintainer alice → mallory, adopted two days ago"}]};
+        o.w.updates = State.parseUpdates(JSON.stringify({v: 3, count: 10, repo: 9, aur: 1, aur_held: 2, checked: chk, packages: long}));
+        mouseClick(find(o.pop, "updatesRow"));
+        const cases = ["9 repo · 1 AUR · 2 held", "foo-bin · maintainer alice → mallory, adopted two days ago",
+                       "2:1.26.1-1 → 2:1.26.2-1", "checked 17 min ago", "gtk4-with-a-rather-long-package-name-in-it-x"];
+        for (let i = 0; i < cases.length; i++) {
+            tryVerify(() => textOf(o.pop, cases[i]) !== null, 2000, "no text " + cases[i]);
+            const t = textOf(o.pop, cases[i]);
+            compare(t.lineCount, 1, cases[i]);
+        }
+        verify(textOf(o.pop, cases[1]).truncated, "a long finding is elided");
+        verify(textOf(o.pop, cases[4]).truncated, "a long name is elided");
+        // the bigger counts
+        o.w.updates = State.parseUpdates(JSON.stringify({v: 3, count: 56, repo: 52, aur: 4, aur_held: 2, checked: chk, packages: long}));
+        const t2 = textOf(o.pop, "52 repo · 4 AUR · 2 held");
+        verify(t2 !== null);
+        compare(t2.lineCount, 1);
+        // every visible Text of the popout except none is on a second line
+        const all = [];
+        collect(o.pop, all);
+        for (let k = 0; k < all.length; k++)
+            compare(all[k].lineCount, 1, all[k].text);
+    }
+
+    // A list folded again, or a popout closed, starts at the top next time.
+    function test_scrollResetsOnFold() {
+        const o = popout(3, 40);
+        const row = find(o.pop, "updatesRow");
+        mouseClick(row);
+        const list = find(o.pop, "pkgList");
+        list.contentY = 200;
+        verify(list.contentY > 100);
+        mouseClick(row);
+        compare(list.contentY, list.originY);
+        mouseClick(row);
+        list.contentY = 200;
+        o.pop.parentPopout = createTemporaryObject(popC, tc);
+        o.pop.parentPopout.shouldBeVisible = false;
+        compare(list.contentY, list.originY);
+    }
+
     function test_lightThemeColours() {
         const o = popout(3, 2);
         compare(o.w.stateColor("ok").toString(), "#9ece6a");

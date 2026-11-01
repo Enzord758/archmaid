@@ -169,6 +169,13 @@ TestCase {
         compare(State.ago(t0, t0 + 5000), "just now");
         compare(State.ago(t0, t0 + 10 * 60000), "10 min ago");
         compare(State.ago(t0, t0 + 3 * 3600000), "3 h ago");
+        // the hour starts at 60 min, as people read it ("60 MIN AGO" read oddly)
+        compare(State.ago(t0, t0 + 59 * 60000), "59 min ago");
+        compare(State.ago(t0, t0 + 3599000), "59 min ago");
+        compare(State.ago(t0, t0 + 60 * 60000), "1 h ago");
+        compare(State.ago(t0, t0 + 63 * 60000), "1 h ago");
+        compare(State.ago(t0, t0 + 119 * 60000), "1 h ago");
+        compare(State.ago(t0, t0 + 120 * 60000), "2 h ago");
         compare(State.ago(t0, t0 + 12 * day), "12 days ago");
         compare(State.ago(t0, t0 + 36 * 3600000), "1 day ago");
         compare(State.ago(t0, t0 - 1000), "just now");
@@ -591,7 +598,9 @@ TestCase {
         verify(p.updateList !== null);
         const w = sum(F.fx.lastOK, F.fx.auditClean, upd3({}, now - 60000), now);
         const h = State.popout(w, now).hero;
-        compare(h.tone, "ok");
+        compare(h.tone, "neutral");
+        const q = sum(F.fx.lastOK, F.fx.auditClean, upd3({count: 0, repo: 0, aur: 0, aur_held: 0, packages: []}, now - 60000), now);
+        compare(State.popout(q, now).hero.tone, "ok", "green is for up to date only");
         compare(h.headline, "10 updates waiting");
         compare(h.sub, "Cleaned 17 h ago · 2 held");
     }
@@ -602,8 +611,8 @@ TestCase {
         const p = State.popout(s, now);
         compare(p.hero.tone, "danger");
         compare(p.hero.headline, "Last run failed", "a failed run outranks AUR warnings");
-        compare(p.hero.sub, "1 step failed · 2 AUR warnings · 5 updates waiting");
-        compare(p.hero.attention, ["foo: maintainer alice → mallory"]);
+        compare(p.hero.sub, "1 step failed · 2 AUR warnings", "the Updates row says the rest");
+        compare(p.hero.attention, [], "the AUR finding is the AUR row's, not repeated in the hero");
         compare(p.rows.aur.tag, "2 HIGH");
         compare(p.rows.aur.tone, "danger");
         compare(p.rows.aur.value, "foo · maintainer alice → mallory");
