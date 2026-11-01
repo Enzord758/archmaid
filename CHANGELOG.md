@@ -6,14 +6,16 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-01
+
 ### Changed
 
-- archmaid is now licensed under GPL-3.0-or-later (`LICENSE`).
-
-## [2.1.1] - 2026-11-01
+- **archmaid is now licensed under GPL-3.0-or-later** (`LICENSE`; the PKGBUILD's `license` and the metainfo's `project_license` say so too).
+- The docs are brought in line with the public repo and the new wiki (https://github.com/Enzord758/archmaid/wiki): the merge-time security review is marked as history (the wiki's Security-Model page is current), the 72 h wording says archmaid holds nothing back, HANDOVER names the updates-check timer's network use, INSTALL and the packaging README are corrected, and the original widget design in `docs/dms-widget.md` is marked superseded (#216).
 
 ### Fixed
 
+- **The updates check and the DMS widget use the same state folder as the app** (#216): `archmaid-updates-check` wrote `updates-cache.json` under `$XDG_STATE_HOME/archmaid` and the widget read from there, while archmaid itself always uses `~/.local/state/archmaid`. With `XDG_STATE_HOME` set elsewhere the widget missed the last run. All three now use `~/.local/state/archmaid`; a test runs the script with a different `XDG_STATE_HOME` and fails if it is written to.
 - **Clear caches: the Overview cell's "Measuring the caches…" line goes away when the measuring ends** (#211): with the pick open it showed the cell's normal lines again (the status line already said "Waiting…"); it stayed until the pick was answered.
 
 ## [2.1.0] - 2026-10-22
