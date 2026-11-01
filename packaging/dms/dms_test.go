@@ -171,8 +171,18 @@ const yayListing = "bonsai 2.1.1-10 -> 2.2.1-1 [1d9h]\n" +
 // none) and the script's error.
 func updatesRun(t *testing.T, out string, rc int, yay *yayShim, old string) (string, error) {
 	t.Helper()
+	return updatesRunTools(t, out, rc, yay, old, "")
+}
+
+// updatesRunTools is updatesRun with a PATH that lacks the tool named skip
+// (to make a step of the script fail).
+func updatesRunTools(t *testing.T, out string, rc int, yay *yayShim, old, skip string) (string, error) {
+	t.Helper()
 	bin := t.TempDir()
 	for _, tool := range []string{"sh", "mktemp", "date", "grep", "chmod", "mkdir", "rm", "mv", "cat", "timeout", "sed", "awk"} {
+		if tool == skip {
+			continue
+		}
 		src, err := exec.LookPath(tool)
 		if err != nil {
 			t.Fatalf("tool %s: %v", tool, err)
@@ -186,11 +196,19 @@ func updatesRun(t *testing.T, out string, rc int, yay *yayShim, old string) (str
 			t.Fatal(err)
 		}
 	}
-	shim("checkupdates", "printf '%s' '"+out+"'\nexit "+strconv.Itoa(rc)+"\n")
+	data := t.TempDir()
+	put := func(name, body string) string {
+		f := filepath.Join(data, name)
+		if err := os.WriteFile(f, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	shim("checkupdates", "cat "+put("cu.out", out)+"\nexit "+strconv.Itoa(rc)+"\n")
 	if yay != nil {
 		// The script must ask for exactly -Qua and give yay no stdin.
 		shim("yay", "[ \"$*\" = -Qua ] || exit 64\nif read -r _; then exit 65; fi\n"+
-			"printf '%s' '"+yay.out+"'\nprintf '%s' '"+yay.err+"' >&2\nexit "+strconv.Itoa(yay.rc)+"\n")
+			"cat "+put("yay.out", yay.out)+"\ncat "+put("yay.err", yay.err)+" >&2\nexit "+strconv.Itoa(yay.rc)+"\n")
 	}
 	// The script writes under $HOME/.local/state/archmaid, the folder
 	// logstore and the widget use, whatever XDG_STATE_HOME says: that
@@ -286,7 +304,7 @@ func TestUpdatesScript(t *testing.T) {
 				t.Fatalf("%s: script failed: %v", c.name, err)
 			}
 			var u upd
-			if jerr := json.Unmarshal([]byte(raw), &u); jerr != nil || u.V != 2 || u.Count != c.wantCount || u.Repo != c.repo ||
+			if jerr := json.Unmarshal([]byte(raw), &u); jerr != nil || u.V != 3 || u.Count != c.wantCount || u.Repo != c.repo ||
 				(c.aur < 0) != (u.Aur == nil) || (c.aur < 0) != (u.AurHeld == nil) ||
 				(u.Aur != nil && (*u.Aur != c.aur || *u.AurHeld != c.held)) || time.Since(u.Checked) > time.Minute {
 				t.Fatalf("%s: %q -> %+v (%v)", c.name, raw, u, jerr)

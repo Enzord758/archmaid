@@ -14,7 +14,7 @@ subcommand (sections 2 and 3 describe that older design). It reads, never writes
 |---|---|---|
 | `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run`, and, when the run had something to report (added within v1, absent in older files), `summary{upgraded, aur, freed_bytes, attention[]}` (read by `state.js` as `summary`, null when absent; the popout shows it under LAST RUN, see below) |
 | `audit-state.json` | `internal/audit` | `v`, `checked`, `packages`, `high[{pkg,reason}]` |
-| `updates-cache.json` | `archmaid-updates-check` | `v` (1 or 2), `count` (repo + AUR past the cooldown), `repo`, `aur` (null = unknown), `aur_held` (AUR updates younger than 72 h), `checked` |
+| `updates-cache.json` | `archmaid-updates-check` | `v` (1, 2 or 3), `count` (repo + AUR past the cooldown), `repo`, `aur` (null = unknown), `aur_held` (AUR updates younger than 72 h), `checked`, and from v3 `packages` (the pending updates, at most 200: `name`, `from`, `to`, `src` repo or aur, AUR also `held` and, when readable, `age`; absent = no list) |
 
 Files: `packaging/dms/archmaid/` (`plugin.json`, `ArchmaidWidget.qml`,
 `state.js` = all parsing and decisions, no I/O), `packaging/systemd/archmaid-updates-check`
@@ -69,8 +69,22 @@ yay is installed, `yay -Qua </dev/null` (a query as the user, no sudo, 120 s tim
 the AUR, and writes `updates-cache.json` (0600, atomic) **in the archmaid state dir**:
 
 ```json
-{"v":2,"count":12,"repo":9,"aur":3,"aur_held":2,"checked":"2026-10-11T17:55:00+02:00"}
+{"v":3,"count":10,"repo":9,"aur":1,"aur_held":2,"checked":"2026-10-11T17:55:00+02:00",
+ "packages":[{"name":"linux","from":"7.3.1-1","to":"7.3.2-1","src":"repo"},
+             {"name":"zen-browser-bin","from":"1.17.2-1","to":"1.17.3-1","src":"aur","held":false,"age":"3d4h"},
+             {"name":"spotify","from":"1.2.74-1","to":"1.2.76-1","src":"aur","held":true,"age":"2d4h"}]}
 ```
+
+`packages` (schema v3) lists the repo lines first (checkupdates order), then the AUR
+lines (yay order), at most 200 in all, cut from the end; there is no `truncated` field,
+the widget works "N more not shown" out from the counts. AUR entries always have `held`
+(the same test as the counts: no readable age tag = held); `age` is there only when the
+tag is readable. Only allow-listed text is ever printed: `name` `^[A-Za-z0-9@._+-]{1,64}$`,
+`from`/`to` `^[A-Za-z0-9._+:~-]{1,48}$`, `age` `^[0-9]+[dhms]([0-9]+[dhms])*$`. A line
+that fails that, or is not exactly `name old -> new`, is left out of `packages` but still
+counted, so a hostile package name can neither break the JSON nor reach the widget. If
+the list cannot be built the counts are written without `packages`: the widget shows no
+list. The file is far below 1 MiB.
 
 `count` (and the bar pill) = `repo` + `aur`. yay's cooldown hook holds back AUR
 upgrades pushed less than 72 h ago during `yay -Syu`, but `yay -Qua` does not apply it,

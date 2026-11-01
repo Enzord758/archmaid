@@ -6,7 +6,24 @@
 # `yay -Qua` only queries, so the system's pacman db is not touched.
 #
 # Output: ~/.local/state/archmaid/updates-cache.json, 0600, replaced atomically:
-#   {"v":2,"count":12,"repo":9,"aur":3,"aur_held":2,"checked":"2026-10-04T17:55:00+02:00"}
+#   {"v":3,"count":10,"repo":9,"aur":1,"aur_held":2,"checked":"2026-10-04T17:55:00+02:00",
+#    "packages":[{"name":"linux","from":"7.3.1-1","to":"7.3.2-1","src":"repo"},
+#                {"name":"zen-browser-bin","from":"1.17.2-1","to":"1.17.3-1","src":"aur","held":false,"age":"3d4h"},
+#                {"name":"spotify","from":"1.2.74-1","to":"1.2.76-1","src":"aur","held":true,"age":"2d4h"}]}
+# packages  the pending updates themselves (schema v3), for the widget's list:
+#   the repo lines first (checkupdates order), then the AUR lines (yay order),
+#   at most 200 in all, cut from the end (no truncated field: the widget works
+#   "N more not shown" out from the counts). Per entry: name, from, to, src
+#   ("repo" or "aur"); AUR entries also have held (bool, the same test as
+#   split_aur: no readable age tag = held) and age (only when the tag is
+#   readable). Allow-list: name ^[A-Za-z0-9@._+-]{1,64}$ (64 = audit.FieldMax),
+#   from and to ^[A-Za-z0-9._+:~-]{1,48}$, age ^[0-9]+[dhms]([0-9]+[dhms])*$.
+#   A line that fails it, or is not exactly "name old -> new" (plus " [age]"
+#   for yay), is dropped from packages but still counted. Nothing is escaped:
+#   only allow-listed text is ever printed inside quotes, so the JSON cannot
+#   break whatever a package or an AUR maintainer calls things. If building the
+#   list fails, the counts are still written, as v3 without packages (= no
+#   list). Size: at most 200 entries of < 250 bytes, far below 1 MiB.
 # repo      pending repo updates (checkupdates)
 # aur       pending AUR updates yay's cooldown would let through
 # aur_held  pending AUR updates younger than the cooldown (yay would hold them back)
@@ -80,8 +97,48 @@ split_aur() {
 	END { printf "%d %d\n", eligible, held }'
 }
 
+# list_json reads a listing and prints its allow-listed entries as JSON objects
+# joined by commas, no trailing newline: $1 = repo|aur, $2 = most entries.
+list_json() {
+	esc="$(printf '\033')"
+	sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | LC_ALL=C awk -v src="$1" -v max="$2" -v hours="$COOLDOWN_HOURS" '
+	n >= max || index($0, "\t") { next }
+	{
+		line = $0
+		tag = ""
+		if (src == "aur" && match(line, / \[[0-9]+[dhms]([0-9]+[dhms])*\]$/)) {
+			tag = substr(line, RSTART + 2, RLENGTH - 3)
+			line = substr(line, 1, RSTART - 1)
+		}
+		if (line !~ /^[^ ]+ [^ ]+ -> [^ ]+$/) next
+		split(line, f, " ")
+		if (length(f[1]) > 64 || length(f[2]) > 48 || length(f[4]) > 48) next
+		if (f[1] !~ /^[A-Za-z0-9@._+-]+$/ || f[2] !~ /^[A-Za-z0-9._+:~-]+$/ || f[4] !~ /^[A-Za-z0-9._+:~-]+$/) next
+		e = sprintf("{\"name\":\"%s\",\"from\":\"%s\",\"to\":\"%s\",\"src\":\"%s\"", f[1], f[2], f[4], src)
+		if (src == "aur") {
+			isheld = 1
+			if (tag != "") {
+				t = tag
+				secs = 0
+				while (match(t, /^[0-9]+[dhms]/)) {
+					v = substr(t, 1, RLENGTH - 1) + 0
+					u = substr(t, RLENGTH, 1)
+					secs += v * (u == "d" ? 86400 : u == "h" ? 3600 : u == "m" ? 60 : 1)
+					t = substr(t, RLENGTH + 1)
+				}
+				isheld = !(secs >= hours * 3600)
+			}
+			e = e sprintf(",\"held\":%s", isheld ? "true" : "false")
+			if (tag != "") e = e sprintf(",\"age\":\"%s\"", tag)
+		}
+		printf "%s%s}", (n++ ? "," : ""), e
+	}'
+}
+
 aur=null
 held=null
+ylist=""
+yok=""
 if command -v yay >/dev/null 2>&1; then
 	errf="$(mktemp "$state/updates-yay.err.XXXXXX")"
 	# No TTY under systemd: stdin from /dev/null so nothing can prompt, and a
@@ -93,11 +150,12 @@ if command -v yay >/dev/null 2>&1; then
 		ylist="$(yay -Qua </dev/null 2>"$errf")" || yrc=$?
 	fi
 	case "$yrc" in
-	0) set -- $(printf '%s\n' "$ylist" | split_aur) && aur=$1 && held=$2 ;;
+	0) set -- $(printf '%s\n' "$ylist" | split_aur) && aur=$1 && held=$2 && yok=1 ;;
 	1)
 		if [ ! -s "$errf" ] && [ -z "$ylist" ]; then
 			aur=0
 			held=0
+			yok=1
 		else
 			echo "archmaid-updates-check: yay -Qua failed (exit 1), AUR count unknown" >&2
 		fi
@@ -112,6 +170,21 @@ else
 	count=$((repo + aur))
 fi
 
+# The package list. Any failure here costs only the list, never the counts.
+packages=""
+build_packages() {
+	rl="$(printf '%s\n' "$list" | list_json repo 200)" || return 1
+	pj="$rl"
+	if [ -n "$yok" ]; then
+		rn=0
+		[ -z "$rl" ] || rn="$(printf '%s' "$rl" | grep -o '"src":"repo"' | grep -c .)" || return 1
+		al="$(printf '%s\n' "$ylist" | list_json aur $((200 - rn)))" || return 1
+		if [ -n "$pj" ] && [ -n "$al" ]; then pj="$pj,$al"; else pj="$pj$al"; fi
+	fi
+	packages=",\"packages\":[$pj]"
+}
+build_packages || packages=""
+
 tmp="$(mktemp "$state/updates-cache.json.tmp.XXXXXX")"
-printf '{"v":2,"count":%s,"repo":%s,"aur":%s,"aur_held":%s,"checked":"%s"}\n' "$count" "$repo" "$aur" "$held" "$(date -Iseconds)" >"$tmp"
+printf '{"v":3,"count":%s,"repo":%s,"aur":%s,"aur_held":%s,"checked":"%s"%s}\n' "$count" "$repo" "$aur" "$held" "$(date -Iseconds)" "$packages" >"$tmp"
 mv -f "$tmp" "$state/updates-cache.json"
