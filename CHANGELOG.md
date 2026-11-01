@@ -6,6 +6,35 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Read this first
+
+- **Update the package and reload the widget together.** The updates check now writes `updates-cache.json` schema `v:3`. An older widget can't read it and shows no updates until DMS reloads the plugin: `dms ipc call plugins reload archmaid`, or restart DMS. The new widget still reads `v:1` and `v:2` files.
+
+### Changed
+
+- **The DMS widget's popout is redesigned** (#221, the owner's pick of six drafts):
+  - A hero box with corner marks says the state in words, in a state colour: "Everything is up to date", "Restart recommended", "Last run failed", "No cleanup for 16 days". Under it are the run's other attention items (a headline is never repeated as a line), then the run's numbers ("47 upgraded · 3.1 GiB freed").
+  - Three compact rows follow, Last run, Updates and AUR, each ending in an outlined tag (`OK`, `FAILED`, `10 NEW`, `UP TO DATE`, `STALE`, `NO HIGH`, `1 HIGH`). Text is cut short with "…" instead of wrapping.
+  - The state colours are fixed Tokyo Night colours, with a darker set on a light DMS theme. Everything else uses the DMS palette.
+  - The update count excludes AUR updates held by the 72 h cooldown, which are shown apart: "9 repo · 1 AUR · 2 held", `10 NEW`.
+  - The pill and the two buttons are unchanged.
+
+### Added
+
+- **The list of pending updates in the widget** (#220, #221):
+  - Click the Updates row (or press Enter or Space when it has focus) to unfold the list under it.
+  - The list groups Repo, AUR and "Held · cooldown 72 h", shows "old → new" per package, and tags `restart` (the kernel, systemd, mesa, nvidia) and `held 1d9h`.
+  - It is at most 8 rows high and scrolls beyond that. It says when it was checked and how many were not listed, and folds again when the popout closes.
+  - It is read-only: nothing in it opens or runs anything. It shows only while the count is fresh (3 days).
+- **`archmaid-updates-check` writes the packages it found** into `updates-cache.json` (`v:3`, `packages`, at most 200), next to the unchanged counts (#220).
+  - Only names and versions that pass a strict character allow-list and length cap are listed. Anything else (odd AUR text, colour codes, quotes) is left out of the list but still counted, so the JSON can't break.
+  - The widget checks every entry again before showing it.
+  - If the list can't be built, the counts are still written.
+
+### Fixed
+
+- GitHub CodeQL can now parse the widget's `state.js`: its QML-only first line `.pragma library` is gone. The file is plain JavaScript, and a test keeps it that way (#221).
+
 ## [2.1.1] - 2026-11-01
 
 ### Changed
