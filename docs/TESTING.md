@@ -1123,7 +1123,18 @@ answers...)`. Run with `-update-transcripts` and read the new golden line by lin
   LAST RUN lines from the summary (`summaryLine` "47 upgraded · 3.1 GiB freed",
   `warnLine` "⚠ Restart recommended · 1 new .pacnew"; each "" without a summary or without
   attention, so an old file shows nothing new), and `TestWidgetSummaryLines` reads the QML
-  source: both lines are plain text, hidden when empty, the warning in the warning tone.
+  source: the numbers line is plain text, elided, hidden when empty (`warnLine` stays in
+  `state.js`; since #221 the attention items are the hero's lines instead).
+- The redesigned popout (#221): `tst_state.qml` covers the `v:3` package list (validation of
+  every entry, the cap of 200, the 3-day window, groups, order, `restart`/`held` tags, `more`),
+  the hero's headline, sub and attention lines for the quiet, busy, problem, stale and no-data
+  states, the Updates and AUR rows (`NO HIGH`), and the restart rule: `TestStateJS` has Go's
+  `report.IsRestartPkg` decide a table of names and the JS `isRestartPkg` must agree on each.
+  `TestWidgetRenders` renders the real `ArchmaidWidget.qml` offscreen against stand-ins for
+  the DMS modules (`packaging/dms/tests/stubs`; they read no file and start nothing) and
+  checks the list: absent for v2, unfolds for v3, the 8-row cap, the footer, Enter/Space, the
+  reset on close. `TestStateJSIsPlainJS` keeps `state.js` free of QML-only lines (CodeQL
+  parses it as plain JavaScript); `TestTextElides` and `TestWidgetUpdatesList` read the QML.
 - `TestPopoutReloadsOnOpen`: the popout re-reads the state files on every open (a
   `Connections` on its `parentPopout`'s `shouldBeVisible`; DMS loads the content once), and the
   bar keeps its 60 s reload timer. Both read the widget's source: it can't load outside DMS.

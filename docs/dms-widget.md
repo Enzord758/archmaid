@@ -23,17 +23,45 @@ Files: `packaging/dms/archmaid/` (`plugin.json`, `ArchmaidWidget.qml`,
 **Pill**: icon `cleaning_services` plus the pending count (hidden at 0 or unknown).
 Tint: error colour (red) for an unacknowledged high AUR finding or `outcome: failed`;
 warning (orange) for `incomplete` (root steps refused), `aborted`, `cancelled`, or a last
-run older than 14 days; dimmed when no file is readable. **Popout** (the GUI's Workbench
-sections, DMS's chrome): **LAST RUN** (the action's name, an outcome tag `OK`/`FAILED`/
-`INCOMPLETE`/`ABORTED`/`CANCELLED` tinted primary/error/warning/warning/muted, "Mon 5 Oct,
-00:45 · 17 h ago", the failed, refused or stale note and, from a record that has a `summary`, the run
-report's line "47 upgraded · 3.1 GiB freed" (each part only when not zero; sizes written as the GUI
-writes them, binary units, three significant digits) and, only when `summary.attention` is
-not empty, a warning-tone line "⚠ Restart recommended · 1 new .pacnew" (the report's short
-texts, at most 4 of 60 characters); an older `last-run.json` without `summary` shows
-neither line), **UPDATES** (the count, then "9 repo · 3 AUR (2 held, <72h) · checked 5 min ago"
-when) and **AUR** (packages audited, up to 5 high findings, "+N more"), numbers in DMS's
-mono font; and two buttons: Run Full Cleanup (primary), Log folder.
+run older than 14 days; dimmed when no file is readable. **Popout** (draft A "Headline", owner-approved;
+DMS's chrome, DMS's palette for everything but the state):
+
+- **Hero**, the only box with corner marks: the kicker "LAST RUN · 2 H AGO", the headline in the
+  state colour, a sub line, and up to 3 attention lines. `state.js hero()` decides: the headline is
+  the worst issue (a failed run before AUR warnings: "Last run failed", "2 AUR warnings", "No
+  cleanup for 16 days"), else the run's first `summary.attention` item ("Restart recommended"),
+  else "N updates waiting", else "Everything is up to date"; "No data yet" with no file at all.
+  The sub line carries what the headline does not ("1 step failed · 2 AUR warnings",
+  "10 updates waiting · 2 held", "Update check is 5 days old", "Cleaned 2 h ago, nothing
+  pending"); the attention lines are the run's other attention items plus the first high AUR
+  finding, and never repeat the headline.
+- **State colours** are fixed Tokyo Night constants, ok `#9ece6a`, warn `#e0af68`, danger
+  `#f7768e`, and a darker set on a light theme (`#4e7d1a`, `#9a6a10`, `#c4223f`), chosen by
+  `Theme.isLightMode` (DMS's own flag, checked in DMS's `Common/Theme.qml`). Everything else
+  (text, surfaces, primary, the buttons) is the DMS palette.
+- Under the hero the run's numbers in mono ("47 upgraded · 3.1 GiB freed"), then three compact
+  rows, each a label, a value that **elides** (text never wraps mid-phrase) and an outlined mono
+  end tag: **Last run** (the action's name; `OK`, `FAILED`, `INCOMPLETE`, `ABORTED`,
+  `CANCELLED`, `NOT AUTHORISED`), **Updates** ("9 repo · 1 AUR · 2 held", tag "10 NEW": the
+  count excludes the held updates, as the script's `count`; `UP TO DATE`; `STALE` and "Unknown"
+  past 3 days) and **AUR** ("29 audited · 8 h ago", tag `NO HIGH`, or the first finding and
+  "2 HIGH"). Then two buttons: Run Full Cleanup (primary), Log folder.
+- **The update list** (inline expand): the Updates row is a button only when a list exists
+  (updates-cache `v:3` with a non-empty `packages`, inside the 3-day window; a v1/v2 file, a v3
+  file without `packages` or a stale one has no chevron and does not react). Click, or
+  Enter/Space when the popout has keyboard focus, unfolds a `ListView` under it: a "checked 17
+  min ago" header, sticky section headers **Repo**, **AUR**, **Held · cooldown 72 h**, rows
+  (name elided, `from → to` in mono, an outlined tag), at most 8 rows tall and then it scrolls,
+  and a footer "and N more not shown" when the file listed fewer than it counted (`more` =
+  repo + aur + aur_held minus listed; the writer caps the list at 200). Repo puts the
+  restart-worthy packages first (tag `restart`), then by name; AUR held ones carry `held 1d9h`.
+  The restart rule is `state.js isRestartPkg`, a mirror of `internal/report.IsRestartPkg` (the
+  systemd, mesa and nvidia family minus nvidia-settings/-prime; a kernel is not on the list);
+  `packaging/dms` runs a table of names through both and fails on a difference. Rows are
+  read-only and open nothing. The open state resets whenever the popout closes. Every
+  delegate is `Text.PlainText`, and `state.js` validates each package entry again (name,
+  versions, `src`, `held`, `age`), because the file is user-writable. The popout is
+  content-sized, so it grows by up to about 270 px while the list is open.
 Bar only: no control-center tile.
 
 **Robustness**: a missing, empty, torn, wrong-`v` or wrongly typed file parses to "no
@@ -124,10 +152,17 @@ archmaid-updates-check.timer`. Without a package, for a trial: copy `packaging/d
 to `~/.config/DankMaterialShell/plugins/archmaid/`.
 
 **Checked**: the load test runs the real QML in a scratch quickshell (`qs -p`, own
-config dir, stub `qs.*` modules, no window; see docs/TESTING.md); the DMS-internal APIs
+config dir, stub `qs.*` modules, no window; see docs/TESTING.md); `packaging/dms`
+`TestWidgetRenders` also renders the real `ArchmaidWidget.qml` offscreen under `qmltestrunner`
+against small stand-ins for the DMS modules (`packaging/dms/tests/stubs`), and checks that the
+list is absent for a v2 file and unfolds for a v3 one (click, Space/Enter, the 8-row cap, the
+footer, the reset). `state.js` has no `.pragma library` line, so it is plain JavaScript that
+GitHub's CodeQL can parse (`TestStateJSIsPlainJS`). The DMS-internal APIs
 (`PluginComponent`, `PopoutComponent`, `Proc`, `DankButton`) are matched against the DMS
 1.6.2 source embedded in `/usr/bin/dms`, but the widget was **not** shown in the live
-bar, so look at it once after enabling.
+bar, so look at it once after enabling. Still unproven outside the VM: whether the popout
+takes keyboard focus, how DMS anchors the popout when it grows (top and bottom bar), and the
+light theme.
 
 ## Decisions (owner, 2026-10-04)
 
