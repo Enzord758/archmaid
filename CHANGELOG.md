@@ -2,9 +2,11 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) and `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes).
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes) and `v2.1.0..v2.1.1`.
 
 ## [Unreleased]
+
+## [2.1.1] - 2026-11-01
 
 ### Fixed
 
@@ -285,6 +287,7 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/Enzord758/archmaid/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/Enzord758/archmaid/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Enzord758/archmaid/compare/5585358...v2.0.0
