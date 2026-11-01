@@ -197,17 +197,19 @@ TestCase {
         const long = [{name: "gtk4-with-a-rather-long-package-name-in-it-x", from: "2:1.26.1-1", to: "2:1.26.2-1", src: "repo"},
                       {name: "systemd", from: "2:1.26.1-1", to: "2:1.26.2-1", src: "repo"}];
         o.w.audit = {checked: now - 3600000, packages: 29, highCount: 1, snapshotPresent: true, snapshotReadable: true,
-                     high: [{pkg: "foo-bin", reason: "maintainer alice → mallory, adopted two days ago"}]};
+                     high: [{pkg: "foo-bin", reason: "maintainer alice → mallory, adopted two days ago by a new maintainer with no history"}]};
         o.w.updates = State.parseUpdates(JSON.stringify({v: 3, count: 10, repo: 9, aur: 1, aur_held: 2, checked: chk, packages: long}));
         mouseClick(find(o.pop, "updatesRow"));
-        const cases = ["9 repo · 1 AUR · 2 held", "foo-bin · maintainer alice → mallory, adopted two days ago",
-                       "2:1.26.1-1 → 2:1.26.2-1", "checked 17 min ago", "gtk4-with-a-rather-long-package-name-in-it-x"];
+        const cases = ["9 repo · 1 AUR · 2 held", "foo-bin",
+                       "systemd", "checked 17 min ago", "gtk4-with-a-rather-long-package-name-in-it-x"];
         for (let i = 0; i < cases.length; i++) {
             tryVerify(() => textOf(o.pop, cases[i]) !== null, 2000, "no text " + cases[i]);
             const t = textOf(o.pop, cases[i]);
             compare(t.lineCount, 1, cases[i]);
         }
-        verify(textOf(o.pop, cases[1]).truncated, "a long finding is elided");
+        const reason = "maintainer alice → mallory, adopted two days ago by a new maintainer with no history";
+        tryVerify(() => textOf(o.pop, reason) !== null);
+        verify(textOf(o.pop, reason).truncated, "a long reason is elided on its own line");
         verify(textOf(o.pop, cases[4]).truncated, "a long name is elided");
         // the bigger counts
         o.w.updates = State.parseUpdates(JSON.stringify({v: 3, count: 56, repo: 52, aur: 4, aur_held: 2, checked: chk, packages: long}));
@@ -219,6 +221,58 @@ TestCase {
         collect(o.pop, all);
         for (let k = 0; k < all.length; k++)
             compare(all[k].lineCount, 1, all[k].text);
+    }
+
+    // The label column is measured from the widest label: none is cut ("Last ...").
+    function test_labelsNotTruncated() {
+        const o = popout(3, 2);
+        const names = ["Last run", "Updates", "AUR"];
+        for (let i = 0; i < names.length; i++) {
+            tryVerify(() => textOf(o.pop, names[i]) !== null, 2000, names[i]);
+            const t = textOf(o.pop, names[i]);
+            verify(!t.truncated, names[i] + " is cut");
+            compare(t.lineCount, 1);
+        }
+        // one shared column: the three labels start their values at the same x
+        const a = textOf(o.pop, "Last run"), b = textOf(o.pop, "AUR");
+        compare(a.width, b.width);
+    }
+
+    // The AUR row is the package and the tag; the finding's reason has its own muted line.
+    function test_aurReasonLine() {
+        const o = popout(3, 2);
+        const reason = "maintainer alice → mallory";
+        verify(textOf(o.pop, reason) === null, "no finding, no reason line");
+        o.w.audit = {checked: Date.now() - 3600000, packages: 29, highCount: 2, snapshotPresent: true, snapshotReadable: true,
+                     high: [{pkg: "foo-bin", reason: reason}, {pkg: "bar", reason: "other"}]};
+        tryVerify(() => textOf(o.pop, reason) !== null, 2000, "reason line");
+        const r = textOf(o.pop, reason);
+        verify(!r.truncated, "the reason is whole at 340 px");
+        compare(r.lineCount, 1);
+        const v = textOf(o.pop, "foo-bin");
+        verify(v !== null && !v.truncated);
+        verify(textOf(o.pop, "other") === null, "only the first finding's reason");
+        verify(textOf(o.pop, "2 HIGH") !== null);
+        // the reason sits under the row's value, at the popout's width
+        verify(r.width > 250);
+    }
+
+    // The new version matters most: "from → to" when it fits half the row, else "→ to".
+    function test_versionKeepsTheNewOne() {
+        const o = popout(3, 0);
+        const chk = new Date(Date.now() - 60000).toISOString();
+        o.w.updates = State.parseUpdates(JSON.stringify({v: 3, count: 3, repo: 3, aur: 0, aur_held: 0, checked: chk, packages: [
+            {name: "go", from: "2:1.26.1-1-rc2", to: "2:1.26.2-1-rc2", src: "repo"},
+            {name: "a-long-package-name-that-must-elide-before-versions", from: "1.0-1", to: "1.1-1", src: "repo"},
+            {name: "curl", from: "8.1-1", to: "8.2-1", src: "repo"}]}));
+        mouseClick(find(o.pop, "updatesRow"));
+        tryVerify(() => textOf(o.pop, "→ 2:1.26.2-1-rc2") !== null, 2000, "to only");
+        const t = textOf(o.pop, "→ 2:1.26.2-1-rc2");
+        verify(!t.truncated, "the new version is whole");
+        verify(textOf(o.pop, "2:1.26.1-1-rc2 → 2:1.26.2-1-rc2") === null);
+        const s = textOf(o.pop, "1.0-1 → 1.1-1");
+        verify(s !== null && !s.truncated, "a short pair stays whole");
+        verify(textOf(o.pop, "a-long-package-name-that-must-elide-before-versions").truncated, "the name gives way");
     }
 
     // A list folded again, or a popout closed, starts at the top next time.

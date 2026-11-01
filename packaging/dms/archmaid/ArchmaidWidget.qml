@@ -113,10 +113,14 @@ PluginComponent {
         property color ink: Theme.surfaceVariantText
         property bool expandable: false
         property bool expanded: false
+        // The shared label column (measured from the widest label, see pop.labelW)
+        property real labelWidth: 54
+        // An optional muted line under the row (the AUR finding's reason)
+        property string note: ""
         signal toggled
 
         width: parent.width
-        height: 38
+        height: 38 + (note !== "" ? 20 : 0)
         activeFocusOnTab: expandable
         Keys.onPressed: event => {
             if (sr.expandable && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
@@ -140,7 +144,10 @@ PluginComponent {
         }
         Row {
             id: line
-            anchors.fill: parent
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: 38
             anchors.leftMargin: 2
             anchors.rightMargin: 2
             spacing: Theme.spacingXS + 2
@@ -148,7 +155,7 @@ PluginComponent {
             StyledText {
                 textFormat: Text.PlainText // fixed strings, plain like every text here
                 wrapMode: Text.NoWrap
-                width: 54
+                width: sr.labelWidth
                 elide: Text.ElideRight
                 text: sr.row.label
                 font.pixelSize: Theme.fontSizeMedium
@@ -158,7 +165,7 @@ PluginComponent {
             StyledText {
                 textFormat: Text.PlainText // state-file strings are data, never markup
                 wrapMode: Text.NoWrap
-                width: Math.max(0, line.width - 54 - (chev.visible ? chev.width + line.spacing : 0) - (rowTag.visible ? rowTag.width + line.spacing : 0) - line.spacing)
+                width: Math.max(0, line.width - sr.labelWidth - (chev.visible ? chev.width + line.spacing : 0) - (rowTag.visible ? rowTag.width + line.spacing : 0) - line.spacing)
                 elide: Text.ElideRight
                 text: sr.row.value
                 font.pixelSize: Theme.fontSizeMedium
@@ -186,6 +193,18 @@ PluginComponent {
                     }
                 }
             }
+        }
+        StyledText {
+            textFormat: Text.PlainText // state-file strings are data, never markup
+            wrapMode: Text.NoWrap
+            visible: sr.note !== ""
+            x: 2
+            y: 36
+            width: parent.width - 4
+            elide: Text.ElideRight
+            text: sr.note
+            font.pixelSize: Theme.fontSizeSmall
+            color: Theme.surfaceVariantText
         }
         Rectangle {
             anchors.left: parent.left
@@ -434,6 +453,37 @@ PluginComponent {
                 id: listModel
             }
 
+            // The rows' label column is as wide as the widest label in the
+            // real font (DMS's, not a guessed number) plus a small gap.
+            readonly property real labelW: Math.ceil(Math.max(probeA.implicitWidth, probeB.implicitWidth, probeC.implicitWidth)) + Theme.spacingXS
+            StyledText {
+                id: probeA
+                textFormat: Text.PlainText // fixed strings, plain like every text here
+                wrapMode: Text.NoWrap
+                visible: false
+                elide: Text.ElideRight
+                text: root.view.rows.lastRun.label
+                font.pixelSize: Theme.fontSizeMedium
+            }
+            StyledText {
+                id: probeB
+                textFormat: Text.PlainText // fixed strings, plain like every text here
+                wrapMode: Text.NoWrap
+                visible: false
+                elide: Text.ElideRight
+                text: root.view.rows.updates.label
+                font.pixelSize: Theme.fontSizeMedium
+            }
+            StyledText {
+                id: probeC
+                textFormat: Text.PlainText // fixed strings, plain like every text here
+                wrapMode: Text.NoWrap
+                visible: false
+                elide: Text.ElideRight
+                text: root.view.rows.aur.label
+                font.pixelSize: Theme.fontSizeMedium
+            }
+
             // Draft A: a hero with the state in words, the run's numbers,
             // three compact rows, the buttons. Text elides, never wraps.
             Column {
@@ -560,12 +610,14 @@ PluginComponent {
                     }
                     StatRow {
                         row: root.view.rows.lastRun
+                        labelWidth: pop.labelW
                         ink: root.stateColor(root.view.rows.lastRun.tone)
                     }
                     StatRow {
                         id: updRow
                         objectName: "updatesRow"
                         row: root.view.rows.updates
+                        labelWidth: pop.labelW
                         ink: root.stateColor(root.view.rows.updates.tone)
                         expandable: pop.upList !== null
                         expanded: pop.listOpen
@@ -626,6 +678,22 @@ PluginComponent {
                                 width: pkgView.width
                                 height: pkgView.rowH
 
+                                // The version column may take up to half the row. The new
+                                // version matters most: when "from \u2192 to" does not fit,
+                                // the column shows "\u2192 to".
+                                readonly property real verMax: Math.floor(width / 2)
+                                readonly property bool fullFits: verFull.implicitWidth <= verMax
+                                StyledText {
+                                    id: verFull
+                                    textFormat: Text.PlainText // state-file strings are data, never markup
+                                    wrapMode: Text.NoWrap
+                                    visible: false
+                                    elide: Text.ElideRight
+                                    text: pkgRow.from + " \u2192 " + pkgRow.to
+                                    font.family: Theme.monoFontFamily
+                                    font.pixelSize: Theme.fontSizeSmall
+                                }
+
                                 Row {
                                     anchors.fill: parent
                                     spacing: Theme.spacingS
@@ -642,11 +710,11 @@ PluginComponent {
                                     }
                                     StyledText {
                                         id: verText
-                                        width: Math.min(implicitWidth, 150)
+                                        width: Math.min(implicitWidth, pkgRow.verMax)
                                         elide: Text.ElideRight
                                         textFormat: Text.PlainText // state-file strings are data, never markup
                                         wrapMode: Text.NoWrap
-                                        text: pkgRow.from + " → " + pkgRow.to
+                                        text: pkgRow.fullFits ? pkgRow.from + " \u2192 " + pkgRow.to : "\u2192 " + pkgRow.to
                                         font.family: Theme.monoFontFamily
                                         font.pixelSize: Theme.fontSizeSmall
                                         color: Theme.surfaceVariantText
@@ -681,6 +749,8 @@ PluginComponent {
 
                     StatRow {
                         row: root.view.rows.aur
+                        labelWidth: pop.labelW
+                        note: root.view.rows.aur.reason
                         ink: root.stateColor(root.view.rows.aur.tone)
                     }
                 }

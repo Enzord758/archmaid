@@ -602,11 +602,14 @@ function _updatesRow(s) {
 // The AUR row: "NO HIGH" (not "CLEAN") when the audit found no high finding.
 function _aurRow(s, now) {
     var a = s.audit;
-    var row = { label: "AUR", value: "No audit yet", tag: "", tone: "muted" };
+    var row = { label: "AUR", value: "No audit yet", reason: "", tag: "", tone: "muted" };
     if (!a)
         return row;
     if (a.highCount > 0) {
-        row.value = a.high[0].pkg + (a.high[0].reason ? " · " + a.high[0].reason : "");
+        // The package is the value; the reason is the muted line under the row
+        // (the first finding's, the tag carries the count).
+        row.value = a.high[0].pkg;
+        row.reason = a.high[0].reason;
         row.tag = a.highCount + " HIGH";
         row.tone = "danger";
     } else {

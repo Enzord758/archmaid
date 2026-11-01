@@ -615,7 +615,8 @@ TestCase {
         compare(p.hero.attention, [], "the AUR finding is the AUR row's, not repeated in the hero");
         compare(p.rows.aur.tag, "2 HIGH");
         compare(p.rows.aur.tone, "danger");
-        compare(p.rows.aur.value, "foo · maintainer alice → mallory");
+        compare(p.rows.aur.value, "foo");
+        compare(p.rows.aur.reason, "maintainer alice → mallory");
         compare(p.rows.lastRun.tag, "FAILED");
         compare(p.rows.lastRun.tone, "danger");
         const a = sum(F.fx.lastOK, F.fx.auditHigh, null, now);
