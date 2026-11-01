@@ -8,7 +8,7 @@ import qs.Modules.Plugins
 import "./state.js" as State
 
 // archmaid bar widget. It only READS three small files under
-// $XDG_STATE_HOME/archmaid (default ~/.local/state/archmaid):
+// ~/.local/state/archmaid:
 //   last-run.json        written by archmaid after every run
 //   audit-state.json     written by the AUR audit
 //   updates-cache.json   written by the archmaid-updates-check user timer
@@ -19,11 +19,9 @@ PluginComponent {
     id: root
     layerNamespacePlugin: "archmaid"
 
-    readonly property string stateDir: {
-        const xdg = Quickshell.env("XDG_STATE_HOME");
-        const base = (xdg && xdg.startsWith("/")) ? xdg : (Quickshell.env("HOME") || "") + "/.local/state";
-        return base + "/archmaid";
-    }
+    // Always ~/.local/state/archmaid, where archmaid, the GUI and the
+    // updates timer write (XDG_STATE_HOME is not honoured by any of them).
+    readonly property string stateDir: (Quickshell.env("HOME") || "") + "/.local/state/archmaid"
 
     property var lastRun: null
     property var audit: null

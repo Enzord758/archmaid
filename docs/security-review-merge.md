@@ -1,5 +1,21 @@
 # Security review: merging refactor/p0 into main
 
+> **Superseded in parts: this review is kept as history.** Since it was
+> written:
+> - The TUI drops its sudo ticket on exit (`sudo -k`), so finding M1's
+>   after-run window is closed.
+> - The TUI sets `PR_SET_DUMPABLE` to 0, and the GUI sets `RLIMIT_CORE` to
+>   1 byte, so M2's core-dump route is closed (transient in-memory copies
+>   of a typed password remain an accepted residual).
+> - The GUI keeps one password per run, in memory only (mlocked, never on
+>   disk, wiped at the end of the run or after 60 minutes). "The GUI asks
+>   twice per Full Cleanup" and the note that the one-password work is not
+>   part of this merge no longer hold.
+>
+> For the current model read the wiki's Security-Model page and
+> `docs/HANDOVER.md` ("Decisions and landmines"). Commit ids and branch
+> names below are from the time of the review.
+
 Scope: `origin/refactor/p0` at 4d3b11d against `origin/main` (5585358),
 security side only. Dev 1's `docs/merge-to-main.md` has the general
 checklist. The review is by reading the code and running the gate

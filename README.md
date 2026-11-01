@@ -165,8 +165,10 @@ that matters: what runs as root, what gets deleted, what ships.
   ([`docs/TESTING.md`](docs/TESTING.md)).
 - **Design.** The reasoning behind the risky parts, and the residual risks,
   is in [`docs/HANDOVER.md`](docs/HANDOVER.md) ("Decisions and landmines").
-- **Security review.** What becomes root-reachable and what you accept is
-  in [`docs/security-review-merge.md`](docs/security-review-merge.md).
+- **Security.** The current model (what runs as root, when you are asked,
+  the kept password) is the wiki's Security-Model page. The merge-time
+  review is kept as history, with a note on what has changed since:
+  [`docs/security-review-merge.md`](docs/security-review-merge.md).
 
 Read the code with the same skepticism you'd apply to any code, and run a
 dry run first to see exactly what it would do to your system.

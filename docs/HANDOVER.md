@@ -698,12 +698,10 @@ comments and `git log`; this is the "read before you touch it" list.
     (`protected_hardlinks`). Since #136 a `/usr/bin/sudo` that is itself
     a symlink (sudo-rs installed as sudo) has its boundary at `/usr/bin`
     (the system's own link); before, no boundary was found and the kept
-    password was always off. Also open:
-    after the guard turns keeping off, the password dialog's kept-password
-    note (`ui.KeptNote`, shown from a static option) still says the
-    password is kept; it fails safe (more dialogs, not fewer), and the
-    step's output says it is off. Fixing it needs the Session to say so
-    per prompt (an additive engine field).
+    password was always off. (The dialog's kept-password
+    note once stayed "kept" after the guard tripped; fixed in #147:
+    `NeedsPassword.Keeps/KeepOff` make the dialog say it is not keeping
+    the password, and why.)
 - **Repair scans as the user first, and asks for sudo only to recheck what it
   flagged.** Repair's discovery (`internal/actions`, `discoverRepair`) lists
   the installed packages (`pacman -Qq`) and runs `pacman -Qkq -- <chunk>` as
@@ -1308,7 +1306,7 @@ comments and `git log`; this is the "read before you touch it" list.
   `TestBrokenNamesCheckedBeforeSudo`). Keep both when adding a parsed call.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
   *current* maintainer and co-maintainers, never their history. Consequence:
-  the first audit only records a baseline. It is archmaid's only network call.
+  the first audit only records a baseline. It is archmaid's only own network call (the programs it starts, pacman, topgrade and yay, use the network as they always do; so does the optional `archmaid-updates-check` user timer, which runs `checkupdates` and `yay -Qua` as the user under `NoNewPrivileges`).
   A dry run reads the snapshot but never advances it.
 - **Co-maintainers gate like maintainers.** A co-maintainer can push to the
   package's AUR git, so an *added* one is high (named in the gate: "foo:

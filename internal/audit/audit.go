@@ -41,9 +41,11 @@ const DefaultRPCURL = "https://aur.archlinux.org/rpc/v5/info"
 const DefaultDeadline = 20 * time.Second
 
 const (
-	// Cooldown is how recent a push has to be to get flagged. Matches the
-	// 72-hour hold in the recommended ~/.config/yay/init.lua hook, so the
-	// audit flags exactly the packages yay would hold back.
+	// Cooldown is how recent a push has to be to get a "modified N ago"
+	// glance. archmaid only shows it; it holds nothing back. Holding AUR
+	// updates for 72 hours is up to the user's own yay setup (for example a
+	// yay hook), which archmaid does not ship. The value matches such a
+	// 72-hour hold, so the glance lines up with it.
 	Cooldown = 72 * time.Hour
 	// FieldMax caps an AUR-supplied name or maintainer for display.
 	FieldMax = 64

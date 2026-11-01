@@ -1,7 +1,8 @@
 # Installing archmaid
 
-`archmaid` is the Bubble Tea TUI (`cmd/archmaid/`). The installer builds it and registers
-it as a launchable app — everything lands under `$HOME`, no root required.
+`archmaid` is the Bubble Tea TUI (`cmd/archmaid/`). The installer builds it
+and puts it in `~/.local/bin` — everything lands under `$HOME`, no root required. The TUI
+has no launcher entry or icon; run `archmaid` from a terminal.
 
 ## Requirements
 

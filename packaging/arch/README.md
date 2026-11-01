@@ -82,7 +82,7 @@ You run this yourself (it needs root). From `$P`, after the build above:
 
 ```sh
 sudo pacman -U "$P"/archmaid-git-r*.pkg.tar.zst       # the TUI, the helper and the policy
-sudo pacman -U "$P"/archmaid-gui-git-r*.pkg.tar.zst   # the GUI too (see above: first live run only)
+sudo pacman -U "$P"/archmaid-gui-git-r*.pkg.tar.zst   # the GUI; install both together, from the same build
 ```
 
 (`makepkg -si` with the same environment builds and installs both at once.)

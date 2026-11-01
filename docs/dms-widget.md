@@ -8,7 +8,7 @@ Where they differ, the "as built" section wins. Nothing here changes the TUI or 
 
 The widget **reads the state files directly**; there is no `archmaid status`
 subcommand (sections 2 and 3 describe that older design). It reads, never writes,
-`$XDG_STATE_HOME/archmaid/` (default `~/.local/state/archmaid/`):
+`~/.local/state/archmaid/` (a fixed path, like archmaid's and the GUI's; `XDG_STATE_HOME` is not honoured):
 
 | File | Writer | Fields the widget uses |
 |---|---|---|
@@ -132,6 +132,11 @@ this document still mentions.
 4. **Staleness warning after 14 days** without a cleanup.
 5. **The package installs the widget** so the user only enables it in DMS. **Bar
    only** — no control-center tile.
+
+> **Sections 1 to 5 below are the original design, superseded.** They describe
+> an `archmaid status --json` command and a "Refresh" button that were never
+> built. The current behaviour is "Implementation as built" above; section 3's
+> data contract survives only as the state files' field list.
 
 ## 1. How DMS plugins work on this machine
 

@@ -146,7 +146,11 @@ func updatesRun(t *testing.T, out string, rc int, yay *yayShim, old string) (str
 		shim("yay", "[ \"$*\" = -Qua ] || exit 64\nif read -r _; then exit 65; fi\n"+
 			"printf '%s' '"+yay.out+"'\nprintf '%s' '"+yay.err+"' >&2\nexit "+strconv.Itoa(yay.rc)+"\n")
 	}
-	state := t.TempDir()
+	// The script writes under $HOME/.local/state/archmaid, the folder
+	// logstore and the widget use, whatever XDG_STATE_HOME says: that
+	// variable points at a different scratch dir, which must stay empty.
+	home, other := t.TempDir(), t.TempDir()
+	state := filepath.Join(home, ".local", "state")
 	p := filepath.Join(state, "archmaid", "updates-cache.json")
 	if old != "" {
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
@@ -157,9 +161,12 @@ func updatesRun(t *testing.T, out string, rc int, yay *yayShim, old string) (str
 		}
 	}
 	cmd := exec.Command(filepath.Join(bin, "sh"), "../systemd/archmaid-updates-check")
-	cmd.Env = []string{"PATH=" + bin, "HOME=/nonexistent", "XDG_STATE_HOME=" + state}
+	cmd.Env = []string{"PATH=" + bin, "HOME=" + home, "XDG_STATE_HOME=" + other}
 	cmd.Stdin = strings.NewReader("an input line\n")
 	runErr := cmd.Run()
+	if ents, _ := os.ReadDir(other); len(ents) != 0 {
+		t.Fatalf("XDG_STATE_HOME was written to: %v", ents)
+	}
 	b, rerr := os.ReadFile(p)
 	if rerr != nil {
 		return "", runErr

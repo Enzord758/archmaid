@@ -5,8 +5,7 @@
 # no root, no sudo. checkupdates syncs its own temporary database and
 # `yay -Qua` only queries, so the system's pacman db is not touched.
 #
-# Output: $XDG_STATE_HOME/archmaid/updates-cache.json (default
-# ~/.local/state/archmaid/), 0600, replaced atomically:
+# Output: ~/.local/state/archmaid/updates-cache.json, 0600, replaced atomically:
 #   {"v":2,"count":12,"repo":9,"aur":3,"aur_held":2,"checked":"2026-10-04T17:55:00+02:00"}
 # repo      pending repo updates (checkupdates)
 # aur       pending AUR updates yay's cooldown would let through
@@ -36,7 +35,10 @@ umask 077
 # internal/audit/audit.go (72 * time.Hour) and the 72 h in the owner's yay hook.
 COOLDOWN_HOURS=72
 
-state="${XDG_STATE_HOME:-$HOME/.local/state}/archmaid"
+# Always ~/.local/state/archmaid, the folder internal/logstore (archmaid and
+# the GUI) and the widget use; XDG_STATE_HOME is deliberately not honoured, or
+# the file would land where nothing reads it.
+state="$HOME/.local/state/archmaid"
 mkdir -p "$state"
 chmod 700 "$state"
 
