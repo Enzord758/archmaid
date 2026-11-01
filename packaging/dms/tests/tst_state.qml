@@ -506,8 +506,8 @@ TestCase {
         const l = State.updateList(s, now);
         compare(l.sections, ["Repo", "AUR", "Held · cooldown 72 h"]);
         compare(l.items.map(i => i.name).join(","),
-                "lib32-mesa,mesa,systemd,curl,linux-cachyos,nvidia-settings,zsh,zen-browser-bin,abc-bin,paru-bin");
-        compare(l.items.map(i => i.tag).join("|"), "restart|restart|restart||||||held|held 1d9h");
+                "lib32-mesa,linux-cachyos,mesa,systemd,curl,nvidia-settings,zsh,zen-browser-bin,abc-bin,paru-bin");
+        compare(l.items.map(i => i.tag).join("|"), "restart|restart|restart|restart|||||held|held 1d9h");
         compare(l.items[0].section, "Repo");
         compare(l.items[7].section, "AUR");
         compare(l.items[8].section, "Held · cooldown 72 h");
@@ -541,6 +541,21 @@ TestCase {
         verify(State.isRestartPkg("systemd"));
         verify(!State.isRestartPkg("linux"));
         verify(!State.isRestartPkg(undefined));
+    }
+
+    // The list's kernel rule (name only; the Go rule leaves kernels out).
+    function test_kernelNames() {
+        const yes = ["linux", "linux-lts", "linux-zen", "linux-hardened", "linux-cachyos", "linux-cachyos-lts",
+                     "linux-cachyos-nvidia-open", "linux-cachyos-bore", "linux-rt"];
+        const no = ["linux-headers", "linux-cachyos-headers", "linux-api-headers", "linux-docs", "linux-cachyos-docs",
+                    "linux-firmware", "linux-firmware-nvidia", "linux-firmware-whence", "linux-tools", "linux-tools-meta",
+                    "linuxdoc", "linux_x", "Linux", "linux-", "lib32-linux", "xlinux", "", "systemd", "mesa"];
+        for (let i = 0; i < yes.length; i++)
+            verify(State.isKernelPkg(yes[i]), yes[i]);
+        for (let j = 0; j < no.length; j++)
+            verify(!State.isKernelPkg(no[j]), no[j]);
+        verify(!State.isKernelPkg(undefined));
+        verify(!State.isRestartPkg("linux-cachyos"), "isRestartPkg stays Go's rule");
     }
 
     function test_heroQuiet() {

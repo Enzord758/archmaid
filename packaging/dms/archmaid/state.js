@@ -446,13 +446,24 @@ function popout(s, now) {
 // Mirrors internal/report/restart.go (restartPkg and restartNot): the
 // packages whose upgrade a running system keeps using the old copy of until
 // it restarts. packaging/dms TestRestartRuleMatchesGo runs a table of names
-// through both and fails on any difference. A kernel is not on this list
-// (Go finds it differently), so "linux" is false here too.
+// through both and fails on any difference. A kernel is not on this list (Go
+// finds it through /usr/lib/modules, see isKernelPkg for the list's tag).
 var RESTART_RE = /^(lib32-)?(systemd|mesa|nvidia(-[a-z0-9-]+)?)$/;
 var RESTART_NOT = { "nvidia-settings": true, "nvidia-prime": true, "lib32-nvidia-settings": true };
 
 function isRestartPkg(name) {
     return typeof name === "string" && RESTART_RE.test(name) && !_own(RESTART_NOT, name);
+}
+
+// isKernelPkg: a kernel package by name, for the update list only: "linux" or
+// "linux-<flavour>" (linux-cachyos, linux-lts, linux-zen, a flavour's module
+// packages such as linux-cachyos-nvidia-open), not its headers or docs,
+// linux-firmware(-*), linux-tools* or linux-api-headers.
+var KERNEL_RE = /^linux(-[a-z0-9]+)*$/;
+var KERNEL_NOT_RE = /(-headers|-docs)$|^linux-firmware(-|$)|^linux-tools/;
+
+function isKernelPkg(name) {
+    return typeof name === "string" && KERNEL_RE.test(name) && !KERNEL_NOT_RE.test(name);
 }
 
 // _headline: the hero headline of an issue (its colour comes from the level).
@@ -627,7 +638,7 @@ function updateList(s, now) {
         var p = pk[i];
         var it = { name: p.name, from: p.from, to: p.to, section: "", tag: "", restart: false };
         if (p.src === "repo") {
-            it.restart = isRestartPkg(p.name);
+            it.restart = isRestartPkg(p.name) || isKernelPkg(p.name);
             it.tag = it.restart ? "restart" : "";
             it.section = "Repo";
             repo.push(it);

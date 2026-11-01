@@ -56,7 +56,7 @@ DMS's chrome, DMS's palette for everything but the state):
   repo + aur + aur_held minus listed; the writer caps the list at 200). Repo puts the
   restart-worthy packages first (tag `restart`), then by name; AUR held ones carry `held 1d9h`.
   The restart rule is `state.js isRestartPkg`, a mirror of `internal/report.IsRestartPkg` (the
-  systemd, mesa and nvidia family minus nvidia-settings/-prime; a kernel is not on the list);
+  systemd, mesa and nvidia family minus nvidia-settings/-prime; a kernel is not in it, so the list also tags `linux` and `linux-<flavour>` by name via `isKernelPkg`, not headers, docs, firmware or tools);
   `packaging/dms` runs a table of names through both and fails on a difference. Rows are
   read-only and open nothing. The open state resets whenever the popout closes. Every
   delegate is `Text.PlainText`, and `state.js` validates each package entry again (name,
