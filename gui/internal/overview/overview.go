@@ -188,8 +188,9 @@ func ageDays(then, now time.Time) float64 {
 	return max(0, now.Sub(then).Hours()/24)
 }
 
-// Ago is the DMS widget's ago: "just now", "5 min ago", "3 h ago", "12
-// days ago".
+// Ago is the Overview's "how long ago": "just now", "5 min ago", "3 h ago",
+// "12 days ago". It was the DMS widget's ago; since #223 the widget says
+// "1 h ago" from 60 min, where this still counts minutes up to 90.
 func Ago(then, now time.Time) string {
 	s := max(0, now.Sub(then).Seconds())
 	switch {
