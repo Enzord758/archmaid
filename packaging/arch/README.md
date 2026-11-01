@@ -108,6 +108,6 @@ sudo pacman -U "$P"/archmaid-gui-git-r*.pkg.tar.zst   # the GUI too (see above: 
 | `/usr/bin/archmaid-gui` | 0755 | the GTK4/libadwaita front end |
 | `/usr/share/applications/io.github.enzord758.archmaid.desktop` | 0644 | `Exec=archmaid-gui`, `Terminal=false`; named after the application id so the window's `app_id` matches it |
 | `/usr/share/icons/hicolor/scalable/apps/io.github.enzord758.archmaid.svg` | 0644 | the project icon (`packaging/archmaid.svg`) under the application id |
-| `/usr/share/metainfo/io.github.enzord758.archmaid.metainfo.xml` | 0644 | AppStream; no `project_license` until the repo has a license |
+| `/usr/share/metainfo/io.github.enzord758.archmaid.metainfo.xml` | 0644 | AppStream; `project_license` is `GPL-3.0-or-later` |
 
-License: `LicenseRef-unknown` until upstream picks one (TODO in the PKGBUILD).
+License: `GPL-3.0-or-later`. It is one of Arch's common licences, so the packages do not install a copy; `LICENSE` in the repo is the full text.

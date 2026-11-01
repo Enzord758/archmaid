@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- AppStream metadata for archmaid-gui. The id is the GTK application id
-     (gui/internal/ui.AppID) and the .desktop file's basename. project_license
-     is left out until the repository picks a license. -->
+     (gui/internal/ui.AppID) and the .desktop file's basename. -->
 <component type="desktop-application">
   <id>io.github.enzord758.archmaid</id>
   <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
   <name>archmaid</name>
   <summary>Keep an Arch Linux system clean and up to date</summary>
   <description>

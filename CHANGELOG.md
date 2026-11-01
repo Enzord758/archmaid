@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Changed
+
+- archmaid is now licensed under GPL-3.0-or-later (`LICENSE`).
+
 ## [2.1.1] - 2026-11-01
 
 ### Fixed

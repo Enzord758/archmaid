@@ -21,8 +21,6 @@
 # See packaging/arch/README.md.
 #
 # TODO before publishing:
-#   - pick a license (the repo has none yet), then set license=() and install
-#     it, and add project_license to the metainfo
 #   - for a release: _fragment='tag=vX.Y.Z' (or 'commit=<sha>'), drop the -git
 #     suffix and pkgver(), and replace SKIP with a real checksum
 
@@ -35,7 +33,9 @@ pkgrel=1
 pkgdesc='Arch Linux housekeeping: package cache, orphans, journal, temp files, updates'
 arch=('x86_64')
 url='https://github.com/Enzord758/archmaid'
-license=('LicenseRef-unknown')
+# GPL-3.0-or-later is one of Arch's common licences (the licenses package
+# owns it), so LICENSE is not installed per package.
+license=('GPL-3.0-or-later')
 # gtk4, libadwaita: the headers gotk4's cgo builds against. libgirepository:
 # gobject-introspection-1.0.pc and girepository.h, which gotk4's core package
 # asks pkg-config for. On Arch the libgirepository package owns both; the
@@ -150,7 +150,6 @@ package_archmaid-git() {
   install -Dm0644 packaging/systemd/user/archmaid-updates-check.timer \
     "$pkgdir/usr/lib/systemd/user/archmaid-updates-check.timer"
   install -Dm0644 cmd/archmaid-helper/README.md "$pkgdir/usr/share/doc/$_pkgname/helper.md"
-  # TODO: install -Dm0644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }
 
 package_archmaid-gui-git() {

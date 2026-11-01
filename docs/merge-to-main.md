@@ -96,6 +96,5 @@ Check an install:
 
 Known residual risks from the review that still stand: PKGBUILD `check()`
 runs only the helper's, the widget's and `runview`'s tests, and makepkg and
-namcap never run in CI; the repo has no license (`LicenseRef-unknown` in the
-PKGBUILD); the GUI's speed budgets are measured by hand
+namcap never run in CI; the GUI's speed budgets are measured by hand
 (`docs/TESTING.md` → GUI measurements).

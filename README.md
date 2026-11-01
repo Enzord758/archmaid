@@ -177,3 +177,7 @@ GitHub Actions is manual-only (`workflow_dispatch`). CI runs in the test VM:
 `~/archmaid-vmtest/run.sh ci <sha>` (core, e2e, gui, bench on a clean Arch
 install), after the local gate (`./scripts/check.sh`, `make e2e`). See
 `docs/TESTING.md` -> CI.
+
+## Licence
+
+archmaid is free software under the GNU General Public License v3.0 or later; see [LICENSE](LICENSE).
