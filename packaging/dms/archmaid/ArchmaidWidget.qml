@@ -50,19 +50,24 @@ PluginComponent {
     // The popout's three sections (state.js popout: strings and numbers).
     readonly property var view: State.popout(summary, now)
 
-    // tone maps state.js's colour roles to the DMS theme.
-    function tone(role) {
-        switch (role) {
-        case "primary":
-            return Theme.primary;
-        case "error":
-            return Theme.error;
-        case "warning":
-            return Theme.warning;
+    // The state colours are fixed Tokyo Night constants (ok, warn, danger), a
+    // darker set on a light theme (Theme.isLightMode, DMS's own flag); "muted"
+    // and everything else come from the DMS palette.
+    function stateColor(tone) {
+        const light = Theme.isLightMode;
+        switch (tone) {
+        case "ok":
+            return light ? "#4e7d1a" : "#9ece6a";
+        case "warn":
+            return light ? "#9a6a10" : "#e0af68";
+        case "danger":
+            return light ? "#c4223f" : "#f7768e";
         default:
             return Theme.surfaceVariantText;
         }
     }
+    readonly property color markColor: Theme.withAlpha(Theme.surfaceText, 0.45)
+    readonly property color ruleColor: Theme.withAlpha(Theme.surfaceText, 0.12)
 
     // A section's small uppercase heading, as the GUI's kickers.
     component Kicker: StyledText {
@@ -71,6 +76,118 @@ PluginComponent {
         font.capitalization: Font.AllUppercase
         font.letterSpacing: 1.2
         color: Theme.surfaceVariantText
+    }
+
+    // An outlined mono tag at the end of a row: "OK", "10 NEW", "restart".
+    component Tag: Rectangle {
+        id: tg
+        property string text: ""
+        property color ink: Theme.surfaceVariantText
+        width: tagLabel.implicitWidth + 2 * Theme.spacingS
+        height: tagLabel.implicitHeight + Theme.spacingXS
+        color: "transparent"
+        border.width: 1
+        border.color: tg.ink
+
+        StyledText {
+            textFormat: Text.PlainText // state-file strings are data, never markup
+            id: tagLabel
+            anchors.centerIn: parent
+            text: tg.text
+            font.family: Theme.monoFontFamily
+            font.pixelSize: Theme.fontSizeSmall
+            color: tg.ink
+        }
+    }
+
+    // One compact row: label, value (elided), end tag. With expandable it is
+    // a button: click, or Enter/Space when it has focus, emits toggled; a
+    // chevron shows the state.
+    component StatRow: Item {
+        id: sr
+        property var row: ({ label: "", value: "", tag: "", tone: "muted" })
+        property color ink: Theme.surfaceVariantText
+        property bool expandable: false
+        property bool expanded: false
+        signal toggled
+
+        width: parent.width
+        height: 36
+        activeFocusOnTab: expandable
+        Keys.onPressed: event => {
+            if (sr.expandable && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
+                sr.toggled();
+                event.accepted = true;
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: sr.activeFocus
+            color: "transparent"
+            border.width: 1
+            border.color: Theme.primary
+        }
+        MouseArea {
+            anchors.fill: parent
+            enabled: sr.expandable
+            cursorShape: sr.expandable ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: sr.toggled()
+        }
+        Row {
+            id: line
+            anchors.fill: parent
+            anchors.leftMargin: 2
+            anchors.rightMargin: 2
+            spacing: Theme.spacingS
+
+            StyledText {
+                textFormat: Text.PlainText // fixed strings, plain like every text here
+                width: 62
+                elide: Text.ElideRight
+                text: sr.row.label
+                font.pixelSize: Theme.fontSizeMedium
+                color: Theme.surfaceVariantText
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            StyledText {
+                textFormat: Text.PlainText // state-file strings are data, never markup
+                width: Math.max(0, line.width - 62 - (chev.visible ? chev.width + line.spacing : 0) - (rowTag.visible ? rowTag.width + line.spacing : 0) - line.spacing)
+                elide: Text.ElideRight
+                text: sr.row.value
+                font.pixelSize: Theme.fontSizeMedium
+                color: Theme.surfaceText
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Tag {
+                id: rowTag
+                visible: sr.row.tag !== ""
+                text: sr.row.tag
+                ink: sr.ink
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            DankIcon {
+                id: chev
+                visible: sr.expandable
+                name: "chevron_right"
+                size: Theme.fontSizeLarge
+                color: Theme.surfaceVariantText
+                rotation: sr.expanded ? 90 : 0
+                anchors.verticalCenter: parent.verticalCenter
+                Behavior on rotation {
+                    NumberAnimation {
+                        duration: 120
+                    }
+                }
+            }
+        }
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 1
+            color: Theme.withAlpha(Theme.surfaceText, 0.12)
+        }
     }
 
     popoutWidth: 340
@@ -240,14 +357,48 @@ PluginComponent {
         PopoutComponent {
             id: pop
             headerText: "archmaid"
-            detailsText: root.level === "nodata" ? "No data yet. Run archmaid once." : ""
+            detailsText: ""
             showCloseButton: true
+
+            // The Updates row's list is unfolded. It resets whenever the
+            // popout closes (the popout is kept alive between opens) and
+            // when the list goes away.
+            property bool updatesOpen: false
+            readonly property var upList: root.view.updateList
+            readonly property bool listOpen: updatesOpen && upList !== null
+            // The list's model is filled only when its content changed, so the
+            // 60 s refresh does not throw the scroll position away.
+            property string listSig: ""
+
+            function syncList() {
+                const l = pop.upList;
+                const sig = l ? l.items.map(i => i.section + "|" + i.name + "|" + i.from + "|" + i.to + "|" + i.tag).join("\n") : "";
+                if (sig === pop.listSig)
+                    return;
+                pop.listSig = sig;
+                listModel.clear();
+                if (l) {
+                    for (let i = 0; i < l.items.length; i++) {
+                        const it = l.items[i];
+                        listModel.append({
+                            "section": it.section,
+                            "name": it.name,
+                            "from": it.from,
+                            "to": it.to,
+                            "tag": it.tag,
+                            "restart": it.restart
+                        });
+                    }
+                }
+            }
+            onUpListChanged: syncList()
 
             // Every open shows the files as they are now. DMS loads this
             // content once and keeps it, so Component.onCompleted only
             // covers the first open; the popout (parentPopout, a
             // DankPopout) sets shouldBeVisible on every open.
             Component.onCompleted: {
+                syncList();
                 root.reloadAll();
                 root.probeTools();
             }
@@ -258,216 +409,255 @@ PluginComponent {
                     if (pop.parentPopout && pop.parentPopout.shouldBeVisible) {
                         root.reloadAll();
                         root.probeTools();
+                    } else {
+                        pop.updatesOpen = false;
                     }
                 }
             }
 
-            // Workbench's sections, in its order: LAST RUN, UPDATES, AUR.
-            // The chrome stays DMS's; numbers are mono, as the GUI's meters.
+            ListModel {
+                id: listModel
+            }
+
+            // Draft A: a hero with the state in words, the run's numbers,
+            // three compact rows, the buttons. Text elides, never wraps.
             Column {
                 width: parent.width
                 spacing: Theme.spacingM
 
-                Column {
+                // The hero: the only box with corner marks.
+                Rectangle {
+                    id: heroBox
                     width: parent.width
-                    spacing: Theme.spacingXS
+                    height: heroCol.implicitHeight + 2 * Theme.spacingM
+                    color: Theme.surfaceContainer
+                    border.width: 1
+                    border.color: Theme.withAlpha(Theme.surfaceText, 0.12)
 
-                    Kicker {
-                        text: "Last run"
+                    Repeater {
+                        model: 4
+                        Item {
+                            id: corner
+                            required property int index
+                            readonly property bool atRight: index % 2 === 1
+                            readonly property bool atBottom: index >= 2
+                            width: 10
+                            height: 10
+                            x: atRight ? heroBox.width - width : 0
+                            y: atBottom ? heroBox.height - height : 0
+                            Rectangle {
+                                width: 10
+                                height: 1
+                                y: corner.atBottom ? 9 : 0
+                                color: root.markColor
+                            }
+                            Rectangle {
+                                width: 1
+                                height: 10
+                                x: corner.atRight ? 9 : 0
+                                color: root.markColor
+                            }
+                        }
                     }
-                    StyledText {
-                        textFormat: Text.PlainText // state-file strings are data, never markup
-                        visible: root.view.lastRun === null
-                        text: "No run recorded yet"
-                        font.pixelSize: Theme.fontSizeMedium
-                        color: Theme.surfaceVariantText
-                    }
-                    Row {
-                        visible: root.view.lastRun !== null
-                        width: parent.width
-                        spacing: Theme.spacingS
 
-                        StyledText {
-                            textFormat: Text.PlainText // state-file strings are data, never markup
-                            width: Math.min(implicitWidth, parent.width - chip.width - parent.spacing)
+                    Column {
+                        id: heroCol
+                        x: Theme.spacingM
+                        y: Theme.spacingM
+                        width: parent.width - 2 * Theme.spacingM
+                        spacing: Theme.spacingXS
+
+                        Kicker {
+                            width: parent.width
                             elide: Text.ElideRight
-                            text: root.view.lastRun ? root.view.lastRun.action : ""
-                            font.pixelSize: Theme.fontSizeLarge
-                            font.weight: Font.Medium
-                            color: Theme.surfaceText
-                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.view.hero.kicker
                         }
-                        // The outcome tag: OK, FAILED, INCOMPLETE, ABORTED, CANCELLED, NOT AUTHORISED.
-                        Rectangle {
-                            id: chip
-                            readonly property color ink: root.tone(root.view.lastRun ? root.view.lastRun.tint : "muted")
-                            width: tagText.implicitWidth + 2 * Theme.spacingS
-                            height: tagText.implicitHeight + Theme.spacingXS
-                            radius: Theme.spacingXS
-                            color: Theme.withAlpha(ink, 0.16)
-                            border.width: 1
-                            border.color: Theme.withAlpha(ink, 0.5)
-                            anchors.verticalCenter: parent.verticalCenter
-
-                            StyledText {
-                                textFormat: Text.PlainText // state-file strings are data, never markup
-                                id: tagText
-                                anchors.centerIn: parent
-                                text: root.view.lastRun ? root.view.lastRun.tag : ""
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.weight: Font.Medium
-                                font.letterSpacing: 0.8
-                                color: chip.ink
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: root.view.hero.headline
+                            font.pixelSize: Theme.fontSizeXLarge
+                            font.weight: Font.Bold
+                            color: root.stateColor(root.view.hero.tone)
+                        }
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            visible: root.view.hero.sub !== ""
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: root.view.hero.sub
+                            font.pixelSize: Theme.fontSizeMedium
+                            color: Theme.surfaceVariantText
+                        }
+                        Repeater {
+                            model: root.view.hero.attention
+                            Row {
+                                id: attRow
+                                required property string modelData
+                                width: heroCol.width
+                                spacing: Theme.spacingXS
+                                DankIcon {
+                                    id: attIcon
+                                    name: "warning"
+                                    size: Theme.fontSizeMedium
+                                    color: root.stateColor("warn")
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+                                StyledText {
+                                    textFormat: Text.PlainText // state-file strings are data, never markup
+                                    width: attRow.width - attIcon.width - attRow.spacing
+                                    elide: Text.ElideRight
+                                    text: attRow.modelData
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    color: root.stateColor("warn")
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
                             }
                         }
                     }
-                    StyledText {
-                        textFormat: Text.PlainText // state-file strings are data, never markup
-                        visible: root.view.lastRun !== null
+                }
+
+                // The run's numbers: "47 upgraded · 3.1 GiB freed".
+                StyledText {
+                    textFormat: Text.PlainText // state-file strings are data, never markup
+                    visible: root.view.lastRun !== null && root.view.lastRun.summaryLine !== ""
+                    width: parent.width
+                    elide: Text.ElideRight
+                    text: root.view.lastRun ? root.view.lastRun.summaryLine : ""
+                    font.family: Theme.monoFontFamily
+                    font.pixelSize: Theme.fontSizeMedium
+                    color: Theme.surfaceText
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: 0
+
+                    Rectangle {
                         width: parent.width
-                        wrapMode: Text.WordWrap
-                        text: root.view.lastRun ? root.view.lastRun.stamp : ""
-                        font.pixelSize: Theme.fontSizeMedium
-                        color: Theme.surfaceText
+                        height: 1
+                        color: root.ruleColor
                     }
-                    // The run report's headline numbers ("47 upgraded · 3.1 GiB
-                    // freed"), when the record has a summary; nothing for an
-                    // older last-run.json.
-                    StyledText {
-                        textFormat: Text.PlainText // state-file strings are data, never markup
-                        visible: root.view.lastRun !== null && root.view.lastRun.summaryLine !== ""
+                    StatRow {
+                        row: root.view.rows.lastRun
+                        ink: root.stateColor(root.view.rows.lastRun.tone)
+                    }
+                    StatRow {
+                        id: updRow
+                        objectName: "updatesRow"
+                        row: root.view.rows.updates
+                        ink: root.stateColor(root.view.rows.updates.tone)
+                        expandable: pop.upList !== null
+                        expanded: pop.listOpen
+                        onToggled: pop.updatesOpen = !pop.updatesOpen
+                    }
+
+                    // The unfolded list: read-only, nothing in it opens anything.
+                    Column {
+                        visible: pop.listOpen
                         width: parent.width
-                        wrapMode: Text.WordWrap
-                        text: root.view.lastRun ? root.view.lastRun.summaryLine : ""
-                        font.pixelSize: Theme.fontSizeMedium
-                        color: Theme.surfaceText
-                    }
-                    // What needs the user, only when the run left something.
-                    StyledText {
-                        textFormat: Text.PlainText // state-file strings are data, never markup
-                        visible: root.view.lastRun !== null && root.view.lastRun.warnLine !== ""
-                        width: parent.width
-                        wrapMode: Text.WordWrap
-                        text: root.view.lastRun ? root.view.lastRun.warnLine : ""
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: root.tone("warning")
-                    }
-                    Repeater {
-                        model: root.view.lastRun ? root.view.lastRun.notes : []
+                        spacing: Theme.spacingXS
+                        bottomPadding: Theme.spacingS
+
                         StyledText {
                             textFormat: Text.PlainText // state-file strings are data, never markup
-                            required property var modelData
                             width: parent.width
-                            wrapMode: Text.WordWrap
-                            text: modelData.text
+                            elide: Text.ElideRight
+                            text: pop.upList ? pop.upList.checked : ""
                             font.pixelSize: Theme.fontSizeSmall
-                            color: root.tone(modelData.tint)
+                            color: Theme.surfaceVariantText
                         }
-                    }
-                }
-
-                Column {
-                    width: parent.width
-                    spacing: Theme.spacingXS
-
-                    Kicker {
-                        text: "Updates"
-                    }
-                    Row {
-                        width: parent.width
-                        spacing: Theme.spacingS
-
-                        StyledText {
-                            textFormat: Text.PlainText // state-file strings are data, never markup
-                            id: updCount
-                            visible: root.view.updates.count !== null
-                            text: root.view.updates.count !== null ? String(root.view.updates.count) : ""
-                            font.family: Theme.monoFontFamily
-                            font.pixelSize: Theme.fontSizeXLarge
-                            color: root.view.updates.count > 0 ? Theme.primary : Theme.surfaceText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        StyledText {
-                            textFormat: Text.PlainText // state-file strings are data, never markup
-                            // Wrap in the width the number leaves: a long note (the
-                            // updates' "N repo · M AUR (K held, <72h) · checked …") is
-                            // otherwise clipped at the popout's right edge.
-                            width: parent.width - (updCount.visible ? updCount.width + parent.spacing : 0)
-                            wrapMode: Text.WordWrap
-                            text: root.view.updates.note
-                            font.pixelSize: Theme.fontSizeMedium
-                            color: root.view.updates.count !== null ? Theme.surfaceText : Theme.surfaceVariantText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-                }
-
-                Column {
-                    width: parent.width
-                    spacing: Theme.spacingXS
-
-                    Kicker {
-                        text: "AUR"
-                    }
-                    Row {
-                        width: parent.width
-                        spacing: Theme.spacingS
-
-                        StyledText {
-                            textFormat: Text.PlainText // state-file strings are data, never markup
-                            id: aurCount
-                            visible: root.view.aur.packages !== null
-                            text: root.view.aur.packages !== null ? String(root.view.aur.packages) : ""
-                            font.family: Theme.monoFontFamily
-                            font.pixelSize: Theme.fontSizeXLarge
-                            color: Theme.surfaceText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                        StyledText {
-                            textFormat: Text.PlainText // state-file strings are data, never markup
-                            // Wrap in the width the number leaves: a long note (the
-                            // updates' "N repo · M AUR (K held, <72h) · checked …") is
-                            // otherwise clipped at the popout's right edge.
-                            width: parent.width - (aurCount.visible ? aurCount.width + parent.spacing : 0)
-                            wrapMode: Text.WordWrap
-                            text: root.view.aur.note
-                            font.pixelSize: Theme.fontSizeMedium
-                            color: root.view.aur.packages !== null ? Theme.surfaceText : Theme.surfaceVariantText
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
-                    // The high findings, one row each: the package (mono) and why.
-                    Repeater {
-                        model: root.view.aur.high
-                        Row {
-                            required property var modelData
+                        ListView {
+                            id: pkgView
+                            objectName: "pkgList"
+                            readonly property int rowH: 28
                             width: parent.width
-                            spacing: Theme.spacingS
-
-                            StyledText {
-                                textFormat: Text.PlainText // state-file strings are data, never markup
-                                id: pkgText
-                                text: modelData.pkg
-                                font.family: Theme.monoFontFamily
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.error
+                            height: Math.min(contentHeight, 8 * rowH)
+                            clip: true
+                            interactive: contentHeight > height
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: listModel
+                            section.property: "section"
+                            section.criteria: ViewSection.FullString
+                            section.labelPositioning: ViewSection.InlineLabels | ViewSection.CurrentLabelAtStart
+                            section.delegate: Rectangle {
+                                id: secBox
+                                required property string section
+                                width: pkgView.width
+                                height: pkgView.rowH
+                                color: Theme.surfaceContainer
+                                Kicker {
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    elide: Text.ElideRight
+                                    text: secBox.section
+                                }
                             }
-                            StyledText {
-                                textFormat: Text.PlainText // state-file strings are data, never markup
-                                width: parent.width - pkgText.width - parent.spacing
-                                wrapMode: Text.WordWrap
-                                text: modelData.reason
-                                font.pixelSize: Theme.fontSizeSmall
-                                color: Theme.surfaceText
+                            delegate: Item {
+                                id: pkgRow
+                                required property string name
+                                required property string from
+                                required property string to
+                                required property string tag
+                                required property bool restart
+                                width: pkgView.width
+                                height: pkgView.rowH
+
+                                Row {
+                                    anchors.fill: parent
+                                    spacing: Theme.spacingS
+
+                                    StyledText {
+                                        textFormat: Text.PlainText // state-file strings are data, never markup
+                                        width: Math.max(0, parent.width - verText.width - tagBox.width - 2 * parent.spacing)
+                                        elide: Text.ElideRight
+                                        text: pkgRow.name
+                                        font.pixelSize: Theme.fontSizeMedium
+                                        color: Theme.surfaceText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    StyledText {
+                                        id: verText
+                                        width: Math.min(implicitWidth, 150)
+                                        elide: Text.ElideRight
+                                        textFormat: Text.PlainText // state-file strings are data, never markup
+                                        text: pkgRow.from + " → " + pkgRow.to
+                                        font.family: Theme.monoFontFamily
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        color: Theme.surfaceVariantText
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Item {
+                                        id: tagBox
+                                        width: pkgRow.tag !== "" ? listTag.width : 0
+                                        height: parent.height
+                                        Tag {
+                                            id: listTag
+                                            visible: pkgRow.tag !== ""
+                                            text: pkgRow.tag
+                                            ink: pkgRow.restart ? root.stateColor("warn") : Theme.surfaceVariantText
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                    }
+                                }
                             }
                         }
+                        StyledText {
+                            textFormat: Text.PlainText // state-file strings are data, never markup
+                            visible: pop.upList !== null && pop.upList.more > 0
+                            width: parent.width
+                            elide: Text.ElideRight
+                            text: pop.upList ? "and " + pop.upList.more + " more not shown" : ""
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.surfaceVariantText
+                        }
                     }
-                    StyledText {
-                        textFormat: Text.PlainText // state-file strings are data, never markup
-                        visible: root.view.aur.more > 0
-                        text: "+" + root.view.aur.more + " more in archmaid's audit"
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.surfaceVariantText
+
+                    StatRow {
+                        row: root.view.rows.aur
+                        ink: root.stateColor(root.view.rows.aur.tone)
                     }
                 }
 

@@ -1,0 +1,5 @@
+module qs.Widgets
+StyledText 1.0 StyledText.qml
+DankIcon 1.0 DankIcon.qml
+DankButton 1.0 DankButton.qml
+PopoutComponent 1.0 PopoutComponent.qml

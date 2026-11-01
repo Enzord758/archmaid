@@ -56,6 +56,36 @@ func restartJSON(t *testing.T) string {
 	return string(b)
 }
 
+// TestWidgetRenders loads the REAL ArchmaidWidget.qml offscreen under
+// qmltestrunner, with stand-ins for the DMS modules it imports
+// (tests/stubs: no file is read, nothing is started), and runs
+// tests/tst_widget.qml: the Updates list is absent for a v:2 file and unfolds
+// for a v:3 one, capped at 8 rows, with its footer, toggles and reset.
+func TestWidgetRenders(t *testing.T) {
+	runner := "/usr/lib/qt6/bin/qmltestrunner"
+	if _, err := os.Stat(runner); err != nil {
+		var lerr error
+		if runner, lerr = exec.LookPath("qmltestrunner"); lerr != nil {
+			t.Skip("qmltestrunner not installed")
+		}
+	}
+	stubs, err := filepath.Abs("tests/stubs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	for _, f := range []struct{ from, to string }{{"archmaid/state.js", "state.js"}, {"archmaid/ArchmaidWidget.qml", "ArchmaidWidget.qml"}, {"tests/tst_widget.qml", "tst_widget.qml"}} {
+		if err := os.WriteFile(filepath.Join(work, f.to), []byte(read(t, f.from)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command(runner, "-input", work, "-import", stubs)
+	cmd.Env = append(os.Environ(), "QT_QPA_PLATFORM=offscreen")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("qmltestrunner: %v\n%s", err, out)
+	}
+}
+
 // TestStateJSIsPlainJS: state.js is the only JavaScript file in the repo and
 // GitHub's CodeQL parses it as plain JavaScript. A QML-only line (".pragma
 // library", ".import") makes the parser reject the whole file.

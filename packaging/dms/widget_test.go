@@ -193,30 +193,82 @@ func TestWidgetRetriesUntilFileAppears(t *testing.T) {
 	}
 }
 
-// TestWidgetSummaryLines: under LAST RUN the popout shows the run report's
-// two lines (state.js's summaryLine and warnLine), each hidden when empty (an
-// older last-run.json has no summary; a quiet run no warning), as plain
-// text, the warning in the warning tone. Like the tests above this reads the
-// source: the widget can't be loaded outside DMS.
+// TestWidgetSummaryLines: under the hero the popout shows the run report's
+// numbers line (state.js's summaryLine), hidden when empty (an older
+// last-run.json has no summary), as plain text, elided. The attention items
+// (warnLine's content) are the hero's lines, so there is no second warning
+// text. Like the tests above this reads the source: the widget can't be
+// loaded outside DMS.
 func TestWidgetSummaryLines(t *testing.T) {
 	b, err := os.ReadFile("archmaid/ArchmaidWidget.qml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, c := range []struct{ field, tone string }{{"summaryLine", "Theme.surfaceText"}, {"warnLine", `root.tone("warning")`}} {
-		var block string
-		for _, blk := range strings.Split(string(b), "StyledText {")[1:] {
-			if end := strings.Index(blk, "}"); end >= 0 && strings.Contains(blk[:end], "text: root.view.lastRun ? root.view.lastRun."+c.field+" :") {
-				block = blk[:end]
-			}
+	var block string
+	for _, blk := range strings.Split(string(b), "StyledText {")[1:] {
+		if end := strings.Index(blk, "}"); end >= 0 && strings.Contains(blk[:end], "text: root.view.lastRun ? root.view.lastRun.summaryLine :") {
+			block = blk[:end]
 		}
-		if block == "" {
-			t.Fatalf("no StyledText shows lastRun.%s", c.field)
+	}
+	if block == "" {
+		t.Fatal("no StyledText shows lastRun.summaryLine")
+	}
+	for _, want := range []string{"textFormat: Text.PlainText", `root.view.lastRun.summaryLine !== ""`, "elide: Text.ElideRight", "color: Theme.surfaceText"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("the summaryLine text lacks %q:%s", want, block)
 		}
-		for _, want := range []string{"textFormat: Text.PlainText", "root.view.lastRun." + c.field + ` !== ""`, "wrapMode: Text.WordWrap", "color: " + c.tone} {
-			if !strings.Contains(block, want) {
-				t.Errorf("the %s text lacks %q:%s", c.field, want, block)
-			}
+	}
+	if strings.Contains(string(b), "warnLine") {
+		t.Error("the widget shows warnLine: the attention items are the hero's lines")
+	}
+}
+
+// TestWidgetUpdatesList: the Updates row unfolds the list only when there is
+// one: a chevron and a toggle only for a non-empty list, a ListView capped at
+// 8 rows with sticky section headers, the footer for what the cap cut, plain
+// text in the delegates, no clickable row inside the list, and the open state
+// reset whenever the popout closes.
+func TestWidgetUpdatesList(t *testing.T) {
+	b, err := os.ReadFile("archmaid/ArchmaidWidget.qml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	for _, want := range []string{
+		"expandable: pop.upList !== null",
+		"readonly property bool listOpen: updatesOpen && upList !== null",
+		"height: Math.min(contentHeight, 8 * rowH)",
+		"section.property: \"section\"",
+		"ViewSection.CurrentLabelAtStart",
+		`"and " + pop.upList.more + " more not shown"`,
+		"pop.updatesOpen = false",
+		"Qt.Key_Space",
+		"Qt.Key_Return",
+		"Theme.isLightMode",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("the widget lacks %q", want)
 		}
+	}
+	// Every state colour is one of the fixed Tokyo Night constants.
+	for _, c := range []string{"#9ece6a", "#e0af68", "#f7768e"} {
+		if !strings.Contains(src, c) {
+			t.Errorf("state colour %s missing", c)
+		}
+	}
+	// The reset sits in the handler that sees the popout hide.
+	h := src[strings.Index(src, "function onShouldBeVisibleChanged()"):]
+	h = h[:strings.Index(h, "\n            }\n")]
+	if !strings.Contains(h, "} else {") || !strings.Contains(h, "pop.updatesOpen = false") {
+		t.Errorf("the close handler must reset updatesOpen:\n%s", h)
+	}
+	// Read-only: the list's delegate has no MouseArea, and the only MouseArea
+	// in the popout belongs to the expandable row.
+	l := src[strings.Index(src, "id: pkgView"):strings.Index(src, `"and " + pop.upList.more`)]
+	if strings.Contains(l, "MouseArea") || strings.Contains(l, "onClicked") || strings.Contains(l, "TapHandler") {
+		t.Error("a list row must not be clickable")
+	}
+	if n := strings.Count(src, "MouseArea {"); n != 1 {
+		t.Errorf("%d MouseAreas in the widget, want the one of the Updates row", n)
 	}
 }
