@@ -20,12 +20,19 @@ var restartPkg = regexp.MustCompile(`^(lib32-)?(systemd|mesa|nvidia(-[a-z0-9-]+)
 
 var restartNot = map[string]bool{"nvidia-settings": true, "nvidia-prime": true, "lib32-nvidia-settings": true}
 
+// IsRestartPkg reports whether upgrading the package called name calls for a
+// restart (not the kernel). The DMS widget's state.js isRestartPkg mirrors it;
+// packaging/dms checks the two agree.
+func IsRestartPkg(name string) bool {
+	return restartPkg.MatchString(name) && !restartNot[name]
+}
+
 // restartCandidates are the packages upgraded in this run that call for a
 // restart (not the kernel).
 func restartCandidates(upgraded []Pkg) []string {
 	var names []string
 	for _, p := range upgraded {
-		if restartPkg.MatchString(p.Name) && !restartNot[p.Name] {
+		if IsRestartPkg(p.Name) {
 			names = append(names, p.Name)
 		}
 	}

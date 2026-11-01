@@ -399,4 +399,236 @@ TestCase {
         verify(none.argv === undefined);
         verify(none.error.indexOf("TERMINAL") >= 0);
     }
+
+    // ---- updates-cache.json v:3: the package list, the hero, the rows ----
+
+    function upd3(extra, checkedMs, v) {
+        const o = {v: v === undefined ? 3 : v, count: 10, repo: 9, aur: 1, aur_held: 2,
+                   checked: new Date(checkedMs === undefined ? t0 : checkedMs).toISOString()};
+        for (const k in extra)
+            o[k] = extra[k];
+        return JSON.stringify(o);
+    }
+    function pk(name, src, extra) {
+        const o = {name: name, from: "1.0-1", to: "1.1-1", src: src};
+        for (const k in (extra || {}))
+            o[k] = extra[k];
+        return o;
+    }
+    readonly property var busyPkgs: [
+        pk("zsh", "repo"), pk("systemd", "repo"), pk("curl", "repo"), pk("linux-cachyos", "repo"),
+        pk("mesa", "repo"), pk("nvidia-settings", "repo"), pk("lib32-mesa", "repo"),
+        pk("zen-browser-bin", "aur", {held: false}),
+        pk("paru-bin", "aur", {held: true, age: "1d9h"}), pk("abc-bin", "aur", {held: true})
+    ]
+
+    // v:1..3 parse; the list exists for v:3 only, and only as a well-formed array.
+    function test_parseV3() {
+        const u = State.parseUpdates(upd3({packages: busyPkgs}));
+        compare(u.packages.length, 10);
+        compare(u.packages[8].held, true);
+        compare(u.packages[8].age, "1d9h");
+        compare(u.packages[0].held, false);
+        compare(u.packages[0].age, "");
+        verify(State.parseUpdates(upd3({})).packages === null, "v3 without packages");
+        verify(State.parseUpdates(upd3({packages: busyPkgs}, t0, 2)).packages === null, "v2 ignores packages");
+        verify(State.parseUpdates(upd3({packages: busyPkgs}, t0, 1)).packages === null, "v1 ignores packages");
+        compare(State.parseUpdates(upd3({packages: busyPkgs}, t0, 1)).count, 10);
+        verify(State.parseUpdates(upd3({}, t0, 4)) === null, "v4 is unknown");
+        const bad = ["x", 5, {a: 1}, null, true];
+        for (let i = 0; i < bad.length; i++)
+            verify(State.parseUpdates(upd3({packages: bad[i]})).packages === null, "malformed packages " + i);
+        compare(State.parseUpdates(upd3({packages: []})).packages.length, 0);
+    }
+
+    // The file is user-writable: every entry is checked again.
+    function test_packageValidation() {
+        const long = "a".repeat(65), longv = "1".repeat(49);
+        const list = [
+            pk("ok", "repo"),
+            pk("has space", "repo"), pk("", "repo"), pk(long, "repo"), pk("semi;colon", "repo"), pk("<b>x</b>", "repo"),
+            {name: "nofrom", to: "1", src: "repo"},
+            pk("badfrom", "repo", {from: "1 0"}), pk("badto", "repo", {to: "1\n2"}), pk("longv", "repo", {to: longv}),
+            pk("badsrc", "flatpak"), {name: "nosrc", from: "1", to: "2"},
+            pk("badheld", "aur", {held: "yes"}), pk("badheld2", "aur", {held: 1}),
+            pk("badage", "aur", {held: true, age: "1x"}), pk("badage2", "aur", {held: true, age: "d"}),
+            pk("badage3", "aur", {held: true, age: "1d 2h"}),
+            pk("goodage", "aur", {held: true, age: "12h30m5s"}),
+            pk("repoheld", "repo", {held: true, age: "1d"}),
+            pk("extra", "repo", {future: {x: 1}}),
+            "str", 7, null, [1], {},
+            pk("a@b._+-c", "repo", {from: "2:1.0~rc1+git-1", to: "1.0.r5.g1a2b3c-2"})
+        ];
+        const u = State.parseUpdates(upd3({packages: list}));
+        compare(u.packages.map(p => p.name).join(","), "ok,badage,badage2,badage3,goodage,repoheld,extra,a@b._+-c");
+        const by = {};
+        u.packages.forEach(p => by[p.name] = p);
+        compare(by.badage.held, true);
+        compare(by.badage.age, "", "a bad age is dropped, the entry stays");
+        compare(by.badage3.age, "");
+        compare(by.goodage.age, "12h30m5s");
+        compare(by.repoheld.held, false, "held is for the AUR only");
+        compare(by.repoheld.age, "");
+        verify(by.extra.future === undefined);
+    }
+
+    function test_packageCap() {
+        const many = [];
+        for (let i = 0; i < 250; i++)
+            many.push(pk("p" + i, "repo"));
+        compare(State.parseUpdates(upd3({packages: many})).packages.length, 200);
+        const mix = [];
+        for (let i = 0; i < 300; i++)
+            mix.push(i % 2 === 0 ? pk("p" + i, "repo") : pk("bad name", "repo"));
+        compare(State.parseUpdates(upd3({packages: mix})).packages.length, 150);
+    }
+
+    // The list lives inside the same 3-day window as the count.
+    function test_listStaleWindow() {
+        const text = upd3({packages: busyPkgs});
+        const fresh = State.summarize(null, null, State.parseUpdates(text), t0 + 2.9 * day);
+        verify(State.updateList(fresh, t0 + 2.9 * day) !== null);
+        const old = State.summarize(null, null, State.parseUpdates(text), t0 + 3.1 * day);
+        verify(old.updatesPackages === null);
+        verify(State.updateList(old, t0 + 3.1 * day) === null);
+        verify(State.popout(old, t0 + 3.1 * day).updateList === null);
+        const v2 = State.summarize(null, null, State.parseUpdates(upd3({packages: busyPkgs}, t0, 2)), t0);
+        verify(State.updateList(v2, t0) === null, "v2: no list");
+        const none = State.summarize(null, null, State.parseUpdates(upd3({})), t0);
+        verify(State.updateList(none, t0) === null, "v3 without packages: no list");
+        const empty = State.summarize(null, null, State.parseUpdates(upd3({packages: []})), t0);
+        verify(State.updateList(empty, t0) === null, "empty list: nothing to unfold");
+    }
+
+    function test_updateListGroups() {
+        const now = t0 + 17 * 60000;
+        const s = State.summarize(null, null, State.parseUpdates(upd3({packages: busyPkgs})), now);
+        const l = State.updateList(s, now);
+        compare(l.sections, ["Repo", "AUR", "Held · cooldown 72 h"]);
+        compare(l.items.map(i => i.name).join(","),
+                "lib32-mesa,mesa,systemd,curl,linux-cachyos,nvidia-settings,zsh,zen-browser-bin,abc-bin,paru-bin");
+        compare(l.items.map(i => i.tag).join("|"), "restart|restart|restart||||||held|held 1d9h");
+        compare(l.items[0].section, "Repo");
+        compare(l.items[7].section, "AUR");
+        compare(l.items[8].section, "Held · cooldown 72 h");
+        compare(l.items[0].from, "1.0-1");
+        compare(l.listed, 10);
+        compare(l.more, 2, "9 + 1 + 2 held - 10 listed");
+        compare(l.checked, "checked 17 min ago");
+        const only = State.summarize(null, null, State.parseUpdates(upd3({count: 2, repo: 2, aur: 0, aur_held: 0, packages: [pk("b", "repo"), pk("a", "repo")]})), now);
+        const l2 = State.updateList(only, now);
+        compare(l2.sections, ["Repo"]);
+        compare(l2.more, 0);
+        compare(l2.items.map(i => i.name).join(","), "a,b");
+        const over = State.summarize(null, null, State.parseUpdates(upd3({count: 1, repo: 1, aur: 0, aur_held: 0, packages: [pk("b", "repo"), pk("a", "repo")]})), now);
+        compare(State.updateList(over, now).more, 0);
+    }
+
+    function test_updateListMore() {
+        const many = [];
+        for (let i = 0; i < 200; i++)
+            many.push(pk("p" + i, "repo"));
+        const s = State.summarize(null, null, State.parseUpdates(upd3({count: 260, repo: 250, aur: 10, aur_held: 3, packages: many})), t0);
+        compare(State.updateList(s, t0).more, 63);
+    }
+
+    // The restart rule: Go's restart.go computes the expected answer for each name.
+    function test_restartParity() {
+        const names = Object.keys(JSON.parse(F.fx.restartTable));
+        verify(names.length > 20);
+        for (let i = 0; i < names.length; i++)
+            compare(State.isRestartPkg(names[i]), JSON.parse(F.fx.restartTable)[names[i]], names[i]);
+        verify(State.isRestartPkg("systemd"));
+        verify(!State.isRestartPkg("linux"));
+        verify(!State.isRestartPkg(undefined));
+    }
+
+    function test_heroQuiet() {
+        const now = t0 + 2 * 3600000;
+        const s = sum(F.fx.lastOK, F.fx.auditClean, upd3({count: 0, repo: 0, aur: 0, aur_held: 0, packages: []}, now - 300000), now);
+        const p = State.popout(s, now);
+        compare(p.hero.tone, "ok");
+        compare(p.hero.kicker, "LAST RUN · 2 H AGO");
+        compare(p.hero.headline, "Everything is up to date");
+        compare(p.hero.sub, "Cleaned 2 h ago, nothing pending");
+        compare(p.hero.attention, []);
+        compare(p.rows.updates.value, "Up to date");
+        compare(p.rows.updates.tag, "UP TO DATE");
+        compare(p.rows.aur.tag, "NO HIGH");
+        compare(p.rows.aur.tone, "ok");
+        compare(p.rows.lastRun.value, "Full Cleanup");
+        compare(p.rows.lastRun.tag, "OK");
+        compare(p.rows.lastRun.tone, "ok");
+    }
+
+    function test_heroBusy() {
+        const now = t0 + 17 * 3600000;
+        const s = sum(F.fx.lastSummary, F.fx.auditClean, upd3({packages: busyPkgs}, now - 17 * 60000), now);
+        const p = State.popout(s, now);
+        compare(p.hero.tone, "warn");
+        compare(p.hero.kicker, "LAST RUN · 17 H AGO");
+        compare(p.hero.headline, "Restart recommended");
+        compare(p.hero.sub, "10 updates waiting · 2 held");
+        compare(p.hero.attention, ["1 new .pacnew"], "the headline is not repeated as the first line");
+        compare(p.rows.updates.value, "9 repo · 1 AUR · 2 held");
+        compare(p.rows.updates.tag, "10 NEW");
+        compare(p.rows.updates.tone, "muted");
+        verify(p.updateList !== null);
+        const w = sum(F.fx.lastOK, F.fx.auditClean, upd3({}, now - 60000), now);
+        const h = State.popout(w, now).hero;
+        compare(h.tone, "ok");
+        compare(h.headline, "10 updates waiting");
+        compare(h.sub, "Cleaned 17 h ago · 2 held");
+    }
+
+    function test_heroProblem() {
+        const now = t0 + 2 * 3600000;
+        const s = sum(F.fx.lastFailed1, F.fx.auditHigh, upd3({count: 5, repo: 5, aur: 0, aur_held: 0}, now - 600000), now);
+        const p = State.popout(s, now);
+        compare(p.hero.tone, "danger");
+        compare(p.hero.headline, "Last run failed", "a failed run outranks AUR warnings");
+        compare(p.hero.sub, "1 step failed · 2 AUR warnings · 5 updates waiting");
+        compare(p.hero.attention, ["foo: maintainer alice → mallory"]);
+        compare(p.rows.aur.tag, "2 HIGH");
+        compare(p.rows.aur.tone, "danger");
+        compare(p.rows.aur.value, "foo · maintainer alice → mallory");
+        compare(p.rows.lastRun.tag, "FAILED");
+        compare(p.rows.lastRun.tone, "danger");
+        const a = sum(F.fx.lastOK, F.fx.auditHigh, null, now);
+        compare(State.popout(a, now).hero.headline, "2 AUR warnings");
+    }
+
+    function test_heroStale() {
+        const now = t0 + 16 * day;
+        const s = sum(F.fx.lastOK, F.fx.auditClean, upd3({}, t0), now);
+        const p = State.popout(s, now);
+        compare(p.hero.tone, "warn");
+        compare(p.hero.kicker, "LAST RUN · 16 DAYS AGO");
+        compare(p.hero.headline, "No cleanup for 16 days");
+        compare(p.hero.sub, "Update check is 16 days old");
+        compare(p.rows.updates.value, "Unknown");
+        compare(p.rows.updates.tag, "STALE");
+        compare(p.rows.updates.tone, "warn");
+        verify(p.updateList === null);
+    }
+
+    function test_heroNoData() {
+        const p = State.popout(sum(null, null, null, t0), t0);
+        compare(p.hero.tone, "muted");
+        compare(p.hero.headline, "No data yet");
+        compare(p.hero.kicker, "NO RUN YET");
+        compare(p.rows.lastRun.value, "No run recorded");
+        compare(p.rows.updates.value, "Not checked yet");
+        compare(p.rows.updates.tag, "");
+        compare(p.rows.aur.value, "No audit yet");
+        compare(p.rows.aur.tag, "");
+        verify(p.updateList === null);
+    }
+
+    // An AUR audit with no high finding says NO HIGH, never CLEAN.
+    function test_noHigh() {
+        const p = State.popout(sum(null, F.fx.auditClean, null, t0), t0);
+        compare(p.rows.aur.tag, "NO HIGH");
+        compare(p.rows.aur.value.indexOf("27 audited"), 0);
+    }
 }

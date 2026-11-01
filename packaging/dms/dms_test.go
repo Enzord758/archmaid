@@ -19,7 +19,53 @@ import (
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/logstore"
+	"github.com/Enzord758/archmaid/internal/report"
 )
+
+// restartNames: the package names the restart rule is checked against in Go
+// and in state.js: the kernel (found differently, so never a restart
+// package), the driver and its userspace, the tools next to them, and near
+// misses of every part of the pattern.
+var restartNames = []string{
+	"linux", "linux-lts", "linux-cachyos", "linux-cachyos-headers", "linux-cachyos-nvidia", "linux-firmware", "linux-api-headers",
+	"systemd", "systemd-libs", "systemd-sysvcompat", "lib32-systemd", "lib32-lib32-systemd", "systemd-",
+	"mesa", "lib32-mesa", "mesa-utils", "mesa-demos", "vulkan-mesa-layers", "lib32-vulkan-mesa-layers", "libmesa", "Mesa", "mesa ",
+	"nvidia", "nvidia-utils", "lib32-nvidia-utils", "nvidia-open", "nvidia-open-dkms", "nvidia-dkms", "nvidia-580xx-utils",
+	"nvidia-settings", "lib32-nvidia-settings", "nvidia-prime", "lib32-nvidia-prime", "nvidia-container-toolkit",
+	"nvidia-", "nvidia-Utils", "nvidia_utils", "nvidia-utils\n", "nvidia-u.ils", "opencl-nvidia", "cuda", "",
+	"glibc", "curl", "bash", "firefox", "systemd-boot", "lib32-glibc", "sd", "a-mesa", "lib32-",
+}
+
+// restartTable is what internal/report decides for each name; tst_state.qml
+// makes state.js agree on every one (TestRestartRuleMatchesGo, run by
+// TestStateJS).
+func restartTable() map[string]bool {
+	m := map[string]bool{}
+	for _, n := range restartNames {
+		m[n] = report.IsRestartPkg(n)
+	}
+	return m
+}
+
+func restartJSON(t *testing.T) string {
+	t.Helper()
+	b, err := json.Marshal(restartTable())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// TestStateJSIsPlainJS: state.js is the only JavaScript file in the repo and
+// GitHub's CodeQL parses it as plain JavaScript. A QML-only line (".pragma
+// library", ".import") makes the parser reject the whole file.
+func TestStateJSIsPlainJS(t *testing.T) {
+	for i, line := range strings.Split(read(t, "archmaid/state.js"), "\n") {
+		if strings.HasPrefix(line, ".") {
+			t.Errorf("state.js line %d starts with %q: QML-only syntax, CodeQL cannot parse the file", i+1, line)
+		}
+	}
+}
 
 var t0 = time.Date(2026, 10, 4, 17, 48, 40, 0, time.FixedZone("CEST", 7200))
 
@@ -389,7 +435,8 @@ func TestStateJS(t *testing.T) {
 				{Pkg: "p4", Reason: "r"}, {Pkg: "p5", Reason: "r"}, {Pkg: "p6", Reason: "r"}, {Pkg: "p7", Reason: "r"}}}),
 		// Every action that runs (and so can be last-run.json's action):
 		// the popout must have a name for each.
-		"runnable": runnableIDs(),
+		"runnable":     runnableIDs(),
+		"restartTable": restartJSON(t),
 	}
 	if !strings.Contains(fx["auditClean"], `"high": []`) {
 		t.Fatalf("audit writer changed shape: %s", fx["auditClean"])

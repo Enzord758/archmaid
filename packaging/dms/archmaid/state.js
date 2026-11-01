@@ -1,4 +1,7 @@
-.pragma library
+// No ".pragma library" line: it is QML-only syntax, and a plain JavaScript parser
+// (GitHub CodeQL) rejects the whole file because of it. This file is pure (no Qt
+// globals, no state), so one instance per importer behaves the same. Keep it plain
+// ES5: no QML-only syntax, no let/const/arrow functions.
 // Pure logic of the archmaid DMS widget: parsing the state files and turning
 // them into one summary. No QML types, no I/O, so packaging/dms/dms_test.go
 // can run it under qmltestrunner against files the real Go writers produced.
@@ -6,7 +9,7 @@
 // Contract (docs/dms-widget.md, section 3):
 //   last-run.json        internal/logstore.RunRecord   v:1
 //   audit-state.json     internal/audit.State          v:1
-//   updates-cache.json   written by archmaid-updates-check   v:1 or v:2
+//   updates-cache.json   written by archmaid-updates-check   v:1, v:2 or v:3
 // Unknown fields are ignored. Anything unusable (missing, empty, torn, wrong
 // version, wrong types) parses to null, which the widget shows as "no data".
 // Nothing here throws.
@@ -31,7 +34,7 @@ function _obj(text, maxV) {
     }
     if (v === null || typeof v !== "object" || Array.isArray(v))
         return null;
-    if (v.v !== 1 && !(maxV === 2 && v.v === 2))
+    if (typeof v.v !== "number" || Math.floor(v.v) !== v.v || v.v < 1 || v.v > (maxV || 1))
         return null;
     return v;
 }
@@ -166,12 +169,52 @@ function _natural(v) {
     return typeof v === "number" && isFinite(v) && v >= 0 && Math.floor(v) === v;
 }
 
-// parseUpdates: {count, repo, aur, aurHeld, checked(ms)} or null.
+var MAX_PACKAGES = 200;      // the list's cap (the writer's too)
+var NAME_RE = /^[A-Za-z0-9@._+-]{1,64}$/;
+var VERSION_RE = /^[A-Za-z0-9._+:~-]{1,48}$/;
+var AGE_RE = /^[0-9]+[dhms]([0-9]+[dhms])*$/;
+
+// _packages: the v:3 "packages" list as [{name, from, to, src, held, age}] or
+// null when it is absent or not an array. The file is user-writable, so every
+// entry is validated again: a bad entry is dropped, unknown fields are
+// ignored, a bad "age" is dropped, "held" only counts for the AUR. At most
+// MAX_PACKAGES entries are kept.
+function _packages(list) {
+    if (!Array.isArray(list))
+        return null;
+    var out = [];
+    for (var i = 0; i < list.length && out.length < MAX_PACKAGES; i++) {
+        var e = list[i];
+        if (e === null || typeof e !== "object" || Array.isArray(e))
+            continue;
+        if (typeof e.name !== "string" || !NAME_RE.test(e.name))
+            continue;
+        if (typeof e.from !== "string" || !VERSION_RE.test(e.from) || typeof e.to !== "string" || !VERSION_RE.test(e.to))
+            continue;
+        if (e.src !== "repo" && e.src !== "aur")
+            continue;
+        if (e.held !== undefined && typeof e.held !== "boolean")
+            continue;
+        var aur = e.src === "aur";
+        out.push({
+            name: e.name,
+            from: e.from,
+            to: e.to,
+            src: e.src,
+            held: aur && e.held === true,
+            age: aur && typeof e.age === "string" && AGE_RE.test(e.age) ? e.age : ""
+        });
+    }
+    return out;
+}
+
+// parseUpdates: {count, repo, aur, aurHeld, checked(ms), packages} or null.
 // v:1 files carry only count (repo/aur/aurHeld come back null). v:2 adds
 // repo, aur (AUR updates past the cooldown, null = unknown) and aur_held
-// (AUR updates inside the cooldown). A malformed optional field reads as null.
+// (AUR updates inside the cooldown). v:3 adds packages (see _packages; null
+// for v:1/v:2 or a malformed list). A malformed optional field reads as null.
 function parseUpdates(text) {
-    var o = _obj(text, 2);
+    var o = _obj(text, 3);
     if (!o)
         return null;
     var checked = _time(o.checked);
@@ -183,7 +226,8 @@ function parseUpdates(text) {
         repo: _natural(o.repo) ? o.repo : null,
         aur: aurKnown ? o.aur : null,
         aurHeld: aurKnown && _natural(o.aur_held) ? o.aur_held : 0,
-        checked: checked
+        checked: checked,
+        packages: o.v === 3 ? _packages(o.packages) : null
     };
 }
 
@@ -207,7 +251,7 @@ function summarize(lastRun, audit, updates, now) {
     var warns = [];
 
     if (!lastRun && !audit && !updates)
-        return { level: "nodata", issues: [], updates: null, updatesDetail: null, updatesChecked: null, lastRun: null, audit: null };
+        return { level: "nodata", issues: [], updates: null, updatesDetail: null, updatesChecked: null, updatesPackages: null, lastRun: null, audit: null };
 
     if (audit && audit.highCount > 0)
         errors.push({ kind: "aur", text: audit.highCount + (audit.highCount === 1 ? " AUR warning" : " AUR warnings") });
@@ -242,12 +286,16 @@ function summarize(lastRun, audit, updates, now) {
     // The split (v:2 files only); null when the count is unknown or from a v:1 file.
     var detail = count !== null && updates.repo !== null ? { repo: updates.repo, aur: updates.aur, aurHeld: updates.aurHeld } : null;
 
+    // The package list only inside the same window as the count: stale means no list.
+    var pkgs = count !== null && updates.packages ? updates.packages : null;
+
     return {
         level: errors.length > 0 ? "error" : (warns.length > 0 ? "warn" : "ok"),
         issues: errors.concat(warns),
         updates: count,
         updatesDetail: detail,
         updatesChecked: updates ? updates.checked : null,
+        updatesPackages: pkgs,
         lastRun: lastRun,
         audit: audit
     };
@@ -348,6 +396,7 @@ function updatesNote(s, now) {
 //            "" without a summary or without attention; a note: the failed steps "error", refused steps or staleness "warning")
 //   updates  {count (number|null), note}
 //   aur      {packages (number|null), note, high:[{pkg,reason}], more}
+//   hero, rows {lastRun, updates, aur}, updateList: see hero() and updateList()
 function popout(s, now) {
     var p = {
         lastRun: null,
@@ -386,7 +435,233 @@ function popout(s, now) {
         p.aur.high = a.high.slice(0, SHOWN_HIGH);
         p.aur.more = a.highCount - p.aur.high.length;
     }
+    p.hero = hero(s, now);
+    p.rows = { lastRun: _lastRunRow(s), updates: _updatesRow(s), aur: _aurRow(s, now) };
+    p.updateList = updateList(s, now);
     return p;
+}
+
+// --- the popout's hero, rows and update list (draft A, list variant 1) ---
+
+// Mirrors internal/report/restart.go (restartPkg and restartNot): the
+// packages whose upgrade a running system keeps using the old copy of until
+// it restarts. packaging/dms TestRestartRuleMatchesGo runs a table of names
+// through both and fails on any difference. A kernel is not on this list
+// (Go finds it differently), so "linux" is false here too.
+var RESTART_RE = /^(lib32-)?(systemd|mesa|nvidia(-[a-z0-9-]+)?)$/;
+var RESTART_NOT = { "nvidia-settings": true, "nvidia-prime": true, "lib32-nvidia-settings": true };
+
+function isRestartPkg(name) {
+    return typeof name === "string" && RESTART_RE.test(name) && !_own(RESTART_NOT, name);
+}
+
+// _headline: the hero headline of an issue (its colour comes from the level).
+function _headline(issue) {
+    switch (issue.kind) {
+    case "failed":
+        return "Last run failed";
+    case "incomplete":
+        return "Last run incomplete";
+    case "aborted":
+        return "Last run aborted";
+    case "cancelled":
+        return "Last run cancelled";
+    case "notauthorised":
+        return "Last run not authorised";
+    }
+    return issue.text; // "N AUR warnings", "No cleanup for 16 days"
+}
+
+function _tone(role) {
+    return { primary: "ok", error: "danger", warning: "warn" }[role] || "muted";
+}
+
+// hero(s, now): {tone ("ok" "warn" "danger" "muted"), kicker, headline, sub,
+// attention:[string]}. The headline says the state in words: the worst issue
+// (a failed run before AUR warnings), else the run's first attention item
+// ("Restart recommended"), else "N updates waiting", else "Everything is up
+// to date". The attention lines never repeat the headline.
+function hero(s, now) {
+    var r = s.lastRun, a = s.audit;
+    var h = { tone: "ok", kicker: r ? "LAST RUN · " + ago(r.finished, now).toUpperCase() : "NO RUN YET", headline: "", sub: "", attention: [] };
+    if (s.level === "nodata") {
+        h.tone = "muted";
+        h.headline = "No data yet";
+        h.sub = "Run archmaid once";
+        return h;
+    }
+    var att = r && r.summary ? r.summary.attention : [];
+    var held = s.updates !== null && s.updatesDetail ? s.updatesDetail.aurHeld : 0;
+    var waiting = s.updates !== null && s.updates > 0;
+    var subs = [];
+    var lines = [];
+    var waitingHead = false;
+    var clean = false;
+    if (s.issues.length > 0) {
+        var main = s.issues[0];
+        for (var i = 0; i < s.issues.length; i++) {
+            if (s.issues[i].kind !== "aur") {
+                main = s.issues[i];
+                break;
+            }
+        }
+        h.tone = s.level === "error" ? "danger" : "warn";
+        h.headline = _headline(main);
+        if (r && r.stepsFailed > 0 && main.kind === "failed")
+            subs.push(plural(r.stepsFailed, "step", "steps") + " failed");
+        if (r && r.stepsRefused > 0 && main.kind !== "notauthorised")
+            subs.push(plural(r.stepsRefused, "step", "steps") + " not authorised");
+        if (a && a.highCount > 0 && main.kind !== "aur")
+            subs.push(plural(a.highCount, "AUR warning", "AUR warnings"));
+        lines = att.slice();
+        if (a && a.high.length > 0)
+            lines.push(a.high[0].pkg + (a.high[0].reason ? ": " + a.high[0].reason : ""));
+    } else if (att.length > 0) {
+        h.tone = "warn";
+        h.headline = att[0];
+        lines = att.slice(1);
+    } else if (waiting) {
+        h.headline = plural(s.updates, "update", "updates") + " waiting";
+        waitingHead = true;
+    } else {
+        h.headline = "Everything is up to date";
+        clean = true;
+    }
+    if (waitingHead || clean) {
+        if (r)
+            subs.push("Cleaned " + ago(r.finished, now) + (clean && s.updates === 0 ? ", nothing pending" : ""));
+    }
+    var upd = waiting && !waitingHead ? plural(s.updates, "update", "updates") + " waiting" : "";
+    if (held > 0)
+        upd = upd ? upd + " · " + held + " held" : held + " held";
+    if (upd !== "")
+        subs.push(upd);
+    else if (s.updates === null && s.updatesChecked !== null && s.updatesChecked !== undefined)
+        subs.push("Update check is " + plural(Math.floor(_ageDays(s.updatesChecked, now)), "day", "days") + " old");
+    h.sub = subs.join(" · ");
+    var seen = h.headline.toLowerCase();
+    h.attention = lines.filter(function (l) {
+        return l.toLowerCase() !== seen;
+    }).slice(0, 3);
+    return h;
+}
+
+// The three compact rows, each {label, value, tag, tone}; tag "" is none.
+function _lastRunRow(s) {
+    var r = s.lastRun;
+    if (!r)
+        return { label: "Last run", value: "No run recorded", tag: "", tone: "muted" };
+    return { label: "Last run", value: actionLabel(r.action), tag: outcomeTag(r.outcome, r.stepsRefused), tone: _tone(outcomeTint(r.outcome, r.stepsRefused)) };
+}
+
+// The Updates row: the count in the tag excludes held updates (as the
+// script's count does), so "9 repo · 1 AUR · 2 held" reads "10 NEW".
+function _updatesRow(s) {
+    var d = s.updatesDetail;
+    var row = { label: "Updates", value: "Not checked yet", tag: "", tone: "muted" };
+    if (s.updates === null) {
+        if (s.updatesChecked !== null && s.updatesChecked !== undefined) {
+            row.value = "Unknown";
+            row.tag = "STALE";
+            row.tone = "warn";
+        }
+        return row;
+    }
+    var held = d ? d.aurHeld : 0;
+    var heldPart = held > 0 ? " · " + held + " held" : "";
+    if (s.updates === 0) {
+        row.value = "Up to date" + heldPart;
+        row.tag = "UP TO DATE";
+        row.tone = "ok";
+        return row;
+    }
+    row.tag = s.updates + " NEW";
+    if (!d)
+        row.value = "Pending";
+    else if (d.aur === null)
+        row.value = d.repo + " repo · AUR unknown";
+    else
+        row.value = d.repo + " repo · " + d.aur + " AUR" + heldPart;
+    return row;
+}
+
+// The AUR row: "NO HIGH" (not "CLEAN") when the audit found no high finding.
+function _aurRow(s, now) {
+    var a = s.audit;
+    var row = { label: "AUR", value: "No audit yet", tag: "", tone: "muted" };
+    if (!a)
+        return row;
+    if (a.highCount > 0) {
+        row.value = a.high[0].pkg + (a.high[0].reason ? " · " + a.high[0].reason : "");
+        row.tag = a.highCount + " HIGH";
+        row.tone = "danger";
+    } else {
+        row.value = a.packages + " audited" + (a.checked !== null ? " · " + ago(a.checked, now) : "");
+        row.tag = "NO HIGH";
+        row.tone = "ok";
+    }
+    return row;
+}
+
+function _byName(x, y) {
+    return x.name < y.name ? -1 : (x.name > y.name ? 1 : 0);
+}
+
+var HELD_TITLE = "Held · cooldown 72 h";
+
+// updateList(s, now): the unfoldable list under the Updates row, or null
+// when there is none (a v:1/v:2 file, no "packages", an empty list, or a
+// count older than the 3-day window).
+//   {items:[{name, from, to, section, tag, restart}], sections:[title],
+//    listed, more, checked:"checked 17 min ago"}
+// Sections in order Repo, AUR, "Held · cooldown 72 h" (empty ones are left
+// out). In Repo the restart-worthy packages come first, then by name. tag is
+// "restart" or "held 1d9h" ("held" without an age), else "". more = repo + aur
+// + aur_held - listed (what the writer's cap cut), never below 0.
+function updateList(s, now) {
+    var pk = s.updatesPackages;
+    if (!pk || pk.length === 0)
+        return null;
+    var repo = [], aur = [], held = [];
+    for (var i = 0; i < pk.length; i++) {
+        var p = pk[i];
+        var it = { name: p.name, from: p.from, to: p.to, section: "", tag: "", restart: false };
+        if (p.src === "repo") {
+            it.restart = isRestartPkg(p.name);
+            it.tag = it.restart ? "restart" : "";
+            it.section = "Repo";
+            repo.push(it);
+        } else if (p.held) {
+            it.tag = p.age ? "held " + p.age : "held";
+            it.section = HELD_TITLE;
+            held.push(it);
+        } else {
+            it.section = "AUR";
+            aur.push(it);
+        }
+    }
+    repo.sort(function (x, y) {
+        return x.restart !== y.restart ? (x.restart ? -1 : 1) : _byName(x, y);
+    });
+    aur.sort(_byName);
+    held.sort(_byName);
+    var items = repo.concat(aur, held);
+    var d = s.updatesDetail;
+    var total = d ? d.repo + (d.aur || 0) + d.aurHeld : items.length;
+    var sections = [];
+    if (repo.length > 0)
+        sections.push("Repo");
+    if (aur.length > 0)
+        sections.push("AUR");
+    if (held.length > 0)
+        sections.push(HELD_TITLE);
+    return {
+        items: items,
+        sections: sections,
+        listed: items.length,
+        more: Math.max(0, total - items.length),
+        checked: "checked " + ago(s.updatesChecked, now)
+    };
 }
 
 // plural(n, one, many): "1 step", "2 steps" (the GUI's plural.N).
