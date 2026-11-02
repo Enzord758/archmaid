@@ -23,6 +23,26 @@
 @define-color am_warn #e0af68;
 @define-color am_danger #f7768e;
 @define-color am_running #7aa2f7;
+/* The same four for bars, rules and tints, which carry no text: never
+   redefined for the light theme, they stay bright. */
+@define-color am_ok_bar #9ece6a;
+@define-color am_warn_bar #e0af68;
+@define-color am_danger_bar #f7768e;
+@define-color am_running_bar #7aa2f7;
+
+/* Light theme only: these colours as text and tag outlines on a light
+   surface score 1.8 to 2.6:1, so they get darker variants. They start from
+   the DMS widget's light stateColor (ok #4e7d1a, warn #9a6a10, danger
+   #c4223f), darkened until each holds 4.5:1 on the sidebar, its selected
+   row and its own 14% tint too; the blue is ours.
+   TestLightStateColoursContrast holds them to that. Bars and markers use
+   the am_*_bar tokens above, so they keep the bright colours. */
+@media (prefers-color-scheme: light) {
+  @define-color am_ok #3d6114;
+  @define-color am_warn #75510c;
+  @define-color am_danger #a91d36;
+  @define-color am_running #2952b2;
+}
 
 /* Tokens derived from the named colours, so they follow DMS. */
 @define-color am_muted alpha(@window_fg_color, 0.55);
@@ -144,20 +164,20 @@
 .archmaid .am-run-elapsed { font-family: "JetBrains Mono", monospace; font-size: 28px; font-weight: 700; }
 .archmaid .am-segments { min-height: 4px; }
 .archmaid .am-segment { min-height: 4px; background-color: @am_rail; }
-.archmaid .am-segment.am-state-ok { background-color: @am_ok; }
+.archmaid .am-segment.am-state-ok { background-color: @am_ok_bar; }
 .archmaid .am-segment.am-state-failed,
-.archmaid .am-segment.am-state-aborted { background-color: @am_danger; }
-.archmaid .am-segment.am-state-auth-refused { background-color: @am_warn; }
+.archmaid .am-segment.am-state-aborted { background-color: @am_danger_bar; }
+.archmaid .am-segment.am-state-auth-refused { background-color: @am_warn_bar; }
 .archmaid .am-segment.am-state-running,
-.archmaid .am-segment.am-state-waiting { background-color: @am_running; }
+.archmaid .am-segment.am-state-waiting { background-color: @am_running_bar; }
 .archmaid .am-timeline > header { padding: 0; }
 .archmaid .am-step-header {
   padding: 8px 14px;
   border-top: 1px solid @am_rail;
   font-family: initial;
 }
-.archmaid .am-step-header.am-step-failed { border-left: 3px solid @am_danger; }
-.archmaid .am-step-header.am-step-running { border-left: 3px solid @am_running; }
+.archmaid .am-step-header.am-step-failed { border-left: 3px solid @am_danger_bar; }
+.archmaid .am-step-header.am-step-running { border-left: 3px solid @am_running_bar; }
 .archmaid .am-timeline > row { padding: 0; min-height: 0; }
 /* The header's line is the target that folds and opens a step (#207): it
    takes the hover highlight and the focus ring, the lines under it don't. */
@@ -225,8 +245,8 @@
 .archmaid.am-narrow .am-summary-hero .am-hero-title { font-size: 26px; }
 .archmaid .am-attn-row {
   padding: 8px 10px;
-  border-left: 3px solid @am_warn;
-  background-color: alpha(@am_warn, 0.09);
+  border-left: 3px solid @am_warn_bar;
+  background-color: alpha(@am_warn_bar, 0.09);
 }
 .archmaid .am-column-heading { margin-top: 4px; }
 .archmaid .am-summary-cols { margin-bottom: 12px; }
@@ -242,8 +262,8 @@
 .archmaid .am-cacheline {
   margin-top: 10px;
   padding: 8px 10px;
-  border-left: 3px solid @am_running;
-  background-color: alpha(@am_running, 0.08);
+  border-left: 3px solid @am_running_bar;
+  background-color: alpha(@am_running_bar, 0.08);
 }
 .archmaid .am-fold-row { border-top: 1px solid @am_rail; margin: 0 18px; padding: 6px 0; }
 .archmaid.am-narrow .am-fold-row { margin: 0 12px; }
@@ -263,7 +283,7 @@
 .archmaid .am-pkg-orphans { padding: 4px 0; }
 .archmaid .am-pkg-list > row { border-bottom: 1px solid @am_rail; }
 .archmaid .am-tray { border-top: 1px solid @am_rail; padding: 10px 14px; background-color: @card_bg_color; }
-.archmaid .am-tray-remove { border-top: 2px solid @am_danger; }
+.archmaid .am-tray-remove { border-top: 2px solid @am_danger_bar; }
 .archmaid .am-kicker.am-tone-danger { color: @am_danger; }
 .archmaid .am-pkg-trayname { font-family: "JetBrains Mono", monospace; }
 .archmaid .am-pkg-review-frame { border: 1px solid @am_rail; }
