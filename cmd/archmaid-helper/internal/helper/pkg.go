@@ -97,9 +97,13 @@ func removeFlag(noConfig bool) string {
 	return "-Rs"
 }
 
-// removePlanArgv: what `pacman -Rs[n]` would remove, read-only.
-func removePlanArgv(names []string, noConfig bool) []string {
-	return pacmanArgv([]string{removeFlag(noConfig), "--print", "--print-format", "%n %v"}, colourNever, names)
+// removePlanArgv: what `pacman -Rs[n]` would remove, read-only. It is always
+// -Rs: pacman refuses -Rns with --print ("invalid option: '--nosave' and
+// '--print' may not be used together"), and -n only decides whether config
+// files go, not which packages: the cascade is the same. The hash keeps mode
+// remove-n, so the confirmed choice is bound.
+func removePlanArgv(names []string, _ bool) []string {
+	return pacmanArgv([]string{"-Rs", "--print", "--print-format", "%n %v"}, colourNever, names)
 }
 
 // removePkgArgv is the removal itself. Never -Rc, never -Rdd.
@@ -412,6 +416,41 @@ func parseSyncInfo(out string) []syncEntry {
 	return entries
 }
 
+// pacman's removal refusal, as its translation catalogues give the English
+// msgids (/usr/share/locale/*/LC_MESSAGES/pacman.mo and libalpm.mo; the
+// helper runs pacman with LC_ALL=C): stderr gets "error: failed to prepare
+// transaction (could not satisfy dependencies)" and stdout one ":: removing
+// %s breaks dependency '%s' required by %s" per broken dependency
+// (pacman's remove.c prints it with colon_printf).
+const (
+	pacmanUnsatisfied = "could not satisfy dependencies"
+	pacmanBreaks      = "breaks dependency '"
+)
+
+var breaksPattern = regexp.MustCompile(`removing (\S+) breaks dependency '[^']*' required by (\S+)`)
+
+// removeRefusal classifies a failed `pacman -Rs --print`: only pacman's
+// dependency refusal is required-by, with the packages that need the
+// targets parsed from its lines; anything else is a plain failure, with no
+// reason.
+func removeRefusal(out, errOut string, exit int) *pkgFail {
+	all := out + "\n" + errOut
+	if !strings.Contains(all, pacmanUnsatisfied) && !strings.Contains(all, pacmanBreaks) {
+		return failed("pacman -Rs --print exited %d: %s", exit, firstLine(errOut))
+	}
+	var names []string
+	for _, m := range breaksPattern.FindAllStringSubmatch(all, -1) {
+		if n := m[2]; namePattern.MatchString(n) && !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	msg := "pacman would not remove it, but its refusal does not say which packages need it: " + firstLine(errOut)
+	if len(names) > 0 {
+		msg = "pacman would not remove it: still needed by " + strings.Join(names, ", ")
+	}
+	return &pkgFail{code: ExitRefused, reason: ReasonRequiredBy, msg: msg, names: names}
+}
+
 // removePlan computes (and vets) the plan for removing names.
 func (s *session) removePlan(names []string, noConfig bool) (Plan, *pkgFail) {
 	r := s.o.Runner
@@ -437,8 +476,7 @@ func (s *session) removePlan(names []string, noConfig bool) (Plan, *pkgFail) {
 		return Plan{}, failed("pacman %s --print: %v", removeFlag(noConfig), err)
 	}
 	if exit != 0 {
-		// pacman refuses what other packages need; that is its reason to show.
-		return Plan{}, &pkgFail{code: ExitRefused, reason: ReasonRequiredBy, msg: fmt.Sprintf("pacman would not remove it: %s", firstLine(errOut))}
+		return Plan{}, removeRefusal(out, errOut, exit)
 	}
 	var items, itemNames []string
 	for _, l := range nonEmptyLines(out) {

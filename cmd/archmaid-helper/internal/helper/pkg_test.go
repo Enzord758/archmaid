@@ -23,7 +23,8 @@ type pkgSys struct {
 	planItems []string          // -Sp lines: "repo name version"
 	rel       map[string]string // item → "Replaces : x" / "Conflicts With : y" lines
 	rmItems   []string          // -Rs --print lines: "name version"
-	rmErr     string            // pacman refuses the removal with this
+	rmErr     string            // pacman refuses the removal with this (stderr)
+	rmOut     string            // ... and this on stdout
 	owners    string            // -Qqo output
 	baseDeps  string            // "Depends On" value of base
 
@@ -109,7 +110,7 @@ func (p *pkgSys) Query(argv []string) (string, string, int, error) {
 			p.t.Fatalf("a query -R without --print: %q", argv)
 		}
 		if p.rmErr != "" {
-			return "", p.rmErr, 1, nil
+			return p.rmOut, p.rmErr, 1, nil
 		}
 		return strings.Join(p.rmItems, "\n") + "\n", "", 0, nil
 	}
@@ -171,7 +172,7 @@ func TestPkgArgvPinned(t *testing.T) {
 		{"install", installPkgArgv(n, false), "/usr/bin/pacman -S --needed --noconfirm --color always -- a b"},
 		{"install asdeps", installPkgArgv(n, true), "/usr/bin/pacman -S --needed --noconfirm --asdeps --color always -- a b"},
 		{"plan remove", removePlanArgv(n, false), "/usr/bin/pacman -Rs --print --print-format %n %v --color never -- a b"},
-		{"plan remove -n", removePlanArgv(n, true), "/usr/bin/pacman -Rns --print --print-format %n %v --color never -- a b"},
+		{"plan remove -n", removePlanArgv(n, true), "/usr/bin/pacman -Rs --print --print-format %n %v --color never -- a b"},
 		{"remove", removePkgArgv(n, false), "/usr/bin/pacman -Rs --noconfirm --color always -- a b"},
 		{"remove -n", removePkgArgv(n, true), "/usr/bin/pacman -Rns --noconfirm --color always -- a b"},
 		{"updates", updatesArgv(), "/usr/bin/pacman -Qu --color never"},
@@ -540,7 +541,7 @@ func TestPlanRemove(t *testing.T) {
 			t.Errorf("queries %q", join(p.queries))
 		}
 	})
-	t.Run("-n changes the argv and the hash", func(t *testing.T) {
+	t.Run("-n plans with -Rs (pacman refuses -Rns --print) but keeps the -Rns hash", func(t *testing.T) {
 		p := newPkgSys(t)
 		code, evs := runPkg(t, p, "plan-remove", "-n", "foo-old")
 		if code != ExitOK {
@@ -549,8 +550,14 @@ func TestPlanRemove(t *testing.T) {
 		if planOf(t, evs)["hash"] != PkgPlanHash("remove-n", []string{"foo-old"}, p.rmItems) {
 			t.Error("hash is not the -Rns one")
 		}
-		if !slices.Contains(join(p.queries), "/usr/bin/pacman -Rns --print --print-format %n %v --color never -- foo-old") {
-			t.Errorf("queries %q", join(p.queries))
+		q := join(p.queries)
+		if !slices.Contains(q, "/usr/bin/pacman -Rs --print --print-format %n %v --color never -- foo-old") {
+			t.Errorf("queries %q", q)
+		}
+		for _, l := range q {
+			if strings.Contains(l, "-Rns") {
+				t.Errorf("a plan query used -Rns: %q", l)
+			}
 		}
 	})
 	t.Run("not installed", func(t *testing.T) {
@@ -561,14 +568,44 @@ func TestPlanRemove(t *testing.T) {
 		}
 		wantReason(t, evs, ReasonNotInstalled, []string{"ghost"}, 0)
 	})
-	t.Run("pacman refuses", func(t *testing.T) {
+	// The texts are pacman's own: the msgids of /usr/share/locale/*/
+	// LC_MESSAGES/pacman.mo ("removing %s breaks dependency '%s' required by
+	// %s", "failed to prepare transaction (%s)", "invalid option: '%s' and
+	// '%s' may not be used together") and libalpm.mo ("could not satisfy
+	// dependencies"); pacman prints the breaks lines to stdout after ":: ".
+	t.Run("pacman refuses on dependencies: required-by with the dependents", func(t *testing.T) {
+		p := newPkgSys(t)
+		p.rmErr = "error: failed to prepare transaction (could not satisfy dependencies)"
+		p.rmOut = ":: removing libold breaks dependency 'libold' required by foo-new\n:: removing libold breaks dependency 'libold.so=1-64' required by bar\n:: removing libold breaks dependency 'libold' required by foo-new\n"
+		code, evs := runPkg(t, p, "plan-remove", "foo-old")
+		if code != ExitRefused || !strings.Contains(resultErr(evs), "still needed by foo-new, bar") {
+			t.Errorf("exit %d: %s", code, resultErr(evs))
+		}
+		wantReason(t, evs, ReasonRequiredBy, []string{"foo-new", "bar"}, 0)
+	})
+	t.Run("a refusal with no parsable dependents says so, names empty", func(t *testing.T) {
 		p := newPkgSys(t)
 		p.rmErr = "error: failed to prepare transaction (could not satisfy dependencies)"
 		code, evs := runPkg(t, p, "plan-remove", "foo-old")
-		if code != ExitRefused || !strings.Contains(resultErr(evs), "could not satisfy dependencies") {
+		if code != ExitRefused || !strings.Contains(resultErr(evs), "does not say which packages") {
 			t.Errorf("exit %d: %s", code, resultErr(evs))
 		}
 		wantReason(t, evs, ReasonRequiredBy, nil, 0)
+	})
+	t.Run("any other pacman error is a plain failure, not required-by", func(t *testing.T) {
+		for _, e := range []string{
+			"error: invalid option: '--nosave' and '--print' may not be used together",
+			"error: failed to init transaction (unable to lock database)",
+			"error: target not found: foo-old",
+		} {
+			p := newPkgSys(t)
+			p.rmErr = e
+			code, evs := runPkg(t, p, "plan-remove", "foo-old")
+			if code != ExitFailed || !strings.Contains(resultErr(evs), strings.TrimPrefix(e, "error: ")) {
+				t.Errorf("%q: exit %d: %s", e, code, resultErr(evs))
+			}
+			wantReason(t, evs, "", nil, 0)
+		}
 	})
 }
 
