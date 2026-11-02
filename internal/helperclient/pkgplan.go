@@ -262,13 +262,15 @@ func planPackages(ctx context.Context, helper string, req steps.PkgRequest) (ste
 	return d.pkgPlanResult(req, exitCode(waitErr), waitErr, stderr.String())
 }
 
-// ParsePkgPlan reads a whole plan-install / plan-remove output stream (as
-// from a run that exited 0) with the parser PlanPackages uses, for tests
-// that tie the helper's output to this parser.
-func ParsePkgPlan(verb string, req steps.PkgRequest, r io.Reader) (steps.PkgPlan, error) {
+// ParsePkgPlan reads a whole Packages verb's output stream, which exited
+// with exit, with the parser PlanPackages and the step runner use, for
+// tests that tie the helper's output to this parser. A plan verb gives the
+// plan or a *steps.PkgRefusal; a root verb's stale run gives the refusal
+// with the new plan.
+func ParsePkgPlan(verb string, req steps.PkgRequest, r io.Reader, exit int) (steps.PkgPlan, error) {
 	d := newDecoder(steps.Step{Verb: verb})
 	readLines(r, d, func([]string, bool) {}, func(bool) {})
-	return d.pkgPlanResult(req, 0, nil, "")
+	return d.pkgPlanResult(req, exit, nil, "")
 }
 
 // pkgPlanResult is a plan verb's verdict: a refusal as *steps.PkgRefusal,
