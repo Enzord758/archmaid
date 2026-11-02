@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Query runs a short read-only command under ctx (cancelling it kills the
@@ -17,11 +18,21 @@ import (
 // prompt on the terminal is refused like Start refuses it (CheckSudo), and
 // the command runs without any inherited SUDO_ASKPASS.
 func Query(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return QueryIn(ctx, "", nil, name, args...)
+}
+
+// QueryIn is Query in directory dir ("" = archmaid's) with exactly env as
+// the command's environment (nil = archmaid's own, as Query). The AUR build
+// runs git this way: a fixed, clean environment and nothing inherited.
+func QueryIn(ctx context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
 	if err := CheckSudo(name, args); err != nil {
 		return nil, err
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = Spec{Name: name}.env()
+	cmd.Dir = dir
+	// A grandchild that keeps the output pipe open must not outlive a kill.
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Env = Spec{Name: name, Env: env}.env()
 	out, err := cmd.Output()
 	var exit *exec.ExitError
 	if errors.As(err, &exit) {

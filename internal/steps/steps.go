@@ -53,6 +53,9 @@ type Step struct {
 	// (Verb VerbPkgInstall or VerbPkgRemove), is the helper's plan its
 	// confirm showed; Items are its Targets. See pkgplan.go.
 	PkgPlan *PkgPlan
+	// PkgLocal, set only on the AUR install step (Verb PkgVerbInstallLocal),
+	// is the built files and their hash. See aurplan.go.
+	PkgLocal *PkgLocal
 
 	// Combine, set only under polkit, names the root helper's combined verb
 	// this step is a part of (VerbFullCleanup). A front end runs consecutive

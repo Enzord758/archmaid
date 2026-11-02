@@ -49,3 +49,20 @@ func TestQueryCancelled(t *testing.T) {
 		t.Fatalf("cancelled query took %v", elapsed)
 	}
 }
+
+// TestQueryIn: the command runs in dir with exactly the given environment
+// (nothing of archmaid's own), and a SUDO_ASKPASS in it is dropped.
+func TestQueryIn(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ARCHMAID_QUERYIN_OWN", "leaked")
+	out, err := QueryIn(context.Background(), dir, []string{"A=1"}, "/bin/sh", "-c", "pwd; echo $A; echo [$ARCHMAID_QUERYIN_OWN]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := dir + "\n1\n[]\n"; string(out) != want {
+		t.Fatalf("got %q, want %q", out, want)
+	}
+	if _, err := QueryIn(context.Background(), "", []string{}, "/bin/sh", "-c", "exit 0"); err != nil {
+		t.Fatalf("empty env: %v", err)
+	}
+}
