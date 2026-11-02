@@ -11,6 +11,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/aurbuild"
 	"github.com/Enzord758/archmaid/internal/aursearch"
 	"github.com/Enzord758/archmaid/internal/frontend"
+	"github.com/Enzord758/archmaid/internal/helperclient"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/pkgdb"
 	"github.com/Enzord758/archmaid/internal/proc"
@@ -183,6 +184,6 @@ func clipText(s string, n int) string {
 }
 
 // protectedQuery asks the helper for the packages it never removes
-// (helperclient.Protected: no polkit, no root). Nothing is wired yet, so the
-// page keeps its built-in list.
-var protectedQuery func(ctx context.Context) ([]string, error)
+// (helperclient.Protected: `archmaid-helper plan-protected`, as the user, no
+// polkit, no root). If it fails, the page keeps its built-in list.
+var protectedQuery func(ctx context.Context) ([]string, error) = helperclient.Protected
