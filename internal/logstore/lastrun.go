@@ -52,8 +52,11 @@ type RunRecord struct {
 
 // RunSummary is the run report reduced to what last-run.json keeps.
 type RunSummary struct {
-	Upgraded   int    `json:"upgraded"`    // packages upgraded (pacman.log)
-	AUR        int    `json:"aur"`         // of them foreign (AUR)
+	Upgraded int `json:"upgraded"` // packages upgraded (pacman.log)
+	AUR      int `json:"aur"`      // of them foreign (AUR)
+	// Installed and Removed: a Packages page run's counts (absent otherwise).
+	Installed  int    `json:"installed,omitempty"`
+	Removed    int    `json:"removed,omitempty"`
 	FreedBytes uint64 `json:"freed_bytes"` // the measured cleaning steps' total
 	// Attention are short items that need the user ("Restart recommended",
 	// "1 new .pacnew"); never nil in a written record.

@@ -95,7 +95,7 @@ func (d *Driver) writeLastRun(e engine.WriteLastRun, rep *report.Report) {
 	if rep != nil && rep.HasData() {
 		s := rep.Summary()
 		e.Record.Summary = &logstore.RunSummary{
-			Upgraded: s.Upgraded, AUR: s.AUR, FreedBytes: s.FreedBytes, Attention: s.Attention,
+			Upgraded: s.Upgraded, AUR: s.AUR, Installed: s.Installed, Removed: s.Removed, FreedBytes: s.FreedBytes, Attention: s.Attention,
 		}
 	}
 	d.effect(e)

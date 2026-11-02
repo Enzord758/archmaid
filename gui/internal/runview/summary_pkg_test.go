@@ -48,3 +48,21 @@ func TestSummaryPackagesRunByEngineAction(t *testing.T) {
 		t.Fatalf("remove: %q %q %+v", s.Headline, s.Sub, s.Packages)
 	}
 }
+
+// The planned size change of a Packages run is in the sub line when known.
+func TestSummaryPackagesRunSizeChange(t *testing.T) {
+	inst := report.Report{Action: actions.IDPackages, Packages: &report.Packages{
+		Installed: []report.Pkg{{Name: "firefox", New: "133.0-1"}}, SizeChange: 14 << 20, SizeKnown: true}}
+	if s := BuildSummary(inst, true); s.Sub != "1 package installed · uses 14 MiB more" {
+		t.Errorf("install: %q", s.Sub)
+	}
+	rem := report.Report{Action: actions.IDPackages, Packages: &report.Packages{
+		Removed: []report.Pkg{{Name: "vim", Old: "9.1-1"}}, SizeChange: -(48 << 20), SizeKnown: true}}
+	if s := BuildSummary(rem, true); s.Sub != "1 package removed · frees 48 MiB" {
+		t.Errorf("remove: %q", s.Sub)
+	}
+	none := report.Report{Action: actions.IDPackages, Packages: &report.Packages{Installed: []report.Pkg{{Name: "a", New: "1"}}}}
+	if s := BuildSummary(none, true); s.Sub != "1 package installed" {
+		t.Errorf("unknown size: %q", s.Sub)
+	}
+}

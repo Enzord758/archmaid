@@ -156,6 +156,13 @@ type Collector struct {
 	stepAreas map[string][]string
 	tally     StepTally
 	pkgs      bool // a step that changes packages started
+	// pkgPage: the Packages page's own steps (pkg-install, pkg-remove,
+	// pkg-install-local) are what started: the run has no upgrades to
+	// report, and no report at all when nothing changed.
+	pkgPage   bool
+	planDelta map[string]int64 // a Packages step's planned size change, applied when it ends OK
+	sizeDelta int64
+	sizeKnown bool
 	cache     bool // a step that touches the package cache started
 	orphan    *orphanPlan
 	orphans   *Orphans
@@ -306,6 +313,23 @@ func (c *Collector) StepStarting(ctx context.Context, st steps.Step) {
 	switch st.ID {
 	case steps.IDTopgrade, steps.IDOrphansRemove, steps.IDRepair:
 		c.pkgs = true
+	case steps.IDPkgInstall, steps.IDPkgRemove, steps.IDPkgInstallLocal:
+		c.pkgs, c.pkgPage = true, true
+		if p := st.PkgPlan; p != nil {
+			// The plan's installed sizes (pacman's own, summed over the
+			// rows): known only for the repository steps.
+			var n int64
+			for _, r := range p.Rows {
+				n += r.Installed
+			}
+			if st.ID == steps.IDPkgRemove {
+				n = -n
+			}
+			if c.planDelta == nil {
+				c.planDelta = map[string]int64{}
+			}
+			c.planDelta[st.ID] = n
+		}
 	}
 	if st.ID == steps.IDOrphansRemove {
 		total := len(st.Cascade)
@@ -339,6 +363,10 @@ func (c *Collector) StepDone(ctx context.Context, id string, status steps.Status
 	switch status {
 	case steps.OK:
 		c.tally.Done++
+		if n, ok := c.planDelta[id]; ok && n != 0 {
+			c.sizeDelta, c.sizeKnown = c.sizeDelta+n, true
+			delete(c.planDelta, id)
+		}
 	case steps.Failed:
 		c.tally.Failed++
 	case steps.Skipped, steps.AuthRefused, steps.Aborted:
@@ -409,6 +437,12 @@ func (c *Collector) Finish(ctx context.Context, fin FinishInfo) Report {
 		} else {
 			p := c.packages(ctx, ch)
 			r.Packages, upgraded = p, p.Upgraded
+			if c.pkgPage {
+				p.SizeChange, p.SizeKnown = c.sizeDelta, c.sizeKnown
+				if len(p.Installed)+len(p.Removed)+len(p.Upgraded)+len(p.Downgraded) == 0 {
+					r.Packages = nil // nothing changed (a failed run): no summary
+				}
+			}
 			if p.Partial {
 				r.Notes = append(r.Notes, "The package log was rotated during the run: package changes before that are not counted.")
 			}

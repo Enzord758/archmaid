@@ -91,6 +91,13 @@ type Packages struct {
 	AURUpgraded, AURInstalled int
 	// AURKnown: pacman -Qqm answered, so the AUR flags and counts are real.
 	AURKnown bool
+	// SizeChange is the net change in installed size, in bytes (negative
+	// for a removal), of a Packages page run, from the plan the user
+	// confirmed (pacman's installed sizes) for the steps that ended OK;
+	// SizeKnown is false when the plan held none (an AUR build installs
+	// from files). Not read from the log, which holds no sizes.
+	SizeChange int64
+	SizeKnown  bool
 	// Partial: pacman.log was rotated or truncated during the run, so what
 	// was written before that is not counted.
 	Partial bool
@@ -168,9 +175,15 @@ const (
 type Summary struct {
 	Upgraded   int
 	AUR        int
+	Installed  int // a Packages page run: packages installed / removed
+	Removed    int
 	FreedBytes uint64
 	Attention  []string
 }
+
+// ActionPackages is the Packages page run's action id (actions.IDPackages;
+// this package does not import actions).
+const ActionPackages = "packages"
 
 // Summary is r reduced to the numbers the widget shows.
 func (r Report) Summary() Summary {
@@ -178,6 +191,9 @@ func (r Report) Summary() Summary {
 	if r.Packages != nil {
 		s.Upgraded = len(r.Packages.Upgraded)
 		s.AUR = r.Packages.AURUpgraded
+		if r.Action == ActionPackages {
+			s.Installed, s.Removed = len(r.Packages.Installed), len(r.Packages.Removed)
+		}
 	}
 	s.FreedBytes = r.FreedBytes
 	for _, a := range r.Attention {

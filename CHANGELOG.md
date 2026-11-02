@@ -28,6 +28,11 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
   - **Network.** archmaid's own code talks to aur.archlinux.org as you, never as root and never from the helper: the AUR search and info, the audit, and the git clone or fetch of a package you chose. `makepkg` downloads the sources the PKGBUILD names, after you confirmed. pacman, run by the helper, downloads packages as it always does.
   - **A dry run** (Settings) installs and removes nothing: the root steps only print their command and the AUR build steps skip. The plan is still read for real, and the AUR repos are still fetched into `~/.cache/archmaid/aur`.
 
+### Fixed
+
+- **A failed step now stops a Packages or AUR run** (live check #241, B6). The engine marks every later step Skipped and never starts it, and the run ends failed (a refused step: incomplete). Before, `makepkg` ran after a failed pin, and the collect, install and "remember" steps after failures. `aur-remember` also refuses unless every earlier step ended OK, and is titled "Recording what you reviewed" so it no longer says "remembered" when it wrote nothing.
+- **A Packages run has a run summary** (B1): the packages installed and removed (from `pacman.log`), the planned size change, and `summary.installed` / `summary.removed` in `last-run.json`. A dry run and a run that failed before changing anything have none.
+
 ## [2.2.0] - 2026-11-02
 
 Everything here is merged into `main` (= `refactor/p0`). It passed the local gate, the test VM CI (`run.sh ci`: core, e2e, gui, bench) and three live checks of the widget in the test VM's DMS (top and bottom bar, light theme, keyboard).

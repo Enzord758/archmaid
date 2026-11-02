@@ -210,6 +210,13 @@ func subLine(r report.Report) string {
 		if n := len(r.Packages.Removed); n > 0 {
 			parts = append(parts, plural.N(n, "package", "packages")+" removed")
 		}
+		if p := r.Packages; p.SizeKnown && p.SizeChange != 0 {
+			if p.SizeChange > 0 {
+				parts = append(parts, "uses "+report.HumanBytes(uint64(p.SizeChange))+" more")
+			} else {
+				parts = append(parts, "frees "+report.HumanBytes(uint64(-p.SizeChange)))
+			}
+		}
 	case r.Packages != nil:
 		parts = append(parts, plural.N(len(r.Packages.Upgraded), "package", "packages")+" upgraded")
 	}
