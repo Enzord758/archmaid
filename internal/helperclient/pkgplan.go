@@ -32,14 +32,6 @@ import (
 // MaxPkgNames; the GUI's install list is capped at it).
 const MaxPkgNames = 32
 
-// The helper's verbs for the Packages page (steps.PkgVerb*).
-const (
-	PkgVerbPlanInstall = steps.PkgVerbPlanInstall
-	PkgVerbInstall     = steps.PkgVerbInstall
-	PkgVerbPlanRemove  = steps.PkgVerbPlanRemove
-	PkgVerbRemove      = steps.PkgVerbRemove
-)
-
 // The helper's fixed option tokens.
 const (
 	flagAsDeps     = "--asdeps"
@@ -53,8 +45,8 @@ var (
 	reasonPattern = regexp.MustCompile(`^[a-z-]{1,32}$`)
 )
 
-func isPkgPlanVerb(v string) bool { return v == PkgVerbPlanInstall || v == PkgVerbPlanRemove }
-func isPkgRunVerb(v string) bool  { return v == PkgVerbInstall || v == PkgVerbRemove }
+func isPkgPlanVerb(v string) bool { return v == steps.VerbPlanInstall || v == steps.VerbPlanRemove }
+func isPkgRunVerb(v string) bool  { return v == steps.VerbPkgInstall || v == steps.VerbPkgRemove }
 
 // PkgPlanHash is the canonical hash of a Packages plan, the helper's
 // PkgPlanHash (Dev 3, 52cc27b) byte for byte: sha256 over
@@ -204,7 +196,7 @@ func pkgArgs(st steps.Step) ([]string, error) {
 		return nil, err
 	}
 	want := steps.PkgInstall
-	if st.Verb == PkgVerbRemove {
+	if st.Verb == steps.VerbPkgRemove {
 		want = steps.PkgRemove
 	}
 	if p.Mode != want {
@@ -244,9 +236,9 @@ func planPackages(ctx context.Context, helper string, req steps.PkgRequest) (ste
 	if err := CheckPkgRequest(req); err != nil {
 		return steps.PkgPlan{}, err
 	}
-	verb, flag := PkgVerbPlanInstall, flagAsDeps
+	verb, flag := steps.VerbPlanInstall, flagAsDeps
 	if req.Mode == steps.PkgRemove {
-		verb, flag = PkgVerbPlanRemove, flagWithConfig
+		verb, flag = steps.VerbPlanRemove, flagWithConfig
 	}
 	args := []string{verb}
 	if req.AsDeps || req.WithConfig {

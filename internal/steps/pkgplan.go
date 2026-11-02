@@ -16,18 +16,6 @@ const (
 	IDPkgInstallLocal = "pkg-install-local"
 )
 
-// The root helper's verbs for the Packages page. They are not Verb*
-// constants yet: cmd/archmaid-helper's TestStepVerbsAreHelperVerbs fails a
-// steps.Verb* the helper does not have, so they are renamed VerbPlanInstall
-// and so on once the helper's verbs are merged (the plan-* ones run as the
-// user without pkexec, like VerbPlanOrphans).
-const (
-	PkgVerbPlanInstall = "plan-install"
-	PkgVerbInstall     = "pkg-install"
-	PkgVerbPlanRemove  = "plan-remove"
-	PkgVerbRemove      = "pkg-remove"
-)
-
 // PkgMode is install or remove.
 type PkgMode int
 

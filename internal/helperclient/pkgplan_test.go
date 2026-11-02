@@ -156,10 +156,10 @@ func TestPkgArgv(t *testing.T) {
 		st   steps.Step
 		want []string
 	}{
-		{"install", pkgStep(PkgVerbInstall, in), []string{in.Hash, "foo", "bar"}},
-		{"install asdeps", pkgStep(PkgVerbInstall, asdeps), []string{asdeps.Hash, "--asdeps", "foo", "bar"}},
-		{"remove", pkgStep(PkgVerbRemove, removePkgPlan(false)), []string{removePkgPlan(false).Hash, "foo"}},
-		{"remove -n", pkgStep(PkgVerbRemove, removePkgPlan(true)), []string{removePkgPlan(true).Hash, "-n", "foo"}},
+		{"install", pkgStep(steps.VerbPkgInstall, in), []string{in.Hash, "foo", "bar"}},
+		{"install asdeps", pkgStep(steps.VerbPkgInstall, asdeps), []string{asdeps.Hash, "--asdeps", "foo", "bar"}},
+		{"remove", pkgStep(steps.VerbPkgRemove, removePkgPlan(false)), []string{removePkgPlan(false).Hash, "foo"}},
+		{"remove -n", pkgStep(steps.VerbPkgRemove, removePkgPlan(true)), []string{removePkgPlan(true).Hash, "-n", "foo"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := Argv(tc.st)
@@ -179,18 +179,18 @@ func TestPkgArgvRefuses(t *testing.T) {
 	tampered := in
 	tampered.Rows = slices.Clone(in.Rows)
 	tampered.Rows[2].Version = "666-1"
-	otherItems := pkgStep(PkgVerbInstall, in)
+	otherItems := pkgStep(steps.VerbPkgInstall, in)
 	otherItems.Items = []string{"foo", "evil"}
 	for name, tc := range map[string]struct {
 		st   steps.Step
 		want error
 	}{
-		"no plan":          {steps.Step{ID: "x", Verb: PkgVerbInstall, Items: []string{"foo"}}, ErrUnsupported},
-		"tampered plan":    {pkgStep(PkgVerbInstall, tampered), ErrBadPlan},
+		"no plan":          {steps.Step{ID: "x", Verb: steps.VerbPkgInstall, Items: []string{"foo"}}, ErrUnsupported},
+		"tampered plan":    {pkgStep(steps.VerbPkgInstall, tampered), ErrBadPlan},
 		"items not target": {otherItems, ErrBadPlan},
-		"mode vs verb":     {pkgStep(PkgVerbRemove, in), ErrBadPlan},
+		"mode vs verb":     {pkgStep(steps.VerbPkgRemove, in), ErrBadPlan},
 		"plan on others":   {pkgStep(steps.VerbRepair, in), ErrBadPlan},
-		"plan verb":        {pkgStep(PkgVerbPlanInstall, in), ErrBadPlan},
+		"plan verb":        {pkgStep(steps.VerbPlanInstall, in), ErrBadPlan},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := Argv(tc.st); !errors.Is(err, tc.want) {
@@ -198,7 +198,7 @@ func TestPkgArgvRefuses(t *testing.T) {
 			}
 		})
 	}
-	if _, err := Argv(steps.Step{ID: "x", Verb: PkgVerbPlanRemove}); !errors.Is(err, ErrNoAction) {
+	if _, err := Argv(steps.Step{ID: "x", Verb: steps.VerbPlanRemove}); !errors.Is(err, ErrNoAction) {
 		t.Errorf("a plan verb as a step: %v", err)
 	}
 }
@@ -390,7 +390,7 @@ func TestRootVerbStaleCarriesTheNewPlan(t *testing.T) {
 	old := installPkgPlan()
 	newer := withHash(steps.PkgPlan{Mode: steps.PkgInstall, Targets: old.Targets,
 		Rows: append(slices.Clone(old.Rows), steps.PkgRow{Name: "libnew", Version: "1-1", Repo: "extra"})})
-	st := pkgStep(PkgVerbInstall, old)
+	st := pkgStep(steps.VerbPkgInstall, old)
 	for name, result := range map[string]string{
 		"with reason":   resultLine(3, `"reason":"stale","error":"the plan changed"`),
 		"by exit alone": resultLine(3, `"error":"the plan changed"`),
@@ -412,7 +412,7 @@ func TestRootVerbStaleCarriesTheNewPlan(t *testing.T) {
 }
 
 func TestRootVerbRefusals(t *testing.T) {
-	st := pkgStep(PkgVerbInstall, installPkgPlan())
+	st := pkgStep(steps.VerbPkgInstall, installPkgPlan())
 	for _, tc := range []struct {
 		code   int
 		extra  string

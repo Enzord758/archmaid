@@ -91,7 +91,7 @@ func TestPackagesInstallTranscript(t *testing.T) {
 	}
 	o = h.confirm(true)
 	if qs := event[QueueStarted](t, o); qs.Action != actions.IDPackages || len(qs.Steps) != 1 || qs.Steps[0].ID != steps.IDPkgInstall ||
-		qs.Steps[0].Verb != steps.PkgVerbInstall || !qs.Steps[0].NeedsPriv {
+		qs.Steps[0].Verb != steps.VerbPkgInstall || !qs.Steps[0].NeedsPriv {
 		t.Errorf("QueueStarted = %+v", qs)
 	}
 	if _, ok := find[ReadFaillock](o.Effects); !ok {
@@ -99,7 +99,7 @@ func TestPackagesInstallTranscript(t *testing.T) {
 	}
 	o = h.handle(FaillockRead{Deny: 3})
 	st := effect[StartStep](t, o).Step
-	if st.PkgPlan == nil || st.PkgPlan.Hash != p.Hash || st.Verb != steps.PkgVerbInstall {
+	if st.PkgPlan == nil || st.PkgPlan.Hash != p.Hash || st.Verb != steps.VerbPkgInstall {
 		t.Errorf("the step lost its plan: %+v", st)
 	}
 	o = h.ok()
@@ -131,7 +131,7 @@ func TestPackagesRemoveSheet(t *testing.T) {
 	}
 	o := h.confirm(true)
 	h.handle(FaillockRead{Deny: 3})
-	if st := effect[StartStep](t, h.out).Step; st.ID != steps.IDPkgRemove || st.Verb != steps.PkgVerbRemove || !st.PkgPlan.WithConfig {
+	if st := effect[StartStep](t, h.out).Step; st.ID != steps.IDPkgRemove || st.Verb != steps.VerbPkgRemove || !st.PkgPlan.WithConfig {
 		t.Errorf("step = %+v", st)
 	}
 	_ = o

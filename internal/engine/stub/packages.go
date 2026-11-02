@@ -109,10 +109,10 @@ const stubHash = "sha256:0000000000000000000000000000000000000000000000000000000
 func packagesRun(start time.Time, mode steps.PkgMode, stale bool) Script {
 	b := &builder{now: start, started: start, at: map[string]time.Time{}, branches: true}
 	p := packagesPlan(mode)
-	id, verb, title := steps.IDPkgInstall, steps.PkgVerbInstall, "Installing packages…"
+	id, verb, title := steps.IDPkgInstall, steps.VerbPkgInstall, "Installing packages…"
 	yes, label := "Install", "Packages installed"
 	if mode == steps.PkgRemove {
-		id, verb, title = steps.IDPkgRemove, steps.PkgVerbRemove, "Removing packages…"
+		id, verb, title = steps.IDPkgRemove, steps.VerbPkgRemove, "Removing packages…"
 		yes, label = "Remove", "Packages removed"
 	}
 	b.plan = []engine.PlanStep{{ID: id, Verb: verb, Title: title, LogLabel: label,

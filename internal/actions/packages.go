@@ -67,13 +67,13 @@ func PackagesDiscover(req steps.PkgRequest) func(ctx context.Context, env Env) D
 // pkg-install or pkg-remove, which gets only the plan's hash and names.
 func Packages(p steps.PkgPlan) []steps.Step {
 	st := steps.Step{
-		ID: steps.IDPkgInstall, Verb: steps.PkgVerbInstall,
+		ID: steps.IDPkgInstall, Verb: steps.VerbPkgInstall,
 		Title: "Installing packages…", LogLabel: "Packages installed",
 		Items: slices.Clone(p.Targets), PkgPlan: &p,
 		NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup,
 	}
 	if p.Mode == steps.PkgRemove {
-		st.ID, st.Verb = steps.IDPkgRemove, steps.PkgVerbRemove
+		st.ID, st.Verb = steps.IDPkgRemove, steps.VerbPkgRemove
 		st.Title, st.LogLabel = "Removing packages…", "Packages removed"
 	}
 	return []steps.Step{st}

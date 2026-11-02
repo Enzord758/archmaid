@@ -263,6 +263,12 @@ const (
 	VerbCheckFiles    = "check-files"
 	VerbRepair        = "repair"
 	VerbDisableUnit   = "disable-unit"
+	// The Packages page's verbs (docs/design/packages-contract.md). The
+	// plan-* ones run as the user without pkexec, like VerbPlanOrphans.
+	VerbPlanInstall = "plan-install"
+	VerbPkgInstall  = "pkg-install"
+	VerbPlanRemove  = "plan-remove"
+	VerbPkgRemove   = "pkg-remove"
 	// VerbFullCleanup is the combined verb: Full Cleanup's root steps under
 	// one polkit dialog (see Step.Combine).
 	VerbFullCleanup = "full-cleanup"

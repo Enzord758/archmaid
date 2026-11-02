@@ -42,9 +42,9 @@ func TestPackagesDiscoverPreview(t *testing.T) {
 			t.Fatalf("steps = %+v", pv.Steps)
 		}
 		st := pv.Steps[0]
-		wantVerb, wantID := steps.PkgVerbInstall, steps.IDPkgInstall
+		wantVerb, wantID := steps.VerbPkgInstall, steps.IDPkgInstall
 		if mode == steps.PkgRemove {
-			wantVerb, wantID = steps.PkgVerbRemove, steps.IDPkgRemove
+			wantVerb, wantID = steps.VerbPkgRemove, steps.IDPkgRemove
 		}
 		if st.Verb != wantVerb || st.ID != wantID || !st.NeedsPriv || !st.AlwaysLog || st.PkgPlan == nil ||
 			st.PkgPlan.Hash != pv.Plan.Hash || fmt.Sprint(st.Items) != "[foo]" || st.Argv != nil || st.Run != nil {

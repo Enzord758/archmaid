@@ -158,12 +158,6 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			continue
 		}
 		actionVerbs[argv1] = true
-		if argv1 == "pkg-install" || argv1 == "pkg-remove" {
-			// The helper verbs and policy actions of #231 are in; helperclient
-			// builds their argv in the follow-up (Dev 1, packages-contract.md).
-			// Drop this skip there, so the match is checked for them too.
-			continue
-		}
 		st := steps.Step{Verb: argv1, Items: sample[argv1]}
 		switch argv1 {
 		case steps.VerbRemoveOrphans:
@@ -171,6 +165,10 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			st.Items, st.Cascade, st.Plan = p.Direct, p.Cascade, &p
 		case steps.VerbFullCleanup:
 			st = fullCleanupCall(true, true)
+		case steps.VerbPkgInstall:
+			st = pkgStep(argv1, installPkgPlan())
+		case steps.VerbPkgRemove:
+			st = pkgStep(argv1, removePkgPlan(false))
 		}
 		got, err := Argv(st)
 		if err != nil {
@@ -186,13 +184,16 @@ func TestArgvMatchesPolicy(t *testing.T) {
 		}
 	}
 	for _, v := range []string{steps.VerbCheckFiles, steps.VerbRepair, steps.VerbDisableUnit, steps.VerbPaccache,
-		steps.VerbVacuumJournal, steps.VerbPaccacheWipe, steps.VerbCleanTmp, steps.VerbRemoveOrphans, steps.VerbFullCleanup} {
+		steps.VerbVacuumJournal, steps.VerbPaccacheWipe, steps.VerbCleanTmp, steps.VerbRemoveOrphans, steps.VerbFullCleanup,
+		steps.VerbPkgInstall, steps.VerbPkgRemove} {
 		if !actionVerbs[v] {
 			t.Errorf("Argv builds %s, but the policy has no action with that argv1", v)
 		}
 	}
-	if actionVerbs[steps.VerbPlanOrphans] {
-		t.Error("the policy has a plan-orphans action, but Argv refuses the verb")
+	for _, v := range []string{steps.VerbPlanOrphans, steps.VerbPlanInstall, steps.VerbPlanRemove} {
+		if actionVerbs[v] {
+			t.Errorf("the policy has a %s action, but it runs as the user", v)
+		}
 	}
 }
 

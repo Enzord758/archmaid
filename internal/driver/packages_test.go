@@ -72,7 +72,7 @@ func TestStartPackagesInstalls(t *testing.T) {
 	if nc := find[engine.NeedsConfirm](t, evs); nc.Kind != engine.ConfirmPackages {
 		t.Errorf("confirm = %+v", nc)
 	}
-	if len(*ran) != 1 || (*ran)[0].PkgPlan == nil || (*ran)[0].Verb != steps.PkgVerbInstall {
+	if len(*ran) != 1 || (*ran)[0].PkgPlan == nil || (*ran)[0].Verb != steps.VerbPkgInstall {
 		t.Fatalf("helper steps run: %+v", *ran)
 	}
 	if got, _ := lines(evs); len(got) != 1 || got[0] != "(1/1) installing foo" {

@@ -160,9 +160,9 @@ func verbArgs(st steps.Step) ([]string, error) {
 		return fixed(st)
 	case steps.VerbFullCleanup:
 		return fullCleanupArgs(st)
-	case PkgVerbInstall, PkgVerbRemove:
+	case steps.VerbPkgInstall, steps.VerbPkgRemove:
 		return pkgArgs(st)
-	case steps.VerbPlanOrphans, PkgVerbPlanInstall, PkgVerbPlanRemove:
+	case steps.VerbPlanOrphans, steps.VerbPlanInstall, steps.VerbPlanRemove:
 		return nil, fmt.Errorf("%w: %s", ErrNoAction, st.Verb)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupported, st.Verb)
