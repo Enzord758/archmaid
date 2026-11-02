@@ -53,7 +53,7 @@ type Step struct {
 	// (Verb VerbPkgInstall or VerbPkgRemove), is the helper's plan its
 	// confirm showed; Items are its Targets. See pkgplan.go.
 	PkgPlan *PkgPlan
-	// PkgLocal, set only on the AUR install step (Verb PkgVerbInstallLocal),
+	// PkgLocal, set only on the AUR install step (Verb VerbPkgInstallLocal),
 	// is the built files and their hash. See aurplan.go.
 	PkgLocal *PkgLocal
 
@@ -269,6 +269,9 @@ const (
 	VerbPkgInstall  = "pkg-install"
 	VerbPlanRemove  = "plan-remove"
 	VerbPkgRemove   = "pkg-remove"
+	// VerbPkgInstallLocal installs the AUR packages the user built
+	// (aurplan.go, helper pkglocal.go): root, admin every time.
+	VerbPkgInstallLocal = "pkg-install-local"
 	// VerbFullCleanup is the combined verb: Full Cleanup's root steps under
 	// one polkit dialog (see Step.Combine).
 	VerbFullCleanup = "full-cleanup"

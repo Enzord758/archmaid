@@ -27,6 +27,9 @@
   admin verbs (auth_admin) run a pacman transaction or remove or change
   something wider, and ask every time. full-cleanup covers its whole fixed
   sequence with one dialog.
+  pkg-install-local installs files the user built (unsigned, from a
+  user-writable folder) and is admin, every time, never keep: it is root
+  code execution by whatever the package holds.
   plan-orphans has no action: it is read-only and runs without root.
 
   Never inactive or remote sessions (allow_any / allow_inactive = no).
@@ -107,6 +110,18 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
     <annotate key="org.freedesktop.policykit.exec.argv1">pkg-install</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.pkg-install-local">
+    <description>Install packages built from the AUR</description>
+    <message>Authentication is required to install packages built from the AUR. They are not signed, and their install scripts run as root</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">pkg-install-local</annotate>
   </action>
 
   <action id="org.archmaid.helper.pkg-remove">

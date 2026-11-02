@@ -198,7 +198,7 @@ func InstallStep(built []BuiltFile) steps.Step {
 		names = append(names, f.Pkgname)
 	}
 	return steps.Step{
-		ID: steps.IDPkgInstallLocal, Verb: steps.PkgVerbInstallLocal,
+		ID: steps.IDPkgInstallLocal, Verb: steps.VerbPkgInstallLocal,
 		Title: "Installing AUR packages…", LogLabel: "AUR packages installed",
 		Items: names, PkgLocal: &local, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup,
 	}

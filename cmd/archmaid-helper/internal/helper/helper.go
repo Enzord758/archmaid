@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Version is reported in the start event.
@@ -74,6 +76,21 @@ type Options struct {
 	KernelPkgbases func() ([]string, error)
 	// lockDirCheck replaces checkLockDir (the lock folder is root's alone).
 	lockDirCheck func(dir string) error
+
+	// pkg-install-local (pkglocal.go). StagingRoot "" is DefaultStagingRoot
+	// and PasswdPath "" is DefaultPasswd; tests point them at temp files.
+	StagingRoot string
+	PasswdPath  string
+	// Test seams, nil in production: walkAnchor starts the path walk below
+	// a trusted folder (the temp dir) instead of "/"; fstatHook may change
+	// what the walk sees of each folder or file (a foreign owner); afterOpen
+	// runs between the walk's open of a file and its copy (a swap);
+	// uname replaces uname(2).
+	walkAnchor string
+	fstatHook  func(label string, st *unix.Stat_t)
+	afterOpen  func(path string)
+	afterStage func(dir string) // after every file is staged, before it is read back
+	uname      func() (string, error)
 }
 
 // DefaultOptions returns the production seams (everything but CallerUID,
@@ -111,6 +128,8 @@ var verbs = map[string]verb{
 	"pkg-install":    {root: true, pacmanLock: true, run: runPkgInstall},
 	"plan-remove":    {root: false, run: runPlanRemove},
 	"pkg-remove":     {root: true, pacmanLock: true, run: runPkgRemove},
+
+	"pkg-install-local": {root: true, pacmanLock: true, run: runPkgInstallLocal},
 }
 
 // Verbs lists the verb names, sorted.

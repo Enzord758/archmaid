@@ -61,7 +61,7 @@ func TestPkgLocalHashTiesToAurbuild(t *testing.T) {
 }
 
 func localStep(l *steps.PkgLocal) steps.Step {
-	return steps.Step{ID: steps.IDPkgInstallLocal, Verb: PkgVerbInstallLocal, PkgLocal: l, Items: []string{"app"}}
+	return steps.Step{ID: steps.IDPkgInstallLocal, Verb: steps.VerbPkgInstallLocal, PkgLocal: l, Items: []string{"app"}}
 }
 
 // TestPkgLocalArgv: the argv is pkexec, the helper, the verb, H, then the

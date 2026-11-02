@@ -31,6 +31,8 @@ const (
 	ReasonBusy           = "busy"
 	ReasonStale          = "stale"
 	ReasonBadRequest     = "bad-request"
+	ReasonUnsafeFile     = "unsafe-file" // pkg-install-local: a file or a folder on its path is not safe to read as root
+	ReasonBadPackage     = "bad-package" // pkg-install-local: pacman cannot read it or it is not the package it is named
 )
 
 // warnAbove is the plan size above which the plan carries a warning.
@@ -199,18 +201,8 @@ func (s *session) installPlan(names []string, asDeps bool) (Plan, *pkgFail) {
 		}
 	}
 
-	// A pending update blocks an install: installing into a half-updated
-	// system is a partial upgrade.
-	out, errOut, exit, err := r.Query(updatesArgv())
-	if err != nil {
-		return Plan{}, failed("pacman -Qu: %v", err)
-	}
-	switch pending := len(nonEmptyLines(out)); {
-	case pending > 0:
-		return Plan{}, &pkgFail{code: ExitStale, reason: ReasonUpdatesPending, count: pending,
-			msg: fmt.Sprintf("%d update(s) are waiting: update the system first", pending)}
-	case exit != 0 && exit != 1:
-		return Plan{}, failed("pacman -Qu exited %d: %s", exit, firstLine(errOut))
+	if f := s.checkNoUpdates(); f != nil {
+		return Plan{}, f
 	}
 
 	installed, f := s.installedVersions()
@@ -218,7 +210,7 @@ func (s *session) installPlan(names []string, asDeps bool) (Plan, *pkgFail) {
 		return Plan{}, f
 	}
 
-	out, errOut, exit, err = r.Query(installPlanArgv(names))
+	out, errOut, exit, err := r.Query(installPlanArgv(names))
 	if err != nil {
 		return Plan{}, failed("pacman -Sp: %v", err)
 	}
@@ -268,6 +260,24 @@ func (s *session) installPlan(names []string, asDeps bool) (Plan, *pkgFail) {
 	}
 	p.Hash = PkgPlanHash(installMode(asDeps), names, hashItems)
 	return p, nil
+}
+
+// checkNoUpdates is the updates-pending rule of every install: a pending
+// update blocks it, because installing into a half-updated system is a
+// partial upgrade. pkg-install and pkg-install-local share it.
+func (s *session) checkNoUpdates() *pkgFail {
+	out, errOut, exit, err := s.o.Runner.Query(updatesArgv())
+	if err != nil {
+		return failed("pacman -Qu: %v", err)
+	}
+	switch pending := len(nonEmptyLines(out)); {
+	case pending > 0:
+		return &pkgFail{code: ExitStale, reason: ReasonUpdatesPending, count: pending,
+			msg: fmt.Sprintf("%d update(s) are waiting: update the system first", pending)}
+	case exit != 0 && exit != 1:
+		return failed("pacman -Qu exited %d: %s", exit, firstLine(errOut))
+	}
+	return nil
 }
 
 type planLine struct{ repo, name, version string }

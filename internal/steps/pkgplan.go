@@ -91,6 +91,11 @@ const (
 	RefuseStale          RefuseReason = "stale"       // the plan changed since the confirm
 	RefuseBadRequest     RefuseReason = "bad-request"
 	RefuseAUR            RefuseReason = "aur" // an AUR install refused before any change (Detail says why)
+	// pkg-install-local's (exit 4): a built file or a folder on its path is
+	// not safe for root to read; pacman cannot read the package, or it is
+	// not the package, version and architecture its file name says.
+	RefuseUnsafeFile RefuseReason = "unsafe-file"
+	RefuseBadPackage RefuseReason = "bad-package"
 )
 
 // PkgRefusal is the error PlanPackages and a package step return when the

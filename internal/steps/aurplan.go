@@ -5,11 +5,6 @@ package steps
 // them in the sheet) and helperclient (which turns PkgLocal into the root
 // verb's argv). Types only.
 
-// PkgVerbInstallLocal is the root helper's verb that installs the built
-// files. Like the PkgVerb* ones it is not a Verb* constant until the helper
-// has the verb (TestStepVerbsAreHelperVerbs).
-const PkgVerbInstallLocal = "pkg-install-local"
-
 // AURFile kinds.
 const (
 	AURFilePKGBUILD = "pkgbuild"

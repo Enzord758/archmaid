@@ -97,7 +97,7 @@ func TestQueueHappyPath(t *testing.T) {
 	if !strings.Contains(s.log("make.log"), "PWD: "+filepath.Join(f.Root, "lib")) || !strings.Contains(s.log("make.log"), "PWD: "+filepath.Join(f.Root, "app")) {
 		t.Fatalf("makepkg ran in the wrong folder:\n%s", s.log("make.log"))
 	}
-	if install.ID != steps.IDPkgInstallLocal || install.Verb != steps.PkgVerbInstallLocal || !install.NeedsPriv || !install.AlwaysLog {
+	if install.ID != steps.IDPkgInstallLocal || install.Verb != steps.VerbPkgInstallLocal || !install.NeedsPriv || !install.AlwaysLog {
 		t.Fatalf("install = %+v", install)
 	}
 	if got := strings.Join(install.PkgLocal.Files, " "); got != "lib/out/"+built("lib")+" app/out/"+built("app") {

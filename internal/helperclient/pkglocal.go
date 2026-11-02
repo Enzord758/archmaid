@@ -21,9 +21,7 @@ import (
 // ~/.cache/archmaid/aur, in build order. The helper (Dev 3's) takes the home
 // from the passwd entry of PKEXEC_UID, opens each file without following
 // symlinks, copies it to its root staging folder while hashing, and refuses
-// (exit 3, stale) when the hash differs. Like the Packages verbs it is not a
-// Verb* constant until the helper has it.
-const PkgVerbInstallLocal = steps.PkgVerbInstallLocal
+// (exit 3, stale) when the hash differs. The verb is steps.VerbPkgInstallLocal.
 
 // MaxLocalFiles is the most files one pkg-install-local call takes.
 const MaxLocalFiles = 64

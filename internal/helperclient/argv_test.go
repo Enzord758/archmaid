@@ -170,7 +170,7 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			st = pkgStep(argv1, installPkgPlan())
 		case steps.VerbPkgRemove:
 			st = pkgStep(argv1, removePkgPlan(false))
-		case PkgVerbInstallLocal:
+		case steps.VerbPkgInstallLocal:
 			// Dev 3's polkit action is not in the policy yet; once it is,
 			// this checks that Argv matches it (the case is ready, no skip).
 			st = aurbuild.InstallStep(localBuilt())

@@ -130,7 +130,7 @@ check under lock.
 
 **`steps` representation.** The verb constants `steps.VerbPlanInstall`
 (`plan-install`), `VerbPkgInstall`, `VerbPlanRemove`, `VerbPkgRemove`,
-`VerbPkgInstallLocal` are added by Dev 3 together with the helper verbs
+`VerbPkgInstallLocal` (renamed from the temporary `PkgVerbInstallLocal`) are added by Dev 3 together with the helper verbs
 (`TestStepVerbsAreHelperVerbs` fails a constant without a verb). One root step per run:
 `Step{ID: steps.IDPkgInstall|IDPkgRemove, Verb: steps.VerbPkgInstall|VerbPkgRemove,
 Items: plan.Targets, PkgPlan: &plan, NeedsPriv: true, Category: logstore.Cleanup,
@@ -258,18 +258,19 @@ polkit action `org.archmaid.helper.pkg-install-local`, `auth_admin`):
   user's `~/.cache/archmaid/aur`**; the helper takes the home from the passwd
   entry of `PKEXEC_UID` (never an env var or argument), walks every component
   with `openat(O_NOFOLLOW|O_DIRECTORY)`, opens the file `O_NOFOLLOW`, requires
-  a regular file, <= 2 GiB, owned by that uid, name matching `^[A-Za-z0-9@._+-]+
+  a regular file, <= 2 GiB, owned by that uid and not group/other-writable (as is every folder on the way), name matching `^[A-Za-z0-9@._+-]+
   -[^-/]+-[0-9]+-[A-Za-z0-9_]+\.pkg\.tar\.(zst|xz)$`.
-- It copies each into `/run/archmaid/staging` (root 0700, created per run, removed
-  after) while hashing, then compares to `H`. `H` = sha256 over `"archmaid pkg
+- It copies each into `/var/cache/archmaid/staging/run-*` (root 0700, created per run, removed
+  after on every exit; on disk because a package can be 2 GiB and `/run` is RAM) while hashing, then compares to `H`. `H` = sha256 over `"archmaid pkg
   local v1\n"` and sorted `file <name> <size> <sha256hex>\n` lines, computed by
   the GUI-side step (`helperclient.PkgLocalHash`) after the build from the very
-  files it names. Mismatch: exit 3 stale, nothing installed.
-- It prints `.PKGINFO`, `.INSTALL` and the file list from the staged copy (into
-  the log and Run page), then `pacman -U --noconfirm --color always -- <staged>...`
+  files it names. Mismatch: exit 3 `stale`, no plan event, nothing installed. At most 64 files per call (`helperclient.MaxLocalFiles`).
+- It prints `pacman -Qip` (the `.PKGINFO` fields as pacman parsed them, with "Install Script: Yes/No") and `-Qlp` (the file list) of the staged copy (into
+  the log and Run page; the `.INSTALL` text itself is not printed), then `pacman -U --noconfirm --color always -- <staged>...`
   under pacmanLock and `pacmanIdle`. No `--overwrite`, no `-dd`. One call can take
-  several files (pacman orders a `-U` set). Protected/conflict checks as for
-  `pkg-install`, run on the staged set (`.PKGINFO` conflicts/replaces).
+  several files (pacman orders a `-U` set). Protected/conflict/updates-pending checks as for
+  `pkg-install`, run on the staged set (`.PKGINFO` name, provides, conflicts, replaces). `.PKGINFO` must name the file's pkgname, version and architecture, and an architecture pacman accepts.
+- New refusal reasons (exit 4, `steps.RefuseUnsafeFile`, `steps.RefuseBadPackage`): `unsafe-file` (symlink, foreign owner, group/other-writable, not regular, size, on the file's path), `bad-package` (pacman cannot read it, or it is not the package its name says, or twice in the list). A file gone since the build is `stale` (3).
 - The sheet's explicit consent text: "this runs the package author's code as
   root". Cancel is the default.
 

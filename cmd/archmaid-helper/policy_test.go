@@ -77,7 +77,7 @@ func TestPolicyMatchesVerbs(t *testing.T) {
 	slices.Sort(got)
 	// The package verbs run scriptlets as root: admin every time, never
 	// keep (README.md "What keep allows"). Explicit, not just "not in keep".
-	for _, v := range []string{"pkg-install", "pkg-remove"} {
+	for _, v := range []string{"pkg-install", "pkg-remove", "pkg-install-local"} {
 		if slices.Contains(keep, v) || !slices.Contains(got, v) {
 			t.Errorf("%s must have an admin (never keep) policy action", v)
 		}

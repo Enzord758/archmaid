@@ -105,6 +105,27 @@ GTK-free; the DMS widget opens `archmaid-gui` when it is on PATH, else the TUI.
 Each of these was learned the hard way. The reasoning lives in the code
 comments and `git log`; this is the "read before you touch it" list.
 
+- **Packages page: root never reads a user-writable path twice
+  (#239, `pkglocal.go`).** `pkg-install-local H file...` is the most
+  sensitive verb. Rules that must not be loosened: (1) each user file is
+  opened once, through `openat(O_NOFOLLOW|O_DIRECTORY)` from the passwd home
+  of `PKEXEC_UID` (never `$HOME`), every check on the open fd; copied into
+  `/var/cache/archmaid/staging/run-*` (root 0700, on disk because `/run` is
+  RAM and a package can be 2 GiB) while hashed; nothing reads the user's path
+  again, and pacman is only ever given staged paths (a test fails on any
+  path in the home). (2) The hash `H` is checked against the staged bytes
+  *before* anything is parsed. (3) Parsing is `pacman -Qip`/`-Qlp`, not a
+  tar reader of our own: the parser that checks is the parser that installs.
+  (4) Dirs from the home down must be the user's and not group/other
+  writable; a home or `~/.cache` mode 0775 (user-private-group umask 002)
+  is refused with "writable by group or others": that is deliberate. (5)
+  Staging is removed by `defer` (success, failure, panic); main catches and
+  drops signals, so only SIGKILL leaves a `run-*` folder, which the next run
+  removes under the helper lock. (6) The test seams `walkAnchor`,
+  `fstatHook`, `afterOpen`, `afterStage` exist only in `Options` and are nil
+  in production. (7) Known gap: a conflict with a name that an installed
+  package only *provides* is not seen (as in `pkg-install`); `--noconfirm`
+  answers pacman's conflict prompt with its default, No.
 - **The GUI tests' display speaks GTK's private Broadway protocol
   (#162).** `gui/scripts/nullbroadway` implements the server side of
   gtk's `gdk/broadway/broadway-protocol.h` (request, reply and event
