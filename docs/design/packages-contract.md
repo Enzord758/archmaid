@@ -199,10 +199,11 @@ Not `engine`, not `audit` (the audit gate is wired by `frontend`/`actions`).
 **Resolve** (`aurbuild.Resolve(ctx, req, db, Searcher) (Plan, error)`): names
 exact via `Info`; dependencies from the RPC `depends`/`makedepends`/`checkdepends`
 (re-verified against the fetched `.SRCINFO`, parsed in Go, never sourced). Each
-dependency is satisfied by an installed package, a sync package (via
-`pkgdb.Lookup`/provides) or an AUR package by exact name; anything else is a
-refusal "dependency X not found" (virtual-provider AUR deps are out of v1,
-confirm). Output: repo deps (`pkg-install --asdeps`), AUR packages in build
+dependency is satisfied by an installed package (also through `provides`: such
+a dependency is skipped, not refused), a sync package (via `pkgdb.Lookup`/
+provides) or an AUR package by exact name; only an unmet virtual dependency
+(a provides name nothing installed or in a sync DB satisfies) or a missing name
+is refused, with the dependency named (decided by the lead). Output: repo deps (`pkg-install --asdeps`), AUR packages in build
 order (topological; cycles refused).
 
 **Fetch and build step** (user, `Argv` steps via the Driver, `NeedsPriv: false`):
@@ -270,15 +271,15 @@ polkit action `org.archmaid.helper.pkg-install-local`, `auth_admin`):
 - The sheet's explicit consent text: "this runs the package author's code as
   root". Cancel is the default.
 
-**Ordering and prompts.** (1) If repo dependencies or makedepends are missing:
-`pkg-install --asdeps` (own plan, own prompt; the sheet states "N
-authorisations"). (2) All AUR bases are built in topological order. An AUR
-package that is a *build-time* dependency of a later one is installed by an
-intermediate `pkg-install-local` before that build (an extra prompt, stated in
-the sheet); everything else is installed by one final `pkg-install-local` with all
-files in build order. So a plain single AUR package costs one prompt, one with
-missing repo deps costs two (confirm: AUR-to-AUR makedepends may be refused in
-v1 to keep it at two).
+**Ordering and prompts** (decided by the lead). (1) Missing repo dependencies
+and makedepends: `pkg-install --asdeps` (own plan, own prompt). (2) All AUR
+bases are built in topological order; AUR-to-AUR *runtime* dependencies are
+supported and installed together with their dependents in the one final
+`pkg-install-local` (files in build order). AUR-to-AUR *makedepends* are refused
+in v1 (they would need an install between two builds). So an AUR run has at
+most two password prompts, and the sheet says so up front: "2 password
+prompts: dependencies, then the built packages" (one prompt when no repo
+dependency is missing).
 
 ## 6. Package and import boundaries
 
@@ -352,8 +353,8 @@ page: root never reads a user-writable path twice" when the plumbing lands.
    build/runtime repo deps are not marked explicit).
 3. Exit mapping: 3 = stale and updates-pending, 4 = protected/conflict/required-by.
 4. Updates cache freshness window 24 h; only `repo` count blocks.
-5. AUR deps: exact names only (no virtual providers) in v1.
-6. AUR-to-AUR *makedepends* refused in v1 (keeps one or two prompts per run).
+5. (decided) AUR deps by exact name; a dependency an installed package provides is skipped; only an unmet virtual dependency is refused.
+6. (decided) AUR-to-AUR runtime deps supported in v1; AUR-to-AUR makedepends refused; at most two prompts, stated on the sheet.
 7. One sheet before the build, no second confirm after it; the helper logs
    `.PKGINFO`/`.INSTALL` of the staged package instead.
 8. Git (with history for the diff) over snapshot tarballs for the AUR fetch.
