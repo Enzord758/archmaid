@@ -288,8 +288,22 @@ var legacyLabels = map[string]string{
 	IDWipeCache: "Delete entire package cache",
 }
 
+// LabelPackages is how a Packages run (IDPackages: an install or a remove,
+// which is not a menu entry) is named in last-run.json's readers: the
+// Overview and the DMS widget (state.js ACTION_LABELS, tied by a test).
+const LabelPackages = "Packages"
+
 // LegacyLabel is the label of a retired action ID, "" for any other.
 func LegacyLabel(id string) string { return legacyLabels[id] }
+
+// PageLabel is the label of a run that has no menu entry (the Packages
+// page's), "" for any other ID.
+func PageLabel(id string) string {
+	if id == IDPackages {
+		return LabelPackages
+	}
+	return ""
+}
 
 // ByID is the menu action with id.
 func ByID(id string) (Action, bool) {

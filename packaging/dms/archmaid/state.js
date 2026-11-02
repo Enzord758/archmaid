@@ -337,6 +337,7 @@ var ACTION_LABELS = {
     topgrade: "Run topgrade",
     services: "Disable unused services",
     auraudit: "Audit AUR packages",
+    packages: "Packages",
     // Retired (they became "Clear caches"), kept so a last-run.json or a
     // history entry written before still shows a name.
     usercache: "Clear user cache",

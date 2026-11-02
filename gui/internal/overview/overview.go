@@ -81,6 +81,9 @@ func Label(id string) string {
 	if l := actions.LegacyLabel(id); l != "" {
 		return l // "Clear user cache" in an old last-run.json
 	}
+	if l := actions.PageLabel(id); l != "" {
+		return l // a Packages run, started from its page
+	}
 	return id
 }
 

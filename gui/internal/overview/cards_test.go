@@ -190,10 +190,11 @@ func TestCardTextsAreShort(t *testing.T) {
 
 // TestLabelKnowsRetiredActions: last-run.json and the history written
 // before Clear caches carry "usercache" and "wipecache"; they keep a label.
+// A Packages run ("packages", no menu entry) has one too.
 func TestLabelKnowsRetiredActions(t *testing.T) {
 	for id, want := range map[string]string{
 		actions.IDUserCache: "Clear user cache", actions.IDWipeCache: "Delete entire package cache",
-		actions.IDClearCaches: "Clear caches", "nope": "nope",
+		actions.IDClearCaches: "Clear caches", actions.IDPackages: "Packages", "nope": "nope",
 	} {
 		if got := Label(id); got != want {
 			t.Errorf("Label(%q) = %q, want %q", id, got, want)

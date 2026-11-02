@@ -413,6 +413,8 @@ func runnableIDs() string {
 			ids = append(ids, a.ID)
 		}
 	}
+	// The Packages page's run is no menu entry, but it is a last-run action.
+	ids = append(ids, actions.IDPackages)
 	return strings.Join(ids, ",")
 }
 
@@ -483,8 +485,9 @@ func TestStateJS(t *testing.T) {
 				{Pkg: "p4", Reason: "r"}, {Pkg: "p5", Reason: "r"}, {Pkg: "p6", Reason: "r"}, {Pkg: "p7", Reason: "r"}}}),
 		// Every action that runs (and so can be last-run.json's action):
 		// the popout must have a name for each.
-		"runnable":     runnableIDs(),
-		"restartTable": restartJSON(t),
+		"runnable":      runnableIDs(),
+		"packagesLabel": actions.LabelPackages,
+		"restartTable":  restartJSON(t),
 	}
 	if !strings.Contains(fx["auditClean"], `"high": []`) {
 		t.Fatalf("audit writer changed shape: %s", fx["auditClean"])

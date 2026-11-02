@@ -202,6 +202,8 @@ TestCase {
             verify(State.actionLabel(ids[i]) !== ids[i], "no name for the runnable action " + ids[i]);
         compare(State.actionLabel("fullcleanup"), "Full Cleanup");
         compare(State.actionLabel("clearcaches"), "Clear caches");
+        // A Packages run has no menu entry; the Go side names it too.
+        compare(State.actionLabel("packages"), F.fx.packagesLabel);
         // Records from before Clear caches replaced the two cache actions.
         compare(State.actionLabel("usercache"), "Clear user cache");
         compare(State.actionLabel("wipecache"), "Delete entire package cache");

@@ -53,6 +53,20 @@ func TestPackagesDiscoverPreview(t *testing.T) {
 	}
 }
 
+// TestPackagesPageLabel: a Packages run is a last-run action with a name
+// but no menu entry; the Overview and the widget name it from this.
+func TestPackagesPageLabel(t *testing.T) {
+	if _, on := ByID(IDPackages); on {
+		t.Error("the Packages run is on the menu")
+	}
+	if PageLabel(IDPackages) != LabelPackages || LabelPackages == "" {
+		t.Errorf("PageLabel(%q) = %q", IDPackages, PageLabel(IDPackages))
+	}
+	if PageLabel(IDFullCleanup) != "" || PageLabel("nope") != "" {
+		t.Error("PageLabel answers for another action")
+	}
+}
+
 func TestPackagesDiscoverRefusal(t *testing.T) {
 	ref := &steps.PkgRefusal{Reason: steps.RefuseConflict, Names: []string{"vim"}, Detail: "x"}
 	env := Env{Polkit: true, PlanPackages: func(context.Context, steps.PkgRequest) (steps.PkgPlan, error) {
