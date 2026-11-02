@@ -77,6 +77,9 @@ type Options struct {
 	// would otherwise outlive the process (realdriver's CloseAskpass: the
 	// askpass Server's socket and wrapper). It gets at most a second.
 	AtForcedExit func()
+	// Packages wires the Packages page (packages.go); nil leaves it saying
+	// it is not available in this build.
+	Packages *PackagesWiring
 	// hook, when set, sees the window once it is built (the headless
 	// harness drives it from there).
 	hook func(*Window)

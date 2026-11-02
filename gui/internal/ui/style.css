@@ -248,3 +248,23 @@
 .archmaid .am-fold-row { border-top: 1px solid @am_rail; margin: 0 18px; padding: 6px 0; }
 .archmaid.am-narrow .am-fold-row { margin: 0 12px; }
 .archmaid .am-summary-audit, .archmaid .am-summary-note { margin-bottom: 6px; }
+
+/* The Packages page (task #234): rows, the list tray, the sheet's review.
+   Colour only on state (the tags, the removal list's kicker). */
+.archmaid .am-pkg-name { font-weight: 700; }
+.archmaid .am-pkg-ver { color: @am_muted; font-family: "JetBrains Mono", monospace; font-size: smaller; }
+.archmaid .am-pkg-desc { color: @am_muted; }
+.archmaid .am-pkg-row { padding: 6px 4px; }
+.archmaid .am-pkg-greyed { opacity: 0.55; }
+.archmaid .am-pkg-stat { font-weight: 600; }
+.archmaid .am-pkg-dep { font-family: "JetBrains Mono", monospace; }
+.archmaid .am-pkg-depline { padding: 2px 0; border-bottom: 1px solid @am_rail; }
+.archmaid .am-pkg-totals { color: @am_muted; margin-top: 4px; }
+.archmaid .am-pkg-orphans { padding: 4px 0; }
+.archmaid .am-pkg-list > row { border-bottom: 1px solid @am_rail; }
+.archmaid .am-tray { border-top: 1px solid @am_rail; padding: 10px 14px; background-color: @card_bg_color; }
+.archmaid .am-tray-remove { border-top: 2px solid @am_danger; }
+.archmaid .am-kicker.am-tone-danger { color: @am_danger; }
+.archmaid .am-pkg-trayname { font-family: "JetBrains Mono", monospace; }
+.archmaid .am-pkg-review-frame { border: 1px solid @am_rail; }
+.archmaid .am-pkg-review { font-size: smaller; padding: 6px; }

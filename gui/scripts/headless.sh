@@ -33,7 +33,7 @@ cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
 # The whole display suite takes ~135 s, past the bound, so the default runs
-# it in fourteen parts of at most ~40 s, each with its own display and timeout:
+# it in fifteen parts of at most ~40 s, each with its own display and timeout:
 # the prompts, the real Driver and Stop, the Full Cleanup and the shimmed
 # password and services scenarios, the engine stopping and the instance
 # check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
@@ -61,6 +61,7 @@ if [[ $# -eq 0 ]]; then
 	widelongr='^TestGUIWideDialogsLongResize$'
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
+	pkgs='^TestGUIPackages$'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when
@@ -79,8 +80,9 @@ if [[ $# -eq 0 ]]; then
 	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$widelongr" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
+	"$self" go test "${tags[@]}" -count=1 -v -run "$pkgs" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$perf" ./internal/ui
 fi
 
 

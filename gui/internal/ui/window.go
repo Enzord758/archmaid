@@ -37,7 +37,9 @@ type Window struct {
 	// next Start's fresh Driver is made with them.
 	settings settings.Settings
 	set      *settingsPage
-	model    *runview.Model
+	// pkgs is the Packages page (packages.go).
+	pkgs  *pkgPage
+	model *runview.Model
 	// palette colours the output's ANSI 16: DMS's dank16, read once at
 	// start, or the fallback table.
 	palette runview.Palette
@@ -169,7 +171,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	w.status.SetXAlign(0)
 	w.status.AddCSSClass("dim-label")
 
-	pages := map[string]gtk.Widgetter{"overview": w.newOverview(), "run": w.newRunPage(), "logs": w.newLogs(), "settings": w.newSettings()}
+	pages := map[string]gtk.Widgetter{"overview": w.newOverview(), "packages": w.newPackages(), "run": w.newRunPage(), "logs": w.newLogs(), "settings": w.newSettings()}
 	for _, p := range navPages {
 		w.stack.AddTitledWithIcon(pages[p.name], p.name, p.title, p.icon)
 	}
@@ -596,6 +598,7 @@ func (w *Window) closeRequest() bool {
 		return true
 	}
 	w.closed = true
+	w.pkgs.closeSheet() // the Packages sheet is not in w.dialogs
 	for id, d := range w.dialogs {
 		delete(w.dialogs, id)
 		d.ForceClose()

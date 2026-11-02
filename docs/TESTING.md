@@ -140,6 +140,8 @@ gotk4 build takes about 7 minutes). Two layers:
 | View-models and pump | `gui/internal/runview`, `overview`, `logview`, plain `go test` (`-race` is fine: they don't build gotk4) | nothing: no display, no GTK |
 | The real window | `gui/internal/ui/harness_test.go`, through `gui/scripts/headless.sh` | gtk4 (its Broadway backend), libadwaita, dbus |
 
+The Packages page (task #234): `gui/internal/pkgview` is plain Go and its tests need no display (a fake `Catalog`, a fake `aursearch.Searcher`, a fake clock for the 120 ms and 500 ms debounces, a recording `Backend`: debounce, the repo/AUR merge and order, the install-or-remove list, the sheet's state machine, the updates-pending gate, the installed view; `overview.ReadUpdates` has its own). `TestGUIPackages` (`packages_harness_test.go`, its own part of `headless.sh`) runs one child per scenario on the same fixtures: `cov-pkg-search` (A1, A2: empty state, results repo-first, detail with "pulled in", AUR detail, AUR unreachable, no results), `cov-pkg-installed` (A2b, A6: tabs, protected greyed, orphans banner), `cov-pkg-list` (A3: tray, badge, installs xor removals, -Rns box), `cov-pkg-sheet` (A4, A5, A5b: the sheet, Install answers yes, Cancel no, the Run page and the summary), `cov-pkg-aur` (A4 for the AUR: PKGBUILD text, diff, findings, the boxes, column widths), `cov-pkg-gate` (updates waiting: banner, Install off, Update system first starts topgrade), `cov-pkg-refused` (conflict, protected, stale, updates pending from the helper), `cov-pkg-theme` (light and dark), `cov-pkg-narrow` (A7 at 380 and 360 px), `cov-pkg-unavailable`, `cov-pkg-noengine`. Every scenario also checks that no label parses markup. A scenario waits for the page to settle (`pkgSeq`: no search in flight, no redraw pending, dialog and drill-in animations over). With `ARCHMAID_GUI_SHOTS` they write `cov-pkg-<scenario>-<screen>.png`.
+
 `runview`'s tests replay `stub.FullCleanup` one event at a time and as one
 batch, check that the widget-side output diff always reproduces the model's
 output, including random batches across the 10k cap, and run the `Pump`
@@ -168,7 +170,7 @@ The script drops `WAYLAND_DISPLAY`, `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). The server and the
 command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~7.5 min warm, so with no command it runs fourteen parts of at most ~40 s, each with its own display server (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one `TestGUIWideDialogsLong` another and `TestGUIWideDialogsLongResize` (~41 s with the one before it) a last one, on a 1600x1000 screen: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run, and its cleanup trap removes the runtime dir whatever failed (`TestHeadlessServerFails`).
+~7.5 min warm, so with no command it runs fifteen parts of at most ~40 s, each with its own display server (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one `TestGUIWideDialogsLong` another and `TestGUIWideDialogsLongResize` (~41 s with the one before it) a last one, on a 1600x1000 screen: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run, and its cleanup trap removes the runtime dir whatever failed (`TestHeadlessServerFails`).
 
 Why not `gtk4-broadwayd`, GTK's own server: with no browser connected it
 answers each frame's roundtrip locally, and GDK then draws one frame a

@@ -10,6 +10,7 @@ import (
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/sanitize"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // The Run page's finished state, as the owner's variant C of #187 has it
@@ -166,6 +167,12 @@ var doneHeadline = actions.DoneHeadlines
 // quietHeadline is the kicker, tone and headline of a clean run with nothing
 // that needs the user.
 func quietHeadline(action string) (kicker, tone, headline string) {
+	switch action {
+	case steps.IDPkgInstall:
+		return "DONE", "ok", "Packages installed"
+	case steps.IDPkgRemove:
+		return "DONE", "ok", "Packages removed"
+	}
 	if h, ok := doneHeadline[action]; ok {
 		return "DONE", "ok", h
 	}
@@ -193,7 +200,16 @@ func attentionRow(a report.Attention) AttentionRow {
 // only when the report has it.
 func subLine(r report.Report) string {
 	var parts []string
-	if r.Packages != nil {
+	switch {
+	case r.Packages != nil && isPkgAction(r.Action):
+		// A Packages page run: what it installed or removed, not "0 upgraded".
+		if n := len(r.Packages.Installed); n > 0 {
+			parts = append(parts, plural.N(n, "package", "packages")+" installed")
+		}
+		if n := len(r.Packages.Removed); n > 0 {
+			parts = append(parts, plural.N(n, "package", "packages")+" removed")
+		}
+	case r.Packages != nil:
 		parts = append(parts, plural.N(len(r.Packages.Upgraded), "package", "packages")+" upgraded")
 	}
 	if len(r.Freed) > 0 {
@@ -234,6 +250,30 @@ func packagesBlock(r report.Report) *PackagesBlock {
 		}
 		return nil
 	}
+	if isPkgAction(r.Action) {
+		// A Packages page run has no upgrades to count: the block is its
+		// installs and removals.
+		b := &PackagesBlock{}
+		switch {
+		case len(p.Installed) > 0 && len(p.Removed) > 0:
+			b.Head = fmt.Sprintf("%d installed, %d removed", len(p.Installed), len(p.Removed))
+		case len(p.Removed) > 0:
+			b.Head = fmt.Sprintf("%d removed", len(p.Removed))
+		default:
+			b.Head = fmt.Sprintf("%d installed", len(p.Installed))
+		}
+		for i, in := range p.Installed {
+			if i == MaxPackageRows {
+				b.Hidden = len(p.Installed) - MaxPackageRows
+				break
+			}
+			b.Rows = append(b.Rows, PackageRow{Name: safeName(in.Name), Change: sanitize.Field(in.New, 40)})
+		}
+		if len(p.Removed) > 0 {
+			b.Lines = append(b.Lines, LabelledLine{"Removed", fmt.Sprintf("%d · %s", len(p.Removed), nameList(pkgNames(p.Removed), 3))})
+		}
+		return b
+	}
 	b := &PackagesBlock{Head: fmt.Sprintf("%d upgraded", len(p.Upgraded))}
 	if p.AURKnown && len(p.Upgraded) > 0 {
 		b.Head += fmt.Sprintf(" (%d AUR)", p.AURUpgraded)
@@ -258,6 +298,10 @@ func packagesBlock(r report.Report) *PackagesBlock {
 	line("Downgraded", p.Downgraded)
 	return b
 }
+
+// isPkgAction: the report is of a Packages page run (steps.IDPkgInstall or
+// steps.IDPkgRemove: the engine's StartPackages names its queue after the step).
+func isPkgAction(a string) bool { return a == steps.IDPkgInstall || a == steps.IDPkgRemove }
 
 func change(p report.Pkg) string {
 	return sanitize.Field(p.Old, 40) + " → " + sanitize.Field(p.New, 40)

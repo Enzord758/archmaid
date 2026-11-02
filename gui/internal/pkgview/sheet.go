@@ -1,0 +1,537 @@
+package pkgview
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/Enzord758/archmaid/internal/steps"
+)
+
+// Event is what the engine tells the page about a packages request. The
+// contract's engine events (PackagesPreview + NeedsConfirm, PackagesRefused,
+// PackagesUpdatesPending, PackagesStale, QueueStarted, Finished) map one to
+// one; the ui package holds the one adapter (see docs in the report).
+type Event interface{ isEvent() }
+
+// Preview is PackagesPreview followed by NeedsConfirm{ID: Prompt}: the
+// sheet's content. Reviews is the AUR review payload (empty for repo
+// packages).
+type Preview struct {
+	Prompt  int
+	Plan    steps.PkgPlan
+	Reviews []Review
+}
+
+// Refused is PackagesRefused: nothing changed.
+type Refused struct {
+	Req     steps.PkgRequest
+	Refusal *steps.PkgRefusal
+}
+
+// UpdatesPending is PackagesUpdatesPending: the helper's `pacman -Qu` is
+// not empty.
+type UpdatesPending struct{ Count int }
+
+// Stale is PackagesStale: the plan changed between the confirm and the run.
+type Stale struct {
+	Req  steps.PkgRequest
+	Plan steps.PkgPlan
+}
+
+// RunStarted is QueueStarted: the run is going, the Run page takes over.
+type RunStarted struct{}
+
+// Done is Finished: the request is over (any outcome).
+type Done struct{ OK bool }
+
+func (Preview) isEvent()        {}
+func (Refused) isEvent()        {}
+func (UpdatesPending) isEvent() {}
+func (Stale) isEvent()          {}
+func (RunStarted) isEvent()     {}
+func (Done) isEvent()           {}
+
+// Backend is what the page asks of the engine (engine.StartPackages,
+// engine.Confirm, engine.Abort and engine.Start{Action: topgrade}).
+type Backend interface {
+	StartPackages(req steps.PkgRequest)
+	Answer(prompt int, yes bool)
+	Abort()
+	UpdateSystem()
+}
+
+// Severity is an audit finding's weight.
+type Severity int
+
+const (
+	SevLow Severity = iota
+	SevMedium
+	SevHigh
+)
+
+func (s Severity) String() string {
+	switch s {
+	case SevHigh:
+		return "high"
+	case SevMedium:
+		return "medium"
+	}
+	return "low"
+}
+
+// Finding is one audit finding on an AUR package.
+type Finding struct {
+	Severity Severity
+	Text     string
+}
+
+// ReviewFile is one file of an AUR package base's repository.
+type ReviewFile struct {
+	Path string
+	Kind string // pkgbuild, install, patch, other
+	Size int64
+	Text string // "" when not shown (binary, over 128 KiB)
+}
+
+// Review is the sheet's AUR review of one package base (the contract's
+// aurbuild.Review, as the page needs it): plain, already sanitized text.
+type Review struct {
+	Base     string
+	Names    []string
+	Version  string
+	Commit   string
+	Prev     string // last reviewed commit, "" for a first install
+	Files    []ReviewFile
+	Diff     string // unified diff against Prev, "" when there is none
+	Flags    []string
+	Findings []Finding
+}
+
+// HighFindings counts the high findings over all reviews.
+func HighFindings(rs []Review) int {
+	n := 0
+	for _, r := range rs {
+		for _, f := range r.Findings {
+			if f.Severity == SevHigh {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// SheetState is where the confirm sheet is.
+type SheetState int
+
+const (
+	SheetClosed   SheetState = iota
+	SheetPlanning            // "Checking the packages…"
+	SheetReview              // the plan, waiting for the answer
+	SheetRefused             // refused with a reason
+	SheetPending             // updates are waiting
+	SheetStale               // the list changed: review again
+	SheetRunning             // confirmed, waiting for the run to start
+)
+
+// Check ids.
+const (
+	CheckPKGBUILD = "pkgbuild"
+	CheckFindings = "findings"
+)
+
+// Note is a line of the sheet's "Before you start".
+type Note struct {
+	Tag  string // "root", "asks", "blocked", "AUR", ""
+	Tone Tone
+	Text string
+}
+
+// Check is a box the user ticks before Install enables.
+type Check struct {
+	ID    string
+	Label string
+	On    bool
+}
+
+// SheetRow is one package of the plan.
+type SheetRow struct {
+	Name, Version, Old, Repo string
+	Target                   bool
+	Size                     string
+	Kind                     string // "new", "upgrade", "dependency", "removed"
+}
+
+// SheetView is everything the sheet draws.
+type SheetView struct {
+	State    SheetState
+	Mode     Mode
+	Heading  string
+	Body     string // planning, refused, pending and stale: the one message
+	Rows     []SheetRow
+	Totals   string
+	Notes    []Note
+	Reviews  []Review
+	Checks   []Check
+	YesLabel string
+	NoLabel  string
+	// YesEnabled: the primary button works (all required boxes ticked,
+	// nothing blocks). Cancel is always the default.
+	YesEnabled bool
+	// UpdateFirst: show "Update system first".
+	UpdateFirst bool
+	// Retry is the primary button of the stale state ("Review again").
+	Retry string
+	// Destructive: a removal (the button is red).
+	Destructive bool
+	// WithConfig: the removal also deletes config files.
+	WithConfig bool
+}
+
+// Sheet is the confirm sheet's state machine.
+type Sheet struct {
+	state   SheetState
+	req     steps.PkgRequest
+	plan    steps.PkgPlan
+	hasPlan bool
+	prompt  int
+	reviews []Review
+	refusal *steps.PkgRefusal
+	pending int
+	ticks   map[string]bool
+
+	// Inputs the controller keeps current.
+	DBAge   time.Duration // < 0: unknown
+	Blocked int           // repo updates waiting by the cache, 0: none (install only)
+}
+
+// NewSheet makes a closed sheet.
+func NewSheet() *Sheet { return &Sheet{DBAge: -1, ticks: map[string]bool{}} }
+
+// State is the sheet's state.
+func (s *Sheet) State() SheetState { return s.state }
+
+// Open: the sheet shows something.
+func (s *Sheet) Open() bool { return s.state != SheetClosed }
+
+// Req is the request the sheet was begun with.
+func (s *Sheet) Req() steps.PkgRequest { return s.req }
+
+// Prompt is the confirm's id (SheetReview).
+func (s *Sheet) Prompt() int { return s.prompt }
+
+// Begin opens the sheet for req, in the planning state.
+func (s *Sheet) Begin(req steps.PkgRequest) {
+	s.state, s.req, s.hasPlan = SheetPlanning, req, false
+	s.reviews, s.refusal, s.pending, s.prompt = nil, nil, 0, 0
+	s.ticks = map[string]bool{}
+}
+
+// Apply folds an engine event in. It returns whether the Run page should
+// come up (RunStarted).
+func (s *Sheet) Apply(ev Event) (showRun bool) {
+	switch e := ev.(type) {
+	case Preview:
+		if s.state != SheetPlanning {
+			return false
+		}
+		s.state, s.plan, s.hasPlan, s.prompt, s.reviews = SheetReview, e.Plan, true, e.Prompt, e.Reviews
+	case Refused:
+		if s.state == SheetClosed {
+			return false
+		}
+		s.state, s.refusal = SheetRefused, e.Refusal
+	case UpdatesPending:
+		if s.state == SheetClosed {
+			return false
+		}
+		s.state, s.pending = SheetPending, e.Count
+	case Stale:
+		if s.state == SheetClosed {
+			return false
+		}
+		s.state, s.req, s.plan, s.hasPlan = SheetStale, e.Req, e.Plan, true
+	case RunStarted:
+		if s.state == SheetRunning || s.state == SheetReview {
+			s.state = SheetClosed
+		}
+		return true
+	case Done:
+		switch s.state {
+		case SheetPlanning, SheetReview, SheetRunning:
+			s.state = SheetClosed
+		}
+	}
+	return false
+}
+
+// Tick sets a check box.
+func (s *Sheet) Tick(id string, on bool) {
+	if s.state == SheetReview {
+		s.ticks[id] = on
+	}
+}
+
+// Prompts is the number of password prompts the run costs: one for the
+// install or removal, plus one first for the repo dependencies of an AUR
+// build (contract section 5 and the lead's confirmation). The sheet says so
+// up front.
+func Prompts(plan steps.PkgPlan, reviews []Review) int {
+	if len(reviews) == 0 || plan.Mode == steps.PkgRemove {
+		return 1
+	}
+	for _, r := range plan.Rows {
+		if r.Repo != "aur" && !r.Target {
+			return 2
+		}
+	}
+	// A repo package among the targets next to AUR ones is a repo
+	// install of its own, too.
+	aur := map[string]bool{}
+	for _, r := range reviews {
+		for _, n := range r.Names {
+			aur[n] = true
+		}
+	}
+	for _, t := range plan.Targets {
+		if !aur[t] {
+			return 2
+		}
+	}
+	return 1
+}
+
+// Checks are the boxes the sheet shows now.
+func (s *Sheet) checks() []Check {
+	if s.state != SheetReview || len(s.reviews) == 0 {
+		return nil
+	}
+	cs := []Check{{CheckPKGBUILD, "I read the PKGBUILD. I understand this runs the package author's code as root.", s.ticks[CheckPKGBUILD]}}
+	if HighFindings(s.reviews) > 0 {
+		cs = append(cs, Check{CheckFindings, "Accept the audit findings.", s.ticks[CheckFindings]})
+	}
+	return cs
+}
+
+// CanConfirm: the review state, every box ticked, nothing blocking.
+func (s *Sheet) CanConfirm() bool {
+	if s.state != SheetReview {
+		return false
+	}
+	if s.req.Mode == steps.PkgInstall && s.Blocked > 0 {
+		return false
+	}
+	for _, c := range s.checks() {
+		if !c.On {
+			return false
+		}
+	}
+	return true
+}
+
+// Confirm answers the engine's confirm yes, when it may. It returns the
+// prompt and true; the sheet then waits for the run (SheetRunning).
+func (s *Sheet) Confirm() (prompt int, ok bool) {
+	if !s.CanConfirm() {
+		return 0, false
+	}
+	s.state = SheetRunning
+	return s.prompt, true
+}
+
+// Dismiss closes the sheet from the user's side. In the review state the
+// engine's confirm is answered no (the returned prompt, answer true);
+// while planning the request is aborted (abort true). In every other
+// state it just closes.
+func (s *Sheet) Dismiss() (prompt int, answer, abort bool) {
+	switch s.state {
+	case SheetReview:
+		p := s.prompt
+		s.state = SheetClosed
+		return p, true, false
+	case SheetPlanning:
+		s.state = SheetClosed
+		return 0, false, true
+	}
+	s.state = SheetClosed
+	return 0, false, false
+}
+
+// Retry reopens a stale sheet for the same request ("Review again").
+func (s *Sheet) Retry() (steps.PkgRequest, bool) {
+	if s.state != SheetStale {
+		return steps.PkgRequest{}, false
+	}
+	req := s.req
+	s.Begin(req)
+	return req, true
+}
+
+// View is what the sheet draws now.
+func (s *Sheet) View() SheetView {
+	v := SheetView{State: s.state, Mode: ModeInstall, NoLabel: "Cancel", YesLabel: "Install"}
+	remove := s.req.Mode == steps.PkgRemove
+	if remove {
+		v.Mode, v.YesLabel, v.Destructive, v.WithConfig = ModeRemove, "Remove", true, s.req.WithConfig
+	}
+	names := len(s.req.Names)
+	v.Heading = fmt.Sprintf("%s %s", map[bool]string{true: "Remove", false: "Install"}[remove], N(names, "package", "packages"))
+	switch s.state {
+	case SheetPlanning:
+		v.Body = "Checking the packages…"
+		v.NoLabel = "Cancel"
+	case SheetRefused:
+		v.Heading, v.Body = RefusalHeading(s.refusal), RefusalText(s.refusal)
+		v.NoLabel = "Close"
+		if s.refusal != nil && s.refusal.Reason == steps.RefuseUpdatesPending {
+			v.UpdateFirst = true
+		}
+	case SheetPending:
+		v.Heading = "Update the system first"
+		v.Body = fmt.Sprintf("%s waiting. Arch does not support installing on a partly updated system.", N(s.pending, "update is", "updates are"))
+		v.NoLabel, v.UpdateFirst = "Close", true
+	case SheetStale:
+		v.Heading = "The list changed"
+		v.Body = "The packages changed since you looked. Nothing was installed or removed. Review the list again."
+		v.NoLabel, v.Retry = "Close", "Review again"
+	case SheetReview, SheetRunning:
+		s.fillReview(&v)
+	}
+	return v
+}
+
+func (s *Sheet) fillReview(v *SheetView) {
+	p := s.plan
+	remove := p.Mode == steps.PkgRemove
+	var dl, inst int64
+	for _, r := range p.Rows {
+		row := SheetRow{Name: r.Name, Version: r.Version, Old: r.OldVersion, Repo: r.Repo, Target: r.Target}
+		switch {
+		case remove:
+			row.Kind, row.Size = "removed", Size(r.Installed)
+		case r.OldVersion != "":
+			row.Kind, row.Size = "upgrade", Size(r.Download)
+		case r.Target:
+			row.Kind, row.Size = "new", Size(r.Download)
+		default:
+			row.Kind, row.Size = "dependency", Size(r.Download)
+		}
+		dl += r.Download
+		inst += r.Installed
+		v.Rows = append(v.Rows, row)
+	}
+	if remove {
+		v.Totals = "Frees " + Size(inst)
+	} else {
+		v.Totals = "Download " + Size(dl) + " · takes " + Size(inst) + " on disk"
+	}
+	v.Reviews, v.Checks = s.reviews, s.checks()
+	v.Notes = s.notes(p, remove)
+	v.YesEnabled = s.state == SheetReview && s.CanConfirm()
+	if !remove && s.Blocked > 0 {
+		v.UpdateFirst = true
+	}
+}
+
+func (s *Sheet) notes(p steps.PkgPlan, remove bool) []Note {
+	var ns []Note
+	ns = append(ns, Note{"root", ToneWarn, "Runs as root, after you authorise it. Once it has started it can't be stopped."})
+	prompts := Prompts(p, s.reviews)
+	if prompts == 2 {
+		ns = append(ns, Note{"asks", ToneNeutral, "2 password prompts: first for the repo dependencies, then for the AUR packages."})
+	} else {
+		ns = append(ns, Note{"asks", ToneNeutral, "1 password prompt."})
+	}
+	if s.DBAge >= 0 {
+		t := ToneNeutral
+		if s.DBAge > 7*24*time.Hour {
+			t = ToneWarn
+		}
+		ns = append(ns, Note{"", t, "Package lists are " + Age(s.DBAge) + " old. archmaid does not refresh them."})
+	}
+	if !remove && s.Blocked > 0 {
+		ns = append(ns, Note{"blocked", ToneWarn, N(s.Blocked, "update is", "updates are") + " waiting. Update the system first."})
+	}
+	if remove {
+		if p.WithConfig {
+			ns = append(ns, Note{"", ToneNeutral, "Also deletes the packages' config files."})
+		}
+		ns = append(ns, Note{"", ToneNeutral, "Dependencies nothing else needs go with it."})
+	}
+	if len(s.reviews) > 0 {
+		ns = append(ns, Note{"AUR", ToneNeutral, "Not reviewed by Arch. The build runs as you; the install runs the author's code as root."})
+	}
+	for _, w := range p.Warnings {
+		ns = append(ns, Note{"", ToneWarn, oneLine(w)})
+	}
+	return ns
+}
+
+// oneLine is a helper's warning cut to one plain line of at most 200 runes.
+func oneLine(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > 200 {
+		s = string(r[:199]) + "…"
+	}
+	return s
+}
+
+// RefusalHeading is a refusal's title.
+func RefusalHeading(r *steps.PkgRefusal) string {
+	if r == nil {
+		return "Refused"
+	}
+	switch r.Reason {
+	case steps.RefuseConflict:
+		return "It replaces an installed package"
+	case steps.RefuseProtected:
+		return "It would remove a protected package"
+	case steps.RefuseRequired:
+		return "Other packages need it"
+	case steps.RefuseNotFound:
+		return "Not found"
+	case steps.RefuseNotInstalled:
+		return "Not installed"
+	case steps.RefuseBusy:
+		return "pacman is busy"
+	case steps.RefuseUpdatesPending:
+		return "Update the system first"
+	case steps.RefuseStale:
+		return "The list changed"
+	}
+	return "Refused"
+}
+
+// RefusalText is the reason in a few plain words, with the names.
+func RefusalText(r *steps.PkgRefusal) string {
+	if r == nil {
+		return "The request was refused. Nothing changed."
+	}
+	names := strings.Join(r.Names, ", ")
+	if len(r.Names) > 6 {
+		names = strings.Join(r.Names[:6], ", ") + fmt.Sprintf(" and %d more", len(r.Names)-6)
+	}
+	var s string
+	switch r.Reason {
+	case steps.RefuseConflict:
+		s = "It would replace or remove an installed package (" + names + "). Remove the old package first, then install this one."
+	case steps.RefuseProtected:
+		s = names + " is protected: removing it could leave the system unusable."
+	case steps.RefuseRequired:
+		s = names + " is still needed by other installed packages."
+	case steps.RefuseNotFound:
+		s = names + " is not in the package lists, by that exact name."
+	case steps.RefuseNotInstalled:
+		s = names + " is not installed."
+	case steps.RefuseBusy:
+		s = "Another package operation is running. Try again when it is done."
+	case steps.RefuseUpdatesPending:
+		s = N(r.Count, "update is", "updates are") + " waiting. Update the system first."
+	default:
+		s = "The request was refused."
+	}
+	if d := oneLine(r.Detail); d != "" && !strings.Contains(s, d) {
+		s += " " + d
+	}
+	return s + " Nothing changed."
+}

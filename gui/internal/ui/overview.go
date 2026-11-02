@@ -231,6 +231,7 @@ func (w *Window) setNarrow(narrow bool) {
 		}
 	}
 	w.setSummaryNarrow(narrow)
+	w.pkgs.setNarrow(narrow)
 }
 
 // setShown shows or hides wd, and the flow box child holding it if it is

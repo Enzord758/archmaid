@@ -1,0 +1,33 @@
+package runview
+
+import (
+	"testing"
+	"time"
+
+	"github.com/Enzord758/archmaid/internal/report"
+	"github.com/Enzord758/archmaid/internal/steps"
+)
+
+// A Packages page run is not an update: its summary says what it installed
+// or removed, never "Everything is up to date" and "0 upgraded".
+func TestSummaryPackagesRun(t *testing.T) {
+	inst := report.Report{Action: steps.IDPkgInstall, Elapsed: 5 * time.Second, Steps: report.StepTally{Done: 1},
+		Packages: &report.Packages{Installed: []report.Pkg{{Name: "firefox", New: "133.0-1"}, {Name: "libxt", New: "1.3.1-1"}}}}
+	s := BuildSummary(inst, true)
+	if s.Kicker != "DONE" || s.Headline != "Packages installed" || s.Sub != "2 packages installed · 5 s" {
+		t.Fatalf("install: %q %q %q", s.Kicker, s.Headline, s.Sub)
+	}
+	if s.Packages == nil || s.Packages.Head != "2 installed" || len(s.Packages.Rows) != 2 || s.Packages.Rows[0].Change != "133.0-1" {
+		t.Fatalf("install block: %+v", s.Packages)
+	}
+	rem := report.Report{Action: steps.IDPkgRemove, Packages: &report.Packages{Removed: []report.Pkg{{Name: "vim", Old: "9.1-1"}, {Name: "vim-runtime", Old: "9.1-1"}}}}
+	s = BuildSummary(rem, true)
+	if s.Headline != "Packages removed" || s.Sub != "2 packages removed" || s.Packages.Head != "2 removed" || len(s.Packages.Lines) != 1 {
+		t.Fatalf("remove: %q %q %+v", s.Headline, s.Sub, s.Packages)
+	}
+	// An update run's summary is unchanged.
+	up := report.Report{Action: "topgrade", Packages: &report.Packages{Upgraded: []report.Pkg{{Name: "a", Old: "1", New: "2"}}}}
+	if s := BuildSummary(up, true); s.Sub != "1 package upgraded" || s.Packages.Head != "1 upgraded" {
+		t.Fatalf("update: %q %+v", s.Sub, s.Packages)
+	}
+}

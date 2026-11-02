@@ -24,6 +24,7 @@ type navPage struct {
 // uses the names).
 var navPages = []navPage{
 	{"overview", "Overview", "go-home-symbolic"},
+	{"packages", "Packages", "system-software-install-symbolic"},
 	{"run", "Run", "media-playback-start-symbolic"},
 	{"logs", "Logs", "document-open-recent-symbolic"},
 	{"settings", "Settings", "emblem-system-symbolic"},
@@ -40,6 +41,7 @@ type shell struct {
 	nav       *gtk.ListBox
 	navRows   map[string]*gtk.ListBoxRow
 	runBadge  *gtk.Label
+	pkgBadge  *gtk.Label // the Packages list's size
 	title     *gtk.Label
 	toggle    *gtk.ToggleButton
 	statusBar *gtk.Label // the narrow form's status, under the content
@@ -70,6 +72,13 @@ func (w *Window) buildShell() {
 		l.SetXAlign(0)
 		l.SetHExpand(true)
 		box.Append(l)
+		if p.name == "packages" {
+			sh.pkgBadge = gtk.NewLabel("")
+			sh.pkgBadge.AddCSSClass("am-badge")
+			sh.pkgBadge.AddCSSClass("numeric")
+			sh.pkgBadge.SetVisible(false)
+			box.Append(sh.pkgBadge)
+		}
 		if p.name == "run" {
 			sh.runBadge = gtk.NewLabel("")
 			sh.runBadge.AddCSSClass("am-badge")

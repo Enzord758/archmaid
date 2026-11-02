@@ -480,6 +480,9 @@ func runChild(scenario, path string) int {
 			// markup makes GTK log a g_warning naming toastControl.
 			gtk.NewLabel("").SetMarkup("<b>" + toastControl)
 		}
+		if sz := pkgWindowSize(scenario); sz[0] > 0 { // packages_harness_test.go
+			w.win.SetDefaultSize(sz[0], sz[1])
+		}
 		if scenario == "narrow-toggle" { // narrowtoggle_harness_test.go: starts wide
 			w.win.SetDefaultSize(toggleWide, narrowH)
 		}
