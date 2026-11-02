@@ -29,6 +29,12 @@ type AURPrepared struct {
 	// RepoDeps (nil if there are none), the rest is the user-side build and
 	// the final root install (aurbuild.Fetcher.Queue).
 	Queue func(deps *steps.Step) []steps.Step
+	// Accept, if set, is the audit snapshot's commit, set only when the
+	// plans carry high audit findings: the sheet's "yes" then means the user
+	// accepted them. It becomes the first step's OnAccept, which the engine
+	// runs on the sheet's yes, before any step starts (a no or a cancel
+	// runs nothing).
+	Accept func() error
 }
 
 // AURDiscover is PackagesDiscover for an AUR request. The helper's plan of
@@ -71,6 +77,10 @@ func AURDiscover(req steps.PkgRequest) func(ctx context.Context, env Env) Discov
 		for _, n := range prep.Notes {
 			plan.Warnings = append(plan.Warnings, sanitize.OneLine(n))
 		}
-		return PkgPreview{Plan: plan, Steps: prep.Queue(deps)}
+		queue := prep.Queue(deps)
+		if prep.Accept != nil && len(queue) > 0 {
+			queue[0].OnAccept = prep.Accept
+		}
+		return PkgPreview{Plan: plan, Steps: queue}
 	}
 }

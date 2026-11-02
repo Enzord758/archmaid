@@ -250,6 +250,7 @@ their AUR deps (so the snapshot is not shrunk; the new names are a baseline
 (`steps.Result.Check`/`ConfirmAuditGate` style: "accept the findings" checkbox
 before the sheet's Install enables). The snapshot commit happens on accept, as
 topgrade's. The audit runs while the review is fetched (`Prefetch`).
+Implemented (#238): `AURPrepared.Accept` (= `Audit.Commit(false, true)`, set only with `Prepared.HighFindings() > 0`) becomes the queue's first step's `OnAccept`; `engine.answerPackages` runs it as a `RunHook` on the sheet's yes, before any step. No/cancel/abort run nothing; a later build failure keeps the commit (the user accepted the maintainers' state, not the build). The GUI gates its Install button with an "I accept" checkbox.
 
 **`pkg-install-local H <file>...`** (root, Dev 3's design, own security review,
 polkit action `org.archmaid.helper.pkg-install-local`, `auth_admin`):

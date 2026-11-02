@@ -39,6 +39,13 @@ func AURPlanner(p AURPreparer, f aurbuild.Fetcher, reviewed *aurbuild.Reviewed) 
 			Plans: prep.Plans, RepoDeps: prep.RepoDeps,
 			Queue: func(deps *steps.Step) []steps.Step { return f.Queue(prep.Plans, deps, reviewed) },
 		}
+		// High findings: the sheet's yes accepts them, which commits the
+		// audit snapshot as topgrade's accept does (Result.Commit(false,
+		// true): the highs advance too, ACCEPT is logged). Without any, the
+		// snapshot stays as it was. A dry run has no commit (nil).
+		if prep.HasAudit && prep.HighFindings() > 0 {
+			out.Accept = prep.Audit.Commit(false, true)
+		}
 		if prep.AuditNote != "" {
 			out.Notes = append(out.Notes, sanitize.OneLine(prep.AuditNote))
 		}

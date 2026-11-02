@@ -213,5 +213,13 @@ func (s *Session) answerPackages(o *Output, yes bool) {
 	}
 	queue := slices.Clone(r.pkgSteps)
 	r.pkgSteps = nil
+	// An OnAccept on the queue's first step is the sheet's acceptance (the
+	// AUR install with high audit findings: the audit's snapshot commit, as
+	// topgrade's). It runs now, on this "yes", before any step starts, and
+	// not again when the step launches.
+	if len(queue) > 0 && queue[0].OnAccept != nil {
+		o.effect(RunHook{Seq: s.seq(), Step: queue[0].ID, Fn: queue[0].OnAccept})
+		queue[0].OnAccept = nil
+	}
 	s.plan(o, queue, "")
 }
