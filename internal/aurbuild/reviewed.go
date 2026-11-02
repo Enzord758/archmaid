@@ -7,12 +7,28 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/pkgdb"
 )
 
+// ReviewedFile is the file's name in the state directory.
+const ReviewedFile = "aur-reviewed.json"
+
+// DefaultReviewed is the Reviewed of the real state directory
+// (logstore.DefaultDir, ~/.local/state/archmaid; XDG_STATE_HOME is not
+// honoured, as for every other state file). Without a usable home folder its
+// Path is "": Get finds nothing and Mark returns an error.
+func DefaultReviewed() *Reviewed {
+	dir := logstore.DefaultDir()
+	if dir == "" {
+		return &Reviewed{}
+	}
+	return &Reviewed{Path: filepath.Join(dir, ReviewedFile)}
+}
+
 // Reviewed remembers, per package base, the last commit the user reviewed
 // and installed: the next review shows the diff from it. The file is user
-// state ($XDG_STATE_HOME/archmaid/aur-reviewed.json, docs/design/
+// state (~/.local/state/archmaid/aur-reviewed.json, docs/design/
 // packages-contract.md section 5), written only after an install succeeded
 // (the queue's last step), never by a review alone.
 //
@@ -59,6 +75,9 @@ func (r *Reviewed) Get(base string) string {
 func (r *Reviewed) Mark(marks map[string]string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if !filepath.IsAbs(r.Path) {
+		return errors.New("no state directory for the reviewed commits")
+	}
 	cur := r.load()
 	for base, c := range marks {
 		if !pkgdb.ValidName(base) || !validCommit(c) {

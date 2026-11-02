@@ -173,6 +173,19 @@ type Store struct {
 	err  error // ErrNoStateDir: the store refuses everything
 }
 
+// DefaultDir is archmaid's state directory, ~/.local/state/archmaid: the one
+// place for the run logs, the updates cache and the other user state files.
+// It is fixed on purpose (XDG_STATE_HOME is not honoured: the updates timer
+// and the widget read the same folder). "" when the home folder is unknown or
+// not absolute.
+func DefaultDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil || !filepath.IsAbs(home) {
+		return ""
+	}
+	return filepath.Join(home, ".local", "state", "archmaid")
+}
+
 // New returns a Store for Options. It creates nothing on disk. Without an
 // absolute state directory (see Options.Dir) the store is unusable: every
 // write and read returns ErrNoStateDir, Prune does nothing, and Root, RunDir
@@ -184,9 +197,7 @@ func New(o Options) *Store {
 	}
 	root := o.Dir
 	if root == "" {
-		if home, err := os.UserHomeDir(); err == nil && filepath.IsAbs(home) {
-			root = filepath.Join(home, ".local", "state", "archmaid")
-		}
+		root = DefaultDir()
 	}
 	var err error
 	if !filepath.IsAbs(root) {

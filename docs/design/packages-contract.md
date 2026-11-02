@@ -238,7 +238,7 @@ Flags []string, Audit []AuditFinding, Deps}`. `Flags` is computed from the
 "builds the upstream's moving head, not what you reviewed"), `SKIP` checksum,
 non-https source, an `.install` script (runs as root at install), a symlink or
 binary in the repo. Reviewed commits are remembered in
-`$XDG_STATE_HOME/archmaid/aur-reviewed.json` (base -> commit), user state, written
+`~/.local/state/archmaid/aur-reviewed.json` (fixed path; `XDG_STATE_HOME` not honoured) (base -> commit), user state, written
 only after a successful install. The engine event: `PackagesPreview` with
 `Plan.AUR []steps.AURPlan` (additive field on `PkgPlan`) and a `Reviews`
 payload; confirm kind `ConfirmPackages` as repo.
