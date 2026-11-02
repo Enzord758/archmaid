@@ -2,37 +2,90 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1` and `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes).
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) and `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-03
+
+It was all merged into `main` (= `refactor/p0`) and passed the local gate, the test VM CI (`run.sh ci`: core, e2e, gui, bench) and two live checks of the Packages page in the test VM. Those checks did real repo and AUR installs and removals, and tried tampering with the built files.
+
 ### Read this first
 
-- **Install the polkit policy with the package.** The Packages page adds three polkit actions (`org.archmaid.helper.pkg-install`, `pkg-install-local`, `pkg-remove`) and five helper verbs. The GUI and the helper must come from the same build: install `archmaid-git` and `archmaid-gui-git` together, as the README says.
-- **Installing from the AUR needs `git` and a build toolchain (`base-devel`) on your machine.** They are optional dependencies of `archmaid-gui-git`, so the packages don't pull them in. Without `git` the fetch step fails with git's own message and nothing is built.
+- **Install the polkit policy with the package.** The Packages page adds three polkit actions (`org.archmaid.helper.pkg-install`, `pkg-install-local` and `pkg-remove`) and six helper verbs. The GUI and the helper must come from the same build, so install `archmaid-git` and `archmaid-gui-git` together, as the README says.
+- **Installing from the AUR needs `git` and a build toolchain (`base-devel`) on your machine.** They are optional dependencies of `archmaid-gui-git`, so the packages don't pull them in. Without `git`, the fetch step fails with git's own message and nothing is built.
 - **The Packages page is GUI-only.** The TUI has no package page and no `sudo` path for it.
 
 ### Added
 
-- **A Packages page in archmaid-gui** (#230-#240): search, install and remove packages from the repositories and the AUR. Design: `docs/design/packages-contract.md`; the user guide is the wiki's Packages page.
-  - **Search and details.** One box searches the repositories as you type and the AUR after a short pause (at least 2 characters; the term goes to aur.archlinux.org only then). Results come in two groups, Repositories (up to 50) and AUR (up to 40); a repo package hides an AUR one of the same name. A package opens in a detail pane (a drill-in below 760 px) with repo, version, sizes and dependencies, and for the AUR maintainer, votes and dates. The package lists are read from pacman's databases directly; the page never refreshes them.
-  - **The install list and the confirm sheet.** "Install" goes straight to the sheet; "Add to list" (up to 32 names) gathers packages first, and the sidebar badge shows the count. The sheet lists everything that will be installed, dependencies included, with download and disk sizes; Cancel is the default. A list is installs only or removals only, never both.
-  - **What blocks an install.** Pending updates ("N updates are waiting", with an **Update system first** button that starts Run topgrade), a package that replaces or conflicts with an installed one (remove the old one first), and an item that would be an upgrade. archmaid never runs `-Sy`, `--overwrite` or `-dd`.
-  - **Remove.** `pacman -Rs` by default; a box adds `-Rns` (config files too). Never `-Rc` or `-Rdd`. A protected list in the helper (`base`, `filesystem`, `glibc`, `systemd`, `pacman`, `sudo`, `polkit`, the kernels and bootloaders, the owner of every installed `/usr/lib/modules/*/pkgbase`, what `base` depends on, anything named `archmaid*`) refuses a removal as a target and through the cascade. Orphans are listed but removed by Full Cleanup.
-  - **Removal planning and the protected list.** `plan-remove -n` plans with `-Rs` (pacman refuses `-Rns --print`; the confirmed choice stays bound in the hash and the root run still uses `-Rns`). The targets are checked against the protected list before pacman is asked about the cascade, `required-by` names the packages that need the target, and any other pacman error is a plain failure. A new read-only `plan-protected` verb (no polkit action) lists the protected names, so the GUI can grey them.
-  - **The Installed view.** Explicit, Dependencies, Orphans and Foreign, with a filter, and "Recently installed" on the search start.
-  - **AUR packages**, built as you with `makepkg` (never root, never `-s` or `-i`) in `~/.cache/archmaid/aur/<package base>`. Before anything is built the sheet shows the PKGBUILD and the other files of the repo, the diff against the commit you last reviewed ("Changes"), hints (version-control or unchecked sources, non-https, an `.install` script, symlinks, binaries, a download piped to a shell, `sudo`, base64) and the maintainer audit's findings. Install enables only after you tick "I read the PKGBUILD" and, when the audit has a high finding, "I've read the findings and accept them" (accepting commits the audit snapshot, as Full Cleanup's gate does). Nothing sources the PKGBUILD before you accept. The built files are installed by `pkg-install-local`.
-  - **Two password prompts** when repo dependencies are missing (first the dependencies, then the built packages), one when none are; the sheet says which up front.
-  - **Three new polkit actions**, all `auth_admin` and never kept, so every run asks for the password: `pkg-install` (repo), `pkg-install-local` (AUR; its message says the packages are unsigned and their install scripts run as root) and `pkg-remove`. The helper's new verbs: `plan-install` and `plan-remove` (no root) and the root verbs `pkg-install`, `pkg-remove` and `pkg-install-local`. A root verb recomputes the plan under the helper lock and runs nothing if it differs from the one you confirmed ("The list changed. Review again").
-  - **`pkg-install-local` reads your files once.** It walks `~/.cache/archmaid/aur/<base>/out/` with `openat(O_NOFOLLOW)` from your passwd home, checks owner, mode and size on the open file, copies it into a root-only staging folder (`/var/cache/archmaid/staging/run-*`, 0700, removed on every exit) while hashing, compares the hash to what you confirmed, has pacman read the staged copy (`-Qip`, `-Qlp`, logged) and runs `pacman -U` on the staged copy only. A home or `~/.cache` that is group-writable (mode 0775) is refused.
-  - **New state, cache and staging.** `~/.local/state/archmaid/aur-reviewed.json` (the commit you last reviewed per package base, written after a successful install), `~/.cache/archmaid/aur` (fetched repos and builds) and, as root, `/var/cache/archmaid/staging`.
-  - **Network.** archmaid's own code talks to aur.archlinux.org as you, never as root and never from the helper: the AUR search and info, the audit, and the git clone or fetch of a package you chose. `makepkg` downloads the sources the PKGBUILD names, after you confirmed. pacman, run by the helper, downloads packages as it always does.
-  - **A dry run** (Settings) installs and removes nothing: the root steps only print their command and the AUR build steps skip. The plan is still read for real, and the AUR repos are still fetched into `~/.cache/archmaid/aur`.
+- **A Packages page in archmaid-gui** (#230–#249). It searches, installs and removes packages from the repositories and the AUR. The design is in `docs/design/packages-contract.md`, and the user guide is the wiki's Packages page.
+  - **Search and details.**
+    - One box searches the repositories as you type, and the AUR after a short pause. The AUR needs at least 2 characters, and only then does the term go to aur.archlinux.org.
+    - Results come in two groups: Repositories (up to 50) and AUR (up to 40). A repo package hides an AUR package of the same name.
+    - A package opens in a detail pane (a drill-in below 760 px). It shows repo, version, sizes and dependencies, and for the AUR also maintainer, votes and dates.
+    - A dependency that an installed package provides (a soname such as `libcap.so`, or a virtual such as `sh`) counts as installed.
+    - The package lists are read from pacman's databases directly, and the page never refreshes them. It re-reads them after its own runs, after topgrade or Full Cleanup, and when it is shown, so changes made with pacman outside archmaid appear.
+  - **The install list and the confirm sheet.**
+    - "Install" goes straight to the sheet. "Add to list" gathers packages first (up to 32 names), and the sidebar badge shows the count.
+    - A list holds either installs or removals, and either repo or AUR packages, never a mix. "Clear the list and add this" swaps it in one click.
+    - The sheet lists everything that will be installed, dependencies included, with download and disk sizes. Cancel is the default.
+    - The run ends with a summary: "Packages installed" or "Packages removed", the count, and "uses N MiB more" or "frees N MiB". `last-run.json` gets `summary.installed` and `summary.removed`.
+  - **What blocks an install.**
+    - Pending updates: "N updates are waiting", with an **Update system first** button that starts Run topgrade.
+    - A package that replaces or conflicts with an installed one: "remove vim first, then install gvim."
+    - An item that would be an upgrade.
+    - archmaid never runs `-Sy`, `--overwrite` or `-dd`.
+  - **Remove.**
+    - It runs `pacman -Rs`. The box "Also delete config files" makes it `-Rns`; the plan is read with `-Rs`, because pacman refuses `-Rns --print`.
+    - Never `-Rc` or `-Rdd`.
+    - A refusal names the packages: "X is still needed by Y."
+    - The helper keeps a protected list and refuses those packages as a target and anywhere in the cascade, checking before it asks pacman. The list is `base`, `filesystem`, `glibc`, `systemd`, `pacman`, `sudo`, `polkit`, the kernels and bootloaders, the owner of every installed `/usr/lib/modules/*/pkgbase`, what `base` depends on, and anything named `archmaid*`.
+    - The Installed view greys the same list, read with the new password-free `plan-protected` verb, with "System-critical: archmaid does not remove it."
+    - Orphans are listed, but Full Cleanup removes them.
+  - **The Installed view.** Explicit, Dependencies, Orphans and Foreign, with a filter. The search start shows "Recently installed".
+  - **AUR packages.**
+    - They are built as you with `makepkg` in `~/.cache/archmaid/aur/<package base>`: never as root, never with `-s` or `-i`.
+    - **Before anything is built**, the sheet shows:
+      - the PKGBUILD and the other files of the repo;
+      - the diff against the commit you last reviewed ("Changes");
+      - hints: version-control or unchecked sources, non-https, an `.install` script, symlinks, binaries, a download piped to a shell, `sudo`, base64;
+      - the maintainer audit's findings.
+    - Install enables only after you tick "I read the PKGBUILD". When the audit has a high finding, you must also tick "I've read the findings and accept them"; accepting commits the audit snapshot, as Full Cleanup's gate does.
+    - Nothing sources the PKGBUILD before you accept.
+    - An AUR run stops at the first step that fails, and every later step is skipped. "Recording what you reviewed" happens only after a successful install.
+  - **Passwords.**
+    - There are three new polkit actions, all `auth_admin` and never kept, so every run asks:
+      - `pkg-install` (repo);
+      - `pkg-install-local` (AUR; its message says the packages are unsigned and their install scripts run as root);
+      - `pkg-remove`.
+    - An AUR install with missing repo dependencies has two root steps. The sheet says "You're asked for your password once" when the GUI keeps the password for the run, otherwise "up to twice".
+    - A dry run asks for nothing.
+    - Stop is hidden while the sheet, the prompt and a root step that can't be stopped are up.
+  - **The helper's new verbs.**
+    - `plan-install`, `plan-remove` and `plan-protected` run without root.
+    - `pkg-install`, `pkg-remove` and `pkg-install-local` run as root. A root verb recomputes the plan under the helper lock and runs nothing if it differs from the one you confirmed ("The list changed. Review again").
+  - **`pkg-install-local` reads your files once.**
+    - It walks `~/.cache/archmaid/aur/<base>/out/` with `openat(O_NOFOLLOW)` from your passwd home, and checks owner, mode and size on the open file.
+    - While hashing, it copies the file into a root-only staging folder (`/var/cache/archmaid/staging/run-*`, mode 0700, removed on every exit) and compares the hash to what you confirmed.
+    - pacman reads the staged copy (`-Qip`, `-Qlp`, logged), and `pacman -U` runs on the staged copy only.
+    - It refuses a home or `~/.cache` that is group-writable (mode 0775).
+  - **New state, cache and staging.**
+    - `~/.local/state/archmaid/aur-reviewed.json`: the commit you last reviewed per package base, written only after a successful install.
+    - `~/.cache/archmaid/aur`: the fetched repos and builds.
+    - `/var/cache/archmaid/staging`, as root.
+  - **Network.**
+    - archmaid's own code talks to aur.archlinux.org as you, never as root and never from the helper: the AUR search and info, the audit, and the git clone or fetch of a package you chose.
+    - `makepkg` downloads the sources the PKGBUILD names, after you have confirmed.
+    - pacman, run by the helper, downloads packages as it always does.
+  - **A dry run** (Settings) installs and removes nothing. The root steps only print their command, and the AUR build steps skip. The plan is still read for real, and the AUR repos are still fetched into `~/.cache/archmaid/aur`.
+
+### Changed
+
+- **The light theme's tags and state text are darker.** The tags (`root`, `sudo`, `asks`, `OK`, `FAILED`, `installed`, …) and the state text (summary headlines, counters, log outcomes) are now readable: ok `#3d6114`, warn `#75510c`, danger `#a91d36` and running `#2952b2`, each at least 4.5:1 on every light surface (#247). Bars and markers keep the bright Tokyo Night colours, and the dark theme is unchanged.
 
 ### Fixed
 
-- **A failed step now stops a Packages or AUR run** (live check #241, B6). The engine marks every later step Skipped and never starts it, and the run ends failed (a refused step: incomplete). Before, `makepkg` ran after a failed pin, and the collect, install and "remember" steps after failures. `aur-remember` also refuses unless every earlier step ended OK, and is titled "Recording what you reviewed" so it no longer says "remembered" when it wrote nothing.
-- **A Packages run has a run summary** (B1): the packages installed and removed (from `pacman.log`), the planned size change, and `summary.installed` / `summary.removed` in `last-run.json`. A dry run and a run that failed before changing anything have none.
+- **The polkit password dialog says what it authorises.** It showed only the bare action id. It now shows the policy's message plus the id, for Repair, Full Cleanup and the other existing actions too (#244).
 
 ## [2.2.0] - 2026-11-02
 
@@ -355,7 +408,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.3.0...HEAD
+[2.3.0]: https://github.com/Enzord758/archmaid/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Enzord758/archmaid/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/Enzord758/archmaid/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/Enzord758/archmaid/compare/v2.0.0...v2.1.0
