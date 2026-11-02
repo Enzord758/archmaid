@@ -2,6 +2,7 @@ package helper
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -173,4 +174,35 @@ func protectedCascade(set map[string]string, targets, items []string) *pkgFail {
 		return nil
 	}
 	return &pkgFail{code: ExitRefused, reason: ReasonProtected, msg: msg, names: names}
+}
+
+// runPlanProtected reports the protected set as one event, {"t":"protected",
+// "names":[...]} (sorted), then the usual result: the static list, every
+// installed kernel's owner, what base depends on (protectedSet), and the
+// installed packages named archmaid* (the prefix rule can't be listed
+// otherwise). It is what the removal verbs enforce, so the GUI can grey
+// those rows before a removal is tried. Like them it fails closed: a failed
+// lookup gives no event and exit 1.
+func runPlanProtected(s *session, args []string) int {
+	if len(args) != 0 {
+		return s.badRequest("plan-protected takes no arguments")
+	}
+	set, err := s.protectedSet()
+	if err != nil {
+		return s.finishFail(failed("%s", err.Error()))
+	}
+	out, errOut, exit, err := s.o.Runner.Query(installedArgv())
+	if err != nil {
+		return s.finishFail(failed("pacman -Qq: %v", err))
+	}
+	if exit != 0 {
+		return s.finishFail(failed("pacman -Qq exited %d: %s", exit, firstLine(errOut)))
+	}
+	for _, n := range nonEmptyLines(out) {
+		if namePattern.MatchString(n) && protectedReason(set, n) != "" {
+			set[n] = "archmaid itself"
+		}
+	}
+	s.em.Protected(slices.Sorted(maps.Keys(set)))
+	return s.finish(ExitOK, "")
 }

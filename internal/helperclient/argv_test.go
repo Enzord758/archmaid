@@ -74,6 +74,7 @@ func TestArgvRefused(t *testing.T) {
 	}{
 		{"no verb", steps.Step{ID: "x", Argv: []string{"sudo", "true"}}, ErrNoVerb},
 		{"plan-orphans", steps.Step{Verb: steps.VerbPlanOrphans}, ErrNoAction},
+		{"plan-protected", steps.Step{Verb: steps.VerbPlanProtected}, ErrNoAction},
 		{"remove-orphans has no typed hash", steps.Step{Verb: steps.VerbRemoveOrphans, Items: []string{"a"}}, ErrUnsupported},
 		{"unknown verb", steps.Step{Verb: "rm"}, ErrUnsupported},
 		{"full-cleanup without parts", steps.Step{Verb: "full-cleanup"}, ErrBadParts},
@@ -195,7 +196,7 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			t.Errorf("Argv builds %s, but the policy has no action with that argv1", v)
 		}
 	}
-	for _, v := range []string{steps.VerbPlanOrphans, steps.VerbPlanInstall, steps.VerbPlanRemove} {
+	for _, v := range []string{steps.VerbPlanOrphans, steps.VerbPlanInstall, steps.VerbPlanRemove, steps.VerbPlanProtected} {
 		if actionVerbs[v] {
 			t.Errorf("the policy has a %s action, but it runs as the user", v)
 		}

@@ -391,3 +391,26 @@ func TestHelperStaleThroughClientParser(t *testing.T) {
 		})
 	}
 }
+
+// TestHelperProtectedThroughClientParser: the helper's real plan-protected
+// output is read by the client's parser, and the names are the ones the
+// helper's own plan-remove refuses.
+func TestHelperProtectedThroughClientParser(t *testing.T) {
+	p := newPkgFake(t)
+	code, out := p.run(steps.VerbPlanProtected)
+	if code != helper.ExitOK {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	names, err := helperclient.ParseProtected(strings.NewReader(out), code)
+	if err != nil {
+		t.Fatalf("ParseProtected: %v\n%s", err, out)
+	}
+	for _, n := range []string{"sudo", "limine", "mkinitcpio", "glibc", "linux-cachyos"} {
+		if !slices.Contains(names, n) {
+			t.Errorf("%s is missing from %q", n, names)
+		}
+	}
+	if len(p.streams) != 0 {
+		t.Errorf("plan-protected ran root commands: %v", p.streams)
+	}
+}

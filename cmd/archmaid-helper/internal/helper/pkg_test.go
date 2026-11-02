@@ -1029,3 +1029,74 @@ func TestPlanEventInvariants(t *testing.T) {
 		t.Error("the stale plan does not come right before the result")
 	}
 }
+
+// plan-protected: the protected set as one event, for the GUI to grey rows.
+func TestPlanProtected(t *testing.T) {
+	t.Run("the static list, the kernel owner, base's dependencies and installed archmaid*", func(t *testing.T) {
+		p := newPkgSys(t)
+		p.baseDeps = "filesystem glibc>=2.40 zlib-ng"
+		p.installed["archmaid-git"] = "1-1"
+		p.installed["archmaid-gui-git"] = "1-1"
+		code, evs := runPkg(t, p, "plan-protected")
+		if code != ExitOK {
+			t.Fatalf("exit %d: %s", code, resultErr(evs))
+		}
+		es := ofType(evs, EventProtected)
+		if len(es) != 1 {
+			t.Fatalf("want one protected event, got %d", len(es))
+		}
+		got := anyStrings(es[0]["names"])
+		for _, n := range []string{"sudo", "limine", "mkinitcpio", "glibc", "base", "pacman", "linux-cachyos", "zlib-ng", "archmaid-git", "archmaid-gui-git"} {
+			if !slices.Contains(got, n) {
+				t.Errorf("%s is missing from %q", n, got)
+			}
+		}
+		for _, n := range []string{"foo-old", "libold"} {
+			if slices.Contains(got, n) {
+				t.Errorf("%s must not be protected: %q", n, got)
+			}
+		}
+		if !slices.IsSorted(got) || len(slices.Compact(slices.Clone(got))) != len(got) {
+			t.Errorf("names must be sorted and unique: %q", got)
+		}
+		if es[0]["t"] != "protected" || es[0]["v"] != float64(1) {
+			t.Errorf("event %v", es[0])
+		}
+		// the set is the one the removal enforces
+		for _, n := range got {
+			q := newPkgSys(t)
+			q.baseDeps = p.baseDeps
+			q.installed[n], q.rmItems = "1-1", []string{n + " 1-1"}
+			if code, _ := runPkg(t, q, "plan-remove", n); code != ExitRefused {
+				t.Errorf("plan-protected lists %s, but plan-remove %s exits %d", n, n, code)
+			}
+		}
+	})
+	t.Run("read-only: no root command, no polkit", func(t *testing.T) {
+		p := newPkgSys(t)
+		o, out := rootOpts(t, p)
+		o.Euid, o.CallerUID = 1000, ""
+		o.KernelPkgbases = func() ([]string, error) { return []string{"/usr/lib/modules/6.1.0-1/pkgbase"}, nil }
+		if code := Run([]string{"plan-protected"}, o); code != ExitOK || len(p.streams) != 0 {
+			t.Errorf("exit %d, streams %v: %s", code, p.streams, resultErr(events(t, out)))
+		}
+	})
+	t.Run("takes no arguments", func(t *testing.T) {
+		p := newPkgSys(t)
+		code, evs := runPkg(t, p, "plan-protected", "sudo")
+		if code != ExitUsage || len(ofType(evs, EventProtected)) != 0 {
+			t.Errorf("exit %d", code)
+		}
+		wantReason(t, evs, ReasonBadRequest, nil, 0)
+	})
+	t.Run("a failing kernel lookup fails closed: no event", func(t *testing.T) {
+		p := newPkgSys(t)
+		o, out := rootOpts(t, p)
+		o.KernelPkgbases = func() ([]string, error) { return nil, fmt.Errorf("boom") }
+		code := Run([]string{"plan-protected"}, o)
+		evs := events(t, out)
+		if code != ExitFailed || len(ofType(evs, EventProtected)) != 0 {
+			t.Errorf("exit %d: %s", code, resultErr(evs))
+		}
+	})
+}

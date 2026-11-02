@@ -20,7 +20,9 @@ const (
 	EventLine     = "line"
 	EventPlan     = "plan"
 	EventCheck    = "check"
-	EventResult   = "result"
+	// EventProtected is plan-protected's one event: the protected names.
+	EventProtected = "protected"
+	EventResult    = "result"
 	// EventDone ends one part of a combined verb (full-cleanup).
 	EventDone = "done"
 )
@@ -68,6 +70,12 @@ type lineEvent struct {
 	T      string `json:"t"`
 	Stream string `json:"stream"`
 	Text   string `json:"text"`
+}
+
+type protectedEvent struct {
+	V     int      `json:"v"`
+	T     string   `json:"t"`
+	Names []string `json:"names"`
 }
 
 type planEvent struct {
@@ -189,6 +197,11 @@ func (e *Emitter) Plan(p Plan) {
 		Mode: p.Mode, WithConfig: p.WithConfig, AsDeps: p.AsDeps,
 		Rows: sanitizeRows(p.Rows), Warnings: sanitizeAll(p.Warnings),
 	})
+}
+
+// Protected reports plan-protected's set: the names are always an array.
+func (e *Emitter) Protected(names []string) {
+	e.emit(protectedEvent{V: SchemaVersion, T: EventProtected, Names: sanitizeAll(names)})
 }
 
 // Check reports a check-files run (named packages or all): checked are the

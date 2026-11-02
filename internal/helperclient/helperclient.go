@@ -167,7 +167,7 @@ func verbArgs(st steps.Step) ([]string, error) {
 		return pkgLocalArgs(st)
 	case steps.VerbPkgInstall, steps.VerbPkgRemove:
 		return pkgArgs(st)
-	case steps.VerbPlanOrphans, steps.VerbPlanInstall, steps.VerbPlanRemove:
+	case steps.VerbPlanOrphans, steps.VerbPlanInstall, steps.VerbPlanRemove, steps.VerbPlanProtected:
 		return nil, fmt.Errorf("%w: %s", ErrNoAction, st.Verb)
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnsupported, st.Verb)

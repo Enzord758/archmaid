@@ -342,7 +342,7 @@ func (d *decoder) outcome(exit int, waitErr error, stderr string) Outcome {
 	switch {
 	case d.err != nil:
 		o.Err = d.err
-	case !d.granted && d.verb != steps.VerbPlanOrphans && !isPkgPlanVerb(d.verb) && (exit == exitNotAuthorized || exit == exitDismissed):
+	case !d.granted && d.verb != steps.VerbPlanOrphans && d.verb != steps.VerbPlanProtected && !isPkgPlanVerb(d.verb) && (exit == exitNotAuthorized || exit == exitDismissed):
 		// No output at all (any line would have been a start line or a
 		// protocol error): pkexec never ran the helper. (plan-orphans runs
 		// without pkexec, so for it these are just exits.)

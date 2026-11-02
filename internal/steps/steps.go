@@ -272,7 +272,10 @@ const (
 	VerbPlanInstall = "plan-install"
 	VerbPkgInstall  = "pkg-install"
 	VerbPlanRemove  = "plan-remove"
-	VerbPkgRemove   = "pkg-remove"
+	// VerbPlanProtected is the read-only query of the protected package
+	// names (the removal verbs' list), run as the user like the plan verbs.
+	VerbPlanProtected = "plan-protected"
+	VerbPkgRemove     = "pkg-remove"
 	// VerbPkgInstallLocal installs the AUR packages the user built
 	// (aurplan.go, helper pkglocal.go): root, admin every time.
 	VerbPkgInstallLocal = "pkg-install-local"

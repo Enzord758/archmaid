@@ -40,13 +40,14 @@ type Result struct {
 
 // The helper's event types ("t") that Run reads.
 const (
-	evStart    = "start"
-	evProgress = "progress"
-	evLine     = "line"
-	evPlan     = "plan"
-	evCheck    = "check"
-	evResult   = "result"
-	evDone     = "done" // full-cleanup only (combined.go)
+	evStart     = "start"
+	evProgress  = "progress"
+	evLine      = "line"
+	evPlan      = "plan"
+	evCheck     = "check"
+	evProtected = "protected"
+	evResult    = "result"
+	evDone      = "done" // full-cleanup only (combined.go)
 )
 
 // decoder reads one helper run's JSON lines. The first protocol error is
@@ -60,6 +61,7 @@ type decoder struct {
 	check   *Check
 	plan    *steps.OrphanPlan // plan-orphans' plan event (plan.go)
 	pkg     *steps.PkgPlan    // a Packages verb's plan event (pkgplan.go)
+	prot    *[]string         // plan-protected's names (protected.go)
 	comb    *combined         // a full-cleanup call's parts (combined.go), or nil
 	unknown int
 	err     error
@@ -170,6 +172,9 @@ func (d *decoder) feed(line []byte) (out []string, start bool) {
 		return nil, false
 	case evCheck:
 		d.readCheck(line)
+		return nil, false
+	case evProtected:
+		d.readProtected(line)
 		return nil, false
 	case evResult:
 		return d.readResult(line), false

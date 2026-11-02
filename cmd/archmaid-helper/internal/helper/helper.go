@@ -127,6 +127,9 @@ var verbs = map[string]verb{
 	"plan-install":   {root: false, run: runPlanInstall},
 	"pkg-install":    {root: true, pacmanLock: true, run: runPkgInstall},
 	"plan-remove":    {root: false, run: runPlanRemove},
+	// plan-protected is read-only and needs no root, like the plan verbs:
+	// the protected set, for the GUI to grey those rows up front.
+	"plan-protected": {root: false, run: runPlanProtected},
 	"pkg-remove":     {root: true, pacmanLock: true, run: runPkgRemove},
 
 	"pkg-install-local": {root: true, pacmanLock: true, run: runPkgInstallLocal},
