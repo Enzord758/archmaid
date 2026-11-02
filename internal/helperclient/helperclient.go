@@ -135,6 +135,9 @@ func verbArgs(st steps.Step) ([]string, error) {
 	if st.PkgPlan != nil && !isPkgRunVerb(st.Verb) {
 		return nil, fmt.Errorf("%w: a package plan on %q", ErrBadPlan, st.Verb)
 	}
+	if st.PkgLocal != nil && st.Verb != PkgVerbInstallLocal {
+		return nil, fmt.Errorf("%w: built files on %q", ErrBadItems, st.Verb)
+	}
 	if len(st.Parts) > 0 && st.Verb != steps.VerbFullCleanup {
 		return nil, fmt.Errorf("%w: parts on %q", ErrBadParts, st.Verb)
 	}
@@ -160,6 +163,8 @@ func verbArgs(st steps.Step) ([]string, error) {
 		return fixed(st)
 	case steps.VerbFullCleanup:
 		return fullCleanupArgs(st)
+	case PkgVerbInstallLocal:
+		return pkgLocalArgs(st)
 	case steps.VerbPkgInstall, steps.VerbPkgRemove:
 		return pkgArgs(st)
 	case steps.VerbPlanOrphans, steps.VerbPlanInstall, steps.VerbPlanRemove:

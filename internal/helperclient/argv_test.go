@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/aurbuild"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -169,6 +170,10 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			st = pkgStep(argv1, installPkgPlan())
 		case steps.VerbPkgRemove:
 			st = pkgStep(argv1, removePkgPlan(false))
+		case PkgVerbInstallLocal:
+			// Dev 3's polkit action is not in the policy yet; once it is,
+			// this checks that Argv matches it (the case is ready, no skip).
+			st = aurbuild.InstallStep(localBuilt())
 		}
 		got, err := Argv(st)
 		if err != nil {
