@@ -69,6 +69,9 @@ type Options struct {
 	// called with each candidate's name while pacman's lock is held.
 	now             func() time.Time
 	underPacmanLock func(name string)
+	// KernelPkgbases lists the /usr/lib/modules/*/pkgbase files for the
+	// protected list (protected.go); nil: the real glob.
+	KernelPkgbases func() ([]string, error)
 	// lockDirCheck replaces checkLockDir (the lock folder is root's alone).
 	lockDirCheck func(dir string) error
 }
@@ -88,7 +91,7 @@ func DefaultOptions() Options {
 
 // verb describes one command.
 type verb struct {
-	root       bool // needs root (all but plan-orphans)
+	root       bool // needs root (all but the plan-* verbs)
 	pacmanLock bool // refuse while pacman's db.lck exists
 	run        func(s *session, args []string) int
 }
@@ -104,6 +107,10 @@ var verbs = map[string]verb{
 	"clean-tmp":      {root: true, run: runCleanTmp},
 	"disable-unit":   {root: true, run: runDisableUnit},
 	"full-cleanup":   {root: true, pacmanLock: true, run: runFullCleanup},
+	"plan-install":   {root: false, run: runPlanInstall},
+	"pkg-install":    {root: true, pacmanLock: true, run: runPkgInstall},
+	"plan-remove":    {root: false, run: runPlanRemove},
+	"pkg-remove":     {root: true, pacmanLock: true, run: runPkgRemove},
 }
 
 // Verbs lists the verb names, sorted.
@@ -115,8 +122,13 @@ type session struct {
 	em        *Emitter
 	childExit *int
 	skipped   []Skip
-	pacman    bool   // verb wants the pacman lock check
-	part      string // the combined verb's part running now (its verb), or ""
+	pacman    bool // verb wants the pacman lock check
+	// reason, names and count: the package verbs' machine-readable refusal,
+	// set before finish.
+	reason string
+	names  []string
+	count  int
+	part   string // the combined verb's part running now (its verb), or ""
 
 	dbLock       string // pacman's db.lck for this run, see lockPath
 	lockResolved bool
@@ -174,7 +186,7 @@ func Run(args []string, o Options) int {
 
 // finish writes the result line and returns code.
 func (s *session) finish(code int, msg string) int {
-	s.em.Result(code, s.childExit, s.skipped, msg)
+	s.em.ResultWhy(code, s.childExit, s.skipped, msg, s.reason, s.names, s.count)
 	if code != ExitOK && msg != "" {
 		fmt.Fprintf(s.o.Stderr, "archmaid-helper: %s\n", Sanitize(msg))
 	}
@@ -196,6 +208,7 @@ func (s *session) lock() (release func(), code int) {
 	release, err := acquireLock(s.o.LockPath, dbLock, s.pacman)
 	if err != nil {
 		if errors.Is(err, errBusy) {
+			s.reason = ReasonBusy
 			return nil, s.finish(ExitBusy, err.Error())
 		}
 		return nil, s.finish(ExitFailed, err.Error())

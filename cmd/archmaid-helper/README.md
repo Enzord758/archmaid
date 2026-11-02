@@ -32,19 +32,27 @@ the GUI was started from, which fails anyway on polkit 126+ (see
 | `plan-orphans` | `pacman -Qdtq`, then `pacman -Rs --print --print-format '%n %v' -- …` | read-only and **needs no root**; run as root, it must still pass the install check (exit 4). Emits a `plan` event with the hash | none (run it directly, not through pkexec) |
 | `remove-orphans H` | `pacman -Rns --noconfirm -- …` | `H` =~ `^sha256:[0-9a-f]{64}$`. Recomputes the plan right before `-Rns`; a mismatch emits the new plan and exits **3**, a pacman running then exits **5**, both removing nothing | `…remove-orphans` (admin) |
 | `repair pkg…` | `pacman -S --noconfirm -- …` | 1–256 names =~ `^[A-Za-z0-9@_+][A-Za-z0-9@._+-]{0,127}$` (uppercase is allowed, as makepkg allows it for local builds); one bad name exits 2. Each package must be installed (`-Q`), in a sync repo (`-Si`), really missing files (`-Qk -- pkg`) and installed at exactly the version the first repo listing it has (`-Q` vs. `-Si` → `Version`), so a repair is never a partial upgrade or a downgrade. Any other package is skipped and listed, a version mismatch with the reason `repo has a different version (installed X, repo Y) — update the system first`. If nothing is left to reinstall and a version mismatch is among the reasons, it exits **3**. Then the whole transaction is checked: `pacman -Sp --noconfirm --print-format '%n %v' -- …` (stdout only) must list exactly the packages left, each at its installed version. A dependency it would install or upgrade too, a version that changed meanwhile or a package missing from it exits **3**, reinstalls nothing, and lists every package as skipped (the extra packages are named in the reasons and in `error`). Unparseable `-Sp` output or a failing `-Sp` exits 1. Note: the reinstall comes from the first repo (pacman.conf order) that lists the package, which then carries the installed version; that need not be the repo it was installed from. On CachyOS, a package installed from `core` is reinstalled from `cachyos-core-v4` when that repo lists the same version first: same version, that repo's build | `…repair` (admin) |
+| `plan-install [--asdeps] pkg…` | `pacman -Si -- pkg` (each), `-Qu`, `-Q`, `-Sp --needed --noconfirm --print-format '%r %n %v' -- …`, `-Si -- repo/name…` | read-only and **needs no root** (as `plan-orphans`). 1–32 names (`MaxPkgNames`) =~ the name pattern, none twice; exit 2 otherwise. Each must be in a sync repo by exact name (groups and providers are not targets; exit 2). `--asdeps` is the one option token, first, and is part of the hash; it only changes the `-S` of `pkg-install`. Exits **3** (reason `updates-pending`, with `count`) when `pacman -Qu` is not empty (`N update(s) are waiting: update the system first`), or when a planned item is installed at another version (an upgrade; `names` = the item). Exits **4** (reason `conflict`, `names` = the item and the installed package) when a planned item `Replaces` or `Conflicts With` an installed package (`vim` replaced by `gvim`: remove the old one first). Exit 2 reasons: `not-found` (not in a sync repo), `bad-request`. Emits a `plan` event: `targets` = the names, `items` = `name version` of the whole transaction, dependencies included (the repo is in `rows[].repo`; the hash is over `repo name version`), plus the optional fields `mode` (`install`), `asdeps`, `rows` (`{name, version, old, repo, target, dl, inst}`, same order as `items`; sizes in bytes from `pacman -Si`, `old` always empty) and `warnings` (a plan above 30 items) | none |
+| `pkg-install H [--asdeps] pkg…` | `pacman -S --needed --noconfirm [--asdeps] -- …` (sorted names) | `H` =~ the hash pattern. Under the helper lock and between two `db.lck` checks it recomputes the same plan (same vetting; a vetting failure exits with its own code) and requires the hash; a different plan emits the new plan and exits **3**, running nothing; a pacman running exits **5**. An empty plan (all up to date) exits 0 with nothing run | `…pkg-install` (admin, never keep) |
+| `plan-remove [-n] pkg…` | `pacman -Qq`, then `pacman -Rs[n] --print --print-format '%n %v' -- …` | read-only, no root. `-n` is the one option token, first; it selects `-Rns` (config files too) over `-Rs`. 1–32 names, each installed (exit 2). pacman refusing (something still needs it) exits **4**, reason `required-by`. A protected package (see below) among the targets or the cascade exits **4**, reason `protected`, `names` = every protected package found. Exit 2: `not-installed`. Emits a `plan` event: `items` = `name version` of everything `-Rs` removes, plus `mode` (`remove`), `with_config`, `rows` (`repo` empty, `inst` from `pacman -Qi`) and `warnings` (a cascade above 30 items). The hash covers mode, sorted targets and sorted items: `name version` for a remove | none |
+| `pkg-remove H [-n] pkg…` | `pacman -Rs[n] --noconfirm -- …` (sorted names) | as `pkg-install`: recompute, hash, stale exits **3** (reason `stale`) with the new plan, busy **5** (reason `busy`). Never `-Rc` or `-Rdd` | `…pkg-remove` (admin, never keep) |
 | `vacuum-journal D` | `journalctl --vacuum-time=D` | `D` ∈ `1week`, `2weeks`, `1month` | `…vacuum-journal` (keep) |
 | `clean-tmp` | `systemd-tmpfiles --clean` | none | `…clean-tmp` (keep) |
 | `disable-unit unit…` | `systemctl disable --now -- …` | 1–256 names =~ `^[A-Za-z0-9:_@][A-Za-z0-9:_.@-]{0,249}\.service$` (never a leading `-` or `.`). A denylisted name, alias, sleep hook or `Also=` unit, a running `Also=` unit, or a trigger that would start the unit again exits **4**, and the whole request is refused (see "Companions and triggers"). A unit is skipped unless it is loaded, `UnitFileState=enabled` and `ActiveState` is `inactive`/`failed` | `…disable-unit` (admin) |
 | `full-cleanup …` | the sequence below | strict flags, see below | `…full-cleanup` (admin) |
 
+**Result `reason`, `names`, `count`** (package verbs; additive, `v` stays 1): `bad-request` (2), `not-found` (2), `not-installed` (2), `updates-pending` (3, `count`), `stale` (3), `conflict` (4), `protected` (4), `required-by` (4), `busy` (5; also set by every verb's helper-lock busy). A plain failure (exit 1) has none. `docs/design/packages-contract.md` section 3 is the front end's side.
+
+**Protected list** (`protected.go`, for the remove verbs). Never removed, as a target or as part of the cascade (exit 4, naming the package): `base`, `filesystem`, `glibc`, `bash`, `coreutils`, `util-linux`, `systemd`, `systemd-libs`, `pacman`, `archlinux-keyring`, `sudo`, `sudo-rs`, `polkit`, the stock kernels, `mkinitcpio`, `dracut`, the bootloaders (`grub`, `limine`, `refind`, `syslinux`, `efibootmgr`), anything named `archmaid*`, and, asked of pacman each run, the owner of every `/usr/lib/modules/*/pkgbase` (the running kernel and every installed one) and everything `base` depends on. A failing lookup refuses (fail closed).
+
 **Colour.** Every pacman above also gets a fixed `--color` (before any
 `--`), so the run output can show pacman's colour without anything the
 helper parses ever holding an escape. A pacman whose output is only
-relayed gets `--color always`: `-Rns` (remove-orphans), `-S` (repair),
+relayed gets `--color always`: `-Rns` (remove-orphans), `-S` (repair), `-S --needed` (pkg-install), `-Rs[n]` (pkg-remove),
 `-Sc` and `-Qk` (full-cleanup's parts); its `line` events keep the SGR
 sequences (see Output). A pacman whose output the helper parses gets
 `--color never`: every query (`-Qq`, `-Qdtq`, `-Rs --print`, `-Q`, `-Si`,
-`-Qk -- pkg`, `-Sp`) and the `check-files` verb's own `-Qk`, whose summary
+`-Qk -- pkg`, `-Sp`, `-Qu`, `-Qqo`, `-Rs[n] --print`) and the `check-files` verb's own `-Qk`, whose summary
 lines make the `check` event. paccache colours only on a terminal. The
 relayed systemd calls (`systemd-tmpfiles --clean`, `journalctl --vacuum-time`,
 `systemctl disable --now`) get `SYSTEMD_COLORS=1` in their own environment
@@ -327,8 +335,8 @@ field is not a schema break; changing or removing one bumps `v`.
 | 0 | ok (including "nothing to do" and skips) |
 | 1 | a root command failed, or an internal error |
 | 2 | bad usage or input |
-| 3 | state changed since the user confirmed (orphan plan hash mismatch), or `repair` has nothing it may reinstall because the repos have a different version, or reinstalling would pull in or upgrade other packages (update the system first) |
-| 4 | refused: denylisted unit, a running `Also=` unit or trigger (or an enabled trigger left behind), not root, no `PKEXEC_UID`/`SUDO_UID`, wrong install path/ownership/mode, or a devhelper build run as root |
+| 3 | state changed since the user confirmed (orphan plan hash mismatch, or the pkg-install/pkg-remove plan), pending updates, or an upgrade before an install, or `repair` has nothing it may reinstall because the repos have a different version, or reinstalling would pull in or upgrade other packages (update the system first) |
+| 4 | refused: a replace/conflict with an installed package, a protected package in a removal, pacman refusing a removal, denylisted unit, a running `Also=` unit or trigger (or an enabled trigger left behind), not root, no `PKEXEC_UID`/`SUDO_UID`, wrong install path/ownership/mode, or a devhelper build run as root |
 | 5 | busy: `/run/archmaid-helper.lock` is held, or pacman's `db.lck` (in `pacman-conf DBPath`, default `/var/lib/pacman/db.lck`) exists (checked only for verbs that run pacman/paccache mutations; `full-cleanup`'s download-leftovers tidy also takes `db.lck` itself for a moment, see "Download leftovers") |
 
 ## Hardening
@@ -366,11 +374,11 @@ In order, before anything else:
    (`docs/HANDOVER.md` → landmines). The helper is root already through pkexec
    and runs no sudo, so it has no ticket to lose. Don't copy either choice into
    the other program.
-3. Privilege, for every verb except `plan-orphans`: euid must be 0;
+3. Privilege, for every verb except the `plan-*` ones: euid must be 0;
    `PKEXEC_UID` or `SUDO_UID` must be a decimal uid; `/proc/self/exe` must be
    exactly `/usr/lib/archmaid/archmaid-helper`. That file and every parent up
    to `/` must be root-owned, not group- or other-writable, and not a symlink.
-   The binary must be a regular file without setuid/setgid. `plan-orphans`
+   The binary must be a regular file without setuid/setgid. The `plan-*` verbs
    needs no root, but if it does run as root (sudo, or pkexec's generic
    action), the install-path and ownership checks still apply.
 4. Validate input (exit 2), take the flock on `/run/archmaid-helper.lock`
@@ -399,6 +407,17 @@ In order, before anything else:
   transaction (`-Sp`) that holds anything but the broken packages at their
   installed versions, so a refreshed sync database or a missing or outdated
   dependency can't turn a repair into a partial upgrade.
+- Package install and remove (`pkg-install`, `pkg-remove`). The caller picks
+  names, never options: names are validated, an install target must exist in a
+  sync repo, a remove target must be installed, a removal never touches the
+  protected list, and the root verb takes the hash of the plan the user
+  confirmed and recomputes it under the lock (stale: exit 3, nothing run). An
+  install is refused during pending updates, for an upgrade, and when a package
+  replaces or conflicts with an installed one, so `--noconfirm` can never answer
+  "replace?" or "remove?" for the user. Both actions are admin, never keep: a
+  package's scriptlets run as root, so a silent re-run would be root for the
+  whole session. The polkit prompt cannot show names; archmaid's own confirm is
+  the consent, the prompt the authentication.
 - Environment and fd attacks on the root process (`LD_PRELOAD`, `PATH`,
   `GCONV_PATH`, `IFS`, leaked fds). Control and escape sequences in output
   reaching a terminal or GUI.
@@ -414,7 +433,7 @@ In order, before anything else:
 
 - Root, or anyone who can already write to `/usr`. The admin password itself.
   A compromised pacman, paccache, systemd or mirror.
-- What a legitimate admin-approved action does. `repair` reinstalls whatever
+- What a legitimate admin-approved action does. `pkg-install` installs, as root, whatever the configured repos serve (scriptlets and hooks included), with pacman's own signature checks and provider choice (the first provider, under `--noconfirm`); `pkg-remove` removes what the user confirmed. `repair` reinstalls whatever
   the repos serve at the installed version, and `disable-unit` can still
   disable a non-denylisted unit the user depends on. (System updates are not a
   helper verb: topgrade is archmaid's only update path, in the TUI and the

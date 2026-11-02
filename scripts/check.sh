@@ -15,7 +15,7 @@ set -euo pipefail
 # measures, rounded down to one decimal; never lowered to make a change pass.
 # The goal is 100 % of reachable statements (docs/coverage-exempt.md): the
 # gate also prints the reachable figure, so the floor and the goal stay in view.
-MIN_TOTAL=96.6   # core = cmd/archmaid + internal/... WITHOUT the test-only packages (testenv, testtranscript, enginetest, privtest, helpertest: their own "testonly" line, not floored); 96.80 measured at #153 (6173/6377), so the floor keeps 0.20 points (12 statements) of margin against flakes (>= 0.2 required)
+MIN_TOTAL=96.8   # 97.06 measured at #231 (6737/6941), floor keeps >= 0.2 margin; before: core = cmd/archmaid + internal/... WITHOUT the test-only packages (testenv, testtranscript, enginetest, privtest, helpertest: their own "testonly" line, not floored); 96.80 measured at #153 (6173/6377), so the floor keeps 0.20 points (12 statements) of margin against flakes (>= 0.2 required)
 MIN_ASKPASS=93   # internal/privilege/askpass.go: it carries the sudo password (93.36 % = 183/196 at WP3; 0.36 points of margin, >= 0.2)
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

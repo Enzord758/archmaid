@@ -17,6 +17,13 @@ type Plan struct {
 	Targets []string
 	Items   []string
 	Hash    string
+
+	// Set by the package plans only (pkg.go); see planEvent.
+	Mode       string
+	WithConfig bool
+	AsDeps     bool
+	Rows       []PkgRow
+	Warnings   []string
 }
 
 // versionPattern is what pacman prints for %v: [epoch:]pkgver-pkgrel.

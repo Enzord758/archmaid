@@ -77,6 +77,26 @@ type planEvent struct {
 	Items   []string `json:"items"`
 	Total   int      `json:"total"`
 	Hash    string   `json:"hash"`
+	// The package plans' additive fields (packages-contract.md section 3);
+	// plan-orphans leaves them all out.
+	Mode       string   `json:"mode,omitempty"`
+	WithConfig bool     `json:"with_config,omitempty"`
+	AsDeps     bool     `json:"asdeps,omitempty"`
+	Rows       []PkgRow `json:"rows,omitempty"`
+	Warnings   []string `json:"warnings,omitempty"`
+}
+
+// PkgRow is one item of a package plan, same order as the plan's items.
+// Dl and Inst are bytes (0: unknown); Old is always "" (an install that
+// would upgrade is refused before a plan exists); Repo is "" for a remove.
+type PkgRow struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Old     string `json:"old"`
+	Repo    string `json:"repo"`
+	Target  bool   `json:"target"`
+	Dl      int64  `json:"dl"`
+	Inst    int64  `json:"inst"`
 }
 
 type checkEvent struct {
@@ -94,6 +114,11 @@ type resultEvent struct {
 	ChildExit *int   `json:"child_exit"`
 	Skipped   []Skip `json:"skipped"`
 	Error     string `json:"error,omitempty"`
+	// Reason, Names and Count are the package verbs' machine-readable
+	// refusal (docs/design/packages-contract.md section 3); additive.
+	Reason string   `json:"reason,omitempty"`
+	Names  []string `json:"names,omitempty"`
+	Count  int      `json:"count,omitempty"`
 }
 
 // Emitter writes JSON lines. It is safe for concurrent use (a child's stdout
@@ -161,6 +186,8 @@ func (e *Emitter) Plan(p Plan) {
 		V: SchemaVersion, T: EventPlan,
 		Targets: sanitizeAll(p.Targets), Items: sanitizeAll(p.Items),
 		Total: len(p.Items), Hash: p.Hash,
+		Mode: p.Mode, WithConfig: p.WithConfig, AsDeps: p.AsDeps,
+		Rows: sanitizeRows(p.Rows), Warnings: sanitizeAll(p.Warnings),
 	})
 }
 
@@ -173,6 +200,11 @@ func (e *Emitter) Check(checked, broken []string) {
 
 // Result is the final line; exactly one is written per invocation.
 func (e *Emitter) Result(code int, childExit *int, skipped []Skip, msg string) {
+	e.ResultWhy(code, childExit, skipped, msg, "", nil, 0)
+}
+
+// ResultWhy is Result with the package verbs' refusal reason, names and count.
+func (e *Emitter) ResultWhy(code int, childExit *int, skipped []Skip, msg, reason string, names []string, count int) {
 	clean := make([]Skip, 0, len(skipped))
 	for _, s := range skipped {
 		clean = append(clean, Skip{Name: Sanitize(s.Name), Reason: Sanitize(s.Reason)})
@@ -181,6 +213,7 @@ func (e *Emitter) Result(code int, childExit *int, skipped []Skip, msg string) {
 		V: SchemaVersion, T: EventResult,
 		OK: code == ExitOK, Code: code, ChildExit: childExit,
 		Skipped: clean, Error: Sanitize(msg),
+		Reason: Sanitize(reason), Names: sanitizeNames(names), Count: count,
 	})
 }
 
@@ -307,4 +340,23 @@ func skipEscape(s string, i int) int {
 		}
 		return i
 	}
+}
+
+func sanitizeNames(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	return sanitizeAll(in)
+}
+
+func sanitizeRows(in []PkgRow) []PkgRow {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]PkgRow, len(in))
+	for i, r := range in {
+		r.Name, r.Version, r.Old, r.Repo = Sanitize(r.Name), Sanitize(r.Version), Sanitize(r.Old), Sanitize(r.Repo)
+		out[i] = r
+	}
+	return out
 }

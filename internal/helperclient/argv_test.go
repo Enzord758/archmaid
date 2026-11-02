@@ -158,6 +158,12 @@ func TestArgvMatchesPolicy(t *testing.T) {
 			continue
 		}
 		actionVerbs[argv1] = true
+		if argv1 == "pkg-install" || argv1 == "pkg-remove" {
+			// The helper verbs and policy actions of #231 are in; helperclient
+			// builds their argv in the follow-up (Dev 1, packages-contract.md).
+			// Drop this skip there, so the match is checked for them too.
+			continue
+		}
 		st := steps.Step{Verb: argv1, Items: sample[argv1]}
 		switch argv1 {
 		case steps.VerbRemoveOrphans:

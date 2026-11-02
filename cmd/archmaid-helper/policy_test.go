@@ -41,7 +41,7 @@ func TestPolicyMatchesVerbs(t *testing.T) {
 	keep := []string{"check-files", "paccache", "vacuum-journal", "clean-tmp"}
 	var want []string
 	for _, v := range helper.Verbs() {
-		if v != "plan-orphans" { // read-only, no root, no action
+		if !strings.HasPrefix(v, "plan-") { // read-only, no root, no action
 			want = append(want, v)
 		}
 	}
@@ -75,6 +75,13 @@ func TestPolicyMatchesVerbs(t *testing.T) {
 		}
 	}
 	slices.Sort(got)
+	// The package verbs run scriptlets as root: admin every time, never
+	// keep (README.md "What keep allows"). Explicit, not just "not in keep".
+	for _, v := range []string{"pkg-install", "pkg-remove"} {
+		if slices.Contains(keep, v) || !slices.Contains(got, v) {
+			t.Errorf("%s must have an admin (never keep) policy action", v)
+		}
+	}
 	if !slices.Equal(got, want) {
 		t.Errorf("policy actions %q, want one per root verb %q", got, want)
 	}

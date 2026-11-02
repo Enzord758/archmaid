@@ -97,6 +97,30 @@
     <annotate key="org.freedesktop.policykit.exec.argv1">repair</annotate>
   </action>
 
+  <action id="org.archmaid.helper.pkg-install">
+    <description>Install packages from the repositories</description>
+    <message>Authentication is required to install packages</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">pkg-install</annotate>
+  </action>
+
+  <action id="org.archmaid.helper.pkg-remove">
+    <description>Remove installed packages</description>
+    <message>Authentication is required to remove packages</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/archmaid/archmaid-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">pkg-remove</annotate>
+  </action>
+
   <action id="org.archmaid.helper.vacuum-journal">
     <description>Remove old system journal entries</description>
     <message>Authentication is required to remove old system journal entries</message>
