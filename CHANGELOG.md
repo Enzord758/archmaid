@@ -9,7 +9,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 ### Read this first
 
 - **Install the polkit policy with the package.** The Packages page adds three polkit actions (`org.archmaid.helper.pkg-install`, `pkg-install-local`, `pkg-remove`) and five helper verbs. The GUI and the helper must come from the same build: install `archmaid-git` and `archmaid-gui-git` together, as the README says.
-- **Installing from the AUR needs `git` and a build toolchain (`base-devel`) on your machine.** The packages don't pull them in. Without `git` the fetch step fails with git's own message and nothing is built.
+- **Installing from the AUR needs `git` and a build toolchain (`base-devel`) on your machine.** They are optional dependencies of `archmaid-gui-git`, so the packages don't pull them in. Without `git` the fetch step fails with git's own message and nothing is built.
 - **The Packages page is GUI-only.** The TUI has no package page and no `sudo` path for it.
 
 ### Added

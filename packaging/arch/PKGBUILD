@@ -160,6 +160,10 @@ package_archmaid-gui-git() {
   # directly, and neither gtk4 nor libadwaita pulls it in.
   depends=("archmaid-git=$pkgver-$pkgrel" 'gtk4' 'libadwaita' 'libgirepository'
            'glib2' 'glibc')
+  # The Packages page's AUR install fetches with git and builds with makepkg
+  # as the user; repo installs and everything else work without them.
+  optdepends=('git: install AUR packages from the Packages page'
+              'base-devel: build AUR packages from the Packages page')
   provides=("$_pkgname-gui")
   conflicts=("$_pkgname-gui")
 
