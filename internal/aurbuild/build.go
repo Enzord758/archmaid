@@ -120,10 +120,12 @@ func (f Fetcher) MakepkgArgv(base string) []string {
 //	pkg-install-local  inserted right after aur-collect: all files, one call
 //	aur-remember    records the reviewed commits (runs only after a good install)
 //
-// plans must be in build order. A failing step stops the queue, so nothing
+// plans must be in build order. A failing step stops the queue (the engine
+// halts a Packages run on its first step that does not end OK), so nothing
 // is installed after a failed build and nothing is remembered.
 func (f Fetcher) Queue(plans []steps.AURPlan, deps *steps.Step, reviewed *Reviewed) []steps.Step {
 	var q []steps.Step
+	installPlanned := false // aur-collect inserted the install step
 	if deps != nil {
 		q = append(q, *deps)
 	}
@@ -160,20 +162,34 @@ func (f Fetcher) Queue(plans []steps.AURPlan, deps *steps.Step, reviewed *Review
 					return steps.Result{Err: err}
 				}
 				st := InstallStep(built)
+				installPlanned = true
 				return steps.Result{Output: describe(built), InsertNext: &st}
 			},
 		},
 		steps.Step{
-			ID: "aur-remember", Title: "Remembering what you reviewed…", LogLabel: "AUR review remembered",
+			ID: "aur-remember", Title: "Recording what you reviewed…", LogLabel: "AUR review recorded",
 			Run: func(ctx context.Context, env steps.Env) steps.Result {
-				if env.DryRun || reviewed == nil {
-					return steps.Result{}
+				if env.DryRun {
+					return steps.Result{Output: "[dry-run] would record the reviewed commits"}
+				}
+				// Defence in depth: the engine never starts this step after a
+				// failed one (a Packages queue stops on its first failure); if
+				// that ever broke, this still writes nothing without a good
+				// install before it.
+				if !env.PriorOK || !installPlanned {
+					return steps.Result{Err: errors.New("not recorded: the install did not succeed")}
+				}
+				if reviewed == nil {
+					return steps.Result{Output: "nothing to record"}
 				}
 				marks := map[string]string{}
 				for _, p := range plans {
 					marks[p.Base] = p.Commit
 				}
-				return steps.Result{Err: reviewed.Mark(marks)}
+				if err := reviewed.Mark(marks); err != nil {
+					return steps.Result{Err: err}
+				}
+				return steps.Result{Output: "recorded " + strings.Join(sortedKeys(marks), ", ")}
 			},
 		})
 	return q
@@ -283,4 +299,13 @@ func hashFile(path string) (BuiltFile, error) {
 		return BuiltFile{}, err
 	}
 	return BuiltFile{Size: n, Sha256: hex.EncodeToString(h.Sum(nil))}, nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	k := make([]string, 0, len(m))
+	for n := range m {
+		k = append(k, n)
+	}
+	sort.Strings(k)
+	return k
 }

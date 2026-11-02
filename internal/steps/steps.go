@@ -127,6 +127,10 @@ type OrphanPlan struct {
 // Env is what a running step may know about the run it is part of.
 type Env struct {
 	DryRun bool // report what would happen; change nothing
+	// PriorOK: every step before this one in the run ended OK (none failed,
+	// was skipped or refused). A step that must not act after an earlier
+	// failure (the AUR "remember") checks it.
+	PriorOK bool
 }
 
 // LogCategory is s.Category, defaulting to logstore.Cleanup when unset.

@@ -212,6 +212,7 @@ func (s *Session) answerPackages(o *Output, yes bool) {
 		return
 	}
 	queue := slices.Clone(r.pkgSteps)
+	r.stopOnFail = true
 	r.pkgSteps = nil
 	// An OnAccept on the queue's first step is the sheet's acceptance (the
 	// AUR install with high audit findings: the audit's snapshot commit, as

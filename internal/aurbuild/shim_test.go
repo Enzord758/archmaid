@@ -140,7 +140,7 @@ func (s *shims) gitCalls() []string {
 func runStep(t *testing.T, st steps.Step) steps.Result {
 	t.Helper()
 	if st.Run != nil {
-		return st.Run(context.Background(), steps.Env{})
+		return st.Run(context.Background(), steps.Env{PriorOK: true})
 	}
 	cmd := exec.Command(st.Argv[0], st.Argv[1:]...)
 	cmd.Env = append(os.Environ(), st.Env...)

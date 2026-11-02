@@ -82,6 +82,13 @@ type run struct {
 
 	errs, skipped, refused int
 
+	// stopOnFail: the queue is a Packages or AUR one (answerPackages). Its
+	// steps depend on each other (a build on its pin, the install on the
+	// build, "remembered" on the install), so the first step that does not
+	// end OK stops the run: settle sets halted, and advance then skips every
+	// step not yet started instead of starting it.
+	stopOnFail, halted bool
+
 	// A Packages run (packages.go): its request, and the queue a "yes" to
 	// the sheet runs.
 	pkgReq   steps.PkgRequest
@@ -299,6 +306,13 @@ const maxArg = 4096
 func (s *Session) advance(o *Output) {
 	r := s.run
 	r.cur++
+	if r.stopOnFail && r.halted {
+		for ; r.cur < len(r.plan); r.cur++ {
+			s.settle(o, steps.Skipped, "")
+		}
+		s.finish(o, OutcomeCompleted) // errs > 0 records it failed, a refusal incomplete
+		return
+	}
 	if r.comb != nil && !r.comb.running {
 		s.combineNext(o) // the next of a combined run's confirms
 		return
@@ -436,7 +450,7 @@ func (s *Session) startStep(o *Output, accepted bool) {
 	}
 	st.status = steps.Running
 	o.event(StepStarted{ID: st.step.ID, Index: r.cur, At: r.stepAt})
-	o.effect(StartStep{Seq: r.stepSeq, Step: st.step, Env: steps.Env{DryRun: s.opts.DryRun}})
+	o.effect(StartStep{Seq: r.stepSeq, Step: st.step, Env: steps.Env{DryRun: s.opts.DryRun, PriorOK: r.errs+r.skipped == 0}})
 }
 
 // decline answers "no" to the current step's confirm: an optional step is
@@ -686,6 +700,9 @@ func (s *Session) settle(o *Output, status steps.Status, errText string) {
 		elapsed = s.now().Sub(r.stepAt)
 	}
 	st.status = status
+	if status != steps.OK {
+		r.halted = true
+	}
 	switch status {
 	case steps.Failed:
 		r.errs++

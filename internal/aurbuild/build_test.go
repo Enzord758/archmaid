@@ -338,3 +338,42 @@ func TestLocalHash(t *testing.T) {
 		t.Errorf("hash shape: %s", got)
 	}
 }
+
+// TestRememberRefusesWithoutAGoodInstall: aur-remember writes only when every
+// step before it ended OK and the install step was planned; otherwise it
+// fails, says it did not record, and the file stays empty.
+func TestRememberRefusesWithoutAGoodInstall(t *testing.T) {
+	s, f := newShims(t)
+	os.MkdirAll(filepath.Join(f.Root, "app"), 0o700)
+	s.put("make_outputs", built("app")+"\n")
+	commit := strings.Repeat("a", 40)
+	reviewed := &Reviewed{Path: filepath.Join(t.TempDir(), "r.json")}
+	q := f.Queue([]steps.AURPlan{planFor("app", commit, "app")}, nil, reviewed)
+	remember := q[len(q)-1]
+	// an earlier step failed
+	res := remember.Run(context.Background(), steps.Env{PriorOK: false})
+	if res.Err == nil || !strings.Contains(res.Err.Error(), "not recorded") {
+		t.Fatalf("after a failure: %+v", res)
+	}
+	// every step OK, but collect never planned an install
+	res = remember.Run(context.Background(), steps.Env{PriorOK: true})
+	if res.Err == nil {
+		t.Fatalf("without an install step: %+v", res)
+	}
+	if reviewed.Get("app") != "" {
+		t.Fatal("remembered without a good install")
+	}
+	// the dry run writes nothing and says so
+	if res := remember.Run(context.Background(), steps.Env{DryRun: true, PriorOK: true}); res.Err != nil || !strings.Contains(res.Output, "dry-run") {
+		t.Fatalf("dry run: %+v", res)
+	}
+	for _, st := range q[:len(q)-1] {
+		if r := runStep(t, st); r.Err != nil {
+			t.Fatal(r.Err)
+		}
+	}
+	res = remember.Run(context.Background(), steps.Env{PriorOK: true})
+	if res.Err != nil || !strings.Contains(res.Output, "recorded app") || reviewed.Get("app") != commit {
+		t.Fatalf("after a good install: %+v", res)
+	}
+}
