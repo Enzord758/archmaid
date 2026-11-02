@@ -268,6 +268,17 @@ func (w *Window) pageShown() {
 		sh.syncing = false
 	}
 	w.updateTitle()
+	if name == "packages" {
+		w.reloadPackages() // pacman may have run outside the window
+	}
+}
+
+// reloadPackages has the Packages page re-read pacman's databases when their
+// files changed since it last did.
+func (w *Window) reloadPackages() {
+	if w.pkgs != nil && w.pkgs.ctl != nil {
+		w.pkgs.ctl.Reload()
+	}
 }
 
 // updateTitle is the header's title: the page's, or on the Run page the

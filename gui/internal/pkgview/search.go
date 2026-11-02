@@ -358,3 +358,48 @@ func (r Results) AllHits() []pkgdb.Package {
 	out = append(out, r.Repo...)
 	return append(out, r.AUR...)
 }
+
+// Refresh brings the results and the open detail up to date after the
+// databases changed: the repo search for the current term runs again (the AUR
+// results are kept, their installed state merged anew) and the detail pane is
+// rebuilt for the same package, keeping the selection.
+func (s *Search) Refresh() {
+	if s.res.Active && s.query != "" {
+		s.stopRepo()
+		s.runRepo(s.repoGen, s.query)
+	}
+	if !s.detail.Valid {
+		return
+	}
+	p := s.detail.Pkg
+	if s.d.Catalog == nil {
+		return
+	}
+	l, ok := s.d.Catalog.Lookup(p.Name)
+	switch {
+	case p.Repo == pkgdb.RepoAUR:
+		if s.detail.Loading {
+			return // its info is on its way and builds the pane then
+		}
+		p = withoutInstalled(p)
+		if ok {
+			p = withInstalled(p, l)
+		}
+	case ok:
+		p = l
+	default:
+		s.ClearDetail() // gone from every database
+		return
+	}
+	d := BuildDetail(p, s.d.Catalog, s.d.Clock.Now())
+	d.Err = s.detail.Err
+	s.detail = d
+	s.d.Changed()
+}
+
+// withoutInstalled clears the installed state an AUR entry carried.
+func withoutInstalled(p pkgdb.Package) pkgdb.Package {
+	p.Installed, p.InstalledVersion, p.Reason = false, "", pkgdb.ReasonNone
+	p.RequiredBy, p.OptionalFor, p.Orphan, p.Foreign, p.Update = nil, nil, false, false, false
+	return p
+}

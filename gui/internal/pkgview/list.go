@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/Enzord758/archmaid/internal/pkgdb"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -230,7 +231,8 @@ type Protector interface {
 // name a refusal named (Learn), so a package the helper protected stays
 // greyed for the rest of the session.
 type ProtectedSet struct {
-	names map[string]string
+	names    map[string]string
+	prefixes bool // the advisory prefixes apply (no helper list yet)
 }
 
 // ProtectedReason is the text of an advisory entry.
@@ -238,17 +240,50 @@ const ProtectedReason = "System-critical: archmaid does not remove it."
 
 // NewAdvisoryProtected is the short core list.
 func NewAdvisoryProtected() *ProtectedSet {
-	s := &ProtectedSet{names: map[string]string{}}
-	for _, n := range []string{"base", "filesystem", "glibc", "pacman", "systemd", "linux", "bash", "coreutils"} {
+	s := &ProtectedSet{names: map[string]string{}, prefixes: true}
+	for _, n := range advisoryNames {
 		s.names[n] = ProtectedReason
 	}
 	return s
 }
 
+// advisoryNames and advisoryPrefixes are the fallback when the helper's
+// protected list can't be had: the core, the privilege tools, the kernels,
+// the bootloaders and archmaid itself.
+var (
+	advisoryNames = []string{"base", "filesystem", "glibc", "pacman", "systemd", "linux", "linux-lts", "linux-zen",
+		"linux-hardened", "bash", "coreutils", "sudo", "mkinitcpio", "limine", "grub", "archmaid"}
+	advisoryPrefixes = []string{"linux-cachyos", "archmaid-"}
+)
+
 // Protected implements Protector.
 func (s *ProtectedSet) Protected(name string) (string, bool) {
-	r, ok := s.names[name]
-	return r, ok
+	if r, ok := s.names[name]; ok {
+		return r, true
+	}
+	if s.prefixes {
+		for _, p := range advisoryPrefixes {
+			if strings.HasPrefix(name, p) {
+				return ProtectedReason, true
+			}
+		}
+	}
+	return "", false
+}
+
+// UseHelperList replaces the advisory core with the helper's own list of
+// protected names (helperclient.Protected): it is the authority, and the
+// advisory prefixes are dropped with the rest. Names learned from a refusal
+// stay.
+func (s *ProtectedSet) UseHelperList(names []string) {
+	learned := map[string]string{}
+	for n, r := range s.names {
+		if r != ProtectedReason {
+			learned[n] = r
+		}
+	}
+	s.names, s.prefixes = learned, false
+	s.Learn(names, "")
 }
 
 // Learn adds names the helper refused as protected, with its reason.

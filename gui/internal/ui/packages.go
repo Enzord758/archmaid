@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -40,8 +41,14 @@ type PackagesWiring struct {
 	// window's state folder). DBAge is the sync DBs' age (nil: unknown).
 	Updates func() overview.Updates
 	DBAge   func() time.Duration
-	// Reload re-reads the pacman DBs after a successful run.
-	Reload func()
+	// Reload re-reads the pacman DBs (after a run, and when the page is
+	// shown): it reports whether anything changed. Nil: nothing to reload.
+	Reload func() bool
+	// Protected asks the helper for the names it never removes
+	// (helperclient.Protected: no polkit, no root). It runs once, off the
+	// main thread; the page greys those names, and while it has not answered
+	// (or fails) a short built-in list stands in.
+	Protected func(ctx context.Context) ([]string, error)
 	// Clock is the debounce's clock (nil: the wall clock; a test passes a
 	// pkgview.FakeClock).
 	Clock pkgview.Clock
@@ -164,12 +171,30 @@ func (w *Window) newPackages() gtk.Widgetter {
 	})
 	p.ctl = pkgview.NewController(pkgview.Config{
 		Search: search, Catalog: wire.Catalog, Backend: w.pkgBackend(wire), Clock: wire.Clock,
-		Updates: updates, DBAge: wire.DBAge, Reload: wire.Reload, Changed: p.changed,
+		Updates: updates, DBAge: wire.DBAge, Reload: wire.Reload, Go: func(f func()) { go f() }, Post: post, Changed: p.changed,
 		Dry:     func() bool { return w.drvDry },
 		Kept:    w.keepsPassword,
 		ShowRun: func() { w.stack.SetVisibleChildName("run") },
 	})
 	p.build()
+	if wire.Protected != nil {
+		// The helper's protected list, once: until it answers (or if it
+		// fails) the short built-in list stands.
+		prot := wire.Protected
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			names, err := prot(ctx)
+			post(func() {
+				if w.closed || err != nil || len(names) == 0 {
+					return
+				}
+				p.ctl.Protected.UseHelperList(names)
+				p.ctl.Installed.Reload()
+				p.changed()
+			})
+		}()
+	}
 	// While the page is up the cache is re-read every 2 s: "Update system
 	// first" ends in a new count, and the page re-enables by itself.
 	coreglib.TimeoutAdd(2000, func() bool {

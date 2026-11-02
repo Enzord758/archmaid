@@ -285,7 +285,7 @@ func newCtl(pkgs ...pkgdb.Package) *ctlRig {
 	cr.c = NewController(Config{Search: r.s, Catalog: r.cat, Backend: cr.be, Clock: r.clock,
 		Updates: func() overview.Updates { return cr.updates },
 		DBAge:   func() time.Duration { return time.Hour },
-		Reload:  func() { cr.reloads++ },
+		Reload:  func() bool { cr.reloads++; return true },
 		ShowRun: func() { cr.runs++ }})
 	return cr
 }
@@ -399,6 +399,7 @@ func TestControllerHappyPath(t *testing.T) {
 	}
 }
 
+// TestFailedRunKeepsTheList: B5, a failed run keeps the list but still reloads.
 func TestFailedRunKeepsTheList(t *testing.T) {
 	cr := newCtl()
 	_ = cr.c.Now(repoPkg("gvim", "9"), ModeInstall)
@@ -406,7 +407,8 @@ func TestFailedRunKeepsTheList(t *testing.T) {
 	cr.c.Confirm()
 	cr.c.Handle(RunStarted{})
 	cr.c.Handle(Done{OK: false})
-	if cr.c.List.Len() != 1 || cr.reloads != 0 {
+	// The list stays; the DBs are re-read (a failed run may have changed them).
+	if cr.c.List.Len() != 1 || cr.reloads != 1 {
 		t.Fatalf("list %d reloads %d", cr.c.List.Len(), cr.reloads)
 	}
 }

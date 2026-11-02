@@ -140,8 +140,10 @@ func (p *realPackages) wiring() *PackagesWiring {
 			}
 			return db.SyncAge(time.Now())
 		},
-		// After a run: pacman's databases changed.
-		Reload: func() { _, _ = db.Reload() },
+		// After a run, a topgrade or when the page is shown: re-read the
+		// databases if their files changed since the last read.
+		Reload:    func() bool { changed, _ := db.Reload(); return changed },
+		Protected: protectedQuery,
 	}
 }
 
@@ -179,3 +181,8 @@ func clipText(s string, n int) string {
 	}
 	return s
 }
+
+// protectedQuery asks the helper for the packages it never removes
+// (helperclient.Protected: no polkit, no root). Nothing is wired yet, so the
+// page keeps its built-in list.
+var protectedQuery func(ctx context.Context) ([]string, error)

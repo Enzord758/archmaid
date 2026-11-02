@@ -441,6 +441,7 @@ func (w *Window) redraw(c runview.Change) {
 		w.setBusy(false)
 		w.refreshLastRun()
 		w.invalidateUserCache()
+		w.reloadPackages() // topgrade, a Full Cleanup or a repair changed the packages
 		switch {
 		case w.nothingPending && f != nil && f.Outcome == engine.OutcomeNotice:
 			w.showNothing()

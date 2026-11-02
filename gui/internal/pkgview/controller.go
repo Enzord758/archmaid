@@ -27,18 +27,22 @@ type Config struct {
 	Protected *ProtectedSet
 	Clock     Clock
 	// Updates reads updates-cache.json; DBAge is the sync DBs' age (< 0:
-	// unknown); Reload re-reads the pacman DBs after a run; Changed is
-	// called on the main thread after any state change; ShowRun brings the
-	// Run page up.
+	// unknown); Changed is called on the main thread after any state
+	// change; ShowRun brings the Run page up.
 	// Dry says the next run is a dry run; Kept says the GUI keeps the run's
 	// first password (both nil: no and no). They word the sheet's password
 	// note.
 	Dry, Kept func() bool
 	Updates   func() overview.Updates
 	DBAge     func() time.Duration
-	Reload    func()
-	Changed   func()
-	ShowRun   func()
+	// Reload re-reads the pacman DBs and says whether they had changed; it
+	// may parse for a while, so it runs through Go. Go runs f off the main
+	// thread and Post delivers a result on it (nil: inline, for tests).
+	Reload  func() bool
+	Go      func(func())
+	Post    func(func())
+	Changed func()
+	ShowRun func()
 }
 
 // Controller joins the page's parts: search, list, installed view, sheet
@@ -53,6 +57,8 @@ type Controller struct {
 	cfg     Config
 	updates overview.Updates
 	started bool // the current request's run has started
+
+	reloading, reloadAgain bool
 }
 
 // NewController wires a Controller.
@@ -62,6 +68,12 @@ func NewController(cfg Config) *Controller {
 	}
 	if cfg.Protected == nil {
 		cfg.Protected = NewAdvisoryProtected()
+	}
+	if cfg.Go == nil {
+		cfg.Go = func(f func()) { f() }
+	}
+	if cfg.Post == nil {
+		cfg.Post = func(f func()) { f() }
 	}
 	if cfg.Changed == nil {
 		cfg.Changed = func() {}
@@ -165,10 +177,11 @@ func (c *Controller) Handle(ev Event) {
 	case Done:
 		if c.started && e.OK {
 			c.List.Clear()
-			c.Installed.Reload()
-			if c.cfg.Reload != nil {
-				c.cfg.Reload()
-			}
+		}
+		if c.started {
+			// Any package run that started may have changed the system,
+			// whatever its outcome (a failed install can leave packages).
+			c.Reload()
 		}
 		c.started = false
 	}
@@ -230,4 +243,35 @@ func (c *Controller) SetWithConfig(on bool) {
 		c.List.WithConfig = on
 		c.cfg.Changed()
 	}
+}
+
+// Reload re-reads the pacman DBs off the main thread (after any package run,
+// after topgrade or a Full Cleanup, and when the page is shown) and, when
+// they had changed, brings the installed view, the results and the open
+// detail up to date, keeping the selection. Calls while one is running
+// coalesce into one more.
+func (c *Controller) Reload() {
+	if c.cfg.Reload == nil {
+		return
+	}
+	if c.reloading {
+		c.reloadAgain = true
+		return
+	}
+	c.reloading = true
+	c.cfg.Go(func() {
+		changed := c.cfg.Reload()
+		c.cfg.Post(func() {
+			c.reloading = false
+			if changed {
+				c.Installed.Reload()
+				c.Search.Refresh()
+				c.cfg.Changed()
+			}
+			if c.reloadAgain {
+				c.reloadAgain = false
+				c.Reload()
+			}
+		})
+	})
 }
