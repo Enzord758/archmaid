@@ -187,6 +187,12 @@ func (p *pkgPage) addButton(pk pkgdb.Package, mode pkgview.Mode, why string) *gt
 		return b
 	}
 	if err := p.ctl.List.CanAdd(pk, mode); err != nil {
+		if clearable(err) {
+			// The list holds the other kind: pressing offers to start over.
+			b.SetTooltipText(err.Error() + " Press to clear the list and add this.")
+			b.ConnectClicked(func() { p.offerClear(pk, mode, err) })
+			return b
+		}
 		b.SetSensitive(false)
 		b.SetTooltipText(err.Error())
 		return b
@@ -194,6 +200,27 @@ func (p *pkgPage) addButton(pk pkgdb.Package, mode pkgview.Mode, why string) *gt
 	b.SetTooltipText(tip)
 	b.ConnectClicked(func() { p.add(pk, mode) })
 	return b
+}
+
+// clearable: err is a refusal the user can resolve by emptying the list (it
+// holds the other kind: AUR against repository packages, installs against
+// removals).
+func clearable(err error) bool {
+	k := pkgview.ErrKind(err)
+	return k == pkgview.AddMixedSource || k == pkgview.AddOtherMode
+}
+
+// offerClear says why pk can't join the list and offers, in one click, to
+// empty the list and add it.
+func (p *pkgPage) offerClear(pk pkgdb.Package, mode pkgview.Mode, err error) {
+	p.w.toastAction(err.Error(), "Clear the list and add this", func() { p.clearAndAdd(pk, mode) })
+}
+
+// clearAndAdd empties the list and puts pk in it.
+func (p *pkgPage) clearAndAdd(pk pkgdb.Package, mode pkgview.Mode) {
+	p.ctl.List.Clear()
+	p.add(pk, mode)
+	p.changed()
 }
 
 // add puts pk in the list, saying why when it can't go.

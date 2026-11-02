@@ -92,7 +92,7 @@ func TestPasswordTextPromptCantPose(t *testing.T) {
 func TestPasswordTextKind(t *testing.T) {
 	head, caller, body := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Polkit: true,
 		Action: "org.archmaid.helper.full-cleanup", Requester: "polkit's agent (pkttyagent)", Prompt: "Password: "})
-	if head != PolkitTitle || caller != "Asked by polkit for org.archmaid.helper.full-cleanup." || body != "" {
+	if head != PolkitTitle || caller != "Authentication is required to clean the package cache, remove orphaned packages, vacuum the journal, clean temporary files and check package files (polkit action org.archmaid.helper.full-cleanup)." || body != "" {
 		t.Errorf("polkit: %q / %q / %q", head, caller, body)
 	}
 	_, _, body = passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Polkit: true, Prompt: "Password: ",

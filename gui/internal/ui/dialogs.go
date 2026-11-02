@@ -470,12 +470,19 @@ const PolkitTitle = "Authorise archmaid's Root Steps"
 func passwordText(p engine.NeedsPassword) (heading, caller, body string) {
 	switch {
 	case p.Kind == engine.PasswordAskpass && p.Polkit:
-		// The action id verbatim, on the caller line. polkit's own prompt
-		// (PAM's "Password:") isn't shown: the entry says it.
+		// The policy's message on the caller line, the action id after it
+		// (any other program asking shows this dialog with its name); an id
+		// the table lacks is shown as it is. polkit's own prompt (PAM's
+		// "Password:") isn't shown: the entry says it.
 		heading = PolkitTitle
 		caller = "Asked by polkit for archmaid's root helper."
 		if p.Action != "" {
-			caller = "Asked by polkit for " + sanitize.OneLine(p.Action) + "."
+			id := sanitize.OneLine(p.Action)
+			if msg, ok := polkitMessages[p.Action]; ok {
+				caller = msg + " (polkit action " + id + ")."
+			} else {
+				caller = "Asked by polkit for " + id + "."
+			}
 		}
 	case p.Kind == engine.PasswordAskpass:
 		heading = "sudo Asks for Your Password"

@@ -161,6 +161,12 @@ func (p *pkgPage) detailActions(d pkgview.Detail) gtk.Widgetter {
 	if note != "" {
 		box.Append(plainLabel(note, "am-note"))
 	}
+	if err != nil && clearable(err) {
+		clr := gtk.NewButtonWithLabel("Clear the list and add this")
+		clr.SetHAlign(gtk.AlignStart)
+		clr.ConnectClicked(func() { p.clearAndAdd(pk, mode) })
+		box.Append(clr)
+	}
 	return box
 }
 

@@ -1181,7 +1181,7 @@ func TestGUISmallWindow(t *testing.T) {
 		want := "Asked by " + longRequester + "."
 		heading := "sudo Asks for Your Password"
 		if sc == "small-polkit" {
-			want, heading = "Asked by polkit for org.archmaid.helper.full-cleanup.", PolkitTitle
+			want, heading = polkitMessages["org.archmaid.helper.full-cleanup"]+" (polkit action org.archmaid.helper.full-cleanup).", PolkitTitle
 		}
 		if wantCaller := fmt.Sprintf("text=%q in-view=true ellipsized=false dim=false wrap=true markup=false visible=true", want); rep.Caller != wantCaller {
 			t.Errorf("%s: the caller line is\n%s\nwant\n%s", sc, rep.Caller, wantCaller)

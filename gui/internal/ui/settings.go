@@ -317,7 +317,16 @@ func (w *Window) applyDownloads() {
 // saveSettings keeps s for the next Start and writes it. A failed write
 // still applies until archmaid-gui closes, and says so.
 func (w *Window) saveSettings(s settings.Settings) {
+	if w.settings.DryRun && !s.DryRun && !w.busy {
+		// Dry run switched off while idle: the sidebar status no longer
+		// says DRY RUN about the run before.
+		w.dryOff = true
+		defer w.setStatus()
+	}
 	w.settings = s
+	if s.DryRun {
+		w.dryOff = false
+	}
 	if err := settings.Save(w.set.path, s); err != nil {
 		w.set.showProblem("Not saved (it applies until you close archmaid): " + err.Error())
 		return

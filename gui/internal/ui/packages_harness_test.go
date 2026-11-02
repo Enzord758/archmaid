@@ -32,7 +32,7 @@ var pkgFix *pkgEnv
 
 // pkgScenarios are the page's scenarios: all use the fixture wiring.
 var pkgScenarios = []string{"cov-pkg-search", "cov-pkg-installed", "cov-pkg-list", "cov-pkg-sheet",
-	"cov-pkg-aur", "cov-pkg-gate", "cov-pkg-refused", "cov-pkg-theme", "cov-pkg-narrow", "cov-pkg-unavailable", "cov-pkg-noengine"}
+	"cov-pkg-aur", "cov-pkg-gate", "cov-pkg-refused", "cov-pkg-theme", "cov-pkg-narrow", "cov-pkg-unavailable", "cov-pkg-noengine", "cov-pkg-live"}
 
 const pkgNarrowEnv = "ARCHMAID_GUI_PKG_W"
 
@@ -65,6 +65,9 @@ func init() {
 					pkgFix.setUpdates(5)
 				}
 				o.Packages = pkgFix.wiring()
+				if s == "cov-pkg-live" {
+					pkgFix.liveWiring(o)
+				}
 			}
 		}
 	}
@@ -79,6 +82,7 @@ func init() {
 	covScenarios["cov-pkg-narrow"] = pkgNarrow
 	covScenarios["cov-pkg-unavailable"] = pkgUnavailable
 	covScenarios["cov-pkg-noengine"] = pkgNoEngine
+	covScenarios["cov-pkg-live"] = pkgLive
 }
 
 // ---- helpers ----
@@ -427,9 +431,9 @@ func pkgList(c *covEnv) {
 		},
 		func() { // a removal can't join an install list: the buttons are off with the reason
 			vim := rowByName(p.instList, "vim")
-			why := "The list holds installs. Install and remove are separate runs: review or clear it first."
+			why := "The list holds installs. Install and remove are separate runs: review or clear it first. Press to clear the list and add this."
 			b := findTooltip(gtk.BaseWidget(vim), why)
-			c.ok(b != nil && !b.(*gtk.Button).Sensitive(), "vim's remove button should be off with the reason")
+			c.ok(b != nil && b.(*gtk.Button).Sensitive(), "vim's remove button should give the reason and offer to clear the list")
 			// Clear empties it and the badge goes.
 			p.trayClear.Emit("clicked")
 		},
@@ -454,9 +458,9 @@ func pkgList(c *covEnv) {
 		},
 		func() { e.advance(400) },
 		func() { // installs can't join a removal list
-			why := "The list holds removals. Install and remove are separate runs: review or clear it first."
+			why := "The list holds removals. Install and remove are separate runs: review or clear it first. Press to clear the list and add this."
 			b := findTooltip(gtk.BaseWidget(rowByName(p.results, "firefox")), why)
-			c.ok(b != nil && !b.(*gtk.Button).Sensitive(), "the install button should be off over a removal list")
+			c.ok(b != nil && b.(*gtk.Button).Sensitive(), "the install button should give the reason and offer to clear the list over a removal list")
 			// The review asks for a removal with the box: -Rns.
 			p.trayReview.Emit("clicked")
 		},

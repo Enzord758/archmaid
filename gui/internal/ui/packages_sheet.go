@@ -20,6 +20,7 @@ import (
 
 // refreshSheet opens, replaces or closes the dialog to match the model.
 func (p *pkgPage) refreshSheet() {
+	p.w.updateStop()
 	v := p.ctl.Sheet.View()
 	if v.State == pkgview.SheetClosed || v.State == pkgview.SheetRunning {
 		p.closeSheet()

@@ -7,6 +7,9 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/overview"
+	"github.com/Enzord758/archmaid/gui/internal/runview"
+	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // The Workbench shell (P8 row 3; spec 1.1, 1.8, 3): a sidebar with the
@@ -312,10 +315,39 @@ func (w *Window) setStatus() {
 // insensitive, when idle), and the Run page's badge.
 func (w *Window) setBusy(busy bool) {
 	w.busy = busy
-	w.stopBtn.SetVisible(busy)
-	w.stopBtn.SetSensitive(busy)
+	w.updateStop()
 	w.updateRunBadge()
 	w.redrawHeaders()
+}
+
+// updateStop shows Stop while a run is going, with one exception: a Packages
+// run has no Stop while its sheet or its confirm is up (Cancel is the sheet's
+// own), and none once the root helper step has started (nothing can stop it
+// then: the sheet says so). While polkit's dialog is up it still works (it
+// ends the waiting pkexec).
+func (w *Window) updateStop() {
+	show := w.busy
+	if show && w.current == actions.IDPackages {
+		switch {
+		case w.pkgs != nil && w.pkgs.ctl != nil && w.pkgs.ctl.Sheet.Open():
+			show = false
+		case w.model.Prompt != nil:
+			show = false
+		default:
+			for _, r := range w.model.Rows {
+				if pkgRootStep(r.ID) && r.State == runview.RowRunning && !r.Waiting {
+					show = false
+				}
+			}
+		}
+	}
+	w.stopBtn.SetVisible(show)
+	w.stopBtn.SetSensitive(show)
+}
+
+// pkgRootStep: id is a Packages run's root helper step.
+func pkgRootStep(id string) bool {
+	return id == steps.IDPkgInstall || id == steps.IDPkgRemove || id == steps.IDPkgInstallLocal
 }
 
 // updateRunBadge is the Run entry's badge: "NN/MM" while a run goes (the

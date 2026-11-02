@@ -75,6 +75,10 @@ type Window struct {
 	// drvDry: the current Driver is a dry run (the Settings switch, or Dry
 	// run first); its confirms say so up front.
 	drvDry bool
+	// dryOff: the Dry run switch was turned off while idle, so the status
+	// line stops saying "DRY RUN" about the run before it, until the next
+	// Start.
+	dryOff bool
 	// queued: the current action's queue has started (QueueStarted, which
 	// clears the Run page). lastFinished is the Run page's run's end when
 	// the action started: an action that ends before its queue puts it
@@ -280,7 +284,7 @@ func (w *Window) start(id string, dry bool) {
 	// clears at QueueStarted, Q12), not here: until then it keeps the last
 	// run, so an action that ends before any queue (a declined gate, a
 	// notice) leaves it as it was (P8 row 13, Dev 5).
-	w.queued, w.lastFinished, w.ended = false, w.model.Finished, nil
+	w.queued, w.lastFinished, w.ended, w.dryOff = false, w.model.Finished, nil, false
 	w.pagePrev = len(w.model.Rows) > 0
 	w.current, w.dry, w.model.Stopped, w.agentNotice = id, dry, "", ""
 	w.model.StartDry = dry || w.drvDry
@@ -355,6 +359,15 @@ func pumpDone(p *runview.Pump) bool {
 func (w *Window) toast(msg string) {
 	w.toasted = append(w.toasted, msg)
 	w.toasts.AddToast(plainToast(msg))
+}
+
+// toastAction is a toast with one button; fn runs when it is pressed.
+func (w *Window) toastAction(msg, label string, fn func()) {
+	w.toasted = append(w.toasted, msg)
+	t := plainToast(msg)
+	t.SetButtonLabel(label)
+	t.ConnectButtonClicked(fn)
+	w.toasts.AddToast(t)
 }
 
 // plainToast is a toast showing msg as plain text. AdwToast parses its
@@ -462,6 +475,7 @@ func (w *Window) redraw(c runview.Change) {
 		w.updateOverview()
 		w.updateRunBadge()
 	}
+	w.updateStop()
 	if w.onApply != nil {
 		w.onApply(c)
 	}
@@ -534,7 +548,7 @@ func (w *Window) statusText() string {
 	default:
 		parts = append(parts, "Ready")
 	}
-	if dry {
+	if dry && !w.dryOff {
 		parts = append(parts, "DRY RUN")
 	}
 	// The page's counts are the last run's when the action ended before

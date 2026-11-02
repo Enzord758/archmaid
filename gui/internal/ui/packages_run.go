@@ -29,7 +29,7 @@ func (w *Window) startPackages(req steps.PkgRequest) {
 	w.replaceDriver(false)
 	w.pkgAd.reset()
 	w.pkgRun = true
-	w.queued, w.lastFinished, w.ended = false, w.model.Finished, nil
+	w.queued, w.lastFinished, w.ended, w.dryOff = false, w.model.Finished, nil, false
 	w.pagePrev = len(w.model.Rows) > 0
 	w.current, w.dry, w.model.Stopped, w.agentNotice = actions.IDPackages, false, "", ""
 	w.model.StartDry = w.drvDry
