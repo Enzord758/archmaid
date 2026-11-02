@@ -184,6 +184,18 @@ func pkgLive(c *covEnv) {
 			c.ok(!strings.Contains(w.statusText(), "DRY RUN") && !strings.Contains(w.status.Text(), "DRY RUN"),
 				"status %q still says DRY RUN after the switch was turned off", w.status.Text())
 		},
+		func() { // #248: a real request after a dry run does not say DRY RUN while its sheet is prepared
+			w.set.dryRun.SetActive(false)
+			w.model.DryRun = true // the run before was a dry run
+			w.startPackages(steps.PkgRequest{Names: []string{"vim"}})
+			c.ok(!strings.Contains(w.statusText(), "DRY RUN"), "status %q says DRY RUN for a real request", w.statusText())
+			w.setBusy(false)
+			w.set.dryRun.SetActive(true)
+			w.startPackages(steps.PkgRequest{Names: []string{"vim"}})
+			c.ok(strings.Contains(w.statusText(), "DRY RUN"), "status %q lacks DRY RUN for a dry request", w.statusText())
+			w.setBusy(false)
+			w.set.dryRun.SetActive(false)
+		},
 		func() { // B9: the polkit dialog names what it authorises
 			_, caller, _ := passwordText(engine.NeedsPassword{Kind: engine.PasswordAskpass, Polkit: true, Action: "org.archmaid.helper.pkg-install-local"})
 			c.ok(strings.HasPrefix(caller, "Authentication is required to install packages built from the AUR"), "caller %q", caller)

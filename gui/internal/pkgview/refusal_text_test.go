@@ -15,9 +15,11 @@ func TestRefusalTextReadsWell(t *testing.T) {
 		want string
 	}{
 		{steps.PkgRefusal{Reason: steps.RefuseRequired}, []string{"sudo"},
-			"Other installed packages need it. Nothing changed."},
-		{steps.PkgRefusal{Reason: steps.RefuseRequired, Names: []string{"a"}},
-			nil, "a is still needed by other installed packages. Nothing changed."},
+			"sudo is still needed by other installed packages. Nothing changed."},
+		{steps.PkgRefusal{Reason: steps.RefuseRequired, Names: []string{"archmaid-git"}, Detail: "pacman would not remove it: still needed by archmaid-git"},
+			[]string{"pacman-contrib"}, "pacman-contrib is still needed by archmaid-git. Nothing changed."},
+		{steps.PkgRefusal{Reason: steps.RefuseRequired, Names: []string{"A", "B", "C"}},
+			[]string{"X"}, "X is still needed by A, B and C. Nothing changed."},
 		{steps.PkgRefusal{Reason: steps.RefuseConflict, Names: []string{"vim"}, Detail: "neovim replaces the installed package vim: remove vim first, then install"},
 			[]string{"neovim"}, "neovim replaces the installed package vim: remove vim first, then install neovim. Nothing changed."},
 		{steps.PkgRefusal{Reason: steps.RefuseProtected, Names: []string{"sudo"}, Detail: "sudo is protected (privilege) and is never removed here"},

@@ -33,6 +33,9 @@ func (w *Window) startPackages(req steps.PkgRequest) {
 	w.pagePrev = len(w.model.Rows) > 0
 	w.current, w.dry, w.model.Stopped, w.agentNotice = actions.IDPackages, false, "", ""
 	w.model.StartDry = w.drvDry
+	// The status says this request's dry flag, not the run before's.
+	w.model.DryRun = w.drvDry
+	// The status says this request's dry flag, not the run before's.
 	w.model.Notice = ""
 	w.updateRunHeader()
 	w.setBusy(true)

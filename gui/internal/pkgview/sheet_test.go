@@ -182,7 +182,7 @@ func TestSheetRefusedStates(t *testing.T) {
 	}{
 		{steps.PkgRefusal{Reason: steps.RefuseConflict, Names: []string{"vim"}}, "It replaces an installed package", "Remove the old package first"},
 		{steps.PkgRefusal{Reason: steps.RefuseProtected, Names: []string{"glibc"}}, "It would remove a protected package", "glibc is protected"},
-		{steps.PkgRefusal{Reason: steps.RefuseRequired, Names: []string{"a", "b"}}, "Other packages need it", "a, b"},
+		{steps.PkgRefusal{Reason: steps.RefuseRequired, Names: []string{"a", "b"}}, "Other packages need it", "a and b"},
 		{steps.PkgRefusal{Reason: steps.RefuseNotFound, Names: []string{"nope"}, Detail: "dependency libx not found"}, "Not found", "dependency libx not found"},
 		{steps.PkgRefusal{Reason: steps.RefuseBusy}, "pacman is busy", "Try again"},
 	}

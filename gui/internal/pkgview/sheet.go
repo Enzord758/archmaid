@@ -469,6 +469,17 @@ func RefusalHeading(r *steps.PkgRefusal) string {
 	return "Refused"
 }
 
+// joinAnd is "A", "A and B" or "A, B and C"; past six names the rest count.
+func joinAnd(n []string) string {
+	if len(n) > 6 {
+		return strings.Join(n[:6], ", ") + fmt.Sprintf(" and %d more", len(n)-6)
+	}
+	if len(n) == 1 {
+		return n[0]
+	}
+	return strings.Join(n[:len(n)-1], ", ") + " and " + n[len(n)-1]
+}
+
 // RefusalText is the reason in a few plain words, with the names.
 func RefusalText(r *steps.PkgRefusal) string { return RefusalTextFor(r, nil) }
 
@@ -509,11 +520,16 @@ func RefusalTextFor(r *steps.PkgRefusal, req []string) string {
 			s = "A protected package would be removed, which could leave the system unusable."
 		}
 	case steps.RefuseRequired:
-		if names == "" {
-			s = "Other installed packages need it."
-		} else {
-			s = names + " is still needed by other installed packages."
+		// One sentence: the package being removed, and what needs it.
+		what, by := "It", "other installed packages"
+		if len(req) > 0 {
+			what = joinAnd(req)
 		}
+		if len(r.Names) > 0 {
+			by = joinAnd(r.Names)
+		}
+		s = what + " is still needed by " + by + "."
+		detail = "" // the helper's detail says the same
 	case steps.RefuseNotFound:
 		s = orIt(names) + " is not in the package lists, by that exact name."
 	case steps.RefuseNotInstalled:
