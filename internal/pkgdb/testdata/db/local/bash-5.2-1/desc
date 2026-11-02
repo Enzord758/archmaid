@@ -1,0 +1,21 @@
+%NAME%
+bash
+
+%VERSION%
+5.2-1
+
+%DESC%
+installed bash
+
+%INSTALLDATE%
+1761000000
+
+%SIZE%
+12345
+
+%DEPENDS%
+glibc
+
+%PROVIDES%
+sh
+

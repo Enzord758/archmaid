@@ -1,0 +1,18 @@
+%NAME%
+myaur
+
+%VERSION%
+3-1
+
+%DESC%
+installed myaur
+
+%INSTALLDATE%
+1761000000
+
+%SIZE%
+12345
+
+%DEPENDS%
+aurlib
+

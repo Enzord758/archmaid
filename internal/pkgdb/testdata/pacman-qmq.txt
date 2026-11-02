@@ -1,0 +1,3 @@
+aurlib
+aurorphan
+myaur

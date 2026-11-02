@@ -1,0 +1,22 @@
+%NAME%
+git
+
+%VERSION%
+2.45-1
+
+%DESC%
+installed git
+
+%INSTALLDATE%
+1761000000
+
+%SIZE%
+12345
+
+%DEPENDS%
+glibc
+
+%OPTDEPENDS%
+hello: demo plugin
+tk: gui
+

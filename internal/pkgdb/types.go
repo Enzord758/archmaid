@@ -61,11 +61,20 @@ type Package struct {
 	// Repo is the sync repository's name ("core", "extra", "cachyos-v3", a
 	// local mirror's name) or RepoAUR; for an installed package in no sync
 	// DB it is "" (Foreign). The GUI shows it as a neutral tag.
-	Repo        string
+	Repo string
+	// AlsoIn lists the later repos holding the same name (the first repo
+	// wins; added by pkgdb, #232).
+	AlsoIn      []string
 	Description string
 	URL         string // upstream URL
 	Licenses    []string
 	Groups      []string
+	// Packager and BuildDate are the sync entry's (the detail pane); the
+	// installed-only entry has them from the local DB. InstallDate is the
+	// local DB's %INSTALLDATE% (zero if not installed). Added by pkgdb (#232).
+	Packager    string
+	BuildDate   time.Time
+	InstallDate time.Time
 
 	// Sizes in bytes. DownloadSize is 0 for an AUR or installed-only entry.
 	DownloadSize, InstalledSize int64
