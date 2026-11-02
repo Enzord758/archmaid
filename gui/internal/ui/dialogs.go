@@ -670,3 +670,14 @@ func gateNotesFor(o Options, plan []engine.PlanStep, dry bool) []string {
 	}
 	return runview.GateNotes(plan, o.Stub || o.Engine.Auth == engine.AuthPolkit, o.KeepsPassword, keepOff, dry)
 }
+
+// keepsPassword: the next root step's password is the one the Driver keeps
+// (the real Driver, and no PATH-guard KeepOff), so a second root step in the
+// same run does not ask again. It is a preview, as the gate's.
+func (w *Window) keepsPassword() bool {
+	o := w.opts
+	if !o.KeepsPassword {
+		return false
+	}
+	return o.KeepPreview == nil || o.KeepPreview() == ""
+}

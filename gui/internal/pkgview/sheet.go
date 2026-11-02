@@ -160,6 +160,10 @@ type Sheet struct {
 	// Inputs the controller keeps current.
 	DBAge   time.Duration // < 0: unknown
 	Blocked int           // repo updates waiting by the cache, 0: none (install only)
+	// Dry: the run is a dry run (nothing asks for a password). Kept: the
+	// GUI keeps the run's first password, so a second root step does not ask
+	// again (the Driver's KeepsPassword and no PATH-guard KeepOff).
+	Dry, Kept bool
 }
 
 // NewSheet makes a closed sheet.
@@ -242,6 +246,9 @@ func Prompts(plan steps.PkgPlan) int {
 	return 1
 }
 
+// DryNoPassword is the sheet's password note in a dry run (the gate's words).
+const DryNoPassword = "Nothing asks for a password or authorisation in a dry run."
+
 // Checks are the boxes the sheet shows now.
 func (s *Sheet) checks() []Check {
 	if s.state != SheetReview || len(s.reviews) == 0 {
@@ -322,7 +329,7 @@ func (s *Sheet) View() SheetView {
 		v.Body = "Checking the packages…"
 		v.NoLabel = "Cancel"
 	case SheetRefused:
-		v.Heading, v.Body = RefusalHeading(s.refusal), RefusalText(s.refusal)
+		v.Heading, v.Body = RefusalHeading(s.refusal), RefusalTextFor(s.refusal, s.req.Names)
 		v.NoLabel = "Close"
 		if s.refusal != nil && s.refusal.Reason == steps.RefuseUpdatesPending {
 			v.UpdateFirst = true
@@ -392,9 +399,14 @@ func (s *Sheet) notes(p steps.PkgPlan, remove bool) []Note {
 	var ns []Note
 	ns = append(ns, Note{"root", ToneWarn, "Runs as root, after you authorise it. Once it has started it can't be stopped."})
 	prompts := Prompts(p)
-	if prompts == 2 {
-		ns = append(ns, Note{"asks", ToneNeutral, "2 password prompts: first for the repo dependencies, then for the AUR packages."})
-	} else {
+	switch {
+	case s.Dry:
+		ns = append(ns, Note{"asks", ToneNeutral, DryNoPassword})
+	case prompts == 2 && s.Kept:
+		ns = append(ns, Note{"asks", ToneNeutral, "Two root steps (dependencies, then the AUR). You're asked for your password once."})
+	case prompts == 2:
+		ns = append(ns, Note{"asks", ToneNeutral, "Two root steps (dependencies, then the AUR). You're asked for your password up to twice."})
+	default:
 		ns = append(ns, Note{"asks", ToneNeutral, "1 password prompt."})
 	}
 	if s.DBAge >= 0 {
@@ -458,7 +470,12 @@ func RefusalHeading(r *steps.PkgRefusal) string {
 }
 
 // RefusalText is the reason in a few plain words, with the names.
-func RefusalText(r *steps.PkgRefusal) string {
+func RefusalText(r *steps.PkgRefusal) string { return RefusalTextFor(r, nil) }
+
+// RefusalTextFor is RefusalText for a request of the given names: a helper
+// detail that ends on "then install" gets the name it lacks, and every text
+// ends on a full stop.
+func RefusalTextFor(r *steps.PkgRefusal, req []string) string {
 	if r == nil {
 		return "The request was refused. Nothing changed."
 	}
@@ -466,18 +483,41 @@ func RefusalText(r *steps.PkgRefusal) string {
 	if len(r.Names) > 6 {
 		names = strings.Join(r.Names[:6], ", ") + fmt.Sprintf(" and %d more", len(r.Names)-6)
 	}
+	detail := sentence(oneLine(r.Detail))
+	if strings.HasSuffix(detail, "then install.") && len(req) > 0 {
+		detail = strings.TrimSuffix(detail, "then install.") + "then install " + strings.Join(req, ", ") + "."
+	}
 	var s string
 	switch r.Reason {
 	case steps.RefuseConflict:
-		s = "It would replace or remove an installed package (" + names + "). Remove the old package first, then install this one."
+		s = "It would replace or remove an installed package"
+		if names != "" {
+			s += " (" + names + ")"
+		}
+		s += ". Remove the old package first, then install this one."
+		if detail != "" && strings.HasSuffix(detail, ".") && strings.Contains(detail, "then install ") {
+			s = detail // the helper names both packages
+			detail = ""
+		}
 	case steps.RefuseProtected:
-		s = names + " is protected: removing it could leave the system unusable."
+		switch {
+		case detail != "":
+			s, detail = detail, "" // "sudo is protected (reason) and is never removed here."
+		case names != "":
+			s = names + " is protected: removing it could leave the system unusable."
+		default:
+			s = "A protected package would be removed, which could leave the system unusable."
+		}
 	case steps.RefuseRequired:
-		s = names + " is still needed by other installed packages."
+		if names == "" {
+			s = "Other installed packages need it."
+		} else {
+			s = names + " is still needed by other installed packages."
+		}
 	case steps.RefuseNotFound:
-		s = names + " is not in the package lists, by that exact name."
+		s = orIt(names) + " is not in the package lists, by that exact name."
 	case steps.RefuseNotInstalled:
-		s = names + " is not installed."
+		s = orIt(names) + " is not installed."
 	case steps.RefuseBusy:
 		s = "Another package operation is running. Try again when it is done."
 	case steps.RefuseUpdatesPending:
@@ -485,8 +525,25 @@ func RefusalText(r *steps.PkgRefusal) string {
 	default:
 		s = "The request was refused."
 	}
-	if d := oneLine(r.Detail); d != "" && !strings.Contains(s, d) {
-		s += " " + d
+	if detail != "" && !strings.Contains(s, strings.TrimSuffix(detail, ".")) {
+		s += " " + detail
 	}
 	return s + " Nothing changed."
+}
+
+// orIt is names, or "It" when there are none, so a text never starts blank.
+func orIt(names string) string {
+	if names == "" {
+		return "It"
+	}
+	return names
+}
+
+// sentence ends s with a full stop (an empty s stays empty).
+func sentence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasSuffix(s, ".") || strings.HasSuffix(s, "!") || strings.HasSuffix(s, "?") {
+		return s
+	}
+	return s + "."
 }

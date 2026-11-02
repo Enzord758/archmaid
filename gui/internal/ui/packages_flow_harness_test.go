@@ -214,7 +214,7 @@ func flowAUR(c *covEnv, term, name string, high bool) {
 			if high {
 				findings = "Audit findings · 2"
 			}
-			for _, want := range []string{"PKGBUILD review", "Not reviewed by Arch", "2 password prompts", "libgit2", name,
+			for _, want := range []string{"PKGBUILD review", "Not reviewed by Arch", "up to twice", "libgit2", name,
 				"has an .install script", "I read the PKGBUILD", findings} {
 				c.ok(strings.Contains(txt, want), "the AUR sheet lacks %q:\n%s", want, txt)
 			}

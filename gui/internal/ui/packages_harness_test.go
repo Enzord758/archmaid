@@ -595,7 +595,7 @@ func pkgAUR(c *covEnv) {
 				return
 			}
 			txt := dialogLabels(d, nil)
-			for _, want := range []string{"PKGBUILD review", "2 password prompts", "Not reviewed by Arch", "Audit findings · 2", "high", "maintainer changed since the last build",
+			for _, want := range []string{"PKGBUILD review", "up to twice", "Not reviewed by Arch", "Audit findings · 2", "high", "maintainer changed since the last build",
 				"has an .install script", "I read the PKGBUILD", "I've read the findings and accept them."} {
 				c.ok(strings.Contains(txt, want), "AUR sheet lacks %q:\n%s", want, txt)
 			}

@@ -101,8 +101,8 @@ func TestSheetAURNeedsTheBoxes(t *testing.T) {
 	if v.YesEnabled || len(v.Checks) != 2 {
 		t.Fatalf("enabled %v checks %+v: an AUR install with a high finding needs both boxes", v.YesEnabled, v.Checks)
 	}
-	if !strings.Contains(joinNotes(v), "2 password prompts") {
-		t.Fatalf("the sheet must say 2 prompts up front: %q", joinNotes(v))
+	if !strings.Contains(joinNotes(v), "asked for your password up to twice") {
+		t.Fatalf("the sheet must say what the two root steps cost up front: %q", joinNotes(v))
 	}
 	if _, ok := s.Confirm(); ok {
 		t.Fatal("confirmed with nothing ticked")

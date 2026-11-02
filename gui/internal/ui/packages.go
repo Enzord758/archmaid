@@ -165,6 +165,8 @@ func (w *Window) newPackages() gtk.Widgetter {
 	p.ctl = pkgview.NewController(pkgview.Config{
 		Search: search, Catalog: wire.Catalog, Backend: w.pkgBackend(wire), Clock: wire.Clock,
 		Updates: updates, DBAge: wire.DBAge, Reload: wire.Reload, Changed: p.changed,
+		Dry:     func() bool { return w.drvDry },
+		Kept:    w.keepsPassword,
 		ShowRun: func() { w.stack.SetVisibleChildName("run") },
 	})
 	p.build()

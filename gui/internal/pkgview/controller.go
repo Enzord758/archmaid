@@ -30,11 +30,15 @@ type Config struct {
 	// unknown); Reload re-reads the pacman DBs after a run; Changed is
 	// called on the main thread after any state change; ShowRun brings the
 	// Run page up.
-	Updates func() overview.Updates
-	DBAge   func() time.Duration
-	Reload  func()
-	Changed func()
-	ShowRun func()
+	// Dry says the next run is a dry run; Kept says the GUI keeps the run's
+	// first password (both nil: no and no). They word the sheet's password
+	// note.
+	Dry, Kept func() bool
+	Updates   func() overview.Updates
+	DBAge     func() time.Duration
+	Reload    func()
+	Changed   func()
+	ShowRun   func()
 }
 
 // Controller joins the page's parts: search, list, installed view, sheet
@@ -140,6 +144,8 @@ func (c *Controller) syncSheet() {
 	if g := c.Gating(ModeInstall); g.Blocked {
 		c.Sheet.Blocked = g.Pending
 	}
+	c.Sheet.Dry = c.cfg.Dry != nil && c.cfg.Dry()
+	c.Sheet.Kept = c.cfg.Kept != nil && c.cfg.Kept()
 	if c.cfg.DBAge != nil {
 		c.Sheet.DBAge = c.cfg.DBAge()
 	} else {
