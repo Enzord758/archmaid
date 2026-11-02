@@ -93,6 +93,11 @@ type Config struct {
 	// PlanPackages is Env.PlanPackages (the Packages page's plan); nil is
 	// helperclient.PlanPackages.
 	PlanPackages func(ctx context.Context, req steps.PkgRequest) (steps.PkgPlan, error)
+	// PlanAUR is Env.PlanAUR (the Packages page's AUR install, see
+	// frontend.AURPlanner). Nil leaves it unset: an AUR run then fails
+	// closed with a notice, until the page's wiring (it needs the
+	// pkgdb.DB) provides it.
+	PlanAUR func(ctx context.Context, names []string) (actions.AURPrepared, error)
 	// Foreign lists the foreign packages the audit checks; nil runs
 	// `pacman -Qqm`. RPCURL is the AUR endpoint; "" is audit's default.
 	Foreign func(ctx context.Context) ([]string, error)
@@ -263,6 +268,7 @@ func (w *Wiring) env(base actions.Env, dry bool, store *logstore.Store) actions.
 	if e.PlanPackages == nil {
 		e.PlanPackages = helperclient.PlanPackages
 	}
+	e.PlanAUR = w.cfg.PlanAUR
 	e.LookPath = w.cfg.LookPath
 	return frontend.Glue{
 		AuditConfig: func() audit.Config { return w.auditConfig(store, dry) },

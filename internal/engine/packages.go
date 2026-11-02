@@ -104,6 +104,9 @@ func (s *Session) packagesPreview(o *Output, d actions.PkgPreview) {
 
 // packagesQuestion is the sheet's question in words, from the checked plan.
 func packagesQuestion(p steps.PkgPlan) (title, body, yes string) {
+	if len(p.AUR) > 0 {
+		return aurQuestion(p)
+	}
 	var dl, inst int64
 	for _, r := range p.Rows {
 		dl += r.Download

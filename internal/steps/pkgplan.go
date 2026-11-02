@@ -45,6 +45,10 @@ type PkgRequest struct {
 	Names      []string
 	WithConfig bool
 	AsDeps     bool
+	// AUR: Names are AUR packages, built by the user and installed through
+	// pkg-install-local (internal/aurbuild); the helper plans only their
+	// repository dependencies. Install only.
+	AUR bool
 }
 
 // PkgRow is one package of a plan: a target or what comes with it.
@@ -76,6 +80,10 @@ type PkgPlan struct {
 	Targets    []string
 	Rows       []PkgRow
 	Hash       string
+	// AUR, set only by an AUR install, is what the sheet shows for each
+	// package base, in build order (Hash, Rows and Targets are then the
+	// repository dependencies' plan, empty if there are none).
+	AUR []AURPlan
 	// Warnings are short sanitized notes ("pulls in 31 packages").
 	Warnings []string
 }
@@ -94,6 +102,7 @@ const (
 	RefuseBusy           RefuseReason = "busy"        // pacman or another helper holds the lock
 	RefuseStale          RefuseReason = "stale"       // the plan changed since the confirm
 	RefuseBadRequest     RefuseReason = "bad-request"
+	RefuseAUR            RefuseReason = "aur" // an AUR install refused before any change (Detail says why)
 )
 
 // PkgRefusal is the error PlanPackages and a package step return when the

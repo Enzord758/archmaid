@@ -68,6 +68,11 @@ type Env struct {
 	// plan-remove as the user (internal/helperclient's PlanPackages). It
 	// returns a *steps.PkgRefusal when the helper refused.
 	PlanPackages func(ctx context.Context, req steps.PkgRequest) (steps.PkgPlan, error)
+	// PlanAUR (Polkit only; nil fails an AUR run closed with a notice, so it
+	// is not in Validate) resolves, fetches and reviews AUR packages as the
+	// user (internal/frontend's AURPlanner over internal/aurbuild). It
+	// returns a *steps.PkgRefusal when it refused.
+	PlanAUR func(ctx context.Context, names []string) (AURPrepared, error)
 	// LookPath finds a program on PATH; nil means exec.LookPath. Full
 	// Cleanup asks it for hyprpm.
 	LookPath func(file string) (string, error)

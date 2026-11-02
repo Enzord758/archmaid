@@ -41,6 +41,9 @@ func (PkgRefused) discovery() {}
 // plan (Env.PlanPackages), then PkgPreview, or PkgRefused when the helper
 // refused, or a Notice when it could not plan at all.
 func PackagesDiscover(req steps.PkgRequest) func(ctx context.Context, env Env) Discovery {
+	if req.AUR {
+		return AURDiscover(req)
+	}
 	return func(ctx context.Context, env Env) Discovery {
 		if !env.Polkit || env.PlanPackages == nil {
 			return Notice{Text: "Couldn't plan the package change.",
