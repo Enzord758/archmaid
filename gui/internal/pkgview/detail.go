@@ -17,12 +17,20 @@ type DepRow struct {
 	Name string
 	Raw  string // with the version constraint
 	Desc string // optional dependencies only
-	// Installed: a package of that name is installed. PulledIn: it is not,
-	// so installing this package brings it in (an exact-name view; the plan
-	// is pacman's, and may find a provider).
+	// Installed: an installed package meets it (by name or by what it
+	// provides). PulledIn: none does, so installing this package brings it in
+	// (the plan is pacman's and has the last word).
 	Installed, PulledIn bool
 	Build               bool // an AUR make/check dependency
 }
+
+// Satisfier is what a Catalog may add: whether an installed package meets a
+// dependency by name or by what it provides (sonames, virtuals), at a
+// satisfying version. The page's *pkgdb.DB has it; without it the detail
+// falls back to the exact name.
+type Satisfier interface{ Satisfied(raw string) bool }
+
+var _ Satisfier = (*pkgdb.DB)(nil)
 
 // Stat is one cell of the detail's stats.
 type Stat struct{ Label, Value string }
@@ -142,7 +150,9 @@ func BuildDetail(p pkgdb.Package, cat Catalog, now time.Time) Detail {
 			r.Raw = dep.Name
 		}
 		if cat != nil {
-			if l, ok := cat.Lookup(dep.Name); ok && l.Installed {
+			if sat, ok := cat.(Satisfier); ok {
+				r.Installed = sat.Satisfied(r.Raw)
+			} else if l, ok := cat.Lookup(dep.Name); ok && l.Installed {
 				r.Installed = true
 			}
 		}
