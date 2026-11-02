@@ -2,13 +2,18 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes) and `v2.1.0..v2.1.1`.
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1` and `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes).
 
 ## [Unreleased]
+
+## [2.2.0] - 2026-11-02
+
+Everything here is merged into `main` (= `refactor/p0`). It passed the local gate, the test VM CI (`run.sh ci`: core, e2e, gui, bench) and three live checks of the widget in the test VM's DMS (top and bottom bar, light theme, keyboard).
 
 ### Read this first
 
 - **Update the package and reload the widget together.** The updates check now writes `updates-cache.json` schema `v:3`. An older widget can't read it and shows no updates until DMS reloads the plugin: `dms ipc call plugins reload archmaid`, or restart DMS. The new widget still reads `v:1` and `v:2` files.
+- **The update list appears after the next check.** Until the timer runs again (every 30 min) or a run with topgrade ends, the file is still the old one without a list, and the Updates row has no chevron. To get it at once: `systemctl --user start archmaid-updates-check.service`.
 
 ### Changed
 
@@ -322,7 +327,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/Enzord758/archmaid/compare/v2.1.1...v2.2.0
 [2.1.1]: https://github.com/Enzord758/archmaid/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/Enzord758/archmaid/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Enzord758/archmaid/compare/5585358...v2.0.0
