@@ -49,6 +49,10 @@ type Step struct {
 	// Cascade, and the helper's remove-orphans gets only its Hash (see
 	// OrphanPlan). Nil under sudo, where Argv names the packages.
 	Plan *OrphanPlan
+	// PkgPlan, set only on a Packages install or remove step under polkit
+	// (Verb VerbPkgInstall or VerbPkgRemove), is the helper's plan its
+	// confirm showed; Items are its Targets. See pkgplan.go.
+	PkgPlan *PkgPlan
 
 	// Combine, set only under polkit, names the root helper's combined verb
 	// this step is a part of (VerbFullCleanup). A front end runs consecutive
