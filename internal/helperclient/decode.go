@@ -30,6 +30,12 @@ type Result struct {
 	ChildExit *int // exit status of its last root command; nil if none ran
 	Skipped   []Skip
 	Error     string
+	// Reason, Names and Count are the Packages verbs' refusal (a
+	// steps.RefuseReason, the packages it is about, the pending updates);
+	// Reason is "" for every other result.
+	Reason string
+	Names  []string
+	Count  int
 }
 
 // The helper's event types ("t") that Run reads.
@@ -53,6 +59,7 @@ type decoder struct {
 	res     *Result
 	check   *Check
 	plan    *steps.OrphanPlan // plan-orphans' plan event (plan.go)
+	pkg     *steps.PkgPlan    // a Packages verb's plan event (pkgplan.go)
 	comb    *combined         // a full-cleanup call's parts (combined.go), or nil
 	unknown int
 	err     error
@@ -237,11 +244,14 @@ func (d *decoder) readCheck(line []byte) {
 // output lines.
 func (d *decoder) readResult(line []byte) []string {
 	var e struct {
-		OK        *bool  `json:"ok"`
-		Code      *int   `json:"code"`
-		ChildExit *int   `json:"child_exit"`
-		Skipped   []Skip `json:"skipped"`
-		Error     string `json:"error"`
+		OK        *bool    `json:"ok"`
+		Code      *int     `json:"code"`
+		ChildExit *int     `json:"child_exit"`
+		Skipped   []Skip   `json:"skipped"`
+		Error     string   `json:"error"`
+		Reason    string   `json:"reason"`
+		Names     []string `json:"names"`
+		Count     int      `json:"count"`
 	}
 	if !d.decode(line, &e) {
 		return nil
@@ -251,6 +261,15 @@ func (d *decoder) readResult(line []byte) []string {
 		return nil
 	}
 	r := &Result{OK: *e.OK, Code: *e.Code, ChildExit: e.ChildExit, Error: sanitize.OneLine(e.Error)}
+	if e.Reason != "" {
+		r.Reason = sanitize.Field(e.Reason, 32)
+		r.Count = max(e.Count, 0)
+		for _, n := range e.Names {
+			if namePattern.MatchString(n) {
+				r.Names = append(r.Names, n)
+			}
+		}
+	}
 	var out []string
 	for _, s := range e.Skipped {
 		s = Skip{Name: sanitize.Field(s.Name, 128), Reason: sanitize.OneLine(s.Reason)}

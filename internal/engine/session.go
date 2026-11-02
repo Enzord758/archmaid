@@ -155,7 +155,7 @@ func (s *Session) Start(action string) Output {
 // audit findings, no dismisses it) with id.
 func (s *Session) Confirm(id PromptID, yes bool) Output {
 	r := s.run
-	if r == nil || id == 0 || id != r.prompt || (r.promptFor != promptGate && r.promptFor != promptStep && r.promptFor != promptReport) {
+	if r == nil || id == 0 || id != r.prompt || (r.promptFor != promptGate && r.promptFor != promptStep && r.promptFor != promptReport && r.promptFor != promptPackages) {
 		return Output{}
 	}
 	var o Output
@@ -163,6 +163,8 @@ func (s *Session) Confirm(id PromptID, yes bool) Output {
 	switch r.promptFor {
 	case promptReport:
 		s.answerReport(&o, yes)
+	case promptPackages:
+		s.answerPackages(&o, yes)
 	case promptGate:
 		if yes {
 			s.startQueue(&o)
@@ -208,7 +210,7 @@ func (s *Session) CancelPrompt(id PromptID) Output {
 	}
 	var o Output
 	switch r.promptFor {
-	case promptGate, promptStep, promptReport:
+	case promptGate, promptStep, promptReport, promptPackages:
 		return s.Confirm(id, false)
 	case promptAskpass:
 		s.cancelAskpass(&o)

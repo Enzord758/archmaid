@@ -157,6 +157,7 @@ const (
 	ConfirmAuditGate                    // the AUR audit holding back the update (Step is the gated step)
 	ConfirmOrphans                      // removing orphans: Direct and Cascade are set
 	ConfirmDownloads                    // deleting old downloads: Items are the entries
+	ConfirmPackages                     // the Packages sheet: Items are the targets; PackagesPreview carries the plan
 )
 
 // NeedsConfirm opens a yes/no prompt; answer with Confirm(ID, yes) or

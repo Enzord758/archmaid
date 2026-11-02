@@ -47,6 +47,7 @@ var (
 		NeedsSelection{}, PromptClosed{}, AuthWaiting{}, AuthResolved{},
 		FaillockState{}, PhaseChanged{}, StatusUpdated{}, Notice{}, OutputReport{},
 		Finished{}, ReportAccepted{}, DiscoveryResult{}, RunReport{},
+		PackagesPreview{}, PackagesRefused{}, PackagesUpdatesPending{}, PackagesStale{},
 	}
 	allEffects = []Effect{
 		Probe{}, Authenticate{}, KeepAlive{}, ReadFaillock{}, Discover{}, StartStep{},
@@ -59,7 +60,7 @@ var (
 		AskpassAnswered{}, HelperCheck{}, PartStarted{}, PartDone{},
 	}
 	allCommands = []Command{
-		Start{}, Confirm{}, SubmitPassword{}, CancelPrompt{}, Select{}, Abort{},
+		Start{}, StartPackages{}, Confirm{}, SubmitPassword{}, CancelPrompt{}, Select{}, Abort{},
 	}
 )
 

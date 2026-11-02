@@ -81,6 +81,11 @@ type run struct {
 	ended     *DiscoveryOutcome
 
 	errs, skipped, refused int
+
+	// A Packages run (packages.go): its request, and the queue a "yes" to
+	// the sheet runs.
+	pkgReq   steps.PkgRequest
+	pkgSteps []steps.Step
 }
 
 // slot is one step of the plan and how it stands.
@@ -102,6 +107,7 @@ const (
 	promptAskpass
 	promptSelect
 	promptReport
+	promptPackages // the Packages sheet (packages.go)
 )
 
 // running is the step running now, or nil.
@@ -532,6 +538,7 @@ func (s *Session) stepExited(o *Output, in StepExited) {
 	}
 	s.settle(o, outcome(in.Err), errText(in.Err))
 	s.logDone(o, in.Err)
+	s.packagesStepFailed(o, in.Err)
 	if s.repairChecked(o, in.Err) {
 		return
 	}
@@ -705,7 +712,15 @@ func (s *Session) discovered(o *Output, in Discovered) {
 	r.discoverSeq = 0
 	switch d := in.Discovery.(type) {
 	case actions.Notice:
+		if r.action == actions.IDPackages {
+			s.packagesNotice(o, d)
+			return
+		}
 		s.endDiscovery(o, d)
+	case actions.PkgPreview:
+		s.packagesPreview(o, d)
+	case actions.PkgRefused:
+		s.packagesRefused(o, d)
 	case actions.Pending:
 		s.found(o, d.Checked)
 		s.plan(o, d.Steps, "")

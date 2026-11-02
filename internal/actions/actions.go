@@ -63,6 +63,11 @@ type Env struct {
 	// from it under polkit; nil there fails the probe and removes nothing.
 	// Unused under sudo.
 	PlanOrphans func(ctx context.Context) (steps.OrphanPlan, error)
+	// PlanPackages (Polkit only; nil fails a Packages run closed with a
+	// notice, so it is not in Validate) runs the helper's plan-install or
+	// plan-remove as the user (internal/helperclient's PlanPackages). It
+	// returns a *steps.PkgRefusal when the helper refused.
+	PlanPackages func(ctx context.Context, req steps.PkgRequest) (steps.PkgPlan, error)
 	// LookPath finds a program on PATH; nil means exec.LookPath. Full
 	// Cleanup asks it for hyprpm.
 	LookPath func(file string) (string, error)
@@ -131,7 +136,8 @@ func (e Env) repairWorkers() int {
 }
 
 // Discovery is what an action's Discover found: one of Notice, Pending,
-// NeedsSelection, Report or NeedsRoot.
+// NeedsSelection, Report, NeedsRoot, or a Packages run's PkgPreview and
+// PkgRefused.
 type Discovery interface{ discovery() }
 
 // Notice ends the action at its discovery: nothing to do, or the look

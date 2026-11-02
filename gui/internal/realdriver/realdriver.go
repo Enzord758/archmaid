@@ -90,6 +90,9 @@ type Config struct {
 	Faillock func() engine.FaillockRead
 	// PlanOrphans is Env.PlanOrphans; nil is helperclient.PlanOrphans.
 	PlanOrphans func(ctx context.Context) (steps.OrphanPlan, error)
+	// PlanPackages is Env.PlanPackages (the Packages page's plan); nil is
+	// helperclient.PlanPackages.
+	PlanPackages func(ctx context.Context, req steps.PkgRequest) (steps.PkgPlan, error)
 	// Foreign lists the foreign packages the audit checks; nil runs
 	// `pacman -Qqm`. RPCURL is the AUR endpoint; "" is audit's default.
 	Foreign func(ctx context.Context) ([]string, error)
@@ -255,6 +258,10 @@ func (w *Wiring) env(base actions.Env, dry bool, store *logstore.Store) actions.
 	e.PlanOrphans = w.cfg.PlanOrphans
 	if e.PlanOrphans == nil {
 		e.PlanOrphans = helperclient.PlanOrphans
+	}
+	e.PlanPackages = w.cfg.PlanPackages
+	if e.PlanPackages == nil {
+		e.PlanPackages = helperclient.PlanPackages
 	}
 	e.LookPath = w.cfg.LookPath
 	return frontend.Glue{

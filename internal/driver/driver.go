@@ -534,6 +534,8 @@ func (d *Driver) command(c engine.Command) bool {
 		switch c := c.(type) {
 		case engine.Start:
 			return s.Start(c.Action)
+		case engine.StartPackages:
+			return s.StartPackages(c.Req)
 		case engine.Confirm:
 			return s.Confirm(c.Prompt, c.Yes)
 		case engine.SubmitPassword:

@@ -132,3 +132,29 @@ func TestMenuAuditNoForeign(t *testing.T) {
 		t.Errorf("discovery %#v", d)
 	}
 }
+
+// TestOptionsPlanPackages: the Packages page's plan is wired: the config's
+// own, else the real helperclient one (never nil, so a Packages run is
+// planned and not refused as "no planner").
+func TestOptionsPlanPackages(t *testing.T) {
+	var asked steps.PkgRequest
+	cfg := fakes(t, Config{})
+	cfg.PlanPackages = func(_ context.Context, r steps.PkgRequest) (steps.PkgPlan, error) {
+		asked = r
+		return steps.PkgPlan{}, nil
+	}
+	w := Start(cfg)
+	defer w.Close()
+	e := w.Options().Env
+	if e.PlanPackages == nil {
+		t.Fatal("Env.PlanPackages is nil")
+	}
+	if _, err := e.PlanPackages(context.Background(), steps.PkgRequest{Names: []string{"foo"}}); err != nil || asked.Names[0] != "foo" {
+		t.Errorf("asked %+v, err %v", asked, err)
+	}
+	w2 := Start(fakes(t, Config{}))
+	defer w2.Close()
+	if w2.Options().Env.PlanPackages == nil {
+		t.Error("the default Env.PlanPackages is nil")
+	}
+}

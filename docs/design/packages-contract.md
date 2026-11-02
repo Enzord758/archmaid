@@ -105,8 +105,9 @@ len(items)`. Additive optional fields (the client ignores unknown fields, so
 `v` stays 1): `mode` (`"install"|"remove"`), `with_config`, `asdeps`, `rows`
 (`[{name, version, old, repo, target, dl, inst}]`, same order as `items`;
 `dl`/`inst` bytes; remove rows have `repo:""`), `warnings []string`. The hash is
-`"archmaid pkg plan v1"` + mode + `-n`/`--asdeps` flags + sorted targets +
-sorted `repo name version` lines (remove: repo `-`); sizes and `old` are not
+sha256 over `"archmaid pkg plan v1\n"`, `mode install|install-asdeps|remove|remove-n\n`,
+`target <n>\n` for each sorted target and `item <s>\n` for each sorted item
+(install `repo name version`, remove `name version`); sizes and `old` are not
 hashed. Client mirror: `helperclient.PkgPlanHash` / `CheckPkgPlan`, tied to the
 helper's by a test, as `PlanHash`. Decoded into `steps.PkgPlan`.
 

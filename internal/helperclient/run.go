@@ -342,7 +342,7 @@ func (d *decoder) outcome(exit int, waitErr error, stderr string) Outcome {
 	switch {
 	case d.err != nil:
 		o.Err = d.err
-	case !d.granted && d.verb != steps.VerbPlanOrphans && (exit == exitNotAuthorized || exit == exitDismissed):
+	case !d.granted && d.verb != steps.VerbPlanOrphans && !isPkgPlanVerb(d.verb) && (exit == exitNotAuthorized || exit == exitDismissed):
 		// No output at all (any line would have been a start line or a
 		// protocol error): pkexec never ran the helper. (plan-orphans runs
 		// without pkexec, so for it these are just exits.)
@@ -364,6 +364,10 @@ func (d *decoder) outcome(exit int, waitErr error, stderr string) Outcome {
 		// The plan, recomputed as root, no longer hashes to the confirmed
 		// one, and no root command ran.
 		o.Err = ErrOrphansChanged
+	case d.refusal() != nil:
+		// A Packages verb refused (nothing changed): the step's error is the
+		// refusal itself, for the engine to turn into its events.
+		o.Err = d.refusal()
 	case !d.res.OK:
 		msg := d.res.Error
 		if msg == "" {

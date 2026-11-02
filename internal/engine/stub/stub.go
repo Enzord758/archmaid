@@ -196,8 +196,11 @@ func (d *Driver) loop() {
 			case <-d.done:
 				return
 			case c := <-d.cmds:
-				if s, ok := c.(engine.Start); ok && s.Action != "" {
-					action = s.Action
+				switch c := c.(type) {
+				case engine.Start:
+					action = c.Action
+				case engine.StartPackages:
+					action = PackagesKey(c.Req)
 				}
 			}
 		}

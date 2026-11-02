@@ -178,6 +178,10 @@ func (d *decoder) planResult(exit int, waitErr error, stderr string) (steps.Orph
 // stale; that one is only informative and not kept. Other verbs' plan
 // events are ignored, as before.
 func (d *decoder) readPlan(line []byte) {
+	if isPkgPlanVerb(d.verb) || isPkgRunVerb(d.verb) {
+		d.readPkgPlan(line)
+		return
+	}
 	if d.verb != steps.VerbPlanOrphans {
 		return
 	}

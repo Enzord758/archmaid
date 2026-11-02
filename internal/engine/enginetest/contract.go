@@ -138,7 +138,8 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 			case engine.PhaseChanged, engine.StatusUpdated:
 				continue
 			case engine.QueueStarted, engine.Notice, engine.NeedsConfirm, engine.NeedsPassword,
-				engine.NeedsSelection, engine.OutputReport, engine.DiscoveryResult:
+				engine.NeedsSelection, engine.OutputReport, engine.DiscoveryResult,
+				engine.PackagesPreview, engine.PackagesRefused, engine.PackagesUpdatesPending:
 				// the next action
 				c.plan, c.queued, c.running, c.asking, c.waiting, c.finished = nil, false, "", "", false, false
 				c.ending, c.ended = false, false
@@ -240,6 +241,18 @@ func (c *Checker) Check(evs []engine.Event) (ok bool) {
 				errorf("event %d: aborted %s, which isn't running", i, ev.ID)
 			}
 			c.settled[ev.ID], c.running = true, ""
+		case engine.PackagesRefused, engine.PackagesUpdatesPending:
+			// the helper's refusal ends a Packages run at its discovery
+			// (Finished{OutcomeNotice}); after a root step it is just
+			// that step's failure
+			if c.running != "" {
+				errorf("event %d (%T) while %s runs", i, ev, c.running)
+			}
+			c.ended = true
+		case engine.PackagesStale:
+			if c.running != "" {
+				errorf("event %d: PackagesStale while %s runs", i, c.running)
+			}
 		case engine.DiscoveryResult:
 			if ev.Outcome != engine.DiscoveryFound {
 				if c.running != "" {
