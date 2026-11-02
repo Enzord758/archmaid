@@ -62,6 +62,7 @@ if [[ $# -eq 0 ]]; then
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
 	pkgs='^TestGUIPackages$'
+	pkgflow='^TestGUIPackagesFlow$'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when
@@ -81,8 +82,9 @@ if [[ $# -eq 0 ]]; then
 	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$pkgs" ./internal/ui
+	"$self" go test "${tags[@]}" -count=1 -v -run "$pkgflow" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$pkgflow|$perf" ./internal/ui
 fi
 
 

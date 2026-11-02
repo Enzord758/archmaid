@@ -136,7 +136,7 @@ func BuildSummary(r report.Report, clean bool) Summary {
 	case !clean:
 		s.Kicker, s.Tone, s.Headline = "CHECK THE STEPS", "warn", "The run did not finish cleanly"
 	default:
-		s.Kicker, s.Tone, s.Headline = quietHeadline(r.Action)
+		s.Kicker, s.Tone, s.Headline = quietHeadline(r)
 	}
 	for _, a := range r.Attention {
 		s.Attention = append(s.Attention, attentionRow(a))
@@ -166,12 +166,13 @@ var doneHeadline = actions.DoneHeadlines
 
 // quietHeadline is the kicker, tone and headline of a clean run with nothing
 // that needs the user.
-func quietHeadline(action string) (kicker, tone, headline string) {
-	switch action {
-	case steps.IDPkgInstall:
-		return "DONE", "ok", "Packages installed"
-	case steps.IDPkgRemove:
+func quietHeadline(r report.Report) (kicker, tone, headline string) {
+	action := r.Action
+	switch {
+	case action == steps.IDPkgRemove, isPkgAction(action) && removedOnly(r):
 		return "DONE", "ok", "Packages removed"
+	case isPkgAction(action):
+		return "DONE", "ok", "Packages installed"
 	}
 	if h, ok := doneHeadline[action]; ok {
 		return "DONE", "ok", h
@@ -299,9 +300,18 @@ func packagesBlock(r report.Report) *PackagesBlock {
 	return b
 }
 
-// isPkgAction: the report is of a Packages page run (steps.IDPkgInstall or
-// steps.IDPkgRemove: the engine's StartPackages names its queue after the step).
-func isPkgAction(a string) bool { return a == steps.IDPkgInstall || a == steps.IDPkgRemove }
+// isPkgAction: the report is of a Packages page run. The engine names the
+// run's queue and its report actions.IDPackages ("packages"); the step IDs
+// are accepted too (a stub or an older log names it by them).
+func isPkgAction(a string) bool {
+	return a == actions.IDPackages || a == steps.IDPkgInstall || a == steps.IDPkgRemove
+}
+
+// removedOnly: the run took packages away and put none in (the engine's one
+// action ID does not say which of the two it was).
+func removedOnly(r report.Report) bool {
+	return r.Packages != nil && len(r.Packages.Removed) > 0 && len(r.Packages.Installed) == 0
+}
 
 func change(p report.Pkg) string {
 	return sanitize.Field(p.Old, 40) + " → " + sanitize.Field(p.New, 40)

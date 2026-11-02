@@ -18,34 +18,27 @@ func repoPlan() steps.PkgPlan {
 	}}
 }
 
-func aurPlan(withRepoDeps bool) (steps.PkgPlan, []Review) {
-	p := steps.PkgPlan{Targets: []string{"paru"}, Hash: "sha256:" + strings.Repeat("b", 64), Rows: []steps.PkgRow{
-		{Name: "paru", Version: "2.0-1", Repo: "aur", Target: true, Installed: 8 << 20}}}
+// aurPlan is the shape actions.AURDiscover builds: Rows are the repository
+// dependencies only, the AUR bases ride in plan.AUR.
+func aurPlan(withRepoDeps bool) steps.PkgPlan {
+	p := steps.PkgPlan{Targets: []string{"paru"}, Hash: "sha256:" + strings.Repeat("b", 64)}
 	if withRepoDeps {
-		p.Rows = append(p.Rows, steps.PkgRow{Name: "cargo", Version: "1.9-1", Repo: "extra", Download: 20 << 20, Installed: 90 << 20})
+		p.Rows = append(p.Rows, steps.PkgRow{Name: "cargo", Version: "1.9-1", Repo: "extra", Target: true, Download: 20 << 20, Installed: 90 << 20})
 	}
-	rev := []Review{{Base: "paru", Names: []string{"paru"}, Version: "2.0-1", Commit: "abc1234",
-		Files: []ReviewFile{{Path: "PKGBUILD", Kind: "pkgbuild", Size: 40, Text: "pkgname=paru\n"}}}}
-	return p, rev
+	p.AUR = []steps.AURPlan{{Base: "paru", Names: []string{"paru"}, Version: "2.0-1", Commit: "abc1234",
+		Files: []steps.AURFile{{Path: "PKGBUILD", Kind: steps.AURFilePKGBUILD, Size: 40, Text: "pkgname=paru\n"}}}}
+	return p
 }
 
 func TestPromptCount(t *testing.T) {
-	plan, rev := aurPlan(false)
-	if n := Prompts(plan, rev); n != 1 {
+	if n := Prompts(aurPlan(false)); n != 1 {
 		t.Errorf("a plain AUR package: %d prompts, want 1", n)
 	}
-	plan, rev = aurPlan(true)
-	if n := Prompts(plan, rev); n != 2 {
+	if n := Prompts(aurPlan(true)); n != 2 {
 		t.Errorf("an AUR package with repo dependencies: %d prompts, want 2", n)
 	}
-	if n := Prompts(repoPlan(), nil); n != 1 {
+	if n := Prompts(repoPlan()); n != 1 {
 		t.Errorf("a repo install with dependencies: %d prompts, want 1", n)
-	}
-	// An AUR package next to a repo package asked for by name: two runs.
-	plan, rev = aurPlan(false)
-	plan.Targets = []string{"paru", "gvim"}
-	if n := Prompts(plan, rev); n != 2 {
-		t.Errorf("AUR plus a repo target: %d prompts, want 2", n)
 	}
 }
 
@@ -101,9 +94,9 @@ func joinNotes(v SheetView) string {
 
 func TestSheetAURNeedsTheBoxes(t *testing.T) {
 	s := startSheet(t, RequestFor(ModeInstall, []string{"paru"}, false))
-	plan, rev := aurPlan(true)
-	rev[0].Findings = []Finding{{SevHigh, "downloads and runs a script"}, {SevLow, "no checksums"}}
-	s.Apply(Preview{Prompt: 2, Plan: plan, Reviews: rev})
+	plan := aurPlan(true)
+	plan.AUR[0].Audit = []steps.AURFinding{{Name: "paru", High: true, Reason: "downloads and runs a script"}, {Name: "paru", Reason: "no checksums"}}
+	s.Apply(Preview{Prompt: 2, Plan: plan})
 	v := s.View()
 	if v.YesEnabled || len(v.Checks) != 2 {
 		t.Fatalf("enabled %v checks %+v: an AUR install with a high finding needs both boxes", v.YesEnabled, v.Checks)
@@ -130,9 +123,9 @@ func TestSheetAURNeedsTheBoxes(t *testing.T) {
 
 func TestSheetAURWithoutHighFindingHasOneBox(t *testing.T) {
 	s := startSheet(t, RequestFor(ModeInstall, []string{"paru"}, false))
-	plan, rev := aurPlan(false)
-	rev[0].Findings = []Finding{{SevMedium, "unusual source"}}
-	s.Apply(Preview{Prompt: 2, Plan: plan, Reviews: rev})
+	plan := aurPlan(false)
+	plan.AUR[0].Audit = []steps.AURFinding{{Name: "paru", Reason: "unusual source"}}
+	s.Apply(Preview{Prompt: 2, Plan: plan})
 	if v := s.View(); len(v.Checks) != 1 || v.Checks[0].ID != CheckPKGBUILD {
 		t.Fatalf("checks %+v", v.Checks)
 	}
@@ -457,5 +450,59 @@ func TestSheetSeesTheDBAgeAndGate(t *testing.T) {
 	cr.c.Handle(Preview{Prompt: 1, Plan: repoPlan()})
 	if v := cr.c.Sheet.View(); v.YesEnabled || !strings.Contains(joinNotes(v), "1 h old") {
 		t.Fatalf("%+v %q", v, joinNotes(v))
+	}
+}
+
+// An AUR plan's sheet lists the bases to build, then the repository
+// dependencies installed first; with none, the totals say it is built here.
+func TestSheetAURRows(t *testing.T) {
+	s := startSheet(t, RequestFor(ModeInstall, []string{"paru"}, false))
+	s.Apply(Preview{Prompt: 2, Plan: aurPlan(true)})
+	v := s.View()
+	if len(v.Rows) != 2 || v.Rows[0].Name != "paru" || v.Rows[0].Repo != "aur" || v.Rows[0].Kind != "built" || !v.Rows[0].Target ||
+		v.Rows[1].Name != "cargo" || v.Rows[1].Kind != "dependency" {
+		t.Fatalf("rows %+v", v.Rows)
+	}
+	if !strings.HasPrefix(v.Totals, "Download 20.0 MiB") {
+		t.Fatalf("totals %q", v.Totals)
+	}
+	s = startSheet(t, RequestFor(ModeInstall, []string{"paru"}, false))
+	s.Apply(Preview{Prompt: 2, Plan: aurPlan(false)})
+	if v := s.View(); len(v.Rows) != 1 || !strings.Contains(v.Totals, "built by makepkg") {
+		t.Fatalf("rows %+v totals %q", v.Rows, v.Totals)
+	}
+}
+
+// The helper can still refuse after the confirm, with the run started and
+// the sheet closed (a stale plan, pacman busy): the answer reopens it.
+func TestSheetReopensForAnAnswerAfterTheRunStarted(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		ev    Event
+		state SheetState
+	}{
+		{"stale", Stale{Req: RequestFor(ModeInstall, []string{"gvim"}, false), Plan: repoPlan()}, SheetStale},
+		{"busy", Refused{Refusal: &steps.PkgRefusal{Reason: steps.RefuseBusy}}, SheetRefused},
+		{"pending", UpdatesPending{Count: 3}, SheetPending},
+	} {
+		s := startSheet(t, RequestFor(ModeInstall, []string{"gvim"}, false))
+		s.Apply(Preview{Prompt: 2, Plan: repoPlan()})
+		if _, ok := s.Confirm(); !ok {
+			t.Fatalf("%s: not confirmable", tc.name)
+		}
+		s.Apply(RunStarted{})
+		if s.State() != SheetClosed {
+			t.Fatalf("%s: the sheet stays up over the Run page", tc.name)
+		}
+		s.Apply(tc.ev)
+		if s.State() != tc.state {
+			t.Fatalf("%s: state %v, want %v", tc.name, s.State(), tc.state)
+		}
+	}
+	// With no request in flight an answer opens nothing.
+	s := NewSheet()
+	s.Apply(Stale{})
+	if s.Open() {
+		t.Fatal("a stale answer opened a sheet nobody asked for")
 	}
 }

@@ -451,7 +451,7 @@ func runChild(scenario, path string) int {
 		} else {
 			so := stub.Options{}
 			if script == nil {
-				so.Scripts = stub.Catalog(time.Now())
+				so.Scripts = withPackages(stub.Catalog, time.Now())
 			}
 			d = stub.New(script, so)
 			if strings.HasPrefix(scenario, "engine-stops") {

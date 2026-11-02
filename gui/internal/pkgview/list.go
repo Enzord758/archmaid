@@ -42,6 +42,7 @@ const (
 	AddProtected                       // remove: system-critical
 	AddOrphan                          // remove: orphans are Full Cleanup's
 	AddFull                            // MaxNames reached
+	AddMixedSource                     // install: AUR and repository packages are separate runs
 )
 
 // AddError is a refused Add; its text is what the page says.
@@ -121,6 +122,11 @@ func (l *List) CanAdd(p pkgdb.Package, mode Mode) error {
 		if p.Installed {
 			return &AddError{AddAlreadyInstalled, p.Name, "Already installed. Updates come with the system."}
 		}
+		// One run is one kind: the engine builds an AUR request from AUR
+		// names only (PkgRequest.AUR), a repository one from sync names.
+		if len(l.items) > 0 && (p.Repo == pkgdb.RepoAUR) != l.HasAUR() {
+			return &AddError{AddMixedSource, p.Name, "AUR packages are built and installed in their own run: review or clear the list first."}
+		}
 	case ModeRemove:
 		if !p.Installed {
 			return &AddError{AddNotInstalled, p.Name, "Not installed."}
@@ -188,7 +194,9 @@ func (l *List) Request() (steps.PkgRequest, bool) {
 	if len(l.items) == 0 {
 		return steps.PkgRequest{}, false
 	}
-	return RequestFor(l.mode, l.Names(), l.WithConfig), true
+	r := RequestFor(l.mode, l.Names(), l.WithConfig)
+	r.AUR = l.mode == ModeInstall && l.HasAUR() // CanAdd keeps a list to one kind
+	return r, true
 }
 
 // RequestFor builds a request: WithConfig only means something for a removal.

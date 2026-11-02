@@ -130,3 +130,32 @@ func TestProtectedLearnsFromRefusals(t *testing.T) {
 		t.Fatal("a refused name was not remembered with a reason")
 	}
 }
+
+// An AUR package is a request of its own (PkgRequest.AUR): the engine builds
+// it, it does not ask the helper for it. A list never mixes the two kinds.
+func TestListAURIsItsOwnRun(t *testing.T) {
+	l := NewList(NewAdvisoryProtected())
+	if err := l.Add(aurPkg("paru-bin", "2-1"), ModeInstall); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Add(aurPkg("yay-bin", "12-1"), ModeInstall); err != nil {
+		t.Fatalf("two AUR packages: %v", err)
+	}
+	req, ok := l.Request()
+	if !ok || !req.AUR || req.Mode != steps.PkgInstall || !slices.Equal(req.Names, []string{"paru-bin", "yay-bin"}) {
+		t.Fatalf("request %+v", req)
+	}
+	if ErrKind(l.Add(repoPkg("gvim", "9"), ModeInstall)) != AddMixedSource {
+		t.Fatal("a repo package joined an AUR list")
+	}
+	l.Clear()
+	if err := l.Add(repoPkg("gvim", "9"), ModeInstall); err != nil {
+		t.Fatal(err)
+	}
+	if ErrKind(l.Add(aurPkg("paru-bin", "2-1"), ModeInstall)) != AddMixedSource {
+		t.Fatal("an AUR package joined a repo list")
+	}
+	if req, _ := l.Request(); req.AUR {
+		t.Fatalf("a repo request marked AUR: %+v", req)
+	}
+}

@@ -51,7 +51,7 @@ func TestGateNoteMatchesAuthMode(t *testing.T) {
 	kicker := heroKicker(prev, true, false)
 	plan := gatePlan(t, env)
 
-	real := realOptions(engine.Options{Auth: engine.AuthPolkit}, nil, nil, "", nil)
+	real := realOptions(engine.Options{Auth: engine.AuthPolkit}, nil, nil, "", nil, nil)
 	if !real.KeepsPassword {
 		t.Fatal("the real GUI's Options do not keep the password")
 	}

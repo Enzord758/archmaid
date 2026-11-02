@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
@@ -29,5 +30,21 @@ func TestSummaryPackagesRun(t *testing.T) {
 	up := report.Report{Action: "topgrade", Packages: &report.Packages{Upgraded: []report.Pkg{{Name: "a", Old: "1", New: "2"}}}}
 	if s := BuildSummary(up, true); s.Sub != "1 package upgraded" || s.Packages.Head != "1 upgraded" {
 		t.Fatalf("update: %q %+v", s.Sub, s.Packages)
+	}
+}
+
+// The engine names a Packages run's queue, and so its report, actions.IDPackages
+// ("packages"), not the step's ID: the summary must still say what the run
+// did (it said "Everything is up to date").
+func TestSummaryPackagesRunByEngineAction(t *testing.T) {
+	inst := report.Report{Action: actions.IDPackages, Packages: &report.Packages{Installed: []report.Pkg{{Name: "firefox", New: "133.0-1"}}}}
+	s := BuildSummary(inst, true)
+	if s.Headline != "Packages installed" || s.Sub != "1 package installed" || s.Packages.Head != "1 installed" {
+		t.Fatalf("install: %q %q %+v", s.Headline, s.Sub, s.Packages)
+	}
+	rem := report.Report{Action: actions.IDPackages, Packages: &report.Packages{Removed: []report.Pkg{{Name: "vim", Old: "9.1-1"}}}}
+	s = BuildSummary(rem, true)
+	if s.Headline != "Packages removed" || s.Sub != "1 package removed" || s.Packages.Head != "1 removed" {
+		t.Fatalf("remove: %q %q %+v", s.Headline, s.Sub, s.Packages)
 	}
 }

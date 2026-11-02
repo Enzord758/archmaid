@@ -10,6 +10,7 @@ package ui
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -129,7 +130,7 @@ func Main(args []string) int {
 	if !l.stub {
 		return mainReal(l.args, l.confirm)
 	}
-	return Run(l.args, Options{Stub: true, NewDriver: stubDriver(l.script), Confirm: l.confirm})
+	return Run(l.args, Options{Stub: true, NewDriver: stubDriver(l.script), Confirm: l.confirm, Packages: demoWiring()})
 }
 
 // launch is what the command line asks for.
@@ -187,7 +188,12 @@ func parseLaunch(args []string, getenv func(string) string) (launch, error) {
 // mainReal runs the window on the real Driver. The Wiring outlives every
 // Driver: Run closes the last one before it returns.
 func mainReal(args []string, confirm string) int {
-	wr := realdriver.Start(realConfig())
+	// The Packages page's data: pacman's databases and the AUR planner
+	// over them, which the Driver needs for an AUR install.
+	pk := openRealPackages(pkgSource{})
+	cfg := realConfig()
+	cfg.PlanAUR = pk.PlanAUR
+	wr := realdriver.Start(cfg)
 	defer wr.Close()
 	base := wr.Options()
 	// A missing piece of the actions' wiring would otherwise fail
@@ -196,7 +202,7 @@ func mainReal(args []string, confirm string) int {
 		fmt.Fprintln(os.Stderr, "archmaid-gui:", err)
 		return 1
 	}
-	return Run(args, realOptions(base, wr.New, wr.SetNotice, confirm, wr.CloseAskpass))
+	return Run(args, realOptions(base, wr.New, wr.SetNotice, confirm, wr.CloseAskpass, pk))
 }
 
 // realConfig is the binary's realdriver.Config: errors to stderr, each
@@ -212,10 +218,12 @@ func realConfig() realdriver.Config {
 }
 
 // realOptions are the window's Options on the real Driver: it keeps the
-// run's first password (KeepsPassword), whatever base's auth mode.
-func realOptions(base engine.Options, newDriver func(engine.Options) engine.Driver, notices func(func(string)), confirm string, atForcedExit func()) Options {
+// run's first password (KeepsPassword), whatever base's auth mode. pk is the
+// Packages page's data (openRealPackages); nil leaves the page saying it is
+// not available.
+func realOptions(base engine.Options, newDriver func(engine.Options) engine.Driver, notices func(func(string)), confirm string, atForcedExit func(), pk *realPackages) Options {
 	return Options{NewDriver: newDriver, Engine: base, KeepsPassword: true, KeepPreview: realdriver.KeepPreview, Notices: notices, Confirm: confirm,
-		AtForcedExit: atForcedExit}
+		AtForcedExit: atForcedExit, Packages: pk.wiring()}
 }
 
 // stubDriver is the stub's NewDriver for an ARCHMAID_GUI_SCRIPT value
@@ -225,7 +233,9 @@ func stubDriver(script string) func(engine.Options) engine.Driver {
 		return func(engine.Options) engine.Driver { return stub.New(s, stub.Options{}) }
 	}
 	catalog := func(f func(time.Time) map[string]stub.Script) func(engine.Options) engine.Driver {
-		return func(engine.Options) engine.Driver { return stub.New(nil, stub.Options{Scripts: f(time.Now())}) }
+		return func(engine.Options) engine.Driver {
+			return stub.New(nil, stub.Options{Scripts: withPackages(f, time.Now())})
+		}
 	}
 	switch script {
 	case "flood":
@@ -242,6 +252,14 @@ func stubDriver(script string) func(engine.Options) engine.Driver {
 		})
 	}
 	return catalog(stub.Catalog)
+}
+
+// withPackages is f's scripts with the Packages page's (stub.PackagesCatalog)
+// next to them: the stub plays a Packages run as it plays a menu action.
+func withPackages(f func(time.Time) map[string]stub.Script, start time.Time) map[string]stub.Script {
+	m := f(start)
+	maps.Copy(m, stub.PackagesCatalog(start))
+	return m
 }
 
 // Run runs the application until its window is closed. The Driver is

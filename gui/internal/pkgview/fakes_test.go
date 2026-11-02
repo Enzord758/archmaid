@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -154,3 +155,18 @@ func (b *fakeBackend) UpdateSystem() { b.updates++ }
 
 // aurStopCtx is the context of the AUR request started last.
 func (s *Search) aurStopCtx() context.Context { return s.aurCtx }
+
+// Recent is the installed packages with a date, newest first.
+func (c *fakeCatalog) Recent(n int) []pkgdb.Package {
+	var out []pkgdb.Package
+	for _, p := range c.pkgs {
+		if p.Installed && !p.InstallDate.IsZero() {
+			out = append(out, p)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].InstallDate.After(out[j].InstallDate) })
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}

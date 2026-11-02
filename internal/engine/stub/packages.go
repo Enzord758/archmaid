@@ -1,11 +1,13 @@
 package stub
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/logstore"
+	runreport "github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -20,6 +22,12 @@ import (
 func PackagesKey(req steps.PkgRequest) string { return "packages:" + packagesName(req) }
 
 func packagesName(req steps.PkgRequest) string {
+	if req.AUR && req.Mode == steps.PkgInstall {
+		if len(req.Names) > 0 && strings.HasPrefix(req.Names[0], "risky-") {
+			return "aur-high"
+		}
+		return "aur"
+	}
 	if len(req.Names) > 0 {
 		switch req.Names[0] {
 		case "conflict", "protected", "updates-pending", "stale", "not-found", "required-by", "busy", "plain-error":
@@ -41,13 +49,19 @@ func packagesName(req steps.PkgRequest) string {
 //	packages:protected        PackagesRefused{RefuseProtected}
 //	packages:not-found, required-by, busy   PackagesRefused with that reason
 //	packages:updates-pending  PackagesUpdatesPending{Count: 7}
+//	packages:aur              an AUR install: the sheet with the review of one base ("paru-bin",
+//	                          a repo dependency first), then the three steps and the run
+//	packages:aur-high         the same for a request whose first name starts with "risky-": the
+//	                          audit has a high finding, which the sheet makes the user accept
 //	packages:stale            the sheet, then the run's step fails and PackagesStale follows
 //	packages:plain-error      a DiscoveryResult{Failed}, Notice, Finished{OutcomeNotice}
 func PackagesCatalog(start time.Time) map[string]Script {
 	m := map[string]Script{
-		"packages:install": packagesRun(start, steps.PkgInstall, false),
-		"packages:remove":  packagesRun(start, steps.PkgRemove, false),
-		"packages:stale":   packagesRun(start, steps.PkgInstall, true),
+		"packages:install":  packagesRun(start, steps.PkgInstall, false),
+		"packages:remove":   packagesRun(start, steps.PkgRemove, false),
+		"packages:stale":    packagesRun(start, steps.PkgInstall, true),
+		"packages:aur":      packagesAURRun(start, false),
+		"packages:aur-high": packagesAURRun(start, true),
 		"packages:updates-pending": packagesDiscoveryEnd(start, func(b *builder) {
 			b.emit(engine.PackagesUpdatesPending{Count: 7})
 		}),
@@ -146,6 +160,96 @@ func packagesRun(start time.Time, mode steps.PkgMode, stale bool) Script {
 	b.out(id, "resolving dependencies...", "checking for conflicts...", "(3/3) installing foo")
 	b.done(id, steps.OK)
 	b.log(logstore.Cleanup, "OK: "+label)
+	rep := runreport.Report{Action: actions.IDPackages, Started: start, Finished: b.now, Elapsed: b.now.Sub(b.started), Steps: runreport.StepTally{Done: 1}}
+	if mode == steps.PkgRemove {
+		rep.Packages = &runreport.Packages{Removed: []runreport.Pkg{{Name: "foo", Old: "1.2-1"}, {Name: "libfoo", Old: "1.2-1"}}}
+	} else {
+		rep.Packages = &runreport.Packages{Installed: []runreport.Pkg{{Name: "foo", New: "1.2-1"}, {Name: "libfoo", New: "4.0-2"}, {Name: "libbar", New: "0.9-1"}}}
+	}
+	b.emit(engine.RunReport{Report: rep})
+	b.finish(actions.IDPackages, engine.OutcomeCompleted)
+	return b.script
+}
+
+// aurPlan is the AUR install the sheet reviews: one base with a PKGBUILD,
+// an .install script, a patch, sources (one without a checksum) and a hint,
+// a diff from the last reviewed commit, and a repository dependency in Rows.
+// high adds a high audit finding next to the low one.
+func aurPlan(high bool) steps.PkgPlan {
+	name := "paru-bin"
+	if high {
+		name = "risky-bin"
+	}
+	audit := []steps.AURFinding{{Name: name, Reason: "no maintainer change in 90 days"}}
+	if high {
+		audit = []steps.AURFinding{{Name: name, High: true, Reason: "the maintainer changed since the last audit"}, audit[0]}
+	}
+	return steps.PkgPlan{Mode: steps.PkgInstall, AsDeps: true, Targets: []string{name}, Hash: stubHash,
+		Rows: []steps.PkgRow{{Name: "libgit2", Version: "1.8.4-1", Repo: "extra", Target: true, Download: 600 << 10, Installed: 3 << 20}},
+		AUR: []steps.AURPlan{{
+			Base: name, Names: []string{name}, Version: "2.0.4-1", Commit: "0123456789abcdef0123456789abcdef01234567", Prev: "fedcba9876543210fedcba9876543210fedcba98",
+			Files: []steps.AURFile{
+				{Path: "PKGBUILD", Kind: steps.AURFilePKGBUILD, Size: 310, Text: "pkgname=" + name + "\npkgver=2.0.4\npkgrel=1\narch=('x86_64')\ndepends=('libgit2')\nsource=(\"https://example.org/" + name + "-2.0.4.tar.gz\" 'fix.patch')\nsha256sums=('0000000000000000000000000000000000000000000000000000000000000000' 'SKIP')\ninstall=" + name + ".install\n"},
+				{Path: name + ".install", Kind: steps.AURFileInstall, Size: 60, Text: "post_install() {\n  echo 'installed'\n}\n"},
+				{Path: "fix.patch", Kind: steps.AURFilePatch, Size: 120, Text: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n"},
+				{Path: "icon.png", Kind: steps.AURFileOther, Size: 9000, Note: "binary"}},
+			Sources: []steps.AURSource{{URL: "https://example.org/" + name + "-2.0.4.tar.gz", Checksum: true}, {URL: "fix.patch"}},
+			Diff:    "@@ -1,3 +1,3 @@\n-pkgver=2.0.3\n+pkgver=2.0.4\n pkgrel=1\n",
+			Flags:   []string{"has an .install script: it runs as root at install", "a source has no checksum (SKIP)"},
+			Audit:   audit, RepoDeps: []string{"libgit2"},
+		}}}
+}
+
+// packagesAURRun is an AUR install: the sheet with the review, then (on a
+// yes) the dependencies step, the user's build and the root install. With
+// high the audit has a high finding (the sheet then makes the user accept
+// it; the stub has nothing to commit).
+func packagesAURRun(start time.Time, high bool) Script {
+	b := &builder{now: start, started: start, at: map[string]time.Time{}, branches: true}
+	p := aurPlan(high)
+	base := p.AUR[0].Base
+	build := steps.IDAURBuildPrefix + base
+	b.plan = []engine.PlanStep{
+		{ID: steps.IDPkgInstall, Verb: steps.VerbPkgInstall, Title: "Installing dependencies…", LogLabel: "Dependencies installed", NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup},
+		{ID: build, Title: "Building " + base + "…", LogLabel: "Built " + base, Category: logstore.Cleanup},
+		{ID: steps.IDPkgInstallLocal, Verb: steps.VerbPkgInstallLocal, Title: "Installing " + base + "…", LogLabel: "Installed " + base, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup},
+	}
+	b.emit(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Checking the packages…"})
+	b.wait(600 * time.Millisecond)
+	pid := b.id()
+	title := "Build and install 1 package from the AUR?"
+	b.emit(engine.PackagesPreview{Prompt: pid, Plan: p})
+	b.emit(engine.NeedsConfirm{ID: pid, Kind: engine.ConfirmPackages, Title: title, Msg: title,
+		Items: p.Targets, YesLabel: "Build and install"})
+	sb := b.branch()
+	sb.finish(actions.IDPackages, engine.OutcomeCancelled)
+	b.script[len(b.script)-1].OnNo = sb.script
+
+	b.emit(engine.PhaseChanged{Phase: engine.PhaseRunning})
+	b.emit(engine.QueueStarted{Action: actions.IDPackages, Steps: append([]engine.PlanStep(nil), b.plan...), Started: b.now})
+	b.start(steps.IDPkgInstall)
+	b.emit(engine.AuthWaiting{Kind: engine.WaitPolkit, Step: steps.IDPkgInstall})
+	b.wait(800 * time.Millisecond)
+	b.emit(engine.AuthResolved{Granted: true})
+	b.wait(time.Second)
+	b.out(steps.IDPkgInstall, "resolving dependencies...", "(1/1) installing libgit2")
+	b.done(steps.IDPkgInstall, steps.OK)
+	b.log(logstore.Cleanup, "OK: Dependencies installed")
+	b.start(build)
+	b.wait(1500 * time.Millisecond)
+	b.out(build, "==> Making package: "+base+" 2.0.4-1", "==> Finished making: "+base+" 2.0.4-1")
+	b.done(build, steps.OK)
+	b.log(logstore.Cleanup, "OK: Built "+base)
+	b.start(steps.IDPkgInstallLocal)
+	b.emit(engine.AuthWaiting{Kind: engine.WaitPolkit, Step: steps.IDPkgInstallLocal})
+	b.wait(800 * time.Millisecond)
+	b.emit(engine.AuthResolved{Granted: true})
+	b.wait(time.Second)
+	b.out(steps.IDPkgInstallLocal, "loading packages...", "(1/1) installing "+base)
+	b.done(steps.IDPkgInstallLocal, steps.OK)
+	b.log(logstore.Cleanup, "OK: Installed "+base)
+	b.emit(engine.RunReport{Report: runreport.Report{Action: actions.IDPackages, Started: start, Finished: b.now, Elapsed: b.now.Sub(b.started), Steps: runreport.StepTally{Done: 3},
+		Packages: &runreport.Packages{Installed: []runreport.Pkg{{Name: "libgit2", New: "1.8.4-1"}, {Name: base, New: "2.0.4-1"}}}}})
 	b.finish(actions.IDPackages, engine.OutcomeCompleted)
 	return b.script
 }

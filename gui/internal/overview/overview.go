@@ -75,6 +75,9 @@ func Entries() []Entry {
 // Label is the menu label of action id, or id itself for one the menu
 // doesn't know.
 func Label(id string) string {
+	if id == actions.IDPackages {
+		return "Packages" // a run of the Packages page, not a menu entry
+	}
 	if a, ok := actions.ByID(id); ok {
 		return a.Label
 	}

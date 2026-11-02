@@ -102,6 +102,10 @@ func (w *Window) againAction(r runview.Row) (string, string) {
 	if r.ID == steps.IDTopgrade {
 		return actions.IDTopgrade, "Run topgrade again"
 	}
+	if w.current == actions.IDPackages {
+		// A Packages run needs its sheet: back to the page, with the list.
+		return actions.IDPackages, "Back to Packages"
+	}
 	name, _, _ := strings.Cut(overview.Label(w.current), " (")
 	return w.current, "Run " + name + " again"
 }
@@ -109,7 +113,11 @@ func (w *Window) againAction(r runview.Row) (string, string) {
 // runAgain starts the failed row's action, dry when the run was dry.
 func (w *Window) runAgain(r runview.Row) {
 	id, _ := w.againAction(r)
-	if id != "" {
+	switch id {
+	case "":
+	case actions.IDPackages:
+		w.pickPage("packages")
+	default:
 		w.start(id, w.dry)
 	}
 }

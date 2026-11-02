@@ -28,7 +28,12 @@ type Catalog interface {
 	Search(q string, max int) []pkgdb.Package
 	Lookup(name string) (pkgdb.Package, bool)
 	Installed(v pkgdb.View) []pkgdb.Package
+	// Recent is the n most recently installed packages, newest first.
+	Recent(n int) []pkgdb.Package
 }
+
+// The page's Catalog is a *pkgdb.DB (checked at build time).
+var _ Catalog = (*pkgdb.DB)(nil)
 
 // Deps are what a Search works with. Go runs a function off the main
 // thread (a test: inline), Post runs one on it (a test: inline), Changed

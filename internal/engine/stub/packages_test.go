@@ -3,8 +3,10 @@ package stub
 import (
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/enginetest"
+	runreport "github.com/Enzord758/archmaid/internal/report"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -62,6 +64,8 @@ func TestPackagesCatalogKeys(t *testing.T) {
 		"busy":            {preq(steps.PkgInstall, "busy"), engine.OutcomeNotice, false},
 		"updates-pending": {preq(steps.PkgInstall, "updates-pending"), engine.OutcomeNotice, false},
 		"plain-error":     {preq(steps.PkgInstall, "plain-error"), engine.OutcomeNotice, false},
+		"aur":             {steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"paru-bin"}, AUR: true}, engine.OutcomeCompleted, true},
+		"aur-high":        {steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"risky-bin"}, AUR: true}, engine.OutcomeCompleted, true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -111,4 +115,36 @@ func TestPackagesCatalogPreviewPairsWithConfirm(t *testing.T) {
 		}
 	}
 	t.Fatal("no PackagesPreview")
+}
+
+// TestPackagesCatalogAUR: the AUR script's sheet carries the review, and the
+// high one a high audit finding; a completed run ends with its report, which
+// names the action the engine names it (actions.IDPackages).
+func TestPackagesCatalogAUR(t *testing.T) {
+	for name, high := range map[string]bool{"paru-bin": false, "risky-bin": true} {
+		evs := replayPackages(t, steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{name}, AUR: true}, true)
+		var plan *steps.PkgPlan
+		var rep *runreport.Report
+		for _, ev := range evs {
+			switch e := ev.(type) {
+			case engine.PackagesPreview:
+				plan = &e.Plan
+			case engine.RunReport:
+				rep = &e.Report
+			}
+		}
+		if plan == nil || len(plan.AUR) != 1 || plan.AUR[0].Base != name || len(plan.AUR[0].Files) < 3 || len(plan.AUR[0].Sources) == 0 || plan.AUR[0].Diff == "" {
+			t.Fatalf("%s: plan %+v", name, plan)
+		}
+		hasHigh := false
+		for _, f := range plan.AUR[0].Audit {
+			hasHigh = hasHigh || f.High
+		}
+		if hasHigh != high {
+			t.Errorf("%s: high finding = %v, want %v", name, hasHigh, high)
+		}
+		if rep == nil || rep.Action != actions.IDPackages || rep.Packages == nil || len(rep.Packages.Installed) != 2 {
+			t.Errorf("%s: report %+v", name, rep)
+		}
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/pkgview"
+	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // The confirm sheet (variant A4/A4-AUR): the Full Cleanup gate's dialog
@@ -246,13 +247,27 @@ func (p *pkgPage) reviewView(d *amDialog, v pkgview.SheetView) gtk.Widgetter {
 		for _, f := range r.Files {
 			fmt.Fprintf(&files, "=== %s (%s)\n", f.Path, pkgview.Size(f.Size))
 			if f.Text == "" {
-				files.WriteString("(not shown: binary or too large)\n\n")
+				files.WriteString("(not shown: " + notShown(f) + ")\n\n")
 				continue
 			}
 			files.WriteString(strings.TrimRight(f.Text, "\n") + "\n\n")
 		}
-		if r.Diff != "" {
+		if len(r.Sources) > 0 {
+			fmt.Fprintf(&files, "=== sources of %s\n", r.Base)
+			for _, src := range r.Sources {
+				sum := "checksum"
+				if !src.Checksum {
+					sum = "NO CHECKSUM"
+				}
+				fmt.Fprintf(&files, "%s (%s)\n", src.URL, sum)
+			}
+			files.WriteString("\n")
+		}
+		switch {
+		case r.Diff != "":
 			fmt.Fprintf(&diff, "### %s since %s\n\n%s\n\n", r.Base, shortCommit(r.Prev), strings.TrimRight(r.Diff, "\n"))
+		case r.DiffNote != "" && r.Prev != "":
+			fmt.Fprintf(&diff, "### %s since %s\n\n%s\n\n", r.Base, shortCommit(r.Prev), r.DiffNote)
 		}
 	}
 	stack := gtk.NewStack()
@@ -297,6 +312,14 @@ func (p *pkgPage) reviewView(d *amDialog, v pkgview.SheetView) gtk.Widgetter {
 	return box
 }
 
+// notShown is why a file's text is not in the review.
+func notShown(f steps.AURFile) string {
+	if f.Note != "" {
+		return f.Note
+	}
+	return "binary or too large"
+}
+
 func shortCommit(c string) string {
 	if len(c) > 8 {
 		return c[:8]
@@ -327,24 +350,21 @@ func reviewText(text string) gtk.Widgetter {
 }
 
 // auditRows lists the maintainer audit's findings, nil when there are none.
-func auditRows(rs []pkgview.Review) gtk.Widgetter {
+func auditRows(rs []steps.AURPlan) gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 6)
 	n := 0
 	for _, r := range rs {
-		for _, f := range r.Findings {
+		for _, f := range r.Audit {
 			n++
-			class := "am-tag-neutral"
-			switch f.Severity {
-			case pkgview.SevHigh:
-				class = "am-tag-danger"
-			case pkgview.SevMedium:
-				class = "am-tag-warn"
+			class, sev := "am-tag-warn", "flagged"
+			if f.High {
+				class, sev = "am-tag-danger", "high"
 			}
 			row := gtk.NewBox(gtk.OrientationVertical, 2)
-			t := tag(f.Severity.String(), class)
+			t := tag(sev, class)
 			t.SetHAlign(gtk.AlignStart)
 			row.Append(t)
-			row.Append(dialogText(r.Base+": "+f.Text, "am-note"))
+			row.Append(dialogText(f.Name+": "+f.Reason, "am-note"))
 			box.Append(row)
 		}
 	}

@@ -5,22 +5,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/pkgdb"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
 // Event is what the engine tells the page about a packages request. The
 // contract's engine events (PackagesPreview + NeedsConfirm, PackagesRefused,
 // PackagesUpdatesPending, PackagesStale, QueueStarted, Finished) map one to
-// one; the ui package holds the one adapter (see docs in the report).
+// one; the ui package holds the one adapter (packages_adapter.go).
 type Event interface{ isEvent() }
 
 // Preview is PackagesPreview followed by NeedsConfirm{ID: Prompt}: the
-// sheet's content. Reviews is the AUR review payload (empty for repo
+// sheet's content. Plan.AUR is the AUR review payload (empty for repo
 // packages).
 type Preview struct {
-	Prompt  int
-	Plan    steps.PkgPlan
-	Reviews []Review
+	Prompt int
+	Plan   steps.PkgPlan
 }
 
 // Refused is PackagesRefused: nothing changed.
@@ -61,59 +61,12 @@ type Backend interface {
 	UpdateSystem()
 }
 
-// Severity is an audit finding's weight.
-type Severity int
-
-const (
-	SevLow Severity = iota
-	SevMedium
-	SevHigh
-)
-
-func (s Severity) String() string {
-	switch s {
-	case SevHigh:
-		return "high"
-	case SevMedium:
-		return "medium"
-	}
-	return "low"
-}
-
-// Finding is one audit finding on an AUR package.
-type Finding struct {
-	Severity Severity
-	Text     string
-}
-
-// ReviewFile is one file of an AUR package base's repository.
-type ReviewFile struct {
-	Path string
-	Kind string // pkgbuild, install, patch, other
-	Size int64
-	Text string // "" when not shown (binary, over 128 KiB)
-}
-
-// Review is the sheet's AUR review of one package base (the contract's
-// aurbuild.Review, as the page needs it): plain, already sanitized text.
-type Review struct {
-	Base     string
-	Names    []string
-	Version  string
-	Commit   string
-	Prev     string // last reviewed commit, "" for a first install
-	Files    []ReviewFile
-	Diff     string // unified diff against Prev, "" when there is none
-	Flags    []string
-	Findings []Finding
-}
-
-// HighFindings counts the high findings over all reviews.
-func HighFindings(rs []Review) int {
+// HighFindings counts the high audit findings over all the plans' bases.
+func HighFindings(rs []steps.AURPlan) int {
 	n := 0
 	for _, r := range rs {
-		for _, f := range r.Findings {
-			if f.Severity == SevHigh {
+		for _, f := range r.Audit {
+			if f.High {
 				n++
 			}
 		}
@@ -171,7 +124,7 @@ type SheetView struct {
 	Rows     []SheetRow
 	Totals   string
 	Notes    []Note
-	Reviews  []Review
+	Reviews  []steps.AURPlan
 	Checks   []Check
 	YesLabel string
 	NoLabel  string
@@ -195,10 +148,14 @@ type Sheet struct {
 	plan    steps.PkgPlan
 	hasPlan bool
 	prompt  int
-	reviews []Review
+	reviews []steps.AURPlan
 	refusal *steps.PkgRefusal
 	pending int
 	ticks   map[string]bool
+	// ran: the run started after the confirm, so the sheet is closed while
+	// the helper may still refuse it (a stale plan, a conflict that came
+	// up, pacman busy): those answers reopen it.
+	ran bool
 
 	// Inputs the controller keeps current.
 	DBAge   time.Duration // < 0: unknown
@@ -223,7 +180,7 @@ func (s *Sheet) Prompt() int { return s.prompt }
 // Begin opens the sheet for req, in the planning state.
 func (s *Sheet) Begin(req steps.PkgRequest) {
 	s.state, s.req, s.hasPlan = SheetPlanning, req, false
-	s.reviews, s.refusal, s.pending, s.prompt = nil, nil, 0, 0
+	s.reviews, s.refusal, s.pending, s.prompt, s.ran = nil, nil, 0, 0, false
 	s.ticks = map[string]bool{}
 }
 
@@ -235,19 +192,19 @@ func (s *Sheet) Apply(ev Event) (showRun bool) {
 		if s.state != SheetPlanning {
 			return false
 		}
-		s.state, s.plan, s.hasPlan, s.prompt, s.reviews = SheetReview, e.Plan, true, e.Prompt, e.Reviews
+		s.state, s.plan, s.hasPlan, s.prompt, s.reviews = SheetReview, e.Plan, true, e.Prompt, e.Plan.AUR
 	case Refused:
-		if s.state == SheetClosed {
+		if s.state == SheetClosed && !s.ran {
 			return false
 		}
 		s.state, s.refusal = SheetRefused, e.Refusal
 	case UpdatesPending:
-		if s.state == SheetClosed {
+		if s.state == SheetClosed && !s.ran {
 			return false
 		}
 		s.state, s.pending = SheetPending, e.Count
 	case Stale:
-		if s.state == SheetClosed {
+		if s.state == SheetClosed && !s.ran {
 			return false
 		}
 		s.state, s.req, s.plan, s.hasPlan = SheetStale, e.Req, e.Plan, true
@@ -255,6 +212,7 @@ func (s *Sheet) Apply(ev Event) (showRun bool) {
 		if s.state == SheetRunning || s.state == SheetReview {
 			s.state = SheetClosed
 		}
+		s.ran = true
 		return true
 	case Done:
 		switch s.state {
@@ -275,28 +233,11 @@ func (s *Sheet) Tick(id string, on bool) {
 // Prompts is the number of password prompts the run costs: one for the
 // install or removal, plus one first for the repo dependencies of an AUR
 // build (contract section 5 and the lead's confirmation). The sheet says so
-// up front.
-func Prompts(plan steps.PkgPlan, reviews []Review) int {
-	if len(reviews) == 0 || plan.Mode == steps.PkgRemove {
-		return 1
-	}
-	for _, r := range plan.Rows {
-		if r.Repo != "aur" && !r.Target {
-			return 2
-		}
-	}
-	// A repo package among the targets next to AUR ones is a repo
-	// install of its own, too.
-	aur := map[string]bool{}
-	for _, r := range reviews {
-		for _, n := range r.Names {
-			aur[n] = true
-		}
-	}
-	for _, t := range plan.Targets {
-		if !aur[t] {
-			return 2
-		}
+// up front. An AUR plan's Rows are the repository dependencies only
+// (actions.AURDiscover), so rows mean the first prompt.
+func Prompts(plan steps.PkgPlan) int {
+	if len(plan.AUR) > 0 && plan.Mode != steps.PkgRemove && len(plan.Rows) > 0 {
+		return 2
 	}
 	return 1
 }
@@ -308,7 +249,7 @@ func (s *Sheet) checks() []Check {
 	}
 	cs := []Check{{CheckPKGBUILD, "I read the PKGBUILD. I understand this runs the package author's code as root.", s.ticks[CheckPKGBUILD]}}
 	if HighFindings(s.reviews) > 0 {
-		cs = append(cs, Check{CheckFindings, "Accept the audit findings.", s.ticks[CheckFindings]})
+		cs = append(cs, Check{CheckFindings, "I've read the findings and accept them.", s.ticks[CheckFindings]})
 	}
 	return cs
 }
@@ -404,6 +345,17 @@ func (s *Sheet) fillReview(v *SheetView) {
 	p := s.plan
 	remove := p.Mode == steps.PkgRemove
 	var dl, inst int64
+	// An AUR plan lists the packages to build first, in build order; its
+	// Rows are the repository dependencies installed before them.
+	targets := map[string]bool{}
+	for _, t := range p.Targets {
+		targets[t] = true
+	}
+	for _, a := range p.AUR {
+		for _, n := range a.Names {
+			v.Rows = append(v.Rows, SheetRow{Name: n, Version: a.Version, Repo: pkgdb.RepoAUR, Target: targets[n], Kind: "built", Size: "built here"})
+		}
+	}
 	for _, r := range p.Rows {
 		row := SheetRow{Name: r.Name, Version: r.Version, Old: r.OldVersion, Repo: r.Repo, Target: r.Target}
 		switch {
@@ -411,7 +363,7 @@ func (s *Sheet) fillReview(v *SheetView) {
 			row.Kind, row.Size = "removed", Size(r.Installed)
 		case r.OldVersion != "":
 			row.Kind, row.Size = "upgrade", Size(r.Download)
-		case r.Target:
+		case r.Target && len(p.AUR) == 0:
 			row.Kind, row.Size = "new", Size(r.Download)
 		default:
 			row.Kind, row.Size = "dependency", Size(r.Download)
@@ -420,9 +372,12 @@ func (s *Sheet) fillReview(v *SheetView) {
 		inst += r.Installed
 		v.Rows = append(v.Rows, row)
 	}
-	if remove {
+	switch {
+	case remove:
 		v.Totals = "Frees " + Size(inst)
-	} else {
+	case len(p.AUR) > 0 && len(p.Rows) == 0:
+		v.Totals = "Downloaded and built by makepkg on this machine"
+	default:
 		v.Totals = "Download " + Size(dl) + " · takes " + Size(inst) + " on disk"
 	}
 	v.Reviews, v.Checks = s.reviews, s.checks()
@@ -436,7 +391,7 @@ func (s *Sheet) fillReview(v *SheetView) {
 func (s *Sheet) notes(p steps.PkgPlan, remove bool) []Note {
 	var ns []Note
 	ns = append(ns, Note{"root", ToneWarn, "Runs as root, after you authorise it. Once it has started it can't be stopped."})
-	prompts := Prompts(p, s.reviews)
+	prompts := Prompts(p)
 	if prompts == 2 {
 		ns = append(ns, Note{"asks", ToneNeutral, "2 password prompts: first for the repo dependencies, then for the AUR packages."})
 	} else {

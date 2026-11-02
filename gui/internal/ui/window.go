@@ -37,6 +37,13 @@ type Window struct {
 	// next Start's fresh Driver is made with them.
 	settings settings.Settings
 	set      *settingsPage
+	// pkgAd, pkgRun and pkgAfter are the Packages run's state
+	// (packages_run.go): the adapter between its events and the page, a
+	// run going, and what to start when it is over ("Update system first"
+	// asked while the sheet's answer was still on its way).
+	pkgAd    pkgAdapter
+	pkgRun   bool
+	pkgAfter func()
 	// pkgs is the Packages page (packages.go).
 	pkgs  *pkgPage
 	model *runview.Model
@@ -366,7 +373,9 @@ func (w *Window) apply(evs []engine.Event) {
 	if w.closed {
 		return
 	}
+	evs, after := w.pkgTake(evs)
 	w.redraw(w.model.Apply(w.takeNothing(evs)))
+	after()
 }
 
 // redraw redraws exactly what c says changed.

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
@@ -18,6 +19,37 @@ func (p *pkgPage) dbLine() string {
 		return "Package lists are " + pkgview.Age(age) + " old. This page never refreshes them; the system update does."
 	}
 	return ""
+}
+
+// fillRecent is the empty state's "Recently installed": the last few
+// installs from the pacman database, each a button that opens its details.
+func (p *pkgPage) fillRecent() {
+	for c := p.recent.FirstChild(); c != nil; c = p.recent.FirstChild() {
+		p.recent.Remove(c)
+	}
+	var rows []pkgview.RecentRow
+	if w := p.w.opts.Packages; w != nil {
+		rows = pkgview.RecentRows(w.Catalog, time.Now(), pkgview.RecentMax)
+	}
+	p.recent.SetVisible(len(rows) > 0)
+	if len(rows) == 0 {
+		return
+	}
+	p.recent.Append(plainLabel("Recently installed", "am-kicker"))
+	for _, r := range rows {
+		pk := r.Pkg
+		line := gtk.NewBox(gtk.OrientationHorizontal, 8)
+		name := ellipsized(pk.Name, "am-pkg-name")
+		name.SetHExpand(true)
+		line.Append(name)
+		line.Append(plainLabel(pk.InstalledVersion, "am-pkg-ver"))
+		line.Append(plainLabel(r.Ago, "am-pkg-ver"))
+		b := gtk.NewButton()
+		b.AddCSSClass("flat")
+		b.SetChild(line)
+		b.ConnectClicked(func() { p.selectPkg(pk) })
+		p.recent.Append(b)
+	}
 }
 
 func (p *pkgPage) markSelected(lb *gtk.ListBox) {

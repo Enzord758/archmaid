@@ -253,8 +253,41 @@ func pkgSearch(c *covEnv) {
 		},
 		func() {
 			c.ok(p.listStack.VisibleChildName() == "empty", "one character shows %q", p.listStack.VisibleChildName())
+			// A1: "Recently installed", newest first, from the install dates.
+			c.ok(has(pageLabels(p), "Recently installed"), "no Recently installed in %q", pageLabels(p))
+			got := recentLines(p)
+			want := []string{"yay 12.0-1 2 h ago", "htop 3.2.2-1 11 h ago", "vim 9.1.0-1 38 h ago", "gtk3 3.24-1 3 days ago", "libbar 1.4-2 6 days ago"}
+			c.ok(slices.Equal(got, want), "recent %q, want %q", got, want)
+			noMarkup(c, gtk.BaseWidget(p.root), "empty state")
+			shoot(w, "cov-pkg-search", "a1-recent")
+			recentButton(p, "gtk3").Emit("clicked")
+		},
+		func() {
+			c.ok(p.selected == "gtk3", "a recent row selected %q", p.selected)
+			c.ok(has(pageLabels(p), "GObject-based multi-platform GUI toolkit"), "the detail of the recent package is not shown")
 		},
 	)
+}
+
+// recentLines are the empty state's "Recently installed" rows as "name
+// version ago".
+func recentLines(p *pkgPage) []string {
+	var out []string
+	for ch := p.recent.FirstChild(); ch != nil; ch = gtk.BaseWidget(ch).NextSibling() {
+		if _, ok := ch.(*gtk.Button); ok {
+			out = append(out, strings.Join(labelsUnder(gtk.BaseWidget(ch)), " "))
+		}
+	}
+	return out
+}
+
+func recentButton(p *pkgPage, name string) *gtk.Button {
+	for ch := p.recent.FirstChild(); ch != nil; ch = gtk.BaseWidget(ch).NextSibling() {
+		if b, ok := ch.(*gtk.Button); ok && strings.HasPrefix(strings.Join(labelsUnder(gtk.BaseWidget(ch)), " "), name+" ") {
+			return b
+		}
+	}
+	return gtk.NewButton()
 }
 
 // pkgSeq runs the steps one after another, 40 ms apart, each after the
@@ -543,17 +576,17 @@ func pkgAUR(c *covEnv) {
 		},
 		func() {
 			plan := steps.PkgPlan{Targets: []string{"paru-bin"}, Hash: "sha256:" + strings.Repeat("d", 64), Rows: []steps.PkgRow{
-				{Name: "paru-bin", Version: "2.0.4-1", Repo: "aur", Target: true, Installed: 12 << 20},
-				{Name: "libgit2", Version: "1.8.4-1", Repo: "extra", Download: 600 << 10, Installed: 3 << 20}}}
-			rev := pkgview.Review{Base: "paru-bin", Names: []string{"paru-bin"}, Version: "2.0.4-1", Commit: "0123456789abcdef", Prev: "fedcba9876543210",
-				Files: []pkgview.ReviewFile{
-					{Path: "PKGBUILD", Kind: "pkgbuild", Size: 300, Text: "pkgname=paru-bin\npkgver=2.0.4\nsource=(\"https://example.org/<b>paru</b>.tar.gz\")\n"},
-					{Path: "paru.install", Kind: "install", Size: 80, Text: "post_install() { echo done; }\n"},
-					{Path: "logo.png", Kind: "other", Size: 9000}},
-				Diff:     "@@ -1,2 +1,2 @@\n-pkgver=2.0.3\n+pkgver=2.0.4\n",
-				Flags:    []string{"has an .install script: it runs as root at install"},
-				Findings: []pkgview.Finding{{Severity: pkgview.SevHigh, Text: "maintainer changed since the last build"}, {Severity: pkgview.SevLow, Text: "no checksums"}}}
-			p.ctl.Handle(pkgview.Preview{Prompt: 2, Plan: plan, Reviews: []pkgview.Review{rev}})
+				{Name: "libgit2", Version: "1.8.4-1", Repo: "extra", Target: true, Download: 600 << 10, Installed: 3 << 20}},
+				AUR: []steps.AURPlan{{Base: "paru-bin", Names: []string{"paru-bin"}, Version: "2.0.4-1", Commit: "0123456789abcdef", Prev: "fedcba9876543210",
+					Files: []steps.AURFile{
+						{Path: "PKGBUILD", Kind: steps.AURFilePKGBUILD, Size: 300, Text: "pkgname=paru-bin\npkgver=2.0.4\nsource=(\"https://example.org/<b>paru</b>.tar.gz\")\n"},
+						{Path: "paru.install", Kind: steps.AURFileInstall, Size: 80, Text: "post_install() { echo done; }\n"},
+						{Path: "logo.png", Kind: steps.AURFileOther, Size: 9000}},
+					Sources: []steps.AURSource{{URL: "https://example.org/<b>paru</b>.tar.gz", Checksum: true}, {URL: "http://example.org/extra.patch"}},
+					Diff:    "@@ -1,2 +1,2 @@\n-pkgver=2.0.3\n+pkgver=2.0.4\n",
+					Flags:   []string{"has an .install script: it runs as root at install"},
+					Audit:   []steps.AURFinding{{Name: "paru-bin", High: true, Reason: "maintainer changed since the last build"}, {Name: "paru-bin", Reason: "no checksums"}}}}}
+			p.ctl.Handle(pkgview.Preview{Prompt: 2, Plan: plan})
 		},
 		func() {
 			d := p.sheet
@@ -563,7 +596,7 @@ func pkgAUR(c *covEnv) {
 			}
 			txt := dialogLabels(d, nil)
 			for _, want := range []string{"PKGBUILD review", "2 password prompts", "Not reviewed by Arch", "Audit findings · 2", "high", "maintainer changed since the last build",
-				"has an .install script", "I read the PKGBUILD", "Accept the audit findings."} {
+				"has an .install script", "I read the PKGBUILD", "I've read the findings and accept them."} {
 				c.ok(strings.Contains(txt, want), "AUR sheet lacks %q:\n%s", want, txt)
 			}
 			var text string
@@ -577,6 +610,7 @@ func pkgAUR(c *covEnv) {
 			c.ok(strings.Contains(text, "pkgname=paru-bin") && strings.Contains(text, "<b>paru</b>"), "the PKGBUILD text is wrong or was parsed as markup: %q", text)
 			c.ok(strings.Contains(text, "-pkgver=2.0.3"), "no diff text: %q", text)
 			c.ok(strings.Contains(text, "(not shown: binary or too large)"), "binary file not marked")
+			c.ok(strings.Contains(text, "http://example.org/extra.patch (NO CHECKSUM)") && strings.Contains(text, "<b>paru</b>.tar.gz (checksum)"), "sources missing: %q", text)
 			noMarkup(c, &d.Widget, "AUR sheet")
 			c.ok(p.sheetYes != nil && !p.sheetYes.Sensitive(), "Install is on before the boxes are ticked")
 			c.ok(len(p.sheetChecks) == 2, "checks %d", len(p.sheetChecks))

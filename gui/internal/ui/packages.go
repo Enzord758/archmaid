@@ -31,9 +31,10 @@ type PackagesWiring struct {
 	// Catalog is the pacman DB reader (*pkgdb.DB); AUR the AUR client.
 	Catalog pkgview.Catalog
 	AUR     aursearch.Searcher
-	// Backend takes StartPackages, Answer and Abort to the engine. Its
-	// UpdateSystem is not used: the window starts the existing topgrade
-	// action itself.
+	// Backend takes StartPackages, Answer and Abort to the engine; nil is
+	// the window's own Driver (packages_run.go), which is what the app
+	// uses. Its UpdateSystem is not used either way: the window starts
+	// the existing topgrade action itself.
 	Backend pkgview.Backend
 	// Updates reads updates-cache.json (nil: overview.ReadUpdates on the
 	// window's state folder). DBAge is the sync DBs' age (nil: unknown).
@@ -49,34 +50,28 @@ type PackagesWiring struct {
 	Err string
 }
 
-// pkgBackend is the page's Backend: the wiring's, with the window's own
+// pkgBackend is the page's Backend: the wiring's (a test's recorder) or,
+// without one, the window's Driver (pkgEngine), with the window's own
 // topgrade for "Update system first".
 type pkgBackend struct {
 	w     *Window
 	inner pkgview.Backend
 }
 
-func (b pkgBackend) StartPackages(r steps.PkgRequest) {
-	if b.inner != nil {
-		b.inner.StartPackages(r)
-	}
-}
-func (b pkgBackend) Answer(p int, yes bool) {
-	if b.inner != nil {
-		b.inner.Answer(p, yes)
-	}
-}
-func (b pkgBackend) Abort() {
-	if b.inner != nil {
-		b.inner.Abort()
-	}
-}
+func (b pkgBackend) StartPackages(r steps.PkgRequest) { b.inner.StartPackages(r) }
+func (b pkgBackend) Answer(p int, yes bool)           { b.inner.Answer(p, yes) }
+func (b pkgBackend) Abort()                           { b.inner.Abort() }
 func (b pkgBackend) UpdateSystem() {
-	if b.w.busy {
+	switch {
+	case b.w.pkgRun:
+		// The sheet was answered no a moment ago and the run has not
+		// ended yet: topgrade starts when it has.
+		b.w.pkgAfter = func() { b.w.startAction(actions.IDTopgrade) }
+	case b.w.busy:
 		b.w.toast("A run is going. Update the system when it is done.")
-		return
+	default:
+		b.w.startAction(actions.IDTopgrade)
 	}
-	b.w.startAction(actions.IDTopgrade)
 }
 
 // pkgPage is the page's widgets.
@@ -100,6 +95,7 @@ type pkgPage struct {
 	results                   *gtk.ListBox
 	instList                  *gtk.ListBox
 	emptyDB                   *gtk.Label
+	recent                    *gtk.Box // the empty state's "Recently installed"
 	noneLabel                 *gtk.Label
 	detailStack               *gtk.Stack
 	detail                    *gtk.Box
@@ -167,7 +163,7 @@ func (w *Window) newPackages() gtk.Widgetter {
 		Changed: p.changed,
 	})
 	p.ctl = pkgview.NewController(pkgview.Config{
-		Search: search, Catalog: wire.Catalog, Backend: pkgBackend{w: w, inner: wire.Backend}, Clock: wire.Clock,
+		Search: search, Catalog: wire.Catalog, Backend: w.pkgBackend(wire), Clock: wire.Clock,
 		Updates: updates, DBAge: wire.DBAge, Reload: wire.Reload, Changed: p.changed,
 		ShowRun: func() { w.stack.SetVisibleChildName("run") },
 	})
@@ -395,6 +391,10 @@ func (p *pkgPage) emptyState() gtk.Widgetter {
 	box.Append(plainLabel("Type a name or a word from the description. The repositories answer at once; the AUR is asked after a short pause.", "am-note"))
 	p.emptyDB = plainLabel("", "am-note")
 	box.Append(p.emptyDB)
+	p.recent = gtk.NewBox(gtk.OrientationVertical, 2)
+	p.recent.SetMarginTop(8)
+	p.recent.SetVisible(false)
+	box.Append(p.recent)
 	return box
 }
 
@@ -484,6 +484,7 @@ func (p *pkgPage) refreshList() {
 	switch {
 	case !res.Active:
 		p.emptyDB.SetText(p.dbLine())
+		p.fillRecent()
 		p.listStack.SetVisibleChildName("empty")
 		return
 	case len(res.Repo) == 0 && len(res.AUR) == 0 && !res.Searching &&
