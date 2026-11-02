@@ -17,16 +17,17 @@ import (
 type pkgSys struct {
 	t *testing.T
 
-	sync      map[string]bool   // name → in a sync repo
-	installed map[string]string // name → version
-	updates   []string          // pacman -Qu lines
-	planItems []string          // -Sp lines: "repo name version"
-	rel       map[string]string // item → "Replaces : x" / "Conflicts With : y" lines
-	rmItems   []string          // -Rs --print lines: "name version"
-	rmErr     string            // pacman refuses the removal with this (stderr)
-	rmOut     string            // ... and this on stdout
-	owners    string            // -Qqo output
-	baseDeps  string            // "Depends On" value of base
+	sync       map[string]bool   // name → in a sync repo
+	installed  map[string]string // name → version
+	updates    []string          // pacman -Qu lines
+	planItems  []string          // -Sp lines: "repo name version"
+	rel        map[string]string // item → "Replaces : x" / "Conflicts With : y" lines
+	rmItems    []string          // -Rs --print lines: "name version"
+	rmErr      string            // pacman refuses the removal with this (stderr)
+	rmOut      string            // ... and this on stdout
+	owners     string            // -Qqo output
+	ownersExit int               // -Qqo exit (1: some path has no owner)
+	baseDeps   string            // "Depends On" value of base
 
 	queries, streams [][]string
 	// onQuery runs before each query is answered.
@@ -93,7 +94,7 @@ func (p *pkgSys) Query(argv []string) (string, string, int, error) {
 		}
 		return b.String(), "", 0, nil
 	case "-Qqo":
-		return p.owners, "", 0, nil
+		return p.owners, "", p.ownersExit, nil
 	case "-Qi":
 		if len(names) == 1 && names[0] == "base" {
 			return "Name : base\nDepends On      : " + p.baseDeps + "\n", "", 0, nil
@@ -348,6 +349,11 @@ func TestPlanInstallRefusals(t *testing.T) {
 			code, evs := runPkg(t, p, "plan-install", "foo")
 			if code != ExitRefused || !strings.Contains(resultErr(evs), c.want) {
 				t.Errorf("exit %d, want 4: %s", code, resultErr(evs))
+			}
+			// the whole sentence: it names what to install, and ends with a
+			// full stop (the GUI puts its own sentence after it)
+			if want := "remove " + c.other + " first, then install foo."; !strings.HasSuffix(resultErr(evs), want) {
+				t.Errorf("error %q does not end with %q", resultErr(evs), want)
 			}
 			wantReason(t, evs, ReasonConflict, []string{"foo", c.other}, 0)
 			if len(ofType(evs, EventPlan)) != 0 {
@@ -610,6 +616,62 @@ func TestPlanRemove(t *testing.T) {
 }
 
 func TestProtectedRemoval(t *testing.T) {
+	// B4 from the live check: pacman's own refusal (others need the target)
+	// used to come first and hide the protected list. Now the targets are
+	// vetted against the list before pacman is asked about the cascade.
+	t.Run("a protected target is refused before pacman's cascade is asked", func(t *testing.T) {
+		for _, n := range []string{"sudo", "linux-cachyos", "glibc", "limine", "mkinitcpio"} {
+			p := newPkgSys(t)
+			p.installed[n] = "1-1"
+			p.rmErr = "error: failed to prepare transaction (could not satisfy dependencies)"
+			p.rmOut = ":: removing " + n + " breaks dependency '" + n + "' required by archmaid-git\n"
+			code, evs := runPkg(t, p, "plan-remove", n)
+			if code != ExitRefused {
+				t.Errorf("%s: exit %d: %s", n, code, resultErr(evs))
+			}
+			wantReason(t, evs, ReasonProtected, []string{n}, 0)
+			if want := n + " is protected ("; !strings.HasPrefix(resultErr(evs), want) || !strings.HasSuffix(resultErr(evs), "and is never removed here.") {
+				t.Errorf("%s: error %q", n, resultErr(evs))
+			}
+			for _, q := range join(p.queries) {
+				if strings.Contains(q, "-Rs") || strings.Contains(q, "-Rns") {
+					t.Errorf("%s: pacman was asked for the cascade: %q", n, q)
+				}
+			}
+		}
+	})
+	t.Run("an unprotected package pacman refuses: required-by with the dependents", func(t *testing.T) {
+		p := newPkgSys(t)
+		p.installed["pacman-contrib"] = "1-1"
+		p.rmErr = "error: failed to prepare transaction (could not satisfy dependencies)"
+		p.rmOut = ":: removing pacman-contrib breaks dependency 'pacman-contrib' required by some-tool\n"
+		code, evs := runPkg(t, p, "plan-remove", "pacman-contrib")
+		if code != ExitRefused {
+			t.Errorf("exit %d: %s", code, resultErr(evs))
+		}
+		wantReason(t, evs, ReasonRequiredBy, []string{"some-tool"}, 0)
+	})
+	t.Run("the running kernel's owner is protected although some modules dir has no owner", func(t *testing.T) {
+		p := newPkgSys(t)
+		p.installed["linux-cachyos"] = "6.1-1"
+		p.owners, p.ownersExit = "linux-cachyos\n", 1 // pacman -Qqo: exit 1, the owned ones still printed
+		code, evs := runPkg(t, p, "plan-remove", "linux-cachyos")
+		if code != ExitRefused {
+			t.Errorf("exit %d: %s", code, resultErr(evs))
+		}
+		wantReason(t, evs, ReasonProtected, []string{"linux-cachyos"}, 0)
+		if !strings.Contains(resultErr(evs), "(an installed kernel)") {
+			t.Errorf("error %q", resultErr(evs))
+		}
+	})
+	t.Run("the cascade message ends with a full stop", func(t *testing.T) {
+		p := newPkgSys(t)
+		p.rmItems = []string{"foo-old 1-1", "bash 5.2-1"}
+		_, evs := runPkg(t, p, "plan-remove", "foo-old")
+		if !strings.HasSuffix(resultErr(evs), "which is protected (the system shell).") {
+			t.Errorf("error %q", resultErr(evs))
+		}
+	})
 	t.Run("static targets", func(t *testing.T) {
 		for _, n := range []string{"base", "filesystem", "glibc", "bash", "coreutils", "systemd", "pacman", "sudo", "polkit", "archlinux-keyring", "grub", "limine", "mkinitcpio", "linux"} {
 			p := newPkgSys(t)

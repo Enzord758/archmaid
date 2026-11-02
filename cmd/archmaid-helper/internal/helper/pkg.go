@@ -331,7 +331,7 @@ func (s *session) syncDetails(specs []string, installed map[string]string) (map[
 			}
 			if _, ok := installed[c.name]; ok {
 				return nil, &pkgFail{code: ExitRefused, reason: ReasonConflict, names: []string{e.name, c.name},
-					msg: fmt.Sprintf("%s %s the installed package %s: remove %s first, then install", e.name, c.kind, c.name, c.name)}
+					msg: fmt.Sprintf("%s %s the installed package %s: remove %s first, then install %s.", e.name, c.kind, c.name, c.name, e.name)}
 			}
 		}
 	}
@@ -471,6 +471,15 @@ func (s *session) removePlan(names []string, noConfig bool) (Plan, *pkgFail) {
 				msg: fmt.Sprintf("package %q is not installed", n)}
 		}
 	}
+	// The protected list comes before the cascade: pacman's own refusal
+	// (something still needs the target) would otherwise hide it.
+	set, err := s.protectedSet()
+	if err != nil {
+		return Plan{}, failed("%s", err.Error())
+	}
+	if f := protectedTargets(set, names); f != nil {
+		return Plan{}, f
+	}
 	out, errOut, exit, err = r.Query(removePlanArgv(names, noConfig))
 	if err != nil {
 		return Plan{}, failed("pacman %s --print: %v", removeFlag(noConfig), err)
@@ -491,7 +500,7 @@ func (s *session) removePlan(names []string, noConfig bool) (Plan, *pkgFail) {
 		n, _, _ := strings.Cut(it, " ")
 		itemNames = append(itemNames, n)
 	}
-	if f := s.checkProtected(names, items); f != nil {
+	if f := protectedCascade(set, names, items); f != nil {
 		return Plan{}, f
 	}
 	// installed sizes, for the rows (not hashed)

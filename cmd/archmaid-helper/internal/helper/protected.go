@@ -3,6 +3,7 @@ package helper
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -131,34 +132,40 @@ func protectedReason(set map[string]string, name string) string {
 	return ""
 }
 
-// checkProtected refuses (ExitRefused) a removal whose targets, or whose
-// cascade (items, "name version"), hold a protected package.
-func (s *session) checkProtected(targets, items []string) *pkgFail {
-	set, err := s.protectedSet()
-	if err != nil {
-		return failed("%s", err.Error())
-	}
-	isTarget := map[string]bool{}
+// protectedTargets refuses (ExitRefused) a removal whose targets hold a
+// protected package, before pacman is asked anything about the cascade.
+// names is every protected target.
+func protectedTargets(set map[string]string, targets []string) *pkgFail {
 	var names []string
 	var msg string
 	for _, t := range targets {
-		isTarget[t] = true
 		if r := protectedReason(set, t); r != "" {
 			names = append(names, t)
 			if msg == "" {
-				msg = fmt.Sprintf("%s is protected (%s) and is never removed here", t, r)
+				msg = fmt.Sprintf("%s is protected (%s) and is never removed here.", t, r)
 			}
 		}
 	}
+	if len(names) == 0 {
+		return nil
+	}
+	return &pkgFail{code: ExitRefused, reason: ReasonProtected, msg: msg, names: names}
+}
+
+// protectedCascade refuses a removal whose cascade (items, "name version")
+// holds a protected package that is not itself a target.
+func protectedCascade(set map[string]string, targets, items []string) *pkgFail {
+	var names []string
+	var msg string
 	for _, it := range items {
 		name, _, _ := strings.Cut(it, " ")
-		if isTarget[name] {
+		if slices.Contains(targets, name) {
 			continue
 		}
 		if r := protectedReason(set, name); r != "" {
 			names = append(names, name)
 			if msg == "" {
-				msg = fmt.Sprintf("removing this would also remove %s, which is protected (%s)", name, r)
+				msg = fmt.Sprintf("removing this would also remove %s, which is protected (%s).", name, r)
 			}
 		}
 	}

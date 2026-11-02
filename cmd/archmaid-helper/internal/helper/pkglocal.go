@@ -584,7 +584,7 @@ func (s *session) vetLocal(st *staging, args []localArg) *pkgFail {
 			}
 			if _, ok := installed[c.name]; ok {
 				return &pkgFail{code: ExitRefused, reason: ReasonConflict, names: []string{info.name, c.name},
-					msg: fmt.Sprintf("%s %s the installed package %s: remove %s first, then install", info.name, c.kind, c.name, c.name)}
+					msg: fmt.Sprintf("%s %s the installed package %s: remove %s first, then install %s.", info.name, c.kind, c.name, c.name, info.name)}
 			}
 		}
 	}
