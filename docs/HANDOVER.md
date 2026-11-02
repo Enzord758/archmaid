@@ -1332,7 +1332,7 @@ comments and `git log`; this is the "read before you touch it" list.
   `TestBrokenNamesCheckedBeforeSudo`). Keep both when adding a parsed call.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
   *current* maintainer and co-maintainers, never their history. Consequence:
-  the first audit only records a baseline. It is archmaid's only own network call (the programs it starts, pacman, topgrade and yay, use the network as they always do; so does the optional `archmaid-updates-check` user timer, which runs `checkupdates` and `yay -Qua` as the user under `NoNewPrivileges`).
+  the first audit only records a baseline. Network: archmaid's own code talks to `aur.archlinux.org` in three places, always as the user, never as root and never from the helper: the AUR audit (RPC `info`), the Packages page's AUR search and info (RPC `search`/`info`, only when the user types a term of at least 2 characters, debounced, cancellable), and the AUR install (a `git clone`/`fetch` of the package's repo into `~/.cache/archmaid/aur`, and the sources `makepkg` downloads from the PKGBUILD's own URLs, only after the user reviewed and confirmed). The programs archmaid starts (pacman, topgrade, yay) and the optional `archmaid-updates-check` user timer (`checkupdates` and `yay -Qua` as the user under `NoNewPrivileges`) use the network as they always do. The root helper makes no network call of its own; pacman, run by it, downloads packages as it always does.
   A dry run reads the snapshot but never advances it.
 - **Co-maintainers gate like maintainers.** A co-maintainer can push to the
   package's AUR git, so an *added* one is high (named in the gate: "foo:

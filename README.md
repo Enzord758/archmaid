@@ -17,7 +17,10 @@ It comes in three parts that share one engine:
   Logs and Settings pages. Root steps go through **polkit** to a small root
   helper, `/usr/lib/archmaid/archmaid-helper`, which is never setuid
   ([`cmd/archmaid-helper/`](cmd/archmaid-helper/README.md)). One password
-  prompt covers the run: its polkit request and topgrade's `sudo`.
+  prompt covers the run: its polkit request and topgrade's `sudo`. Its
+  **Packages** page searches the repositories and the AUR and installs or
+  removes packages from a confirm sheet (an AUR package is built as you, after
+  you have read its PKGBUILD); every run asks for your password.
 - **A DankMaterialShell bar widget** (`packaging/dms/`) showing the pending
   update count, the last run's outcome and unacknowledged AUR findings. It
   only reads archmaid's state files, and it opens the GUI (or the TUI in a
@@ -148,7 +151,8 @@ Next to the run directories are:
   freed, short attention items such as "Restart recommended");
 - `aur-maintainers.json`: the AUR snapshot the audit compares against;
 - `audit-state.json`: the high findings not yet accepted;
-- `updates-cache.json`: the pending update count, written by the timer.
+- `updates-cache.json`: the pending update count, written by the timer;
+- `aur-reviewed.json`: the AUR commit you last reviewed per package (the Packages page).
 
 The GUI's settings are in `~/.config/archmaid/gui.json`. Everything is
 private (0700/0600).
