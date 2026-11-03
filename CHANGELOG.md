@@ -2,20 +2,24 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes) and `v2.4.0..v2.4.1`.
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (5 commits, tip 5ca7c7a before the release notes).
 
 ## [Unreleased]
+
+## [2.5.0] - 2026-11-04
+
+It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
+
+### Added
+
+- **An opt-in glass look for the GUI** (#254). Settings > Appearance has a "Glass look" switch (off: the look is as it was) and a "Blur behind window" row (Auto, On, Off), both kept in `gui.json` and applied at once, with no restart. The skin is the owner's "Clear" one: a translucent window (about 60 % opaque on a light theme, 76 % on a dark one), softer corners, light edges, a faint sheen, sheets about 72 to 78 % opaque (about 94 % unless the page under them is blurred, see below), and the Run output, the logs and the PKGBUILD text about 93 % opaque. It has no corner marks. The colours still follow libadwaita and DMS, and the light theme keeps its darker state colours. The blur is the compositor's (Hyprland's `decoration:blur`): Auto is translucent only under Hyprland, anywhere else, or with blur Off, the same skin is nearly opaque (window 96 %, sidebar 90 %). While a dialog is open the page under it is blurred (5 px) on a GPU renderer; archmaid-gui's default cairo renderer and the nearly opaque form skip that.
+- **The DMS widget follows DMS's blur** (#254). It has no glass switch of its own. When DMS blurs its layers (`Theme.blurLayersActive`), the hero gets a light edge, a faint sheen, DMS's corner radius and a translucent colour (`Theme.foregroundColor`), and no corner marks. With DMS's blur off but its popup transparency under 85 %, the unfolded update list gets an opaque backing, so the desktop doesn't show through the rows. With DMS's blur off and the popup opaque, the widget is exactly as before.
 
 ### Fixed
 
 - **The window has a minimum height, and the log stops flooding while it is resized** (#255). Dragging it small logged "AdwToastOverlay … exceeds AdwApplicationWindow height: requested 508 px" at every step. The sidebar with its meters asks for up to 508 px, and the meters hid only under 480 px, so a window between the two over-requested; they now hide under 540 px. The window is no shorter than 340 px, which the narrow layout fits (the 630x372 half-screen window still works), and its minimum width is 300 px, as narrow as the pages go.
 - **The sidebar's selection always equals the visible page** (#255). Dragging the window under 760 px wide and then maximising it left Packages highlighted while the header and the page said Overview: the sidebar changing form moves the focus into its list, which selects the focused row. The selection is now the page's alone: one the page didn't ask for is put back, and a click still changes the page. `TestGUINavSync` resizes narrow and wide and forces a drift.
 - **A live light/dark switch now changes the state colours too** (#255). On KDE, switching the colour scheme turned the window dark at once, but the light theme's darker state colours stayed: the sudo and root tags, the Last run "ok" tag and the Updates count were dark amber and green on dark grey. GTK reads a `@define-color` inside `@media (prefers-color-scheme)` when the stylesheet is parsed and does not redo it when the scheme flips. The light set (`style_light.css`) and the glass skin's dark tokens (`glass_dark.css`) are now their own stylesheets, added and removed when the style manager's dark flag changes. `TestGUIColourSchemeLive` flips the scheme light, dark, light, dark on a running window and reads the resolved colours.
-
-### Added
-
-- **An opt-in glass look for the GUI** (#254). Settings > Appearance has a "Glass look" switch (off: the look is as it was) and a "Blur behind window" row (Auto, On, Off), both kept in `gui.json` and applied at once, with no restart. The skin is the owner's "Clear" one: a translucent window (about 60 % opaque on a light theme, 76 % on a dark one), softer corners, light edges, a faint sheen, sheets about 72 to 78 % opaque (about 94 % unless the page under them is blurred, see below), and the Run output, the logs and the PKGBUILD text about 93 % opaque. It has no corner marks. The colours still follow libadwaita and DMS, and the light theme keeps its darker state colours. The blur is the compositor's (Hyprland's `decoration:blur`): Auto is translucent only under Hyprland, anywhere else, or with blur Off, the same skin is nearly opaque (window 96 %, sidebar 90 %). While a dialog is open the page under it is blurred (5 px) on a GPU renderer; archmaid-gui's default cairo renderer and the nearly opaque form skip that.
-- **The DMS widget follows DMS's blur** (#254). It has no glass switch of its own. When DMS blurs its layers (`Theme.blurLayersActive`), the hero gets a light edge, a faint sheen, DMS's corner radius and a translucent colour (`Theme.foregroundColor`), and no corner marks. With DMS's blur off but its popup transparency under 85 %, the unfolded update list gets an opaque backing, so the desktop doesn't show through the rows. With DMS's blur off and the popup opaque, the widget is exactly as before.
 
 ## [2.4.1] - 2026-11-03
 
@@ -444,7 +448,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.5.0...HEAD
+[2.5.0]: https://github.com/Enzord758/archmaid/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/Enzord758/archmaid/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/Enzord758/archmaid/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/Enzord758/archmaid/compare/v2.2.0...v2.3.0
