@@ -9,6 +9,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 ### Fixed
 
 - **A Packages removal now counts in `last-run.json`'s `freed_bytes`**, so the DMS widget shows "2.9 MiB freed" for it like the run page's "frees 2.9 MiB"; an install adds nothing (#251).
+- **GitHub code-scanning alerts closed.**
+  - Both workflows declare least-privilege `permissions`. `ci.yml` gets `contents` and `packages` read only. `ci-image.yml` gets `contents: read`, and its build job keeps `packages: write`.
+  - The GUI's ANSI colour parser reads the colon-form colour numbers with `strconv.ParseUint(…, 8)`, so a value over 255 is refused before any conversion.
+  - The parser already refused such values, so nothing changes in use. A test now covers the colon form.
 
 ## [2.3.0] - 2026-11-03
 

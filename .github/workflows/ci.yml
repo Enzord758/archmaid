@@ -12,6 +12,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege for every job (CodeQL actions/missing-workflow-permissions):
+# read the repo, and read packages so core and gui can pull the CI image from
+# ghcr with the job token. No job writes anything.
+permissions:
+  contents: read
+  packages: read
+
 # Module and e2e paths: update them
 # here (and in the Makefile variables) in this one spot.
 env:

@@ -41,6 +41,12 @@ func TestParseSGR(t *testing.T) {
 		{"params after an extended colour", "\x1b[38;5;1;1ma", Line{"a", []Span{sp(0, 1, Style{FG: idx(1), Bold: true})}}},
 		{"truncated extended colour ignored", "\x1b[38;5ma", Line{Text: "a"}},
 		{"out-of-range extended colour ignored", "\x1b[38;5;300ma", Line{Text: "a"}},
+		// The colon form goes through extColor's num: a value over 255, or a
+		// huge or negative one, is refused, never truncated into range
+		// (300 would wrap to 44, 4294967340 to 44 too).
+		{"colon 256 out of range ignored", "\x1b[38:5:300ma", Line{Text: "a"}},
+		{"colon 24-bit out of range ignored", "\x1b[38:2::10:20:4294967340ma", Line{Text: "a"}},
+		{"colon negative ignored", "\x1b[38:5:-1ma", Line{Text: "a"}},
 		{"attributes on and off", "\x1b[1;2;3;4;7;9ma\x1b[22;23;24;27;29mb", Line{"ab", []Span{sp(0, 1, Style{Bold: true, Dim: true, Italic: true, Underline: true, Reverse: true, Strike: true})}}},
 		{"underline styles", "\x1b[4:3ma\x1b[4:0mb\x1b[21mc", Line{"abc", []Span{sp(0, 1, Style{Underline: true}), sp(2, 3, Style{Underline: true})}}},
 		{"unknown codes ignored", "\x1b[5;53;73ma", Line{Text: "a"}},

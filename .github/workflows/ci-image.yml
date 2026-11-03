@@ -14,6 +14,11 @@ concurrency:
   group: ci-image
   cancel-in-progress: false
 
+# Least privilege by default (CodeQL actions/missing-workflow-permissions); the
+# build job widens it to packages: write to push the image.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest

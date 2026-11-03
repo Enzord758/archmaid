@@ -252,12 +252,18 @@ func split(dst []string, s string, sep byte) []string {
 // extColor reads a colon-form extended colour: 5:n, 2:r:g:b or
 // 2:colourspace:r:g:b.
 func extColor(sub []string, colon bool) (Color, bool) {
+	// ParseUint with bitSize 8 range-checks before any conversion, so a value
+	// over 255 (or negative, or not a number) is refused, never truncated
+	// (CodeQL go/incorrect-integer-conversion).
 	num := func(s string) (uint8, bool) {
-		v, err := strconv.Atoi(s)
 		if s == "" {
-			v, err = 0, nil
+			return 0, true
 		}
-		return uint8(v), err == nil && v >= 0 && v <= 255
+		v, err := strconv.ParseUint(s, 10, 8)
+		if err != nil {
+			return 0, false
+		}
+		return uint8(v), true
 	}
 	switch {
 	case len(sub) >= 2 && sub[0] == "5":
