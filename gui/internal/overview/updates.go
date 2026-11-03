@@ -61,21 +61,33 @@ func ParseUpdates(b []byte) (Updates, bool) {
 // default). A missing, unreadable or malformed file is the zero Updates
 // (Known false).
 func ReadUpdates(stateDir string) Updates {
+	u, _ := ReadUpdatesStamp(stateDir)
+	return u
+}
+
+// ReadUpdatesStamp is ReadUpdates and the file's modification time (zero
+// when it can't be read): the Overview's Updates card tells a finished
+// check by either of them changing (UpdatesCard).
+func ReadUpdatesStamp(stateDir string) (Updates, time.Time) {
 	root := logstore.New(logstore.Options{Dir: stateDir}).Root()
 	if root == "" {
-		return Updates{}
+		return Updates{}, time.Time{}
 	}
 	f, err := os.Open(filepath.Join(root, "updates-cache.json"))
 	if err != nil {
-		return Updates{}
+		return Updates{}, time.Time{}
 	}
 	defer f.Close()
+	var mod time.Time
+	if fi, err := f.Stat(); err == nil {
+		mod = fi.ModTime()
+	}
 	b, err := io.ReadAll(io.LimitReader(f, maxUpdatesFile))
 	if err != nil {
-		return Updates{}
+		return Updates{}, time.Time{}
 	}
 	u, _ := ParseUpdates(b)
-	return u
+	return u, mod
 }
 
 // Fresh: the cache was read and is at most UpdatesFresh old at now (a

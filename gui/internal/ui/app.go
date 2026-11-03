@@ -9,6 +9,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"os"
@@ -23,6 +24,7 @@ import (
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/driver"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/engine/stub"
 	runreport "github.com/Enzord758/archmaid/internal/report"
@@ -81,6 +83,11 @@ type Options struct {
 	// Packages wires the Packages page (packages.go); nil leaves it saying
 	// it is not available in this build.
 	Packages *PackagesWiring
+	// RefreshUpdates starts the updates check the timer runs
+	// (driver.RefreshUpdates: a user unit, no root); it returns once the
+	// check is queued, not when it is done. The Overview's Updates card
+	// reads updates-cache.json for the result. nil leaves its button off.
+	RefreshUpdates func(context.Context) error
 	// hook, when set, sees the window once it is built (the headless
 	// harness drives it from there).
 	hook func(*Window)
@@ -223,7 +230,7 @@ func realConfig() realdriver.Config {
 // not available.
 func realOptions(base engine.Options, newDriver func(engine.Options) engine.Driver, notices func(func(string)), confirm string, atForcedExit func(), pk *realPackages) Options {
 	return Options{NewDriver: newDriver, Engine: base, KeepsPassword: true, KeepPreview: realdriver.KeepPreview, Notices: notices, Confirm: confirm,
-		AtForcedExit: atForcedExit, Packages: pk.wiring()}
+		AtForcedExit: atForcedExit, Packages: pk.wiring(), RefreshUpdates: driver.RefreshUpdates}
 }
 
 // stubDriver is the stub's NewDriver for an ARCHMAID_GUI_SCRIPT value

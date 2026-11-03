@@ -46,7 +46,9 @@ func (w *Window) newOverview() gtk.Widgetter {
 	// six actions, and at most three to a line divides them evenly.
 	last := gtk.NewBox(gtk.OrientationVertical, 0)
 	last.AddCSSClass("am-grid")
+	last.SetSpacing(1) // the grid's hairline between the cards
 	last.Append(w.newLastRun())
+	last.Append(w.newUpdatesCard())
 	box.Append(last)
 
 	w.cells = gtk.NewFlowBox()
@@ -555,6 +557,7 @@ type overviewState struct {
 // updateOverview redraws the cells' running lines and sensitivity, when
 // what they show changed.
 func (w *Window) updateOverview() {
+	w.renderUpdates()
 	st := overviewState{w.current, w.model.Busy, w.cache.line, w.busy, w.model.Prompt != nil, w.model.Phase}
 	if w.shownOverview != nil && *w.shownOverview == st {
 		return

@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Added
+
+- **A "Check for updates" button on the Overview** (#252). An Updates card under Last run reads `updates-cache.json`, the file the timer and the DMS widget use. It says "N updates waiting", "Up to date", "Not checked yet" or "Unknown (check is N days old)", with the held count and when it was checked. The button runs the same check as the timer (`systemctl --user start --no-block archmaid-updates-check.service`, else the installed script), as you, with no root and no password. The card shows "Checking…" with a spinner until the file changes, then the new count, or "Check failed" with the reason if nothing changed in 2 minutes or the check could not start. "Run topgrade" appears when updates are waiting. Both buttons are off while a run goes.
+
 ### Fixed
 
 - **A Packages removal now counts in `last-run.json`'s `freed_bytes`**, so the DMS widget shows "2.9 MiB freed" for it like the run page's "frees 2.9 MiB"; an install adds nothing (#251).

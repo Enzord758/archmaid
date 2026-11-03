@@ -153,10 +153,11 @@ var bareNames = []string{"su", "sudo", "sudo-rs", "pkexec", "pkttyagent", "runus
 // bareAllowed are the bare-name call arguments that run nothing, and why.
 // An entry that no longer matches a hit fails TestNoBarePrivilegedExec.
 var bareAllowed = map[string]string{
-	`gui/internal/ui/overview.go:privTag("sudo")`:                     "a plan row's privilege tag, a label; runs nothing",
-	`gui/internal/ui/packages.go:startAction(IDTopgrade: "topgrade")`: "Update system first: the existing Run topgrade menu action, by its ID; the Driver runs it from sysbin",
-	`internal/helperclient/run.go:Errorf(…, Pkexec: "pkexec")`:        "the display name in an error's text; Run executes sysbin.Pkexec",
-	`internal/privilege/sudowrap.go:Join(…, "sudo")`:                  "the TUI's sudo wrapper's file name, which archmaid writes and never runs (it execs sysbin.Sudo)",
+	`gui/internal/ui/overview.go:privTag("sudo")`:                         "a plan row's privilege tag, a label; runs nothing",
+	`gui/internal/ui/packages.go:startAction(IDTopgrade: "topgrade")`:     "Update system first: the existing Run topgrade menu action, by its ID; the Driver runs it from sysbin",
+	`gui/internal/ui/updates_card.go:startAction(IDTopgrade: "topgrade")`: "the Updates card's Run topgrade: the existing menu action, by its ID; the Driver runs it from sysbin",
+	`internal/helperclient/run.go:Errorf(…, Pkexec: "pkexec")`:            "the display name in an error's text; Run executes sysbin.Pkexec",
+	`internal/privilege/sudowrap.go:Join(…, "sudo")`:                      "the TUI's sudo wrapper's file name, which archmaid writes and never runs (it execs sysbin.Sudo)",
 }
 
 // TestNoBarePrivilegedExec: no product Go file passes a privileged

@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -144,9 +146,20 @@ type Window struct {
 	lastTag     *gtk.Label
 	lastIssues  *gtk.Label
 	lastRun     overview.LastRun
-	menu        map[string]*menuRow
-	current     string
-	logs        *logsPage
+	// The Updates card (updates_card.go): its widgets, the model, the cache
+	// as last read, the check's generation (a stale poll or error ends),
+	// its cancel, and the tests' shorter timeout and poll.
+	upd        *updatesWidgets
+	updCard    overview.UpdatesCard
+	updU       overview.Updates
+	updMod     time.Time
+	updGen     int
+	updCancel  context.CancelFunc
+	updTimeout time.Duration
+	updPoll    uint
+	menu       map[string]*menuRow
+	current    string
+	logs       *logsPage
 	// shownOverview is what the Overview's widgets show (nil: not drawn).
 	shownOverview *overviewState
 	// The Clear caches cell's size line (usercache.go): what was
@@ -188,8 +201,11 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	}
 	w.stack.SetVisibleChildName("overview")
 	w.stack.NotifyProperty("visible-child-name", func() {
-		if w.stack.VisibleChildName() == "logs" {
+		switch w.stack.VisibleChildName() {
+		case "logs":
 			w.refreshLogs()
+		case "overview":
+			w.refreshUpdates()
 		}
 	})
 	w.buildShell()
@@ -453,6 +469,7 @@ func (w *Window) redraw(c runview.Change) {
 		}
 		w.setBusy(false)
 		w.refreshLastRun()
+		w.refreshUpdates() // a topgrade run starts the check by itself
 		w.invalidateUserCache()
 		w.reloadPackages() // topgrade, a Full Cleanup or a repair changed the packages
 		switch {
@@ -622,6 +639,9 @@ func (w *Window) closeRequest() bool {
 		return true
 	}
 	w.closed = true
+	if w.updCancel != nil {
+		w.updCancel()
+	}
 	w.pkgs.closeSheet() // the Packages sheet is not in w.dialogs
 	for id, d := range w.dialogs {
 		delete(w.dialogs, id)
