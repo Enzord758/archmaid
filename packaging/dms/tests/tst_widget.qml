@@ -297,9 +297,9 @@ TestCase {
         compare(o.w.stateColor("ok").toString(), "#9ece6a");
         compare(o.w.stateColor("danger").toString(), "#f7768e");
         Theme.isLightMode = true;
-        compare(o.w.stateColor("ok").toString(), "#4e7d1a");
-        compare(o.w.stateColor("warn").toString(), "#9a6a10");
-        compare(o.w.stateColor("danger").toString(), "#c4223f");
+        compare(o.w.stateColor("ok").toString(), "#3d6114");
+        compare(o.w.stateColor("warn").toString(), "#75510c");
+        compare(o.w.stateColor("danger").toString(), "#a91d36");
         Theme.isLightMode = false;
     }
 }

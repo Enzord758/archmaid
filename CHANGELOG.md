@@ -19,6 +19,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
   - The parser already refused such values, so nothing changes in use. A test now covers the colon form.
 - **The GUI status no longer says "DRY RUN" for a real action that follows a dry run.** Every Start now sets the status's dry flag from its own request, as the Packages page already did, so the discovery and plan phases of Full Cleanup, Clear caches, Repair and the others are clean (#250).
 - **Stop is hidden while any action's gate, confirm or pick is up.** Full Cleanup's gate, Repair's and Clear caches' confirms and the caches pick showed a dimmed Stop before anything ran, as the Packages sheet no longer does. The password and polkit dialogs and running steps keep Stop (#250).
+- **The DMS widget's light-theme state colours now equal the GUI's.** ok `#3d6114`, warn `#75510c` and danger `#a91d36` (at least 4.5:1) replace `#4e7d1a`, `#9a6a10` and `#c4223f`, which missed it in places; dark is unchanged, and a test reads both files so they cannot drift apart (#250).
 
 ## [2.3.0] - 2026-11-03
 

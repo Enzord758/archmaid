@@ -31,10 +31,12 @@
 @define-color am_running_bar #7aa2f7;
 
 /* Light theme only: these colours as text and tag outlines on a light
-   surface score 1.8 to 2.6:1, so they get darker variants. They start from
-   the DMS widget's light stateColor (ok #4e7d1a, warn #9a6a10, danger
-   #c4223f), darkened until each holds 4.5:1 on the sidebar, its selected
-   row and its own 14% tint too; the blue is ours.
+   surface score 1.8 to 2.6:1, so they get darker variants. They started
+   from the DMS widget's old light stateColor (ok #4e7d1a, warn #9a6a10,
+   danger #c4223f), darkened until each holds 4.5:1 on the sidebar, its
+   selected row and its own 14% tint too; the blue is ours. The widget now
+   uses these ok, warn and danger values (packaging/dms/statecolours_test.go
+   keeps them equal).
    TestLightStateColoursContrast holds them to that. Bars and markers use
    the am_*_bar tokens above, so they keep the bright colours. */
 @media (prefers-color-scheme: light) {

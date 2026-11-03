@@ -57,13 +57,13 @@ PluginComponent {
         const light = Theme.isLightMode;
         switch (tone) {
         case "ok":
-            return light ? "#4e7d1a" : "#9ece6a";
+            return light ? "#3d6114" : "#9ece6a";
         case "warn":
-            return light ? "#9a6a10" : "#e0af68";
+            return light ? "#75510c" : "#e0af68";
         case "neutral":
             return Theme.surfaceText;
         case "danger":
-            return light ? "#c4223f" : "#f7768e";
+            return light ? "#a91d36" : "#f7768e";
         default:
             return Theme.surfaceVariantText;
         }

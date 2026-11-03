@@ -36,7 +36,7 @@ DMS's chrome, DMS's palette for everything but the state):
   pending"); the attention lines are the run's other attention items plus the first high AUR
   finding, and never repeat the headline.
 - **State colours** are fixed Tokyo Night constants, ok `#9ece6a`, warn `#e0af68`, danger
-  `#f7768e`, and a darker set on a light theme (`#4e7d1a`, `#9a6a10`, `#c4223f`), chosen by
+  `#f7768e`, and a darker set on a light theme (`#3d6114`, `#75510c`, `#a91d36`, the GUI's light tokens, each at least 4.5:1; `statecolours_test.go` reads both files), chosen by
   `Theme.isLightMode` (DMS's own flag, checked in DMS's `Common/Theme.qml`). Everything else
   (text, surfaces, primary, the buttons) is the DMS palette.
 - Under the hero the run's numbers in mono ("47 upgraded · 3.1 GiB freed"), then three compact
