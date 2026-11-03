@@ -63,7 +63,7 @@ if [[ $# -eq 0 ]]; then
 	cov='^TestGUICov'
 	pkgs='^TestGUIPackages$'
 	pkgflow='^TestGUIPackagesFlow$'
-	glass='^TestGUIGlass'
+	glass='^TestGUI(Glass|ColourSchemeLive)'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when

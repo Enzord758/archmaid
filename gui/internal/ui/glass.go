@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/diamondburned/gotk4/pkg/core/glib"
-	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/settings"
@@ -28,6 +27,9 @@ import (
 
 //go:embed glass.css
 var glassCSS string
+
+//go:embed glass_dark.css
+var glassDarkCSS string
 
 const (
 	glassClass    = "am-glass"
@@ -62,41 +64,15 @@ func glassModeFor(s settings.Settings, getenv func(string) string) glassMode {
 // its classes (scoped, newWideDialog). Main thread only.
 var glassNow = glassOff
 
-// glassProvider is glass.css's provider while it is on the display, and
-// glassErrors its parse errors (tests read them).
-var (
-	glassProvider *gtk.CSSProvider
-	glassErrors   []string
-)
+// glassProvider is glass.css's provider while it is on the display. It
+// sits one above the light state colours (glassPriority) and still under
+// the user's gtk.css, where DMS defines the named colours the tokens in it
+// are derived from.
+var glassProvider *gtk.CSSProvider
 
 // setGlassProvider loads glass.css for the default display, or removes it.
-// The provider sits one above style.css (APPLICATION + 1) and still under
-// the user's gtk.css, where DMS defines the named colours the tokens in
-// it are derived from.
 func setGlassProvider(on bool) {
-	display := gdk.DisplayGetDefault()
-	if display == nil {
-		return
-	}
-	if !on {
-		if glassProvider != nil {
-			gtk.StyleContextRemoveProviderForDisplay(display, glassProvider)
-			glassProvider = nil
-		}
-		return
-	}
-	if glassProvider != nil {
-		return
-	}
-	p := gtk.NewCSSProvider()
-	p.ConnectParsingError(func(_ *gtk.CSSSection, err error) {
-		styleMu.Lock()
-		glassErrors = append(glassErrors, err.Error())
-		styleMu.Unlock()
-	})
-	p.LoadFromString(glassCSS)
-	gtk.StyleContextAddProviderForDisplay(display, p, gtk.STYLE_PROVIDER_PRIORITY_APPLICATION+1)
-	glassProvider = p
+	setProvider(&glassProvider, "glass.css", glassCSS, glassPriority, on)
 }
 
 // glassClasses puts widget's glass classes in line with mode.
@@ -122,6 +98,7 @@ func (w *Window) applyGlass() {
 	mode := glassModeFor(w.settings, os.Getenv)
 	glassNow = mode
 	setGlassProvider(mode != glassOff)
+	syncScheme() // the dark tokens go with the skin
 	glassClasses(w.win, mode)
 	for d := range w.openDialogs {
 		glassClasses(d, mode)

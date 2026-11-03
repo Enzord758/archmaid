@@ -1,0 +1,6 @@
+/* The light theme's state colours (see style.css): loaded over it while
+   AdwStyleManager says the theme is light, removed when it turns dark. */
+@define-color am_ok #3d6114;
+@define-color am_warn #75510c;
+@define-color am_danger #a91d36;
+@define-color am_running #2952b2;

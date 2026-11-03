@@ -1,0 +1,12 @@
+/* The glass tokens of the dark theme (glass.css has the light ones): loaded
+   over glass.css while the skin is on and AdwStyleManager says dark, one
+   priority above it. */
+@define-color am_glass_win alpha(@window_bg_color, 0.76);
+@define-color am_glass_side alpha(shade(@window_bg_color, 0.6), 0.64);
+@define-color am_glass_side_fb alpha(shade(@window_bg_color, 0.6), 0.90);
+@define-color am_glass_card alpha(@window_fg_color, 0.09);
+@define-color am_glass_sheet alpha(@dialog_bg_color, 0.78);
+@define-color am_glass_edge rgba(255, 255, 255, 0.16);
+@define-color am_glass_sheen_top rgba(255, 255, 255, 0.10);
+@define-color am_glass_navsel rgba(255, 255, 255, 0.14);
+@define-color am_glass_btn rgba(255, 255, 255, 0.12);

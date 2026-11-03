@@ -36,15 +36,13 @@
    danger #c4223f), darkened until each holds 4.5:1 on the sidebar, its
    selected row and its own 14% tint too; the blue is ours. The widget now
    uses these ok, warn and danger values (packaging/dms/statecolours_test.go
-   keeps them equal).
+   keeps them equal). They live in style_light.css.
    TestLightStateColoursContrast holds them to that. Bars and markers use
    the am_*_bar tokens above, so they keep the bright colours. */
-@media (prefers-color-scheme: light) {
-  @define-color am_ok #3d6114;
-  @define-color am_warn #75510c;
-  @define-color am_danger #a91d36;
-  @define-color am_running #2952b2;
-}
+/* (The light set is style_light.css, loaded by style.go while the theme is
+   light and swapped on AdwStyleManager's dark flag: GTK resolves a
+   @define-color inside @media (prefers-color-scheme) when the sheet is
+   parsed and does not redo it on a live switch.) */
 
 /* Tokens derived from the named colours, so they follow DMS. */
 @define-color am_muted alpha(@window_fg_color, 0.55);

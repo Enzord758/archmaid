@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A live light/dark switch now changes the state colours too** (#255). On KDE, switching the colour scheme turned the window dark at once, but the light theme's darker state colours stayed: the sudo and root tags, the Last run "ok" tag and the Updates count were dark amber and green on dark grey. GTK reads a `@define-color` inside `@media (prefers-color-scheme)` when the stylesheet is parsed and does not redo it when the scheme flips. The light set (`style_light.css`) and the glass skin's dark tokens (`glass_dark.css`) are now their own stylesheets, added and removed when the style manager's dark flag changes. `TestGUIColourSchemeLive` flips the scheme light, dark, light, dark on a running window and reads the resolved colours.
+
 ### Added
 
 - **An opt-in glass look for the GUI** (#254). Settings > Appearance has a "Glass look" switch (off: the look is as it was) and a "Blur behind window" row (Auto, On, Off), both kept in `gui.json` and applied at once, with no restart. The skin is the owner's "Clear" one: a translucent window (about 60 % opaque on a light theme, 76 % on a dark one), softer corners, light edges, a faint sheen, sheets about 72 to 78 % opaque, and the Run output, the logs and the PKGBUILD text about 93 % opaque. It has no corner marks. The colours still follow libadwaita and DMS, and the light theme keeps its darker state colours. The blur is the compositor's (Hyprland's `decoration:blur`): Auto is translucent only under Hyprland, anywhere else, or with blur Off, the same skin is nearly opaque (window 96 %, sidebar 90 %). While a dialog is open the page under it is blurred (5 px) on a GPU renderer; archmaid-gui's default cairo renderer and the nearly opaque form skip that.

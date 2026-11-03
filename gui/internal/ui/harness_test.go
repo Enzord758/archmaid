@@ -1029,7 +1029,7 @@ func runChild(scenario, path string) int {
 	rep.Launched = launcher.Calls()
 	styleMu.Lock()
 	for _, e := range styleErrors {
-		fail("style.css: %s", e)
+		fail("stylesheet: %s", e)
 	}
 	styleMu.Unlock()
 	rep.DriverCloses = closes.Load()

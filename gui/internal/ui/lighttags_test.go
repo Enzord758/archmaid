@@ -1,8 +1,8 @@
 package ui
 
-// The light theme's state colours (task #247): style.css gives the Tokyo
-// Night state colours darker variants inside @media (prefers-color-scheme:
-// light), so tag outlines and state text read at 4.5:1 (WCAG AA, small
+// The light theme's state colours (task #247): style_light.css gives the
+// Tokyo Night state colours darker variants, loaded while the theme is
+// light, so tag outlines and state text read at 4.5:1 (WCAG AA, small
 // text) on every light surface. This reads them out of style.css, so it
 // fails if someone lightens them again. The dark theme's values are the
 // top-level definitions and are not tested here.
@@ -61,19 +61,15 @@ func contrast(a, b rgb) float64 {
 	return (x + 0.05) / (y + 0.05)
 }
 
-// lightColours reads the @define-color lines inside the light @media block.
+// lightColours reads the @define-color lines of style_light.css.
 func lightColours(t *testing.T) map[string]string {
 	t.Helper()
-	css, err := os.ReadFile("style.css")
+	css, err := os.ReadFile("style_light.css")
 	if err != nil {
 		t.Fatal(err)
 	}
-	blk := regexp.MustCompile(`(?s)@media \(prefers-color-scheme: light\) \{(.*?)\n\}`).FindSubmatch(css)
-	if blk == nil {
-		t.Fatal("style.css has no @media (prefers-color-scheme: light) block")
-	}
 	got := map[string]string{}
-	for _, m := range regexp.MustCompile(`@define-color (am_\w+) (#[0-9a-fA-F]{6});`).FindAllSubmatch(blk[1], -1) {
+	for _, m := range regexp.MustCompile(`@define-color (am_\w+) (#[0-9a-fA-F]{6});`).FindAllSubmatch(css, -1) {
 		got[string(m[1])] = string(m[2])
 	}
 	return got

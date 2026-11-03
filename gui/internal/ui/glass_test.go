@@ -63,7 +63,7 @@ func TestContentBlurOK(t *testing.T) {
 // marks, the content blur rule, and nothing that redefines a libadwaita or
 // DMS colour name or reaches outside the .archmaid scope.
 func TestGlassCSS(t *testing.T) {
-	css := glassCSS
+	css := glassCSS + glassDarkCSS
 	// Window 60 % light, 76 % dark; sheet 72 % and 78 %; text surfaces 93 %;
 	// the fallback's window 96 % and sidebar 90 %.
 	for _, want := range []string{

@@ -4,9 +4,8 @@ package dms
 // theme darkens its ok, warn and danger tokens until they hold 4.5:1 (WCAG AA,
 // small text; gui/internal/ui/lighttags_test.go), and the widget's stateColor
 // must use the same values or the two drift apart again. This reads both
-// files: ArchmaidWidget.qml's stateColor and style.css's am_ok, am_warn and
-// am_danger, the top-level ones for the dark theme and the ones inside the
-// light @media block for a light theme.
+// files: ArchmaidWidget.qml's stateColor and the GUI's am_ok, am_warn and
+// am_danger, style.css's for the dark theme and style_light.css's for a light one.
 
 import (
 	"os"
@@ -41,18 +40,17 @@ func TestWidgetStateColoursMatchTheGUI(t *testing.T) {
 	}
 
 	define := regexp.MustCompile(`@define-color am_(ok|warn|danger|running) (#[0-9a-fA-F]{6});`)
-	light := regexp.MustCompile(`(?s)@media \(prefers-color-scheme: light\) \{(.*?)\n\}`).FindSubmatch(css)
-	if light == nil {
-		t.Fatal("style.css has no light @media block")
+	light, err := os.ReadFile("../../gui/internal/ui/style_light.css")
+	if err != nil {
+		t.Fatal(err)
 	}
 	gui := map[string][2]string{} // tone -> light, dark
-	for _, m := range define.FindAllSubmatch(light[1], -1) {
+	for _, m := range define.FindAllSubmatch(light, -1) {
 		v := gui[string(m[1])]
 		v[0] = strings.ToLower(string(m[2]))
 		gui[string(m[1])] = v
 	}
-	dark := strings.Replace(string(css), string(light[0]), "", 1)
-	for _, m := range define.FindAllStringSubmatch(dark, -1) {
+	for _, m := range define.FindAllStringSubmatch(string(css), -1) {
 		v := gui[m[1]]
 		v[1] = strings.ToLower(m[2])
 		gui[m[1]] = v
