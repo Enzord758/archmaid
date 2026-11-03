@@ -18,6 +18,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
   - The GUI's ANSI colour parser reads the colon-form colour numbers with `strconv.ParseUint(…, 8)`, so a value over 255 is refused before any conversion.
   - The parser already refused such values, so nothing changes in use. A test now covers the colon form.
 - **The GUI status no longer says "DRY RUN" for a real action that follows a dry run.** Every Start now sets the status's dry flag from its own request, as the Packages page already did, so the discovery and plan phases of Full Cleanup, Clear caches, Repair and the others are clean (#250).
+- **Stop is hidden while any action's gate, confirm or pick is up.** Full Cleanup's gate, Repair's and Clear caches' confirms and the caches pick showed a dimmed Stop before anything ran, as the Packages sheet no longer does. The password and polkit dialogs and running steps keep Stop (#250).
 
 ## [2.3.0] - 2026-11-03
 

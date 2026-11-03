@@ -1,9 +1,10 @@
 package ui
 
-// Task #250: what the next action's status says. A dry run's "DRY RUN" must
-// not carry into a real action's discovery or plan phase. Real widgets, a
-// Driver that takes every command and answers none: the scenario feeds the
-// events.
+// Task #250: what the next action's status and Stop say. A dry run's "DRY
+// RUN" must not carry into a real action's discovery or plan phase, and Stop
+// is hidden while any action's gate, confirm or pick is up (nothing has run;
+// the sheet has its own Cancel), not only Packages'. Real widgets, a Driver
+// that takes every command and answers none: the scenario feeds the events.
 
 import (
 	"strings"
@@ -36,6 +37,9 @@ func covStartState(c *covEnv) {
 			c.ok(!strings.Contains(s, "DRY RUN"), "%s: status %q still says DRY RUN", when, s)
 		}
 	}
+	stop := func(when string, want bool) {
+		c.ok(w.stopBtn.IsVisible() == want && w.stopBtn.Sensitive() == want, "%s: Stop visible %v, want %v", when, w.stopBtn.IsVisible(), want)
+	}
 	step := []engine.PlanStep{{ID: "s1", Title: "S1"}}
 	c.seq(60,
 		func() { // a dry run of Full Cleanup, then it ends
@@ -50,23 +54,30 @@ func covStartState(c *covEnv) {
 			dry("right after Start")
 			c.feed(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Looking…"})
 			dry("discovery")
+			stop("Repair discovery", true)
 			c.feed(engine.NeedsConfirm{ID: 1, Kind: engine.ConfirmGate, Title: "Repair?"})
 			dry("the confirm")
+			stop("Repair confirm", false)
 			c.feed(engine.PromptClosed{ID: 1}, engine.Finished{Action: actions.IDRepair, Outcome: engine.OutcomeCancelled})
 		},
 		func() { // Full Cleanup's gate, a password prompt, a running step
 			w.startAction(actions.IDFullCleanup)
 			dry("Full Cleanup start")
+			stop("Full Cleanup before the gate", true)
 			c.feed(engine.NeedsPassword{ID: 1})
+			stop("the up-front password", true)
 			c.feed(engine.PromptClosed{ID: 1})
 			c.feed(engine.NeedsConfirm{ID: 2, Kind: engine.ConfirmGate, Title: "Proceed?"})
+			stop("Full Cleanup gate", false)
 			c.feed(engine.PromptClosed{ID: 2}, engine.QueueStarted{Action: actions.IDFullCleanup, Steps: step})
 			dry("the plan")
+			stop("a running step", true)
 		},
 		func() {
 			c.feed(engine.Finished{Action: actions.IDFullCleanup, Outcome: engine.OutcomeCompleted})
 			w.startAction(actions.IDClearCaches) // its pick
 			c.feed(engine.NeedsSelection{ID: 1, Title: "Caches", Items: []string{"a"}})
+			stop("the caches pick", false)
 			c.feed(engine.PromptClosed{ID: 1}, engine.Finished{Action: actions.IDClearCaches, Outcome: engine.OutcomeCancelled})
 			c.ok(!w.busy, "busy after the end; dialogs %d", len(w.dialogs))
 		},

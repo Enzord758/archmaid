@@ -57,6 +57,7 @@ func (w *Window) answer(id engine.PromptID, cmd func() engine.Command) {
 		return
 	}
 	w.setStatus() // no longer "Waiting…"
+	w.updateStop()
 	w.send(cmd())
 }
 

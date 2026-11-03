@@ -327,6 +327,14 @@ func (w *Window) setBusy(busy bool) {
 // ends the waiting pkexec).
 func (w *Window) updateStop() {
 	show := w.busy
+	// Every action: no Stop while a gate, a confirm or a pick (a sheet with
+	// its own Cancel) is up before the queue starts; nothing has run. The
+	// password prompt and polkit's dialog keep it (it ends the waiting
+	// pkexec), as the running steps do.
+	if show && !w.queued && w.current != actions.IDPackages && w.model.Prompt != nil &&
+		(w.model.Prompt.Confirm != nil || w.model.Prompt.Selection != nil) {
+		show = false
+	}
 	if show && w.current == actions.IDPackages {
 		switch {
 		case w.pkgs != nil && w.pkgs.ctl != nil && w.pkgs.ctl.Sheet.Open():
