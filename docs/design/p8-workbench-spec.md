@@ -232,7 +232,7 @@ Breakpoints (`AdwBreakpoint` on the window):
   then the action cells as rows). The Logs page uses an
   `AdwNavigationSplitView` (runs, then the log, with Back). Settings cards
   stack in one column.
-- **`max-height: 480sp`**: the meters are hidden (the footer keeps "free
+- **`max-height: 540sp`** (480 until #255: the sidebar with its meters asks for up to 508 px): the meters are hidden (the footer keeps "free
   …"). The Run header compacts to one line (kicker + elapsed) and keeps the
   segment bar. The hero title drops from 46 to 28 px, and the step list on
   the hero is hidden.

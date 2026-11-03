@@ -182,6 +182,15 @@ type Window struct {
 	toasted []string
 }
 
+// minWindowHeight is the window's minimum height: the narrow layout asks
+// for 308 to 318 px (a short and narrow window), so this is under the 372
+// the spec keeps working (spec 1.8).
+const minWindowHeight = 340
+
+// minWindowWidth is under every width the tests check (the narrowest, 300
+// px, is the Settings and Logs pages' own request).
+const minWindowWidth = 300
+
 func newWindow(app *adw.Application, opts Options) *Window {
 	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*amDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
@@ -192,6 +201,12 @@ func newWindow(app *adw.Application, opts Options) *Window {
 	}
 	w.win.SetTitle(w.title())
 	w.win.SetDefaultSize(960, 640)
+	// No window is shorter than the narrow layout needs (about 320 px with
+	// the stub's banner); below it libadwaita logs "AdwToastOverlay exceeds
+	// AdwApplicationWindow height" at every resize step. The width has none
+	// of its own beyond minWindowWidth, the narrowest the pages fit
+	// (libadwaita logs a warning for a window with no width request).
+	w.win.SetSizeRequest(minWindowWidth, minWindowHeight)
 
 	w.stopBtn = gtk.NewButtonWithLabel("Stop")
 	w.stopBtn.AddCSSClass("destructive-action")

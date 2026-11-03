@@ -15,8 +15,12 @@ import (
 // ("N/A"). Hidden in a short window (shortHeight), where the footer's
 // "free …" stays.
 
-// shortHeight is where the meters hide (spec 1.8).
-const shortHeight = "max-height: 480sp"
+// shortHeight is where the meters hide (spec 1.8). Not 480: the wide
+// layout's sidebar asks for 449 to 508 px of height with the meters in it
+// (the KDE check measured 508), and a window between 480 and that logged
+// "AdwToastOverlay exceeds AdwApplicationWindow height" at every resize
+// step.
+const shortHeight = "max-height: 540sp"
 
 type meter struct {
 	value *gtk.Label
