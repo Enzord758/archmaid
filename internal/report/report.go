@@ -196,6 +196,15 @@ func (r Report) Summary() Summary {
 		}
 	}
 	s.FreedBytes = r.FreedBytes
+	// A Packages page run that ends smaller than it began freed that much
+	// (the run page's "frees X"); one that uses space adds nothing, never a
+	// negative. Report.FreedBytes (the cleaning steps' rows) is left as it is
+	// and the two are only summed here, in the stored summary: SizeChange is
+	// set for the Packages page alone, whose runs have no cleaning rows, so
+	// no byte is counted twice.
+	if r.Action == ActionPackages && r.Packages != nil && r.Packages.SizeKnown && r.Packages.SizeChange < 0 {
+		s.FreedBytes += uint64(-r.Packages.SizeChange)
+	}
 	for _, a := range r.Attention {
 		s.Attention = append(s.Attention, a.Short)
 	}

@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **A Packages removal now counts in `last-run.json`'s `freed_bytes`**, so the DMS widget shows "2.9 MiB freed" for it like the run page's "frees 2.9 MiB"; an install adds nothing (#251).
+
 ## [2.3.0] - 2026-11-03
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate, the test VM CI (`run.sh ci`: core, e2e, gui, bench) and two live checks of the Packages page in the test VM. Those checks did real repo and AUR installs and removals, and tried tampering with the built files.

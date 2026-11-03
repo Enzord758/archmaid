@@ -441,3 +441,39 @@ func TestPacnewItems(t *testing.T) {
 		t.Errorf("items %+v", items)
 	}
 }
+
+// TestSummaryPackagesFreedBytes: a Packages page removal puts the size it
+// frees in the stored summary's FreedBytes (what the widget shows as
+// "freed"); an install, which uses space, adds nothing and never goes
+// negative; a mixed run counts only a net shrink; cleaning rows are kept and
+// summed with it; a failed run (Packages nil) has none.
+func TestSummaryPackagesFreedBytes(t *testing.T) {
+	pk := func(inst, rem int, change int64, known bool) *Packages {
+		return &Packages{
+			Installed: make([]Pkg, inst), Removed: make([]Pkg, rem),
+			SizeChange: change, SizeKnown: known,
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		r    Report
+		want uint64
+	}{
+		{"removal", Report{Action: ActionPackages, Packages: pk(0, 1, -3050000, true)}, 3050000},
+		{"install", Report{Action: ActionPackages, Packages: pk(1, 0, 4000000, true)}, 0},
+		{"mixed net shrink (AUR build + removed deps)", Report{Action: ActionPackages, Packages: pk(1, 3, -2000000, true)}, 2000000},
+		{"mixed net growth", Report{Action: ActionPackages, Packages: pk(2, 1, 500, true)}, 0},
+		{"size unknown", Report{Action: ActionPackages, Packages: pk(0, 1, -9, false)}, 0},
+		{"failed before any change", Report{Action: ActionPackages}, 0},
+		{"other action ignores it", Report{Action: "full", Packages: pk(0, 1, -9, true)}, 0},
+		{"summed with cleaning rows", Report{Action: ActionPackages, Packages: pk(0, 1, -100, true), FreedBytes: 50}, 150},
+	} {
+		if got := tc.r.Summary().FreedBytes; got != tc.want {
+			t.Errorf("%s: FreedBytes %d, want %d", tc.name, got, tc.want)
+		}
+	}
+	r := Report{Action: ActionPackages, Packages: pk(0, 1, -100, true)}
+	if r.FreedBytes != 0 || r.Summary().Removed != 1 {
+		t.Errorf("the report's own FreedBytes must stay the cleaning steps' only: %+v", r)
+	}
+}
