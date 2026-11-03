@@ -5,6 +5,10 @@ import QtQuick
 // widget's real QML can be rendered offscreen by tst_widget.qml.
 QtObject {
     property bool isLightMode: false
+    // DMS's blur state and popup transparency, and its corner radius.
+    property bool blurLayersActive: false
+    property real popupTransparency: 1.0
+    property real cornerRadius: 12
     property color error: "#e57373"
     property color warning: "#ffb74d"
     property color primary: "#f0a6c8"
@@ -20,6 +24,11 @@ QtObject {
     property real spacingXS: 4
     property real spacingS: 8
     property real spacingM: 12
+    // DMS blends a foreground layer's colour to a translucent one while it
+    // blurs its layers, and leaves it as it is otherwise.
+    function foregroundColor(c) {
+        return blurLayersActive ? withAlpha(c, 0.5) : c;
+    }
     function withAlpha(c, a) {
         return Qt.rgba(c.r, c.g, c.b, a);
     }

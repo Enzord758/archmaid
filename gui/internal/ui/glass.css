@@ -1,0 +1,117 @@
+/* archmaid-gui's glass skin (task #254; the owner's "Clear" look from the
+   glass mockup). Loaded by glass.go only while Settings > Glass look is on,
+   as a second provider one above style.css (APPLICATION + 1), so it wins
+   over style.css and stays under the user's gtk.css, where DMS defines the
+   named colours.
+
+   Rules for this file, as for style.css:
+   - Every selector starts with .archmaid.am-glass: the window and every
+     dialog carry both classes, and only while the skin is on. The
+     fallback (no compositor blur) adds .am-glass-fb.
+   - Never redefine a libadwaita or DMS colour name. The surfaces are
+     alpha() of them (window_bg_color, view_bg_color, card_bg_color,
+     dialog_bg_color), so light and dark, and DMS, still decide the hue;
+     only the alpha is ours.
+   - The state colours are style.css's, light theme's darker set included
+     (#247): this file does not touch them.
+
+   Clear, from the mockup's .v-clear rules. Window 0.60 light / 0.76 dark
+   over the compositor's blur; text surfaces 0.93; sheets 0.72 / 0.78.
+   The fallback (.v-clear under data-blur="fb"): window 0.96, sidebar 0.90,
+   the rest as with blur. */
+
+/* Light. */
+@define-color am_glass_win alpha(@window_bg_color, 0.60);
+@define-color am_glass_win_fb alpha(@window_bg_color, 0.96);
+@define-color am_glass_side alpha(shade(@window_bg_color, 0.93), 0.46);
+@define-color am_glass_side_fb alpha(shade(@window_bg_color, 0.93), 0.90);
+@define-color am_glass_card alpha(@card_bg_color, 0.44);
+@define-color am_glass_sheet alpha(@dialog_bg_color, 0.72);
+@define-color am_glass_text alpha(@view_bg_color, 0.93);
+@define-color am_glass_edge rgba(255, 255, 255, 0.55);
+@define-color am_glass_sheen_top rgba(255, 255, 255, 0.40);
+@define-color am_glass_sheen_end rgba(255, 255, 255, 0);
+@define-color am_glass_navsel rgba(255, 255, 255, 0.55);
+@define-color am_glass_btn alpha(@window_fg_color, 0.10);
+@define-color am_glass_shadow rgba(0, 0, 0, 0.16);
+
+@media (prefers-color-scheme: dark) {
+  @define-color am_glass_win alpha(@window_bg_color, 0.76);
+  @define-color am_glass_side alpha(shade(@window_bg_color, 0.6), 0.64);
+  @define-color am_glass_side_fb alpha(shade(@window_bg_color, 0.6), 0.90);
+  @define-color am_glass_card alpha(@window_fg_color, 0.09);
+  @define-color am_glass_sheet alpha(@dialog_bg_color, 0.78);
+  @define-color am_glass_edge rgba(255, 255, 255, 0.16);
+  @define-color am_glass_sheen_top rgba(255, 255, 255, 0.10);
+  @define-color am_glass_navsel rgba(255, 255, 255, 0.14);
+  @define-color am_glass_btn rgba(255, 255, 255, 0.12);
+}
+
+/* The window: a translucent background. libadwaita paints the window with
+   window_bg_color on the window node itself; its flat header bar and the
+   toolbar view add nothing over it (TestGUIGlass reads the screenshot's
+   alpha to prove it), and the split view's sidebar pane gets its own
+   alpha below. */
+window.archmaid.am-glass { background-color: @am_glass_win; }
+window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
+.archmaid.am-glass .sidebar-pane { background-color: @am_glass_side; }
+.archmaid.am-glass.am-glass-fb .sidebar-pane { background-color: @am_glass_side_fb; }
+.archmaid.am-glass .am-sidebar { background-color: transparent; }
+.archmaid.am-glass .navigation-sidebar > row:selected { background-color: @am_glass_navsel; }
+
+/* Surfaces: rounded, translucent, with a light edge and a faint sheen
+   from the top left. No corner marks on the glass (the default look keeps
+   them). */
+.archmaid.am-glass .am-hero,
+.archmaid.am-glass .am-cell,
+.archmaid.am-glass .am-tray,
+.archmaid.am-glass .card {
+  background-color: @am_glass_card;
+  background-image: linear-gradient(135deg, @am_glass_sheen_top 0%, @am_glass_sheen_end 42%);
+  border: 1px solid @am_glass_edge;
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 @am_glass_edge, 0 10px 30px @am_glass_shadow;
+}
+.archmaid.am-glass .am-hero { border-radius: 14px; }
+/* The marks are eight background layers, positioned and sized: the sheen
+   that replaces them must reset those lists too, or it is drawn as one
+   10 by 1 px strip. */
+.archmaid.am-glass .am-blueprint {
+  background-image: linear-gradient(135deg, @am_glass_sheen_top 0%, @am_glass_sheen_end 42%);
+  background-size: auto;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+}
+.archmaid.am-glass button.am-blueprint {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+  border-radius: 8px;
+}
+.archmaid.am-glass .am-hero.am-blueprint { background-color: @am_glass_card; }
+/* The grid of cells: separate glass cells 8 px apart instead of a hairline
+   grid (the flow box spaces them 1 px; the rest is the cells' margin). */
+.archmaid.am-glass .am-grid { background-color: transparent; border: 0 solid transparent; }
+.archmaid.am-glass .am-grid > flowboxchild { padding: 3px; }
+.archmaid.am-glass .am-tag { border-radius: 4px; }
+
+/* Text surfaces stay 93 % opaque: output, logs, PKGBUILD review. */
+.archmaid.am-glass .am-text-surface,
+.archmaid.am-glass .am-text-surface > listview,
+.archmaid.am-glass .am-text-surface > textview { background-color: @am_glass_text; }
+.archmaid.am-glass .am-text-surface { border-radius: 6px; }
+.archmaid.am-glass .am-timeline { background-color: transparent; }
+
+/* Sheets: the dialogs. Without corner marks. */
+.archmaid.am-glass.am-dialog sheet {
+  border-radius: 14px;
+  background-color: @am_glass_sheet;
+  background-image: linear-gradient(135deg, @am_glass_sheen_top 0%, @am_glass_sheen_end 42%);
+  background-size: auto;
+  background-position: 0 0;
+  background-repeat: no-repeat;
+  border: 1px solid @am_glass_edge;
+  box-shadow: inset 0 1px 0 @am_glass_edge;
+}
+
+/* The page under an open dialog is blurred (glass.go adds am-under-dialog
+   to am-content only on a GPU renderer and not in the fallback). */
+.archmaid.am-glass .am-content.am-under-dialog { filter: blur(5px); }

@@ -6,6 +6,11 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Added
+
+- **An opt-in glass look for the GUI** (#254). Settings > Appearance has a "Glass look" switch (off: the look is as it was) and a "Blur behind window" row (Auto, On, Off), both kept in `gui.json` and applied at once, with no restart. The skin is the owner's "Clear" one: a translucent window (about 60 % opaque on a light theme, 76 % on a dark one), softer corners, light edges, a faint sheen, sheets about 72 to 78 % opaque, and the Run output, the logs and the PKGBUILD text about 93 % opaque. It has no corner marks. The colours still follow libadwaita and DMS, and the light theme keeps its darker state colours. The blur is the compositor's (Hyprland's `decoration:blur`): Auto is translucent only under Hyprland, anywhere else, or with blur Off, the same skin is nearly opaque (window 96 %, sidebar 90 %). While a dialog is open the page under it is blurred (5 px) on a GPU renderer; archmaid-gui's default cairo renderer and the nearly opaque form skip that.
+- **The DMS widget follows DMS's blur** (#254). It has no glass switch of its own. When DMS blurs its layers (`Theme.blurLayersActive`), the hero gets a light edge, a faint sheen, DMS's corner radius and a translucent colour (`Theme.foregroundColor`), and no corner marks. With DMS's blur off but its popup transparency under 85 %, the unfolded update list gets an opaque backing, so the desktop doesn't show through the rows. With DMS's blur off and the popup opaque, the widget is exactly as before.
+
 ## [2.4.1] - 2026-11-03
 
 ### Changed

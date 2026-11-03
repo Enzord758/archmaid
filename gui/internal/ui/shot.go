@@ -43,6 +43,29 @@ package ui
 // 	g_object_unref(texture);
 // 	return ok ? 0 : 5;
 // }
+//
+// // archmaid_node_text serializes what GTK draws for widget (GSK's text
+// // form of the render node) into a malloc'd string, or NULL.
+// static char *archmaid_node_text(uintptr_t widget) {
+// 	GtkWidget *w = (GtkWidget *)widget;
+// 	int width = gtk_widget_get_width(w), height = gtk_widget_get_height(w);
+// 	if (width <= 0 || height <= 0)
+// 		return NULL;
+// 	GdkPaintable *paintable = gtk_widget_paintable_new(w);
+// 	GtkSnapshot *snapshot = gtk_snapshot_new();
+// 	gdk_paintable_snapshot(paintable, GDK_SNAPSHOT(snapshot), width, height);
+// 	GskRenderNode *node = gtk_snapshot_free_to_node(snapshot);
+// 	g_object_unref(paintable);
+// 	if (node == NULL)
+// 		return NULL;
+// 	GBytes *bytes = gsk_render_node_serialize(node);
+// 	gsk_render_node_unref(node);
+// 	gsize n = 0;
+// 	const char *data = g_bytes_get_data(bytes, &n);
+// 	char *out = g_strndup(data, n);
+// 	g_bytes_unref(bytes);
+// 	return out;
+// }
 import "C"
 
 import (
@@ -68,4 +91,16 @@ func savePNG(widget coreglib.Objector, path string) error {
 		return fmt.Errorf("screenshot %s: step %d failed", path, int(rc))
 	}
 	return nil
+}
+
+// nodeText is the render node of widget (a realized one, as GTK draws it
+// now) in GSK's text form: the glass tests look in it for what a widget
+// paints (the corner marks' 10 px strokes) without sampling pixels.
+func nodeText(widget coreglib.Objector) (string, error) {
+	c := C.archmaid_node_text(C.uintptr_t(coreglib.InternObject(widget).Native()))
+	if c == nil {
+		return "", fmt.Errorf("render node of the widget: none")
+	}
+	defer C.g_free(C.gpointer(c))
+	return C.GoString(c), nil
 }

@@ -213,6 +213,7 @@ func (w *Window) newRunPage() gtk.Widgetter {
 	tl.view.AddCSSClass("am-timeline")
 	w.outView = tl.view
 	tl.scroll = gtk.NewScrolledWindow()
+	tl.scroll.AddCSSClass(textSurfClass) // glass.css: the run output is 93 % opaque
 	tl.scroll.SetChild(tl.view)
 	tl.scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	tl.scroll.SetVExpand(true)

@@ -201,8 +201,10 @@ func newWideDialog(heading string, width int) *amDialog {
 // width, and in a narrower dialog the heading and the buttons (wrapped)
 // can need more than that, which left the middle a negative height.
 // fitHeight shrinks it to its content once it has its width.
-func (d *amDialog) show(win *adw.ApplicationWindow) {
+func (d *amDialog) show(w *Window) {
+	win := w.win
 	d.win = win
+	w.dialogOpened(d)
 	if d.alert == nil {
 		if h := win.Height(); h > 0 {
 			d.SetContentHeight(h)

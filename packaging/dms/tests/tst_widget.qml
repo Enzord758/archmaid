@@ -302,4 +302,68 @@ TestCase {
         compare(o.w.stateColor("danger").toString(), "#a91d36");
         Theme.isLightMode = false;
     }
+
+    // The accent layer follows DMS: with Theme.blurLayersActive off the hero
+    // is the plain one (solid colour, DMS's own border, the corner marks, no
+    // sheen); on, it gets the sheen, the light edge, DMS's corner radius and
+    // a translucent colour, and the marks go.
+    function test_accentLayerOffAndOn() {
+        const o = popout(3, 2);
+        const hero = find(o.pop, "hero");
+        const sheen = find(o.pop, "heroSheen");
+        const marks = find(o.pop, "heroCorners");
+        verify(hero !== null && sheen !== null && marks !== null);
+        compare(Theme.blurLayersActive, false);
+        verify(!sheen.visible, "no sheen without DMS blur");
+        compare(hero.color, Theme.surfaceContainer);
+        compare(hero.radius, 0);
+        compare(marks.count, 4);
+        compare(hero.border.color.a.toFixed(2), "0.12");
+        try {
+            Theme.blurLayersActive = true;
+            verify(sheen.visible, "the sheen with DMS blur");
+            compare(sheen.gradient.stops.length, 2);
+            compare(hero.radius, Theme.cornerRadius);
+            compare(hero.color.a.toFixed(2), "0.50", "the hero colour goes through Theme.foregroundColor");
+            compare(marks.count, 0);
+            compare(hero.border.width, 1);
+            verify(hero.border.color.r > 0.99 && hero.border.color.a >= 0.16, "a light edge: " + hero.border.color);
+            Theme.isLightMode = true;
+            compare(hero.border.color.a.toFixed(2), "0.55", "the edge is stronger on a light theme");
+        } finally {
+            Theme.isLightMode = false;
+            Theme.blurLayersActive = false;
+        }
+        verify(!sheen.visible);
+        compare(marks.count, 4);
+    }
+
+    // DMS's blur off but its popup transparency low: the update list gets an
+    // opaque backing; with blur on, or enough opacity (0.85 and up), it does not.
+    function test_listBackingGuard() {
+        const o = popout(3, 12);
+        mouseClick(find(o.pop, "updatesRow"));
+        const back = find(o.pop, "listBacking");
+        verify(back !== null && find(o.pop, "pkgList").visible);
+        const cases = [
+            {blur: false, t: 1.0, want: false},
+            {blur: false, t: 0.85, want: false},
+            {blur: false, t: 0.84, want: true},
+            {blur: false, t: 0.6, want: true},
+            {blur: true, t: 0.6, want: false},
+            {blur: true, t: 1.0, want: false}
+        ];
+        try {
+            for (let i = 0; i < cases.length; i++) {
+                Theme.blurLayersActive = cases[i].blur;
+                Theme.popupTransparency = cases[i].t;
+                compare(back.visible, cases[i].want, JSON.stringify(cases[i]));
+                if (cases[i].want)
+                    compare(back.color, Theme.surfaceContainer);
+            }
+        } finally {
+            Theme.blurLayersActive = false;
+            Theme.popupTransparency = 1.0;
+        }
+    }
 }

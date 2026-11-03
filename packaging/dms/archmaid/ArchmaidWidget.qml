@@ -68,6 +68,14 @@ PluginComponent {
             return Theme.surfaceVariantText;
         }
     }
+    // No glass switch of its own: the widget follows DMS. When DMS blurs its
+    // layers (Theme.blurLayersActive) the hero gets an accent layer: a light
+    // edge, a faint sheen, DMS's corner radius and no corner marks (the GUI's
+    // glass skin has none). Otherwise it is the plain look, as ever.
+    readonly property bool glass: Theme.blurLayersActive
+    // DMS's blur off but its popup transparency low: nothing blurs what shows
+    // through the popout, so the update list is backed with an opaque colour.
+    readonly property bool opaqueBacking: !Theme.blurLayersActive && Theme.popupTransparency < 0.85
     readonly property color markColor: Theme.withAlpha(Theme.surfaceText, 0.45)
     readonly property color ruleColor: Theme.withAlpha(Theme.surfaceText, 0.12)
 
@@ -493,14 +501,37 @@ PluginComponent {
                 // The hero: the only box with corner marks.
                 Rectangle {
                     id: heroBox
+                    objectName: "hero"
                     width: parent.width
                     height: heroCol.implicitHeight + 2 * Theme.spacingM
-                    color: Theme.surfaceContainer
+                    color: Theme.foregroundColor(Theme.surfaceContainer)
+                    radius: root.glass ? Theme.cornerRadius : 0
                     border.width: 1
-                    border.color: Theme.withAlpha(Theme.surfaceText, 0.12)
+                    border.color: root.glass ? Qt.rgba(1, 1, 1, Theme.isLightMode ? 0.55 : 0.16) : Theme.withAlpha(Theme.surfaceText, 0.12)
+
+                    // The accent layer's sheen: light from the top left, fading
+                    // out by the middle (a Gradient: Qt Quick's are linear).
+                    Rectangle {
+                        objectName: "heroSheen"
+                        visible: root.glass
+                        anchors.fill: parent
+                        anchors.margins: 1
+                        radius: Math.max(0, heroBox.radius - 1)
+                        gradient: Gradient {
+                            GradientStop {
+                                position: 0
+                                color: Qt.rgba(1, 1, 1, Theme.isLightMode ? 0.40 : 0.10)
+                            }
+                            GradientStop {
+                                position: 0.42
+                                color: Qt.rgba(1, 1, 1, 0)
+                            }
+                        }
+                    }
 
                     Repeater {
-                        model: 4
+                        objectName: "heroCorners"
+                        model: root.glass ? 0 : 4
                         Item {
                             id: corner
                             required property int index
@@ -625,125 +656,138 @@ PluginComponent {
                     }
 
                     // The unfolded list: read-only, nothing in it opens anything.
-                    Column {
+                    // With DMS's blur off and its popup transparency low nothing blurs
+                    // the desktop behind the rows: they get an opaque backing then.
+                    Item {
                         visible: pop.listOpen
                         width: parent.width
-                        spacing: Theme.spacingS
-                        topPadding: Theme.spacingS
-                        bottomPadding: Theme.spacingS
-
-                        StyledText {
-                            textFormat: Text.PlainText // state-file strings are data, never markup
-                            wrapMode: Text.NoWrap
-                            width: parent.width
-                            elide: Text.ElideRight
-                            text: pop.upList ? pop.upList.checked : ""
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.surfaceVariantText
+                        height: listCol.implicitHeight
+                        Rectangle {
+                            objectName: "listBacking"
+                            anchors.fill: parent
+                            visible: root.opaqueBacking
+                            color: Theme.surfaceContainer
                         }
-                        ListView {
-                            id: pkgView
-                            objectName: "pkgList"
-                            readonly property int rowH: 28
+                        Column {
+                            id: listCol
                             width: parent.width
-                            height: Math.min(contentHeight, 8 * rowH)
-                            clip: true
-                            interactive: contentHeight > height
-                            boundsBehavior: Flickable.StopAtBounds
-                            model: listModel
-                            section.property: "section"
-                            section.criteria: ViewSection.FullString
-                            section.labelPositioning: ViewSection.InlineLabels | ViewSection.CurrentLabelAtStart
-                            section.delegate: Rectangle {
-                                id: secBox
-                                required property string section
-                                width: pkgView.width
-                                height: pkgView.rowH
-                                color: Theme.surfaceContainer
-                                Kicker {
-                                    anchors.left: parent.left
-                                    anchors.right: parent.right
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    elide: Text.ElideRight
-                                    text: secBox.section
-                                }
+                            spacing: Theme.spacingS
+                            topPadding: Theme.spacingS
+                            bottomPadding: Theme.spacingS
+
+                            StyledText {
+                                textFormat: Text.PlainText // state-file strings are data, never markup
+                                wrapMode: Text.NoWrap
+                                width: parent.width
+                                elide: Text.ElideRight
+                                text: pop.upList ? pop.upList.checked : ""
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceVariantText
                             }
-                            delegate: Item {
-                                id: pkgRow
-                                required property string name
-                                required property string from
-                                required property string to
-                                required property string tag
-                                required property bool restart
-                                width: pkgView.width
-                                height: pkgView.rowH
-
-                                // The version column may take up to half the row. The new
-                                // version matters most: when "from \u2192 to" does not fit,
-                                // the column shows "\u2192 to".
-                                readonly property real verMax: Math.floor(width / 2)
-                                readonly property bool fullFits: verFull.implicitWidth <= verMax
-                                StyledText {
-                                    id: verFull
-                                    textFormat: Text.PlainText // state-file strings are data, never markup
-                                    wrapMode: Text.NoWrap
-                                    visible: false
-                                    elide: Text.ElideRight
-                                    text: pkgRow.from + " \u2192 " + pkgRow.to
-                                    font.family: Theme.monoFontFamily
-                                    font.pixelSize: Theme.fontSizeSmall
-                                }
-
-                                Row {
-                                    anchors.fill: parent
-                                    spacing: Theme.spacingS
-
-                                    StyledText {
-                                        textFormat: Text.PlainText // state-file strings are data, never markup
-                                        wrapMode: Text.NoWrap
-                                        width: Math.max(0, parent.width - verText.width - tagBox.width - 2 * parent.spacing)
-                                        elide: Text.ElideRight
-                                        text: pkgRow.name
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        color: Theme.surfaceText
+                            ListView {
+                                id: pkgView
+                                objectName: "pkgList"
+                                readonly property int rowH: 28
+                                width: parent.width
+                                height: Math.min(contentHeight, 8 * rowH)
+                                clip: true
+                                interactive: contentHeight > height
+                                boundsBehavior: Flickable.StopAtBounds
+                                model: listModel
+                                section.property: "section"
+                                section.criteria: ViewSection.FullString
+                                section.labelPositioning: ViewSection.InlineLabels | ViewSection.CurrentLabelAtStart
+                                section.delegate: Rectangle {
+                                    id: secBox
+                                    required property string section
+                                    width: pkgView.width
+                                    height: pkgView.rowH
+                                    color: Theme.surfaceContainer
+                                    Kicker {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
                                         anchors.verticalCenter: parent.verticalCenter
-                                    }
-                                    StyledText {
-                                        id: verText
-                                        width: Math.min(implicitWidth, pkgRow.verMax)
                                         elide: Text.ElideRight
+                                        text: secBox.section
+                                    }
+                                }
+                                delegate: Item {
+                                    id: pkgRow
+                                    required property string name
+                                    required property string from
+                                    required property string to
+                                    required property string tag
+                                    required property bool restart
+                                    width: pkgView.width
+                                    height: pkgView.rowH
+
+                                    // The version column may take up to half the row. The new
+                                    // version matters most: when "from \u2192 to" does not fit,
+                                    // the column shows "\u2192 to".
+                                    readonly property real verMax: Math.floor(width / 2)
+                                    readonly property bool fullFits: verFull.implicitWidth <= verMax
+                                    StyledText {
+                                        id: verFull
                                         textFormat: Text.PlainText // state-file strings are data, never markup
                                         wrapMode: Text.NoWrap
-                                        text: pkgRow.fullFits ? pkgRow.from + " \u2192 " + pkgRow.to : "\u2192 " + pkgRow.to
+                                        visible: false
+                                        elide: Text.ElideRight
+                                        text: pkgRow.from + " \u2192 " + pkgRow.to
                                         font.family: Theme.monoFontFamily
                                         font.pixelSize: Theme.fontSizeSmall
-                                        color: Theme.surfaceVariantText
-                                        anchors.verticalCenter: parent.verticalCenter
                                     }
-                                    Item {
-                                        id: tagBox
-                                        width: pkgRow.tag !== "" ? listTag.width : 0
-                                        height: parent.height
-                                        Tag {
-                                            id: listTag
-                                            visible: pkgRow.tag !== ""
-                                            text: pkgRow.tag
-                                            ink: pkgRow.restart ? root.stateColor("warn") : Theme.surfaceVariantText
+
+                                    Row {
+                                        anchors.fill: parent
+                                        spacing: Theme.spacingS
+
+                                        StyledText {
+                                            textFormat: Text.PlainText // state-file strings are data, never markup
+                                            wrapMode: Text.NoWrap
+                                            width: Math.max(0, parent.width - verText.width - tagBox.width - 2 * parent.spacing)
+                                            elide: Text.ElideRight
+                                            text: pkgRow.name
+                                            font.pixelSize: Theme.fontSizeMedium
+                                            color: Theme.surfaceText
                                             anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        StyledText {
+                                            id: verText
+                                            width: Math.min(implicitWidth, pkgRow.verMax)
+                                            elide: Text.ElideRight
+                                            textFormat: Text.PlainText // state-file strings are data, never markup
+                                            wrapMode: Text.NoWrap
+                                            text: pkgRow.fullFits ? pkgRow.from + " \u2192 " + pkgRow.to : "\u2192 " + pkgRow.to
+                                            font.family: Theme.monoFontFamily
+                                            font.pixelSize: Theme.fontSizeSmall
+                                            color: Theme.surfaceVariantText
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Item {
+                                            id: tagBox
+                                            width: pkgRow.tag !== "" ? listTag.width : 0
+                                            height: parent.height
+                                            Tag {
+                                                id: listTag
+                                                visible: pkgRow.tag !== ""
+                                                text: pkgRow.tag
+                                                ink: pkgRow.restart ? root.stateColor("warn") : Theme.surfaceVariantText
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                        StyledText {
-                            textFormat: Text.PlainText // state-file strings are data, never markup
-                            wrapMode: Text.NoWrap
-                            visible: pop.upList !== null && pop.upList.more > 0
-                            width: parent.width
-                            elide: Text.ElideRight
-                            text: pop.upList ? "and " + pop.upList.more + " more not shown" : ""
-                            font.pixelSize: Theme.fontSizeSmall
-                            color: Theme.surfaceVariantText
+                            StyledText {
+                                textFormat: Text.PlainText // state-file strings are data, never markup
+                                wrapMode: Text.NoWrap
+                                visible: pop.upList !== null && pop.upList.more > 0
+                                width: parent.width
+                                elide: Text.ElideRight
+                                text: pop.upList ? "and " + pop.upList.more + " more not shown" : ""
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.surfaceVariantText
+                            }
                         }
                     }
 

@@ -38,7 +38,7 @@ limit="${HEADLESS_TIMEOUT:-60}"
 # password and services scenarios, the engine stopping and the instance
 # check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
 # windows, the wide dialogs and the breakpoint toggle, the wide dialogs
-# with long content, the Overview's
+# with long content, the glass skin (screenshots, ~40 s), the Overview's
 # starts, the coverage scenarios (cover_harness_test.go), the first frame
 # and throughput proofs (~41 s: Broadway's PNG uploads slow the floods to
 # ~6 s each), the rest. The wide dialogs (TestGUIWideDialogs)
@@ -63,6 +63,7 @@ if [[ $# -eq 0 ]]; then
 	cov='^TestGUICov'
 	pkgs='^TestGUIPackages$'
 	pkgflow='^TestGUIPackagesFlow$'
+	glass='^TestGUIGlass'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
 	# always for the group that tests it, and for every group when
@@ -83,8 +84,9 @@ if [[ $# -eq 0 ]]; then
 	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$pkgs" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$pkgflow" ./internal/ui
+	"$self" go test -tags shots -count=1 -v -run "$glass" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$pkgflow|$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$pkgflow|$glass|$perf" ./internal/ui
 fi
 
 

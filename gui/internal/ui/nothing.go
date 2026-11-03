@@ -55,5 +55,5 @@ func (w *Window) showNothing() {
 		}
 	})
 	w.nothingDialog = d
-	d.Present(w.win)
+	d.show(w)
 }

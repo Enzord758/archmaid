@@ -102,6 +102,9 @@ type Window struct {
 	scrollQueued bool
 
 	dialogs map[engine.PromptID]*amDialog
+	// openDialogs is every dialog being shown (glass.go): the content
+	// blur lasts while any is.
+	openDialogs map[*amDialog]bool
 	// pageBefore is the page Start left; nothingDialog is the open "No cache
 	// to clear" popup, nothingPending that its end is awaited (nothing.go).
 	pageBefore     string
@@ -215,6 +218,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 		}
 	})
 	w.buildShell()
+	w.applyGlass() // the skin the Settings page asked for (glass.go)
 	w.win.ConnectCloseRequest(w.closeRequest)
 
 	if w.opts.Notices != nil {
@@ -645,7 +649,7 @@ func (w *Window) closeRequest() bool {
 			}
 		})
 		w.quitDialog = d
-		d.Present(w.win)
+		d.show(w)
 		return true
 	}
 	w.closed = true

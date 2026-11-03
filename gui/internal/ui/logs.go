@@ -213,6 +213,7 @@ func (w *Window) newLogs() gtk.Widgetter {
 	view.SetSingleClickActivate(true)
 	view.ConnectActivate(func(pos uint) { w.toggleSection(int(pos)) })
 	logScroll := gtk.NewScrolledWindow()
+	logScroll.AddCSSClass(textSurfClass) // glass.css: the log text is 93 % opaque
 	logScroll.SetChild(view)
 	logScroll.SetVExpand(true)
 	logScroll.SetHExpand(true)

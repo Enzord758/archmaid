@@ -13,3 +13,5 @@ import (
 const shotsBuilt = false
 
 func savePNG(coreglib.Objector, string) error { return errors.New("built without -tags shots") }
+
+func nodeText(coreglib.Objector) (string, error) { return "", errors.New("built without -tags shots") }

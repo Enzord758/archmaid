@@ -93,7 +93,7 @@ func (p *pkgPage) openSheet(v pkgview.SheetView) {
 		}
 	})
 	p.sheet, p.sheetState, p.sheetAt = d, v.State, time.Now()
-	d.show(p.w.win)
+	d.show(p.w)
 }
 
 // planMin is the plan column's minimum width beside the notes.
@@ -347,6 +347,7 @@ func reviewText(text string) gtk.Widgetter {
 	sc.SetPropagateNaturalHeight(true)
 	sc.SetChild(tv)
 	sc.AddCSSClass("am-pkg-review-frame")
+	sc.AddCSSClass(textSurfClass) // glass.css: the PKGBUILD text is 93 % opaque
 	return sc
 }
 

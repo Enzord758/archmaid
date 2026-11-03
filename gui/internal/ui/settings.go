@@ -25,6 +25,10 @@ type settingsPage struct {
 	path      string
 	downloads *adw.EntryRow
 	dryRun    *adw.SwitchRow
+	// glass is the Appearance card's "Glass look" switch, blur its
+	// "Blur behind window" row (Auto, On, Off: blurOptions).
+	glass *adw.SwitchRow
+	blur  *adw.ComboRow
 	// dlError is the downloads folder's inline error; problem the file's
 	// (unreadable, unsaved); configError the topgrade card's. All hidden
 	// when there is nothing to say.
@@ -49,9 +53,9 @@ func (w *Window) newSettings() gtk.Widgetter {
 	dlErr := ""
 	if folder, err := settings.CheckDownloads(s.Downloads, settings.ResolverOptions("")); err != nil {
 		dlErr = "Not used, so the folder is found instead: " + err.Error()
-		w.settings = settings.Settings{DryRun: s.DryRun}
+		w.settings = settings.Settings{DryRun: s.DryRun, Glass: s.Glass, Blur: s.Blur}
 	} else {
-		w.settings = settings.Settings{DryRun: s.DryRun, Downloads: folder}
+		w.settings = settings.Settings{DryRun: s.DryRun, Downloads: folder, Glass: s.Glass, Blur: s.Blur}
 	}
 
 	// Four cards (P8 row 15): Runs, the downloads folder, topgrade's
@@ -97,6 +101,7 @@ func (w *Window) newSettings() gtk.Widgetter {
 
 	cards.Append(w.topgradeCard())
 	cards.Append(w.logFolderCard())
+	cards.Append(w.appearanceCard(s))
 
 	p.problem = errorLabel()
 	saved := gtk.NewLabel("Saved in " + p.path)
@@ -265,6 +270,67 @@ func (w *Window) logFolderCard() gtk.Widgetter {
 	w.set.logFolder = open
 	return card("Logs", "Log folder",
 		fmt.Sprintf("One folder per run. The newest %d are kept.", logstore.KeepRuns), pathLabel(root), open)
+}
+
+// blurOptions are the "Blur behind window" row's choices, in the order of
+// settings.BlurAuto, BlurOn, BlurOff.
+var blurOptions = []string{"Auto", "On", "Off"}
+
+func blurIndex(mode string) uint {
+	switch mode {
+	case settings.BlurOn:
+		return 1
+	case settings.BlurOff:
+		return 2
+	}
+	return 0
+}
+
+func blurValue(i uint) string {
+	switch i {
+	case 1:
+		return settings.BlurOn
+	case 2:
+		return settings.BlurOff
+	}
+	return settings.BlurAuto
+}
+
+// appearanceCard: the glass look (glass.go). The switch and the blur row
+// apply at once, without a restart: GTK restyles every widget when the
+// stylesheet is added or removed. The blur is the compositor's; GTK only
+// makes the window translucent.
+func (w *Window) appearanceCard(s settings.Settings) gtk.Widgetter {
+	p := w.set
+	p.glass = adw.NewSwitchRow()
+	p.glass.SetTitle("Glass look")
+	p.glass.SetSubtitle("A translucent window with softer corners")
+	p.glass.SetActive(s.Glass)
+	p.blur = adw.NewComboRow()
+	p.blur.SetTitle("Blur behind window")
+	p.blur.SetModel(gtk.NewStringList(blurOptions))
+	p.blur.SetSelected(blurIndex(s.BlurMode()))
+	p.blur.SetSensitive(s.Glass)
+	p.glass.NotifyProperty("active", func() {
+		next := w.settings
+		next.Glass = p.glass.Active()
+		p.blur.SetSensitive(next.Glass)
+		w.saveSettings(next)
+		w.applyGlass()
+	})
+	p.blur.NotifyProperty("selected", func() {
+		next := w.settings
+		next.Blur = blurValue(p.blur.Selected())
+		if next.Blur == w.settings.BlurMode() {
+			return
+		}
+		w.saveSettings(next)
+		w.applyGlass()
+	})
+	return card("Appearance", "Glass look",
+		"Applies at once. The blur comes from the compositor (Hyprland's decoration:blur). "+
+			"Auto turns it on under Hyprland only; without blur the glass stays nearly opaque.",
+		boxedList(p.glass, p.blur))
 }
 
 // chooseDownloads is Choose…: the Launcher's folder dialog, starting at

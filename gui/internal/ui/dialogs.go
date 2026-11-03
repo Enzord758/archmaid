@@ -43,7 +43,7 @@ func (w *Window) prompt(p runview.Prompt) {
 		return
 	}
 	w.dialogs[p.ID] = d
-	d.show(w.win)
+	d.show(w)
 }
 
 // answer sends the answer to prompt id that cmd builds, if id is still the

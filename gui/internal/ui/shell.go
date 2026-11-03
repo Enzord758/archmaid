@@ -148,6 +148,7 @@ func (w *Window) buildShell() {
 	view.AddBottomBar(sh.statusBar)
 
 	sh.split = adw.NewOverlaySplitView()
+	sh.split.AddCSSClass(contentClass) // glass.go: blurred under a dialog
 	sh.split.SetMinSidebarWidth(220)
 	sh.split.SetMaxSidebarWidth(248)
 	sh.split.SetSidebar(side)

@@ -32,6 +32,48 @@ type Settings struct {
 	Downloads string `json:"downloads,omitempty"`
 	// DryRun reports what would run and changes nothing (--dryrun).
 	DryRun bool `json:"dry_run,omitempty"`
+	// Glass turns on the glass look (the "Clear" skin: a translucent
+	// window over the compositor's blur). Off is the default look.
+	Glass bool `json:"glass,omitempty"`
+	// Blur says whether the compositor blurs behind the window: BlurAuto
+	// (or ""), BlurOn, BlurOff. Only read when Glass is on. Anything else
+	// in the file counts as auto.
+	Blur string `json:"blur,omitempty"`
+}
+
+// The values of Settings.Blur.
+const (
+	BlurAuto = "auto"
+	BlurOn   = "on"
+	BlurOff  = "off"
+)
+
+// HyprlandEnv is set by Hyprland in every session it starts; it is the one
+// compositor archmaid assumes blurs behind a translucent window.
+const HyprlandEnv = "HYPRLAND_INSTANCE_SIGNATURE"
+
+// BlurMode is s.Blur as one of the three values ("" and anything unknown
+// are BlurAuto).
+func (s Settings) BlurMode() string {
+	switch s.Blur {
+	case BlurOn, BlurOff:
+		return s.Blur
+	}
+	return BlurAuto
+}
+
+// BlurBehind says whether the glass look may be translucent: On, or Auto
+// with HYPRLAND_INSTANCE_SIGNATURE set (getenv reads it). GTK can't ask a
+// compositor whether it blurs, and asking Hyprland means running hyprctl,
+// so everything else gets the near-opaque fallback skin; Off forces that.
+func (s Settings) BlurBehind(getenv func(string) string) bool {
+	switch s.BlurMode() {
+	case BlurOn:
+		return true
+	case BlurOff:
+		return false
+	}
+	return getenv(HyprlandEnv) != ""
 }
 
 // Path is where the settings live: $XDG_CONFIG_HOME/archmaid/gui.json, or
