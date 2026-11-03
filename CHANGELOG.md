@@ -2,9 +2,15 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes) and `v2.3.0..v2.4.0` (8 commits, tip 15c274a).
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes) and `v2.4.0..v2.4.1`.
 
 ## [Unreleased]
+
+## [2.4.1] - 2026-11-03
+
+### Changed
+
+- **The Overview's Updates card sits beside Last run** (#253). Last run spans the first two columns, and the Updates card is as wide as the action cells' third column, so its edges line up with "Delete old downloads" below. In a window too narrow for three columns of cells (under about 1264 px), the card sits under Last run at full width, as before. Its two buttons wrap to two lines when the column is narrow.
 
 ## [2.4.0] - 2026-11-03
 
@@ -12,7 +18,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 
 ### Added
 
-- **A "Check for updates" button on the Overview** (#252, #253). An Updates card beside Last run, as wide as the action cells' third column (under Last run when the window is too narrow for three columns), reads `updates-cache.json`, the file the timer and the DMS widget use. It says "N updates waiting", "Up to date", "Not checked yet" or "Unknown (check is N days old)", with the held count and when it was checked. The button runs the same check as the timer (`systemctl --user start --no-block archmaid-updates-check.service`, else the installed script), as you, with no root and no password. The card shows "Checking…" with a spinner until the file changes, then the new count, or "Check failed" with the reason if nothing changed in 2 minutes or the check could not start. "Run topgrade" appears when updates are waiting. Both buttons are off while a run goes.
+- **A "Check for updates" button on the Overview** (#252). An Updates card under Last run reads `updates-cache.json`, the file the timer and the DMS widget use. It says "N updates waiting", "Up to date", "Not checked yet" or "Unknown (check is N days old)", with the held count and when it was checked. The button runs the same check as the timer (`systemctl --user start --no-block archmaid-updates-check.service`, else the installed script), as you, with no root and no password. The card shows "Checking…" with a spinner until the file changes, then the new count, or "Check failed" with the reason if nothing changed in 2 minutes or the check could not start. "Run topgrade" appears when updates are waiting. Both buttons are off while a run goes.
 
 ### Fixed
 
@@ -427,7 +433,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.4.0...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/Enzord758/archmaid/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/Enzord758/archmaid/compare/v2.3.0...v2.4.0
 [2.3.0]: https://github.com/Enzord758/archmaid/compare/v2.2.0...v2.3.0
 [2.2.0]: https://github.com/Enzord758/archmaid/compare/v2.1.1...v2.2.0
