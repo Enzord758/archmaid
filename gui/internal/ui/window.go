@@ -304,9 +304,13 @@ func (w *Window) start(id string, dry bool) {
 	w.pagePrev = len(w.model.Rows) > 0
 	w.current, w.dry, w.model.Stopped, w.agentNotice = id, dry, "", ""
 	w.model.StartDry = dry || w.drvDry
+	// The status says this request's dry flag, not the run before's: until
+	// the queue starts, m.DryRun is still the last run's.
+	w.model.DryRun = dry || w.drvDry
 	w.model.Notice = "" // the last action's; this one's comes with its end
 	w.updateRunHeader()
 	w.setBusy(true)
+	w.setStatus() // this request's dry flag, not the last run's line
 	w.pageBefore, w.nothingPending = w.stack.VisibleChildName(), false
 	// Clear caches stays where it was while it measures and while its pick
 	// is open; the Run page comes when its queue starts (redraw, c.Reset).

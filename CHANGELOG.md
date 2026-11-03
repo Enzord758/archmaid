@@ -17,6 +17,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
   - Both workflows declare least-privilege `permissions`. `ci.yml` gets `contents` and `packages` read only. `ci-image.yml` gets `contents: read`, and its build job keeps `packages: write`.
   - The GUI's ANSI colour parser reads the colon-form colour numbers with `strconv.ParseUint(…, 8)`, so a value over 255 is refused before any conversion.
   - The parser already refused such values, so nothing changes in use. A test now covers the colon form.
+- **The GUI status no longer says "DRY RUN" for a real action that follows a dry run.** Every Start now sets the status's dry flag from its own request, as the Packages page already did, so the discovery and plan phases of Full Cleanup, Clear caches, Repair and the others are clean (#250).
 
 ## [2.3.0] - 2026-11-03
 
