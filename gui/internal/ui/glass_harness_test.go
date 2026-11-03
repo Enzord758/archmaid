@@ -101,6 +101,11 @@ func heroMarks(w *Window) (marks, ok bool) {
 	return
 }
 
+var (
+	sheetSolidRE = regexp.MustCompile(`rgba\([^)]*, ?0\.94\)`)
+	sheetThinRE  = regexp.MustCompile(`rgba\([^)]*, ?0\.(72|78)\)`)
+)
+
 var strokeRE = regexp.MustCompile(`bounds: [-\d.]+ [-\d.]+ 10 1;`)
 
 // covGlass: the Settings switch and the blur row, live.
@@ -174,6 +179,14 @@ func covGlass(c *covEnv) {
 			c.ok(has == w.shell.split.HasCSSClass(underClass), "the page's render node has a blur: %v, but the class is %v", has, w.shell.split.HasCSSClass(underClass))
 			if has {
 				blurSeen = true
+			}
+			// The sheet's resolved alpha: near-opaque (0.94) unless the page
+			// under it is blurred, then 0.72 light / 0.78 dark.
+			if glassNow != glassOff {
+				solid := sheetSolidRE.MatchString(text)
+				thin := sheetThinRE.MatchString(text)
+				blurPath := glassNow == glassBlur && gpu
+				c.ok(solid == !blurPath && thin == blurPath, "the sheet's alpha: 0.94 %v, 0.72/0.78 %v; blur path %v", solid, thin, blurPath)
 			}
 		}
 		c.feed(engine.PromptClosed{ID: 71}) // the engine withdraws it

@@ -37,6 +37,7 @@ const (
 	contentClass  = "am-content"
 	underClass    = "am-under-dialog"
 	textSurfClass = "am-text-surface"
+	solidClass    = "am-sheet-solid"
 )
 
 // glassMode is which skin is on.
@@ -103,6 +104,7 @@ func (w *Window) applyGlass() {
 	for d := range w.openDialogs {
 		glassClasses(d, mode)
 	}
+	w.syncSheets()
 	if mode != glassBlur {
 		w.syncContentBlur()
 	}
@@ -141,11 +143,27 @@ func (w *Window) dialogOpened(d *amDialog) {
 	}
 	w.openDialogs[d] = true
 	glassClasses(d, glassNow)
+	w.syncSheets()
 	w.syncContentBlur()
 	d.ConnectClosed(func() {
 		delete(w.openDialogs, d)
 		w.syncContentBlur()
 	})
+}
+
+// syncSheets makes the open dialogs' sheets near-opaque (am-sheet-solid)
+// unless the page under them is blurred: a translucent sheet over an
+// unblurred page shows its text through (the compositor's blur is only
+// of what is behind the window).
+func (w *Window) syncSheets() {
+	solid := !contentBlurOK(glassNow, rendererName(w))
+	for d := range w.openDialogs {
+		if solid {
+			d.AddCSSClass(solidClass)
+		} else {
+			d.RemoveCSSClass(solidClass)
+		}
+	}
 }
 
 // syncContentBlur adds am-under-dialog to the content while any dialog is

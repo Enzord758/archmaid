@@ -27,6 +27,7 @@
 @define-color am_glass_side_fb alpha(shade(@window_bg_color, 0.93), 0.90);
 @define-color am_glass_card alpha(@card_bg_color, 0.44);
 @define-color am_glass_sheet alpha(@dialog_bg_color, 0.72);
+@define-color am_glass_sheet_solid alpha(@dialog_bg_color, 0.94);
 @define-color am_glass_text alpha(@view_bg_color, 0.93);
 @define-color am_glass_edge rgba(255, 255, 255, 0.55);
 @define-color am_glass_sheen_top rgba(255, 255, 255, 0.40);
@@ -104,3 +105,8 @@ window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
 /* The page under an open dialog is blurred (glass.go adds am-under-dialog
    to am-content only on a GPU renderer and not in the fallback). */
 .archmaid.am-glass .am-content.am-under-dialog { filter: blur(5px); }
+
+/* Without the blurred page under it (cairo, or the fallback) a sheet is
+   near-opaque, like the text surfaces: the page's text would show through
+   0.72. The edge and the sheen stay. */
+.archmaid.am-glass.am-dialog.am-sheet-solid sheet { background-color: @am_glass_sheet_solid; }
