@@ -483,6 +483,9 @@ func runChild(scenario, path string) int {
 		if sz := pkgWindowSize(scenario); sz[0] > 0 { // packages_harness_test.go
 			w.win.SetDefaultSize(sz[0], sz[1])
 		}
+		if scenario == "cov-updates-row" { // updates_row_harness_test.go
+			w.win.SetDefaultSize(1280, 800)
+		}
 		if scenario == "cov-updates-narrow" { // updates_card_harness_test.go
 			w.win.SetDefaultSize(380, 760)
 		}

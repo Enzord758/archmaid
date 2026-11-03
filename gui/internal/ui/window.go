@@ -141,6 +141,12 @@ type Window struct {
 	heroButtons *gtk.FlowBox
 	cellRoots   [][2]*gtk.Label
 	cells       *gtk.FlowBox
+	top         *gtk.Grid // Last run and Updates, wide (layoutTop)
+	topCol      *gtk.Box  // the same, stacked
+	topLast     gtk.Widgetter
+	topUpd      gtk.Widgetter
+	topLaid     bool
+	topWide     bool
 	lastIcon    *gtk.Image
 	lastTitle   *gtk.Label
 	lastTag     *gtk.Label

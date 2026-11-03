@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
@@ -40,16 +41,24 @@ func (w *Window) newOverview() gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 18)
 	box.AddCSSClass("am-overview")
 	box.Append(w.newHero())
-	// The last run spans the width under the hero, outside the grid: in it,
-	// a seventh cell left an empty slot at the end of the last line, drawn
-	// in the grid's hairline grey (Dev 5's VM round r8). The grid holds the
-	// six actions, and at most three to a line divides them evenly.
-	last := gtk.NewBox(gtk.OrientationVertical, 0)
-	last.AddCSSClass("am-grid")
-	last.SetSpacing(1) // the grid's hairline between the cards
-	last.Append(w.newLastRun())
-	last.Append(w.newUpdatesCard())
-	box.Append(last)
+	// Last run and the Updates card are the grid's top row, outside the
+	// FlowBox: in it, a seventh cell left an empty slot at the end of the
+	// last line, drawn in the grid's hairline grey (Dev 5's VM round r8).
+	// The FlowBox holds the six actions, and at most three to a line
+	// divides them evenly. Where it has three columns, Last run spans the
+	// first two and Updates is the third, as wide as a cell (layoutTop);
+	// else Updates sits under Last run at full width.
+	w.topLast = w.newLastRun()
+	w.topUpd = w.newUpdatesCard()
+	w.top = gtk.NewGrid()
+	w.top.AddCSSClass("am-grid")
+	w.top.SetColumnSpacing(1) // the grid's hairline between the cards
+	w.top.SetColumnHomogeneous(true)
+	w.topCol = gtk.NewBox(gtk.OrientationVertical, 1)
+	w.topCol.AddCSSClass("am-grid")
+	w.layoutTop(false)
+	box.Append(w.top)
+	box.Append(w.topCol)
 
 	w.cells = gtk.NewFlowBox()
 	w.cells.SetSelectionMode(gtk.SelectionNone)
@@ -66,6 +75,16 @@ func (w *Window) newOverview() gtk.Widgetter {
 		w.cells.Append(w.newCell(c))
 	}
 	box.Append(w.cells)
+	// Off screen the tick doesn't run, and a stale wide layout would count in
+	// the Overview's minimum width (a hidden stack page does): back to the
+	// stacked one, which the tick undoes on the next frame it is shown.
+	w.cells.ConnectUnmap(func() { w.layoutTop(false) })
+	w.cells.AddTickCallback(func(gtk.Widgetter, gdk.FrameClocker) bool {
+		if w.cells.Mapped() { // else the sizes are stale
+			w.layoutTop(w.cellsThreeWide())
+		}
+		return !w.closed
+	})
 
 	scroll := gtk.NewScrolledWindow()
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
@@ -590,4 +609,49 @@ func (w *Window) updateOverview() {
 		r.cell.SetSensitive(!w.busy)
 	}
 	w.dryFirst.SetSensitive(!w.busy)
+}
+
+// cellsThreeWide: the cell grid has three columns now (its first and third
+// cells are on one line).
+func (w *Window) cellsThreeWide() bool {
+	c0, c2 := w.cells.ChildAtIndex(0), w.cells.ChildAtIndex(2)
+	if c0 == nil || c2 == nil || gtk.BaseWidget(c2).Width() <= 0 {
+		return w.topWide
+	}
+	r, ok := gtk.BaseWidget(c2).ComputeBounds(c0)
+	return ok && r.X() > 1 && r.Y() > -1 && r.Y() < 1
+}
+
+// layoutTop puts Updates in the grid's third column beside Last run (wide:
+// the cell grid below has three columns), or under it at full width. The
+// top grid has three homogeneous columns one hairline apart, as the cell
+// grid has, so a column here is a column there.
+func (w *Window) layoutTop(wide bool) {
+	if w.top == nil || (w.topLaid && wide == w.topWide) {
+		return
+	}
+	if w.topLaid {
+		if w.topWide {
+			w.top.Remove(w.topLast)
+			w.top.Remove(w.topUpd)
+		} else {
+			w.topCol.Remove(w.topLast)
+			w.topCol.Remove(w.topUpd)
+		}
+	}
+	w.topLaid, w.topWide = true, wide
+	// Two containers, one shown: a Grid spans the cards over three
+	// homogeneous columns when wide; stacked, a Box does, because a Grid
+	// counts a spanning child's whole minimum width in each column it
+	// spans, which made the Overview 604 px wide at least (TestGUIRunReport,
+	// 360 px).
+	w.top.SetVisible(wide)
+	w.topCol.SetVisible(!wide)
+	if wide {
+		w.top.Attach(w.topLast, 0, 0, 2, 1)
+		w.top.Attach(w.topUpd, 2, 0, 1, 1)
+	} else {
+		w.topCol.Append(w.topLast)
+		w.topCol.Append(w.topUpd)
+	}
 }
