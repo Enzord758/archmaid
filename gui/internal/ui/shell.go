@@ -98,6 +98,16 @@ func (w *Window) buildShell() {
 	// Activated, not selected: picking the page already shown must still
 	// close the overlay (row-selected doesn't fire for it).
 	sh.nav.ConnectRowActivated(func(row *gtk.ListBoxRow) { w.pickPage(row.Name()) })
+	// The selection is the page's, never the list's own: the sidebar
+	// changing form (a breakpoint) moves the focus into the list, which
+	// selects the focused row, and a click selects before it activates. A
+	// selection the page didn't ask for is put back; a real pick changes
+	// the page in row-activated, which selects its row.
+	sh.nav.ConnectRowSelected(func(*gtk.ListBoxRow) {
+		if !sh.syncing {
+			w.syncNav()
+		}
+	})
 	w.status.SetVExpand(false)
 	w.status.SetWrap(true)
 	w.status.AddCSSClass("am-footer")
@@ -264,16 +274,21 @@ func (w *Window) navPress(x, y float64) bool {
 // pageShown follows the stack's page: the sidebar's selection and the
 // header's title.
 func (w *Window) pageShown() {
-	sh := w.shell
+	w.syncNav()
 	name := w.stack.VisibleChildName()
-	if row := sh.navRows[name]; row != nil && sh.nav.SelectedRow() != row {
-		sh.syncing = true
-		sh.nav.SelectRow(row)
-		sh.syncing = false
-	}
 	w.updateTitle()
 	if name == "packages" {
 		w.reloadPackages() // pacman may have run outside the window
+	}
+}
+
+// syncNav selects the sidebar row of the visible page.
+func (w *Window) syncNav() {
+	sh := w.shell
+	if row := sh.navRows[w.stack.VisibleChildName()]; row != nil && sh.nav.SelectedRow() != row {
+		sh.syncing = true
+		sh.nav.SelectRow(row)
+		sh.syncing = false
 	}
 }
 

@@ -8,6 +8,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ### Fixed
 
+- **The sidebar's selection always equals the visible page** (#255). Dragging the window under 760 px wide and then maximising it left Packages highlighted while the header and the page said Overview: the sidebar changing form moves the focus into its list, which selects the focused row. The selection is now the page's alone: one the page didn't ask for is put back, and a click still changes the page. `TestGUINavSync` resizes narrow and wide and forces a drift.
 - **A live light/dark switch now changes the state colours too** (#255). On KDE, switching the colour scheme turned the window dark at once, but the light theme's darker state colours stayed: the sudo and root tags, the Last run "ok" tag and the Updates count were dark amber and green on dark grey. GTK reads a `@define-color` inside `@media (prefers-color-scheme)` when the stylesheet is parsed and does not redo it when the scheme flips. The light set (`style_light.css`) and the glass skin's dark tokens (`glass_dark.css`) are now their own stylesheets, added and removed when the style manager's dark flag changes. `TestGUIColourSchemeLive` flips the scheme light, dark, light, dark on a running window and reads the resolved colours.
 
 ### Added
