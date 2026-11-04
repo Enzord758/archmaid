@@ -161,7 +161,15 @@ func (w *Window) buildShell() {
 	sh.split.AddCSSClass(contentClass) // glass.go: blurred under a dialog
 	sh.split.SetMinSidebarWidth(220)
 	sh.split.SetMaxSidebarWidth(248)
-	sh.split.SetSidebar(side)
+	// The sidebar scrolls when the window is shorter than its rows (a larger
+	// font or text scale makes them taller): left alone its content's
+	// height is the window's minimum, and libadwaita logs "AdwToastOverlay
+	// exceeds AdwApplicationWindow height" at every resize step (#258).
+	sideScroll := gtk.NewScrolledWindow()
+	sideScroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
+	sideScroll.SetPropagateNaturalHeight(false)
+	sideScroll.SetChild(side)
+	sh.split.SetSidebar(sideScroll)
 	sh.split.SetContent(view)
 	sh.toggle.ConnectToggled(func() { sh.split.SetShowSidebar(sh.toggle.Active()) })
 	sh.split.NotifyProperty("show-sidebar", func() {
