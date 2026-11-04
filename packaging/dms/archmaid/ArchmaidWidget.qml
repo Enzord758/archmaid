@@ -69,8 +69,9 @@ PluginComponent {
         }
     }
     // No glass switch of its own: the widget follows DMS. When DMS blurs its
-    // layers (Theme.blurLayersActive) the hero gets an accent layer: a light
-    // edge, a faint sheen, DMS's corner radius and no corner marks (the GUI's
+    // layers (Theme.blurLayersActive) the hero gets an accent layer: an edge
+    // and a faint sheen in DMS's primary colour (visible on any surface, a
+    // white one too), DMS's corner radius and no corner marks (the GUI's
     // glass skin has none). Otherwise it is the plain look, as ever.
     readonly property bool glass: Theme.blurLayersActive
     // DMS's blur off but its popup transparency low: nothing blurs what shows
@@ -507,7 +508,7 @@ PluginComponent {
                     color: Theme.foregroundColor(Theme.surfaceContainer)
                     radius: root.glass ? Theme.cornerRadius : 0
                     border.width: 1
-                    border.color: root.glass ? Qt.rgba(1, 1, 1, Theme.isLightMode ? 0.55 : 0.16) : Theme.withAlpha(Theme.surfaceText, 0.12)
+                    border.color: root.glass ? Theme.withAlpha(Theme.primary, 0.35) : Theme.withAlpha(Theme.surfaceText, 0.12)
 
                     // The accent layer's sheen: light from the top left, fading
                     // out by the middle (a Gradient: Qt Quick's are linear).
@@ -520,11 +521,11 @@ PluginComponent {
                         gradient: Gradient {
                             GradientStop {
                                 position: 0
-                                color: Qt.rgba(1, 1, 1, Theme.isLightMode ? 0.40 : 0.10)
+                                color: Theme.withAlpha(Theme.primary, 0.10)
                             }
                             GradientStop {
                                 position: 0.42
-                                color: Qt.rgba(1, 1, 1, 0)
+                                color: Theme.withAlpha(Theme.primary, 0)
                             }
                         }
                     }

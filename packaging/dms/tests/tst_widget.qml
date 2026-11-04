@@ -327,9 +327,14 @@ TestCase {
             compare(hero.color.a.toFixed(2), "0.50", "the hero colour goes through Theme.foregroundColor");
             compare(marks.count, 0);
             compare(hero.border.width, 1);
-            verify(hero.border.color.r > 0.99 && hero.border.color.a >= 0.16, "a light edge: " + hero.border.color);
+            // the edge and the sheen are DMS's primary colour, so they show on
+            // a white hero as on a dark one
+            compare(hero.border.color.a.toFixed(2), "0.35");
+            compare(hero.border.color.r.toFixed(2), Theme.primary.r.toFixed(2));
+            compare(sheen.gradient.stops[0].color.a.toFixed(2), "0.10");
+            compare(sheen.gradient.stops[0].color.g.toFixed(2), Theme.primary.g.toFixed(2));
             Theme.isLightMode = true;
-            compare(hero.border.color.a.toFixed(2), "0.55", "the edge is stronger on a light theme");
+            compare(hero.border.color.a.toFixed(2), "0.35", "the same on a light theme");
         } finally {
             Theme.isLightMode = false;
             Theme.blurLayersActive = false;
