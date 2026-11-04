@@ -19,20 +19,24 @@ func TestGlassModeFor(t *testing.T) {
 		return ""
 	}
 	none := func(string) string { return "" }
+	has := func() (bool, bool) { return true, true }
+	unknown := func() (bool, bool) { return false, false }
 	for _, c := range []struct {
 		s    settings.Settings
 		env  func(string) string
+		reg  func() (bool, bool)
 		want glassMode
 	}{
-		{settings.Settings{}, hypr, glassOff},
-		{settings.Settings{Blur: settings.BlurOn}, hypr, glassOff},
-		{settings.Settings{Glass: true}, hypr, glassBlur},
-		{settings.Settings{Glass: true}, none, glassFallback},
-		{settings.Settings{Glass: true, Blur: settings.BlurAuto}, none, glassFallback},
-		{settings.Settings{Glass: true, Blur: settings.BlurOn}, none, glassBlur},
-		{settings.Settings{Glass: true, Blur: settings.BlurOff}, hypr, glassFallback},
+		{settings.Settings{}, hypr, has, glassOff},
+		{settings.Settings{Blur: settings.BlurOn}, hypr, has, glassOff},
+		{settings.Settings{Glass: true}, hypr, unknown, glassBlur},
+		{settings.Settings{Glass: true}, none, has, glassBlur}, // a compositor with the protocol
+		{settings.Settings{Glass: true}, none, unknown, glassFallback},
+		{settings.Settings{Glass: true, Blur: settings.BlurAuto}, none, unknown, glassFallback},
+		{settings.Settings{Glass: true, Blur: settings.BlurOn}, none, unknown, glassBlur},
+		{settings.Settings{Glass: true, Blur: settings.BlurOff}, hypr, has, glassFallback},
 	} {
-		if got := glassModeFor(c.s, c.env); got != c.want {
+		if got := glassModeFor(c.s, c.env, c.reg); got != c.want {
 			t.Errorf("%+v, hyprland %v: mode %d, want %d", c.s, c.env(settings.HyprlandEnv) != "", got, c.want)
 		}
 	}

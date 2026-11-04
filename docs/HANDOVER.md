@@ -108,6 +108,23 @@ GTK-free; the DMS widget opens `archmaid-gui` when it is on PATH, else the TUI.
 Each of these was learned the hard way. The reasoning lives in the code
 comments and `git log`; this is the "read before you touch it" list.
 
+- **GTK 4.24 + ext-background-effect: no `set_blur_region` without a
+  `backdrop-filter`, so no compositor blur (#258).** GTK binds
+  `ext_background_effect_manager_v1` and calls `get_background_effect` for
+  every toplevel, but sends a blur region only for a window whose CSS has a
+  `backdrop-filter`. Hyprland 0.56 reads a client that holds the object with
+  no region as "no blur" and skips its automatic blur, so a translucent
+  window shows the desktop unblurred. `glass.css` therefore gives
+  `window.archmaid.am-glass:not(.am-glass-fb)` `backdrop-filter: blur(20px)`:
+  the radius is not sent (the protocol has none; the compositor uses its own
+  `decoration:blur`), GTK blurs only an empty backdrop, which costs a node
+  but draws nothing, and it must be absent in the fallback and the default
+  look (a test reads the window's render node). Auto asks the registry
+  (`compositor.go`, `gdk_wayland_display_query_registry`, declared by hand so
+  the build needs no wayland headers; `registryHas` is the seam tests fake)
+  and keeps `HYPRLAND_INSTANCE_SIGNATURE` as well, because an older Hyprland
+  without the protocol blurs a translucent window by itself. GTK cannot know
+  whether blur is *switched on* in the compositor, only whether it can blur.
 - **Packages page: root never reads a user-writable path twice
   (#239, `pkglocal.go`).** `pkg-install-local H file...` is the most
   sensitive verb. Rules that must not be loosened: (1) each user file is

@@ -115,3 +115,12 @@ window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
    near-opaque, like the text surfaces: the page's text would show through
    0.72. The edge and the sheen stay. */
 .archmaid.am-glass.am-dialog.am-sheet-solid sheet { background-color: @am_glass_sheet_solid; }
+
+/* The compositor's blur. GTK 4.24 binds ext-background-effect and gets a
+   blur object for every window, but sends no blur region unless the
+   window's CSS has a backdrop-filter; a compositor that holds the object
+   without a region reads it as "no blur" (Hyprland 0.56 then skips its own
+   blur for the window). So the window gets one, in the blur skin only: the
+   fallback and the default look must not, or GTK would blur an empty
+   backdrop itself. */
+window.archmaid.am-glass:not(.am-glass-fb) { backdrop-filter: blur(20px); }

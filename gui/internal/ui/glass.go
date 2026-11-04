@@ -50,12 +50,13 @@ const (
 )
 
 // glassModeFor is the skin s asks for, with getenv standing for the
-// process's environment (settings.Settings.BlurBehind's Auto rule).
-func glassModeFor(s settings.Settings, getenv func(string) string) glassMode {
+// process's environment and advertised for the compositor's registry
+// (settings.Settings.BlurBehind's Auto rule).
+func glassModeFor(s settings.Settings, getenv func(string) string, advertised func() (has, known bool)) glassMode {
 	switch {
 	case !s.Glass:
 		return glassOff
-	case s.BlurBehind(getenv):
+	case s.BlurBehind(getenv, advertised):
 		return glassBlur
 	}
 	return glassFallback
@@ -96,7 +97,7 @@ func glassClasses(widget interface {
 // applyGlass switches the skin to the one the settings ask for, live:
 // the provider, the window's classes and any dialog that is open.
 func (w *Window) applyGlass() {
-	mode := glassModeFor(w.settings, os.Getenv)
+	mode := glassModeFor(w.settings, os.Getenv, registryHas)
 	glassNow = mode
 	setGlassProvider(mode != glassOff)
 	syncScheme() // the dark tokens go with the skin

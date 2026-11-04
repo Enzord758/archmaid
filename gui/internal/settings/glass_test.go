@@ -46,8 +46,9 @@ func TestGlassRoundTrip(t *testing.T) {
 	}
 }
 
-// TestBlurBehind: Auto means translucency only where Hyprland is (its
-// session variable, faked here); On and Off force either way.
+// TestBlurBehind: Auto means translucency where the compositor advertises
+// ext-background-effect (faked) or Hyprland's variable is set (faked); On
+// and Off force either way.
 func TestBlurBehind(t *testing.T) {
 	hypr := func(k string) string {
 		if k == HyprlandEnv {
@@ -56,18 +57,23 @@ func TestBlurBehind(t *testing.T) {
 		return ""
 	}
 	none := func(string) string { return "" }
+	has := func() (bool, bool) { return true, true }
+	lacks := func() (bool, bool) { return false, true }
+	unknown := func() (bool, bool) { return false, false }
 	for _, c := range []struct {
 		blur string
 		env  func(string) string
+		reg  func() (bool, bool)
 		want bool
 	}{
-		{"", hypr, true}, {BlurAuto, hypr, true},
-		{"", none, false}, {BlurAuto, none, false},
-		{BlurOn, none, true}, {BlurOn, hypr, true},
-		{BlurOff, hypr, false}, {BlurOff, none, false},
-		{"sparkly", hypr, true}, {"sparkly", none, false},
+		{"", none, has, true}, {BlurAuto, none, has, true}, // KDE with the protocol
+		{"", none, lacks, false}, {BlurAuto, none, unknown, false}, // GNOME, X11, Broadway
+		{"", hypr, lacks, true}, {"", hypr, unknown, true}, {"", hypr, has, true},
+		{BlurOn, none, lacks, true}, {BlurOn, none, unknown, true},
+		{BlurOff, hypr, has, false}, {BlurOff, none, has, false},
+		{"sparkly", none, has, true}, {"sparkly", none, lacks, false},
 	} {
-		if got := (Settings{Glass: true, Blur: c.blur}).BlurBehind(c.env); got != c.want {
+		if got := (Settings{Glass: true, Blur: c.blur}).BlurBehind(c.env, c.reg); got != c.want {
 			t.Errorf("blur %q, hyprland %v: %v, want %v", c.blur, c.env(HyprlandEnv) != "", got, c.want)
 		}
 	}

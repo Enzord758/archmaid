@@ -63,15 +63,22 @@ func (s Settings) BlurMode() string {
 }
 
 // BlurBehind says whether the glass look may be translucent: On, or Auto
-// with HYPRLAND_INSTANCE_SIGNATURE set (getenv reads it). GTK can't ask a
-// compositor whether it blurs, and asking Hyprland means running hyprctl,
-// so everything else gets the near-opaque fallback skin; Off forces that.
-func (s Settings) BlurBehind(getenv func(string) string) bool {
+// when the compositor advertises ext-background-effect (advertised says:
+// has, and known, false off Wayland) or HYPRLAND_INSTANCE_SIGNATURE is set
+// (getenv reads it). Off forces the near-opaque fallback skin. GTK can't
+// ask a compositor whether blur is switched on, only whether it can blur:
+// the protocol is the best answer there is. The Hyprland variable stays in
+// the rule because an older Hyprland (before the protocol) blurs a
+// translucent window by itself.
+func (s Settings) BlurBehind(getenv func(string) string, advertised func() (has, known bool)) bool {
 	switch s.BlurMode() {
 	case BlurOn:
 		return true
 	case BlurOff:
 		return false
+	}
+	if has, known := advertised(); known && has {
+		return true
 	}
 	return getenv(HyprlandEnv) != ""
 }

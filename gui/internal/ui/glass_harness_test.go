@@ -34,6 +34,7 @@ import (
 const (
 	glassSchemeEnv   = "ARCHMAID_GUI_GLASS_SCHEME"   // "dark": force the dark theme
 	glassRendererEnv = "ARCHMAID_GUI_GLASS_RENDERER" // stands in for the window's renderer
+	glassRegistryEnv = "ARCHMAID_GUI_GLASS_REGISTRY" // "has": the compositor advertises ext-background-effect
 	glassModeEnv     = "ARCHMAID_GUI_GLASS_MODE"     // cov-glass-shots: "default" or "glass"
 )
 
@@ -53,6 +54,13 @@ func glassSetup(w *Window) {
 		adw.StyleManagerGetDefault().SetColorScheme(adw.ColorSchemeForceDark)
 	} else {
 		adw.StyleManagerGetDefault().SetColorScheme(adw.ColorSchemeForceLight)
+	}
+	// The registry answer is faked in every scenario: Broadway has none.
+	registryHas = func() (bool, bool) {
+		if os.Getenv(glassRegistryEnv) == "has" {
+			return true, true
+		}
+		return false, os.Getenv(glassRegistryEnv) == "lacks"
 	}
 	if r := os.Getenv(glassRendererEnv); r != "" {
 		rendererName = func(*Window) string { return r }
@@ -115,7 +123,9 @@ func covGlass(c *covEnv) {
 	glassSetup(w)
 	cairoShots := shotsBuilt
 	blurSeen := false
-	blurAuto := os.Getenv(settings.HyprlandEnv) != "" // what Auto should give
+	// What Auto should give: blur where the registry advertises the
+	// protocol or Hyprland's variable is set.
+	blurAuto := os.Getenv(settings.HyprlandEnv) != "" || os.Getenv(glassRegistryEnv) == "has"
 	renderer := os.Getenv(glassRendererEnv)
 	gpu := renderer != "" && renderer != "GskCairoRenderer"
 
@@ -129,6 +139,13 @@ func covGlass(c *covEnv) {
 		styleMu.Lock()
 		c.ok(len(styleErrors) == 0, "%s: stylesheet parse errors: %q", where, styleErrors)
 		styleMu.Unlock()
+		// GTK sends no blur region to the compositor unless the window has a
+		// backdrop-filter: the blur skin has one (a blur node of radius 40,
+		// twice the CSS's 20 px, at the top of the window's render node), the
+		// fallback and the default look must not.
+		if text, err := nodeText(w.win); err == nil {
+			c.ok(strings.Contains(text, "blur: 40;") == (mode == glassBlur), "%s: the window's backdrop blur is %v, want %v", where, strings.Contains(text, "blur: 40;"), mode == glassBlur)
+		}
 		marks, ok := heroMarks(w)
 		c.ok(ok, "%s: no hero on the Overview", where)
 		c.ok(marks == (mode == glassOff), "%s: the hero's corner marks: %v, want %v (default look only)", where, marks, mode == glassOff)
@@ -175,7 +192,7 @@ func covGlass(c *covEnv) {
 	// filter: blur() parses and draws on this GTK.
 	shut := func() {
 		if text, err := nodeText(w.win); err == nil {
-			has := strings.Contains(text, "blur {")
+			has := strings.Contains(text, "blur: 10;")
 			c.ok(has == w.shell.split.HasCSSClass(underClass), "the page's render node has a blur: %v, but the class is %v", has, w.shell.split.HasCSSClass(underClass))
 			if has {
 				blurSeen = true
@@ -271,6 +288,8 @@ func TestGUIGlass(t *testing.T) {
 	}{
 		{"light, no hyprland, cairo", []string{glassSchemeEnv + "=light"}},
 		{"dark, hyprland, gpu renderer", []string{glassSchemeEnv + "=dark", settings.HyprlandEnv + "=sig", glassRendererEnv + "=GskNglRenderer"}},
+		{"light, registry advertises the protocol, no hyprland", []string{glassSchemeEnv + "=light", glassRegistryEnv + "=has", glassRendererEnv + "=GskNglRenderer"}},
+		{"dark, registry lacks it, no hyprland", []string{glassSchemeEnv + "=dark", glassRegistryEnv + "=lacks"}},
 		{"light, hyprland, cairo", []string{glassSchemeEnv + "=light", settings.HyprlandEnv + "=sig", glassRendererEnv + "=GskCairoRenderer"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
