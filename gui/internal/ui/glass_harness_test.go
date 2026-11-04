@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -319,6 +320,34 @@ func covGlassShots(c *covEnv) {
 			p.results.Emit("row-activated", rowByName(p.results, "firefox"))
 		},
 		func() {
+			// The package's hero is on its stat grid's outer edges (#261): the
+			// grid's own in the default look, the cells' in glass.
+			var hero, grid gtk.Widgetter
+			eachWidget(p.detail, func(wd gtk.Widgetter) {
+				b := gtk.BaseWidget(wd)
+				if hero == nil && b.HasCSSClass("am-hero") {
+					hero = wd
+				}
+				if grid == nil && b.HasCSSClass("am-grid") {
+					grid = wd
+				}
+			})
+			if hero == nil || grid == nil {
+				c.fail("the package detail has no hero or no stat grid")
+			} else {
+				hx, _, hr, _, _ := alignBounds(w, hero)
+				want, wantR := 0.0, 0.0
+				if os.Getenv(glassModeEnv) == "glass" {
+					first := grid.(*gtk.FlowBox).ChildAtIndex(0).Child()
+					second := grid.(*gtk.FlowBox).ChildAtIndex(1).Child()
+					fx, _, _, _, _ := alignBounds(w, first)
+					_, _, sr, _, _ := alignBounds(w, second)
+					want, wantR = fx, sr
+				} else {
+					want, _, wantR, _, _ = alignBounds(w, grid)
+				}
+				c.ok(math.Abs(hx-want) <= 0.5 && math.Abs(hr-wantR) <= 0.5, "the package hero spans %.1f..%.1f, its stat grid %.1f..%.1f", hx, hr, want, wantR)
+			}
 			shoot(w, "glass", tag+"-packages")
 			w.stack.SetVisibleChildName("overview")
 			c.feed(engine.NeedsConfirm{ID: 81, Title: "Remove these orphans?", Msg: "Nothing else needs them.", Items: []string{"python-foo", "libbar", "qux-git"}, Default: true, YesLabel: "Remove"})

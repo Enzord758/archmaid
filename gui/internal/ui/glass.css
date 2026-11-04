@@ -63,6 +63,11 @@ window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
   box-shadow: inset 0 1px 0 @am_glass_edge, 0 10px 30px @am_glass_shadow;
 }
 .archmaid.am-glass .am-hero { border-radius: 14px; }
+/* A hero over a grid of cells (the Overview's, a package's detail) is on
+   the cells' and cards' outer edges: those are
+   inset by the grid's 1 px border and the cells' 3 px child padding, so the
+   hero takes 4 px of margin and gives them back in padding (#261). */
+.archmaid.am-glass .am-hero.am-over-grid { margin: 0 4px; padding-left: 16px; padding-right: 16px; }
 /* The marks are eight background layers, positioned and sized: the sheen
    that replaces them must reset those lists too, or it is drawn as one
    10 by 1 px strip. */

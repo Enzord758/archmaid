@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **In the glass look the hero lines up with the blocks under it** (#261). The Full Cleanup hero stuck out 4 px on each side of the cells and the Last run and Updates cards, which sit inside the grid's 1 px border and the cells' 3 px padding. It now takes that as margin and gives it back in padding, so its outer edges are theirs, wide and narrow. A package's hero on the Packages page was off its stat grid the same way, and is fixed too. `TestGUIOverviewHero` measures the hero against the cells and cards at 1920, 1440, 1280, 900, 700 and 500 px in both looks, dark and light; the Packages case is in `TestGUIGlassShots`.
+
 ## [2.5.1] - 2026-11-04
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

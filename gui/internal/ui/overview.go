@@ -101,6 +101,7 @@ func (w *Window) newHero() gtk.Widgetter {
 	hero := gtk.NewBox(gtk.OrientationVertical, 10)
 	hero.AddCSSClass("am-hero")
 	hero.AddCSSClass("am-blueprint")
+	hero.AddCSSClass("am-over-grid") // glass.css: on the cells' edges
 
 	preview, ok := w.planPreview(actions.IDFullCleanup)
 	w.kickerText = [2]string{heroKicker(preview, ok, false), heroKicker(preview, ok, true)}

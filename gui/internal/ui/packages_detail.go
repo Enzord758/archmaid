@@ -27,6 +27,7 @@ func (p *pkgPage) refreshDetail() {
 	hero := gtk.NewBox(gtk.OrientationVertical, 8)
 	hero.AddCSSClass("am-hero")
 	hero.AddCSSClass("am-blueprint")
+	hero.AddCSSClass("am-over-grid") // glass.css: on the stat grid's edges
 	kind := "Repository · " + repoLabel(pk)
 	if d.AUR {
 		kind = "AUR"
