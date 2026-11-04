@@ -48,6 +48,7 @@ func (w *Window) newOverview() gtk.Widgetter {
 	// divides them evenly. Where it has three columns, Last run spans the
 	// first two and Updates is the third, as wide as a cell (layoutTop);
 	// else Updates sits under Last run at full width.
+	w.topRows.head, w.topRows.line = gtk.NewSizeGroup(gtk.SizeGroupVertical), gtk.NewSizeGroup(gtk.SizeGroupVertical)
 	w.topLast = w.newLastRun()
 	w.topUpd = w.newUpdatesCard()
 	w.top = gtk.NewGrid()
@@ -429,9 +430,14 @@ func (w *Window) newLastRun() gtk.Widgetter {
 	files.SetVisible(false)
 	open := gtk.NewButtonWithLabel("Open in Logs")
 	open.SetHAlign(gtk.AlignStart)
-	open.AddCSSClass("flat")
+	// Raised, as the Updates card's buttons are (#260).
 	open.SetVisible(false)
 	open.ConnectClicked(w.openLastRunLogs)
+	// The two cards' rows are as tall as each other's, so their buttons
+	// are on one row (#260): a vertical size group over the title rows and
+	// over the files line and the Updates card's detail line.
+	w.topRows.head.AddWidget(head)
+	w.topRows.line.AddWidget(files)
 	box.Append(kicker)
 	box.Append(head)
 	box.Append(w.lastIssues)

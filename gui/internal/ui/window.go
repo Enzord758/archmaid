@@ -145,16 +145,19 @@ type Window struct {
 	cellRoots   [][2]*gtk.Label
 	cells       *gtk.FlowBox
 	top         *gtk.Grid // Last run and Updates, wide (layoutTop)
-	topCol      *gtk.Box  // the same, stacked
-	topLast     gtk.Widgetter
-	topUpd      gtk.Widgetter
-	topLaid     bool
-	topWide     bool
-	lastIcon    *gtk.Image
-	lastTitle   *gtk.Label
-	lastTag     *gtk.Label
-	lastIssues  *gtk.Label
-	lastRun     overview.LastRun
+	// topRows: vertical size groups that keep the two top cards' rows as
+	// tall as each other (overview.go, newLastRun).
+	topRows    struct{ head, line *gtk.SizeGroup }
+	topCol     *gtk.Box // the same, stacked
+	topLast    gtk.Widgetter
+	topUpd     gtk.Widgetter
+	topLaid    bool
+	topWide    bool
+	lastIcon   *gtk.Image
+	lastTitle  *gtk.Label
+	lastTag    *gtk.Label
+	lastIssues *gtk.Label
+	lastRun    overview.LastRun
 	// The Updates card (updates_card.go): its widgets, the model, the cache
 	// as last read, the check's generation (a stale poll or error ends),
 	// its cancel, and the tests' shorter timeout and poll.

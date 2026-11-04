@@ -85,6 +85,7 @@ func (w *Window) newUpdatesCard() gtk.Widgetter {
 	buttons.SetColumnSpacing(8)
 	buttons.SetRowSpacing(8)
 	buttons.SetHAlign(gtk.AlignStart)
+	buttons.AddCSSClass("am-card-buttons")
 	buttons.SetMaxChildrenPerLine(2)
 	buttons.Append(u.check)
 	buttons.Append(u.topg)
@@ -94,7 +95,9 @@ func (w *Window) newUpdatesCard() gtk.Widgetter {
 
 	box.Append(kicker)
 	box.Append(head)
+	w.topRows.head.AddWidget(head)
 	u.meta = gtk.NewBox(gtk.OrientationHorizontal, 8)
+	w.topRows.line.AddWidget(u.meta)
 	u.meta.Append(u.tag)
 	u.detail.SetHExpand(true)
 	u.meta.Append(u.detail)

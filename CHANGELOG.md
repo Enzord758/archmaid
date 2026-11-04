@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Overview's top row lines up with the cell grid** (#260). In the glass look the Last run and Updates cards stuck out 3 px on each side of the cells below, and the gap between them was 1 px against the cells' 8 px; they now take the cells' edges and gap. "Open in Logs" is a raised button like the Updates buttons (it was flat, with its label inset), the Updates buttons start where their card's text starts (a flow box child added 3 px), and the two cards' buttons are on one row. This was also so in the default look. `TestGUIOverviewAlign` measures the edges, the gap, the buttons' start and their row in both looks at 1280, 1440 and 1920 px.
+
 ## [2.5.0] - 2026-11-04
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

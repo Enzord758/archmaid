@@ -85,7 +85,10 @@ window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
    breakpoint depends on it): the child padding above, the border the cells
    gain and their own padding add up to the default's 14 px. */
 .archmaid.am-glass .am-cell { padding: 10px; }
-.archmaid.am-glass .am-last-run, .archmaid.am-glass .am-updates { padding: 13px; }
+/* The top row's cards sit on the cells' edges: the cells are inset by their
+   3 px child padding, so these take a 3 px margin and give it back in
+   padding. */
+.archmaid.am-glass .am-last-run, .archmaid.am-glass .am-updates { margin: 3px; padding: 10px; }
 .archmaid.am-glass .am-tag { border-radius: 4px; }
 
 /* Text surfaces stay 93 % opaque: output, logs, PKGBUILD review. */

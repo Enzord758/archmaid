@@ -126,6 +126,9 @@
 .archmaid button.am-cell:active:not(:disabled) {
   background-color: mix(@card_bg_color, @accent_bg_color, 0.25);
 }
+/* The Updates card's buttons start where its text does: a flow box child
+   has 3 px of padding of its own (#260). */
+.archmaid .am-card-buttons > flowboxchild { padding: 0; }
 .archmaid .am-cell-title { font-weight: 700; }
 .archmaid .am-cell-desc, .archmaid .am-cell-sub { color: @am_muted; }
 .archmaid .am-tag {
