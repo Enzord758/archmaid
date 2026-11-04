@@ -79,8 +79,13 @@ window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
 .archmaid.am-glass .am-hero.am-blueprint { background-color: @am_glass_card; }
 /* The grid of cells: separate glass cells 8 px apart instead of a hairline
    grid (the flow box spaces them 1 px; the rest is the cells' margin). */
-.archmaid.am-glass .am-grid { background-color: transparent; border: 0 solid transparent; }
+.archmaid.am-glass .am-grid { background-color: transparent; border: 1px solid transparent; }
 .archmaid.am-glass .am-grid > flowboxchild { padding: 3px; }
+/* The layout is the default look's to the pixel (the three-column
+   breakpoint depends on it): the child padding above, the border the cells
+   gain and their own padding add up to the default's 14 px. */
+.archmaid.am-glass .am-cell { padding: 10px; }
+.archmaid.am-glass .am-last-run, .archmaid.am-glass .am-updates { padding: 13px; }
 .archmaid.am-glass .am-tag { border-radius: 4px; }
 
 /* Text surfaces stay 93 % opaque: output, logs, PKGBUILD review. */

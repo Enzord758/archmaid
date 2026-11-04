@@ -619,7 +619,9 @@ func (w *Window) cellsThreeWide() bool {
 		return w.topWide
 	}
 	r, ok := gtk.BaseWidget(c2).ComputeBounds(c0)
-	return ok && r.X() > 1 && r.Y() > -1 && r.Y() < 1
+	// On one line: a few px of slack, for cells that start a little apart
+	// (the glass skin's 3 px child padding); the next line is a cell away.
+	return ok && r.X() > 1 && r.Y() > -6 && r.Y() < 6
 }
 
 // layoutTop puts Updates in the grid's third column beside Last run (wide:
