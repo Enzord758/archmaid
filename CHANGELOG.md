@@ -8,6 +8,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ### Fixed
 
+- **"Check for updates" no longer takes a result from before the click** (#266). The first check after a GUI start said "Up to date" while 4 updates were waiting; the second said "4 updates waiting". The timer's own check starts a few minutes after login, and `systemctl start` does nothing for a unit that is already running, so the click joined that run, which finished with a count from before the packages changed, and the card took it. The check now uses `systemctl --user restart --no-block`, which stops a running check and starts a new one, and the card accepts only a result file written at or after the click. `TestUpdatesCardIgnoresAResultWrittenBeforeTheClick` uses real files with set times.
 - **The Overview's Last run age moves on with the clock** (#266). It said "just now" for over ten minutes and showed "13 min ago" only after a restart; the Updates card's "checked N min ago" moved only when something else redrew it. One ticker (every 30 s while the Overview shows, and when it is shown again) now redraws both. `TestGUIAgeTick` runs it with a run that ended 88 s ago.
 
 ## [2.5.4] - 2026-11-08

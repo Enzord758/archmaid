@@ -152,7 +152,7 @@ func TestRefreshUpdatesStartsTheUnitNoBlock(t *testing.T) {
 	if err := RefreshUpdates(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(sysLog); got != "--user start --no-block archmaid-updates-check.service\n" {
+	if got := readFile(sysLog); got != "--user restart --no-block archmaid-updates-check.service\n" {
 		t.Errorf("systemctl got %q", got)
 	}
 	if readFile(scriptLog) != "" {

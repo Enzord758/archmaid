@@ -70,7 +70,11 @@ func (c *UpdatesCard) Poll(u Updates, mod, now time.Time) (done bool) {
 	if c.state != cardChecking {
 		return false
 	}
-	if u.Known && (!mod.Equal(c.mod) || !u.Checked.Equal(c.checks)) {
+	// A result counts when the file changed and was written after the click:
+	// a run that was already going (the timer's, right after the GUI started)
+	// finishes with a count from before it, which is not what was asked for
+	// (#266: "Up to date" with updates waiting).
+	if u.Known && (!mod.Equal(c.mod) || !u.Checked.Equal(c.checks)) && !mod.Before(c.since) {
 		c.state = cardIdle
 		return true
 	}

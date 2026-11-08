@@ -82,7 +82,7 @@ env), not only in a shell rc. Authentication happens in the app, never in the wi
 
 **Refresh after a run**: when a real run whose topgrade step started ends (Full
 Cleanup or Run topgrade, TUI or GUI; completed, failed or aborted; not a dry run, a
-declined gate or an abort before topgrade), archmaid runs `systemctl --user start
+declined gate or an abort before topgrade), archmaid runs `systemctl --user restart
 --no-block archmaid-updates-check.service` once (fallback: the script itself, detached and
 niced), so UPDATES shows the new count within seconds instead of up to 30 min. The widget
 needs nothing for it: it already re-reads `updates-cache.json` when the file is replaced.

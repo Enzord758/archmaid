@@ -29,8 +29,10 @@ var UpdatesUnit = "archmaid-updates-check.service"
 const refreshTimeout = 5 * time.Second
 
 // RefreshUpdates is the Deps.RefreshUpdates both front ends set. It starts
-// the unit with `systemctl --user start --no-block` (a oneshot unit that
-// is already running is not started twice). If that fails (no unit, no
+// the unit with `systemctl --user restart --no-block`: a oneshot unit that
+// is already running is not started twice by `start`, and a check that began
+// before the request (the timer's, right after login) would end with a count
+// from before it (#266); `restart` stops it and runs a new one. If that fails (no unit, no
 // user manager) and installed.UpdatesScript exists, it starts the script
 // in the background, niced (19), and does not wait for it. Otherwise it
 // returns an error saying so, which the Driver writes as one WARN line in
@@ -41,7 +43,7 @@ const refreshTimeout = 5 * time.Second
 func RefreshUpdates(ctx context.Context) error {
 	cctx, cancel := context.WithTimeout(ctx, refreshTimeout)
 	defer cancel()
-	sc := exec.CommandContext(cctx, "systemctl", "--user", "start", "--no-block", UpdatesUnit)
+	sc := exec.CommandContext(cctx, "systemctl", "--user", "restart", "--no-block", UpdatesUnit)
 	sc.WaitDelay = time.Second // a killed systemctl's grandchildren may hold the pipe
 	out, err := sc.CombinedOutput()
 	if err == nil {
