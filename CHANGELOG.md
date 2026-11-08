@@ -2,9 +2,13 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1` and `v2.5.1..v2.5.2`.
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2` and `v2.5.2..v2.5.3`.
 
 ## [Unreleased]
+
+## [2.5.3] - 2026-11-08
+
+It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
 ### Fixed
 
@@ -468,7 +472,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.5.2...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.5.3...HEAD
+[2.5.3]: https://github.com/Enzord758/archmaid/compare/v2.5.2...v2.5.3
 [2.5.2]: https://github.com/Enzord758/archmaid/compare/v2.5.1...v2.5.2
 [2.5.1]: https://github.com/Enzord758/archmaid/compare/v2.5.0...v2.5.1
 [2.5.0]: https://github.com/Enzord758/archmaid/compare/v2.4.1...v2.5.0
