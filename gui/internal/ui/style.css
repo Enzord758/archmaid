@@ -103,6 +103,10 @@
   background-color: @card_bg_color;
   border: 1px solid @am_rail;
 }
+/* A hero over a grid of cells: its text starts where the cells' and the
+   cards' text does (14 px in from the grid's border, as theirs), the
+   vertical padding stays (#262). */
+.archmaid .am-hero.am-over-grid { padding-left: 14px; padding-right: 14px; }
 .archmaid .am-hero-title { font-size: 32px; font-weight: 800; font-family: "Barlow Condensed", "Adwaita Sans", sans-serif; }
 .archmaid .am-step-num { font-family: "JetBrains Mono", monospace; color: @am_muted; }
 .archmaid .am-grid { background-color: @am_rail; border: 1px solid @am_rail; }
@@ -129,6 +133,10 @@
 /* The Updates card's buttons start where its text does: a flow box child
    has 3 px of padding of its own (#260). */
 .archmaid .am-card-buttons > flowboxchild { padding: 0; }
+/* The log's rows have 2 px of padding of their own: the text would start 2 px
+   in from the header's title and the aside end 2 px short of its buttons
+   (#262). */
+.archmaid .am-logs-list > row { padding-left: 0; padding-right: 0; }
 .archmaid .am-cell-title { font-weight: 700; }
 .archmaid .am-cell-desc, .archmaid .am-cell-sub { color: @am_muted; }
 .archmaid .am-tag {

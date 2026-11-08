@@ -130,6 +130,7 @@ func (w *Window) newHero() gtk.Widgetter {
 	w.heroSteps.SetMaxChildrenPerLine(2)
 	w.heroSteps.SetHomogeneous(true)
 	w.heroSteps.SetFocusable(false)
+	w.heroSteps.AddCSSClass("am-card-buttons") // no child padding: the plan starts at the hero's text
 	if ok {
 		for i, s := range preview.Steps {
 			// The number, then the title and its tags (tagLine), on the
@@ -189,6 +190,7 @@ func (w *Window) newHero() gtk.Widgetter {
 	w.heroButtons = buttons
 	buttons.SetSelectionMode(gtk.SelectionNone)
 	buttons.SetFocusable(false)
+	buttons.AddCSSClass("am-card-buttons") // no child padding: they start at the hero's text
 	buttons.SetColumnSpacing(8)
 	buttons.SetRowSpacing(8)
 	w.stackButtons(w.narrow)

@@ -64,7 +64,7 @@ if [[ $# -eq 0 ]]; then
 	pkgs='^TestGUIPackages$'
 	pkgflow='^TestGUIPackagesFlow$'
 	glass='^TestGUIGlass$'
-	align='^TestGUIOverview(Align|Hero)$'
+	align='^TestGUI(OverviewAlign|OverviewHero|LogsAlign)$'
 	glass2='^TestGUI(GlassShots|GlassLayout|ColourSchemeLive)$'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:

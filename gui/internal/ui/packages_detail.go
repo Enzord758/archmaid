@@ -46,6 +46,7 @@ func (p *pkgPage) refreshDetail() {
 	tags.SetMaxChildrenPerLine(8)
 	tags.SetHAlign(gtk.AlignStart)
 	tags.SetFocusable(false)
+	tags.AddCSSClass("am-card-buttons") // no child padding: the tags start at the hero's text
 	for _, t := range pkgview.RowTags(pk) {
 		tags.Append(pkgTag(t))
 	}
@@ -105,6 +106,10 @@ func (p *pkgPage) detailActions(d pkgview.Detail) gtk.Widgetter {
 	row.SetMaxChildrenPerLine(3)
 	row.SetHAlign(gtk.AlignStart)
 	row.SetFocusable(false)
+	// No child padding, and on the stat grid's edge (glass.css: its cells
+	// are 4 px in): Install starts where the cells and the hero start.
+	row.AddCSSClass("am-card-buttons")
+	row.AddCSSClass("am-over-grid-row")
 	box.Append(row)
 
 	mode := pkgview.ModeInstall

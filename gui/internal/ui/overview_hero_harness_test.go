@@ -17,6 +17,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/settings"
+	"github.com/Enzord758/archmaid/internal/actions"
 )
 
 func init() { covScenarios["cov-overview-hero"] = covOverviewHero }
@@ -68,6 +69,34 @@ func covOverviewHero(c *covEnv) {
 					}
 					c.ok(near(hx, cells[0]) && near(hr, cells[1]), "%s: the hero spans %.1f..%.1f, the cells %.1f..%.1f", where, hx, hr, cells[0], cells[1])
 					c.ok(near(hx, top[0]) && near(hr, top[1]), "%s: the hero spans %.1f..%.1f, Last run and Updates %.1f..%.1f", where, hx, hr, top[0], top[1])
+					// The hero's text starts where the cards' and cells' text starts,
+					// and its buttons and plan start at its text (#262).
+					first := func(root gtk.Widgetter, class string) gtk.Widgetter {
+						var f gtk.Widgetter
+						eachWidget(root, func(wd gtk.Widgetter) {
+							if f == nil && gtk.BaseWidget(wd).HasCSSClass(class) {
+								f = wd
+							}
+						})
+						return f
+					}
+					kx, _, _, _, _ := alignBounds(w, w.heroKicker)
+					lkx, _, _, _, _ := alignBounds(w, gtk.BaseWidget(w.topLast).FirstChild())
+					ctx, _, _, _, _ := alignBounds(w, first(w.cells.ChildAtIndex(0).Child(), "am-cell-title"))
+					runx, _, _, _, _ := alignBounds(w, w.menu[actions.IDFullCleanup].cell)
+					c.ok(near(kx, lkx), "%s: the hero's text starts at %.1f, Last run's at %.1f", where, kx, lkx)
+					c.ok(near(kx, ctx), "%s: the hero's text starts at %.1f, a cell's at %.1f", where, kx, ctx)
+					c.ok(near(runx, kx), "%s: the hero's button starts at %.1f, its text at %.1f", where, runx, kx)
+					if ch := w.heroSteps.ChildAtIndex(0); ch != nil && w.heroSteps.IsVisible() {
+						sx, _, _, _, _ := alignBounds(w, ch.Child())
+						c.ok(near(sx, kx), "%s: the plan starts at %.1f, the hero's text at %.1f", where, sx, kx)
+					}
+					// The right: the description ends where the Updates card's title
+					// row ends (the cards' and the hero's right edges are one).
+					_, _, dr, _, _ := alignBounds(w, first(hero, "am-hero-desc"))
+					uh := gtk.BaseWidget(gtk.BaseWidget(w.topUpd).FirstChild()).NextSibling()
+					_, _, ur, _, _ := alignBounds(w, uh)
+					c.ok(near(dr, ur), "%s: the description ends at %.1f, the Updates card's text at %.1f", where, dr, ur)
 					shoot(w, "hero", fmt.Sprintf("glass-%v-%s-%d", look, os.Getenv(glassSchemeEnv), wd))
 				})
 		}

@@ -347,6 +347,36 @@ func covGlassShots(c *covEnv) {
 					want, _, wantR, _, _ = alignBounds(w, grid)
 				}
 				c.ok(math.Abs(hx-want) <= 0.5 && math.Abs(hr-wantR) <= 0.5, "the package hero spans %.1f..%.1f, its stat grid %.1f..%.1f", hx, hr, want, wantR)
+				// Its buttons start on that edge, and its text where the stat
+				// cells' text starts (#262).
+				var install *gtk.Button
+				eachWidget(p.detail, func(wd gtk.Widgetter) {
+					if b, ok := wd.(*gtk.Button); ok && install == nil && b.Label() == "Install" {
+						install = b
+					}
+				})
+				if install == nil {
+					c.fail("no Install button")
+				} else {
+					ix, _, _, _, _ := alignBounds(w, install)
+					c.ok(math.Abs(ix-want) <= 0.5, "Install starts at %.1f, the stat grid's edge is %.1f", ix, want)
+				}
+				var heroKick, cellLabel gtk.Widgetter
+				eachWidget(hero, func(wd gtk.Widgetter) {
+					if heroKick == nil && gtk.BaseWidget(wd).HasCSSClass("am-kicker") {
+						heroKick = wd
+					}
+				})
+				eachWidget(grid.(*gtk.FlowBox).ChildAtIndex(0).Child(), func(wd gtk.Widgetter) {
+					if _, ok := wd.(*gtk.Label); ok && cellLabel == nil {
+						cellLabel = wd
+					}
+				})
+				if heroKick != nil && cellLabel != nil {
+					kx, _, _, _, _ := alignBounds(w, heroKick)
+					lx, _, _, _, _ := alignBounds(w, cellLabel)
+					c.ok(math.Abs(kx-lx) <= 0.5, "the package hero's text starts at %.1f, the stat cells' at %.1f", kx, lx)
+				}
 			}
 			shoot(w, "glass", tag+"-packages")
 			w.stack.SetVisibleChildName("overview")

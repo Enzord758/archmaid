@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Text, buttons and the Logs page line up to the pixel** (#262). The Full Cleanup hero's text started 6 px further in than the text of the cards and cells below it, in both looks, and its description ended 7 px short of theirs; the hero's horizontal padding is now theirs (the vertical padding and the larger title are as they were). The hero's plan and buttons start at its text, not 3 px in (a flow box child's own padding). On the Packages page, a package's tags, Install and Add to list start on the stat grid's edge (they were 3 px in, 1 px left of it in glass) and its hero's text starts where the cells' does. On the Logs page the log's text started 2 px right of the header's title and its time stamps ended 2 px short of the header's buttons (a list row's padding); both are flush now. `TestGUIOverviewHero`, `TestGUIGlassShots` and the new `TestGUILogsAlign` measure each of these in both looks, dark and light, wide and narrow.
+
 ## [2.5.2] - 2026-11-04
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

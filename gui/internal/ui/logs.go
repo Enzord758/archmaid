@@ -210,6 +210,7 @@ func (w *Window) newLogs() gtk.Widgetter {
 		}
 	})
 	view := gtk.NewListView(gtk.NewNoSelection(p.list), &factory.ListItemFactory)
+	view.AddCSSClass("am-logs-list")
 	view.SetSingleClickActivate(true)
 	view.ConnectActivate(func(pos uint) { w.toggleSection(int(pos)) })
 	logScroll := gtk.NewScrolledWindow()
