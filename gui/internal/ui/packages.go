@@ -118,9 +118,12 @@ type pkgPage struct {
 	traySyncing bool
 
 	installedMode bool
-	selected      string
-	lines         []*tagLine
-	dirty         bool
+	// sel is the package picked on each tab (key: the Installed tab): the
+	// detail pane shows the tab's own, or nothing (#266).
+	sel      map[bool]*pkgdb.Package
+	selected string
+	lines    []*tagLine
+	dirty    bool
 
 	// The sheet (packages_sheet.go).
 	sheet       *amDialog
@@ -429,6 +432,16 @@ func (p *pkgPage) setMode(installed bool) {
 	p.installedMode = installed
 	p.searchBox.SetVisible(!installed)
 	p.installedBox.SetVisible(installed)
+	// The detail pane follows the tab: its own pick, else "pick a package".
+	if p.ctl != nil {
+		if pk := p.sel[installed]; pk != nil {
+			p.selected = pk.Name
+			p.ctl.Search.Select(*pk)
+		} else {
+			p.selected = ""
+			p.ctl.Search.ClearDetail()
+		}
+	}
 	p.changed()
 }
 
@@ -472,6 +485,10 @@ func (p *pkgPage) rowActivated(r *gtk.ListBoxRow) {
 
 func (p *pkgPage) selectPkg(pk pkgdb.Package) {
 	p.selected = pk.Name
+	if p.sel == nil {
+		p.sel = map[bool]*pkgdb.Package{}
+	}
+	p.sel[p.installedMode] = &pk
 	p.ctl.Search.Select(pk)
 	p.split.SetShowContent(true)
 	p.navAt = time.Now()

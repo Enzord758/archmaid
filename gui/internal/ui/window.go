@@ -600,6 +600,10 @@ func (w *Window) statusText() string {
 		// a discovery's Busy ("Measuring the caches…") stays set while its
 		// pick waits for the user.
 		parts = append(parts, "Waiting…")
+	case w.pkgSheetOpen():
+		// The Packages review sheet is the question: its checks are done,
+		// and the model's Busy ("Checking the packages…") is still set (#266).
+		parts = append(parts, "Waiting…")
 	case m.Busy != "":
 		parts = append(parts, m.Busy)
 	case m.Auth != nil && m.Auth.Kind == engine.WaitPolkit:

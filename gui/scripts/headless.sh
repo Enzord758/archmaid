@@ -62,7 +62,7 @@ if [[ $# -eq 0 ]]; then
 	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
 	cov='^TestGUICov'
 	pkgs='^TestGUIPackages$'
-	pkgflow='^TestGUIPackagesFlow$'
+	pkgflow='^TestGUIPackages(Flow|TabsAndStatus)$'
 	glass='^TestGUIGlass$'
 	align='^TestGUI(OverviewAlign|OverviewHero|LogsAlign)$'
 	glass2='^TestGUI(GlassShots|GlassLayout|ColourSchemeLive)$'

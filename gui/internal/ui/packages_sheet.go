@@ -9,6 +9,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/pkgview"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -21,6 +22,7 @@ import (
 // refreshSheet opens, replaces or closes the dialog to match the model.
 func (p *pkgPage) refreshSheet() {
 	p.w.updateStop()
+	defer p.w.setStatus() // "Waiting…" while the sheet is up, not "Checking the packages…"
 	v := p.ctl.Sheet.View()
 	if v.State == pkgview.SheetClosed || v.State == pkgview.SheetRunning {
 		p.closeSheet()
@@ -34,6 +36,11 @@ func (p *pkgPage) refreshSheet() {
 	}
 	p.closeSheet()
 	p.openSheet(v)
+}
+
+// pkgSheetOpen: a Packages run's sheet is up before its queue started.
+func (w *Window) pkgSheetOpen() bool {
+	return w.current == actions.IDPackages && !w.queued && w.pkgs != nil && w.pkgs.sheet != nil
 }
 
 // closeSheet takes the dialog down without answering for it.
