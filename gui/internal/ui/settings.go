@@ -25,6 +25,9 @@ type settingsPage struct {
 	path      string
 	downloads *adw.EntryRow
 	dryRun    *adw.SwitchRow
+	// scroll is the page's scroller (coming back to Settings starts at the
+	// top: window.go).
+	scroll *gtk.ScrolledWindow
 	// glass is the Appearance card's "Glass look" switch, blur its
 	// "Blur behind window" row (Auto, On, Off: blurOptions).
 	glass *adw.SwitchRow
@@ -127,6 +130,7 @@ func (w *Window) newSettings() gtk.Widgetter {
 	clamp.SetMaximumSize(960)
 	clamp.SetChild(box)
 	scroll := gtk.NewScrolledWindow()
+	p.scroll = scroll
 	scroll.SetPolicy(gtk.PolicyNever, gtk.PolicyAutomatic)
 	scroll.SetChild(clamp)
 	if loadErr != nil {

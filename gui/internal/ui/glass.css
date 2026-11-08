@@ -44,6 +44,10 @@
    alpha below. */
 window.archmaid.am-glass { background-color: @am_glass_win; }
 window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
+/* A scrolled page draws a shade at the edge it is scrolled under (the
+   scrolled window's undershoot): over the glass it is a darker band under
+   the header (#266). Not in the glass look. */
+.archmaid.am-glass scrolledwindow > undershoot.top, .archmaid.am-glass scrolledwindow > undershoot.bottom { background-image: none; background-color: transparent; }
 .archmaid.am-glass .sidebar-pane { background-color: @am_glass_side; }
 .archmaid.am-glass.am-glass-fb .sidebar-pane { background-color: @am_glass_side_fb; }
 .archmaid.am-glass .am-sidebar { background-color: transparent; }

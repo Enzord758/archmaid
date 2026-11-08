@@ -238,6 +238,12 @@ func newWindow(app *adw.Application, opts Options) *Window {
 		case "overview":
 			w.refreshUpdates()
 			w.refreshLastRun()
+		case "settings":
+			// A page of cards and fields starts at its top, as it does after a
+			// restart; it kept the offset it was left at (#266).
+			if w.set != nil && w.set.scroll != nil {
+				w.set.scroll.VAdjustment().SetValue(0)
+			}
 		}
 	})
 	// The relative times ("checked 5 min ago", "Full Cleanup · 3 h ago") move
