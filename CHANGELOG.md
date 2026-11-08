@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Overview's Last run age moves on with the clock** (#266). It said "just now" for over ten minutes and showed "13 min ago" only after a restart; the Updates card's "checked N min ago" moved only when something else redrew it. One ticker (every 30 s while the Overview shows, and when it is shown again) now redraws both. `TestGUIAgeTick` runs it with a run that ended 88 s ago.
+
 ## [2.5.4] - 2026-11-08
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

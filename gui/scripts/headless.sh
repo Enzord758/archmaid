@@ -54,7 +54,7 @@ if [[ $# -eq 0 ]]; then
 	svc='^TestGUI(FullCleanup|OnePassword|RealServices)$'
 	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
 	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards|NavSync)$'
-	tones='^TestGUI(LastRunTones|AuditRerun|MinHeight)$'
+	tones='^TestGUI(LastRunTones|AuditRerun|MinHeight|AgeTick)$'
 	states='^TestGUIMinWidthStates$'
 	wide='^TestGUI(WideDialogs|MinWidthToggle|GateNotesFit|RunReport)$'
 	widelong='^TestGUIWideDialogsLong$'

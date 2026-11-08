@@ -194,6 +194,10 @@ const minWindowHeight = 340
 // px, is the Settings and Logs pages' own request).
 const minWindowWidth = 300
 
+// ageTickMS is how often the Overview's relative times are redrawn (a
+// variable: the test shortens it).
+var ageTickMS uint = 30000
+
 func newWindow(app *adw.Application, opts Options) *Window {
 	w := &Window{app: app, opts: opts, model: runview.NewModel(), palette: runview.LoadPalette(), dialogs: map[engine.PromptID]*amDialog{}}
 	w.win = adw.NewApplicationWindow(&app.Application)
@@ -233,7 +237,21 @@ func newWindow(app *adw.Application, opts Options) *Window {
 			w.refreshLogs()
 		case "overview":
 			w.refreshUpdates()
+			w.refreshLastRun()
 		}
+	})
+	// The relative times ("checked 5 min ago", "Full Cleanup · 3 h ago") move
+	// on with the clock: one ticker redraws both while the Overview shows
+	// (#266). Nothing else would, until a run or a restart.
+	coreglib.TimeoutAdd(ageTickMS, func() bool {
+		if w.closed {
+			return false
+		}
+		if w.stack.VisibleChildName() == "overview" {
+			w.refreshLastRun()
+			w.renderUpdates()
+		}
+		return true
 	})
 	w.buildShell()
 	w.applyGlass() // the skin the Settings page asked for (glass.go)
