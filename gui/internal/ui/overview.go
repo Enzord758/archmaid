@@ -131,39 +131,11 @@ func (w *Window) newHero() gtk.Widgetter {
 	w.heroSteps.SetHomogeneous(true)
 	w.heroSteps.SetFocusable(false)
 	w.heroSteps.AddCSSClass("am-card-buttons") // no child padding: the plan starts at the hero's text
-	if ok {
-		for i, s := range preview.Steps {
-			// The number, then the title and its tags (tagLine), on the
-			// title's first baseline: the title wraps rather than being
-			// cut, and when narrow the tags go under it.
-			head := gtk.NewBox(gtk.OrientationHorizontal, 8)
-			head.SetVAlign(gtk.AlignCenter)
-			n := gtk.NewLabel(fmt.Sprintf("%02d", i+1))
-			n.AddCSSClass("am-step-num")
-			n.SetVAlign(gtk.AlignBaselineCenter)
-			t := gtk.NewLabel(s.Title)
-			t.SetXAlign(0)
-			wrapNatural(t)
-			var tags []gtk.Widgetter
-			if s.Asks {
-				tags = append(tags, tag("asks", "am-tag-asks"))
-			}
-			switch {
-			case s.Root:
-				tags = append(tags, privTag("root"))
-			case s.Sudo:
-				tags = append(tags, privTag("sudo"))
-			}
-			line := newTagLine(t, 8, tags...)
-			line.tags.SetVisible(len(tags) > 0)
-			line.box.SetVAlign(gtk.AlignBaselineCenter)
-			line.setUnder(w.narrow)
-			w.heroLines = append(w.heroLines, line)
-			head.Append(n)
-			head.Append(line.box)
-			w.heroSteps.Append(head)
-		}
-	}
+	// The gap the child padding gave (3 px each side, plus the 2 px of the
+	// wrap): 8 px between the columns, 6 between the rows (#264).
+	w.heroSteps.SetColumnSpacing(8)
+	w.heroSteps.SetRowSpacing(6)
+	w.fillHeroPlan(preview, ok)
 	w.heroSteps.SetVisible(ok)
 	hero.Append(w.heroSteps)
 
@@ -205,6 +177,48 @@ func (w *Window) newHero() gtk.Widgetter {
 	hero.Append(buttons)
 	w.menu[actions.IDFullCleanup] = &menuRow{entry: card.Entry, cell: run, sub: sub, spin: spin}
 	return hero
+}
+
+// fillHeroPlan fills the hero's plan: a row per step, its number, its title
+// and its tags (the Preview's steps), after clearing what was there.
+func (w *Window) fillHeroPlan(preview overview.Preview, ok bool) {
+	for c := gtk.BaseWidget(w.heroSteps).FirstChild(); c != nil; c = gtk.BaseWidget(w.heroSteps).FirstChild() {
+		w.heroSteps.Remove(c)
+	}
+	w.heroLines = nil
+	if ok {
+		for i, s := range preview.Steps {
+			// The number, then the title and its tags (tagLine), on the
+			// title's first baseline: the title wraps rather than being
+			// cut, and when narrow the tags go under it.
+			head := gtk.NewBox(gtk.OrientationHorizontal, 8)
+			head.SetVAlign(gtk.AlignCenter)
+			n := gtk.NewLabel(fmt.Sprintf("%02d", i+1))
+			n.AddCSSClass("am-step-num")
+			n.SetVAlign(gtk.AlignBaselineCenter)
+			t := gtk.NewLabel(s.Title)
+			t.SetXAlign(0)
+			wrapNatural(t)
+			var tags []gtk.Widgetter
+			if s.Asks {
+				tags = append(tags, tag("asks", "am-tag-asks"))
+			}
+			switch {
+			case s.Root:
+				tags = append(tags, privTag("root"))
+			case s.Sudo:
+				tags = append(tags, privTag("sudo"))
+			}
+			line := newTagLine(t, 8, tags...)
+			line.tags.SetVisible(len(tags) > 0)
+			line.box.SetVAlign(gtk.AlignBaselineCenter)
+			line.setUnder(w.narrow)
+			w.heroLines = append(w.heroLines, line)
+			head.Append(n)
+			head.Append(line.box)
+			w.heroSteps.Append(head)
+		}
+	}
 }
 
 // heroKicker is the hero's kicker (spec 1.11). Narrow, it doesn't fit one

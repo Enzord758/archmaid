@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Full Cleanup plan's two columns have a gap again** (#264). Taking the flow box child padding off the plan in #262 took the gap between its columns with it: a "root" tag at the end of the left column ended 2 px from the next column's step number (8 px before). The plan now has an 8 px column gap and 6 px between rows, and keeps its text inset and its right edge. The other flow boxes that lost their child padding in #262 (the Packages hero's tags, the hero's, Updates' and the package detail's button rows) set their own spacing and are unchanged. `TestGUIOverviewHero` now measures the gap between a tag and the next column's number, and between the columns, on a real nine-step plan. Settings > Appearance's help text now says what Auto does (the compositor offers blur through ext-background-effect, or Hyprland).
+
 ## [2.5.3] - 2026-11-08
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

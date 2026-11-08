@@ -328,8 +328,8 @@ func (w *Window) appearanceCard(s settings.Settings) gtk.Widgetter {
 		w.applyGlass()
 	})
 	return card("Appearance", "Glass look",
-		"Applies at once. The blur comes from the compositor (Hyprland's decoration:blur). "+
-			"Auto turns it on under Hyprland only; without blur the glass stays nearly opaque.",
+		"Applies at once. The compositor does the blur. Auto turns it on where the compositor offers it "+
+			"(ext-background-effect) or under Hyprland; without blur the glass stays nearly opaque.",
 		boxedList(p.glass, p.blur))
 }
 

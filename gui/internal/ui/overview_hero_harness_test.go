@@ -16,6 +16,7 @@ import (
 
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
+	"github.com/Enzord758/archmaid/gui/internal/overview"
 	"github.com/Enzord758/archmaid/gui/internal/settings"
 	"github.com/Enzord758/archmaid/internal/actions"
 )
@@ -34,9 +35,19 @@ func covOverviewHero(c *covEnv) {
 		}
 	})
 	c.ok(hero != nil, "no hero")
+	// The stub has no plan; the real Full Cleanup's nine steps (the tags
+	// are what the gap is measured on).
+	w.fillHeroPlan(overview.Preview{Steps: []overview.PlanItem{
+		{Title: "Auditing AUR packages..."}, {Title: "Updating system with topgrade...", Sudo: true},
+		{Title: "Finding orphaned packages..."}, {Title: "Cleaning package cache...", Root: true},
+		{Title: "Removing uninstalled packages from cache...", Root: true}, {Title: "Cleaning old temp files...", Root: true},
+		{Title: "Vacuuming logs...", Root: true}, {Title: "Checking package integrity...", Root: true},
+		{Title: "Cleaning AUR cache..."},
+	}}, true)
+	w.heroSteps.SetVisible(true)
 	var st []func()
 	for _, look := range []bool{false, true} {
-		for _, wd := range []int{1920, 1440, 1280, 900, 700, 500} {
+		for _, wd := range []int{1920, 1440, 1280, 1000, 900, 780, 700, 500} {
 			st = append(st,
 				func() { w.win.SetDefaultSize(wd, 900); w.set.glass.SetActive(look) },
 				func() {},
@@ -90,6 +101,33 @@ func covOverviewHero(c *covEnv) {
 					if ch := w.heroSteps.ChildAtIndex(0); ch != nil && w.heroSteps.IsVisible() {
 						sx, _, _, _, _ := alignBounds(w, ch.Child())
 						c.ok(near(sx, kx), "%s: the plan starts at %.1f, the hero's text at %.1f", where, sx, kx)
+					}
+					// The plan's two columns keep a gap (#264): between a step's tag
+					// at the end of the left column and the next column's number,
+					// and between the columns' boxes, at least 8 px.
+					if w.heroSteps.IsVisible() {
+						for i := 0; w.heroSteps.ChildAtIndex(i+1) != nil; i += 2 {
+							l, r := w.heroSteps.ChildAtIndex(i).Child(), w.heroSteps.ChildAtIndex(i+1).Child()
+							lx, ly, lr, _, _ := alignBounds(w, l)
+							rx, ry, _, _, _ := alignBounds(w, r)
+							_ = lx
+							if math.Abs(ly-ry) > 4 {
+								continue // stacked: one column
+							}
+							c.ok(rx-lr >= 8, "%s: plan row %d: the left column ends at %.1f, the right starts at %.1f (gap %.1f)", where, i/2+1, lr, rx, rx-lr)
+							var tagR float64
+							eachWidget(l, func(wd gtk.Widgetter) {
+								if t, ok := wd.(*gtk.Label); ok && t.IsVisible() && (t.HasCSSClass("am-tag-warn") || t.HasCSSClass("am-tag-asks")) {
+									_, _, tr, _, _ := alignBounds(w, t)
+									tagR = math.Max(tagR, tr)
+								}
+							})
+							num := first(r, "am-step-num")
+							if tagR > 0 && num != nil {
+								nx, _, _, _, _ := alignBounds(w, num)
+								c.ok(nx-tagR >= 8, "%s: plan row %d: a tag ends at %.1f, the next number starts at %.1f (gap %.1f)", where, i/2+1, tagR, nx, nx-tagR)
+							}
+						}
 					}
 					// The right: the description ends where the Updates card's title
 					// row ends (the cards' and the hero's right edges are one).
