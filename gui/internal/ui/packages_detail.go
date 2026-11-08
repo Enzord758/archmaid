@@ -61,10 +61,11 @@ func (p *pkgPage) refreshDetail() {
 		row := gtk.NewBox(gtk.OrientationHorizontal, 8)
 		row.Append(adw.NewSpinner())
 		row.Append(plainLabel("Loading the AUR details…", "am-note"))
+		row.AddCSSClass("am-over-grid-row")
 		p.detail.Append(row)
 	}
 	if d.Err != "" {
-		p.detail.Append(plainLabel("Couldn't load the AUR details: "+d.Err, "am-note"))
+		p.detail.Append(overGrid(plainLabel("Couldn't load the AUR details: "+d.Err, "am-note")))
 	}
 
 	stats := append([]pkgview.Stat(nil), d.Stats...)
@@ -73,10 +74,10 @@ func (p *pkgPage) refreshDetail() {
 	if d.Flagged != "" {
 		f := tag(d.Flagged, "am-tag-warn")
 		f.SetHAlign(gtk.AlignStart)
-		p.detail.Append(f)
+		p.detail.Append(overGrid(f))
 	}
 	if d.Link != "" {
-		p.detail.Append(plainLabel(d.Link, "am-note"))
+		p.detail.Append(overGrid(plainLabel(d.Link, "am-note")))
 	}
 	if len(d.Deps) > 0 {
 		p.detail.Append(p.depList("Dependencies", d.Deps))
@@ -106,10 +107,10 @@ func (p *pkgPage) detailActions(d pkgview.Detail) gtk.Widgetter {
 	row.SetMaxChildrenPerLine(3)
 	row.SetHAlign(gtk.AlignStart)
 	row.SetFocusable(false)
-	// No child padding, and on the stat grid's edge (glass.css: its cells
-	// are 4 px in): Install starts where the cells and the hero start.
+	// No child padding: Install starts where the hero starts. The whole
+	// block is on the stat grid's edges (am-over-grid-row, below).
 	row.AddCSSClass("am-card-buttons")
-	row.AddCSSClass("am-over-grid-row")
+	box.AddCSSClass("am-over-grid-row")
 	box.Append(row)
 
 	mode := pkgview.ModeInstall
@@ -187,6 +188,14 @@ func (p *pkgPage) now(pk pkgdb.Package, mode pkgview.Mode) {
 	}
 }
 
+// overGrid puts a block of the detail column on the stat grid's edges: in
+// the glass look the grid's cells are 4 px inside the column, and every
+// block under or over them is inset to match (glass.css, #262).
+func overGrid[W gtk.Widgetter](w W) W {
+	gtk.BaseWidget(w).AddCSSClass("am-over-grid-row")
+	return w
+}
+
 // statsGrid is the hairline grid of label/value cells (two across when the
 // page is narrow, up to four wide).
 func statsGrid(stats []pkgview.Stat) gtk.Widgetter {
@@ -214,6 +223,8 @@ func statsGrid(stats []pkgview.Stat) gtk.Widgetter {
 // is tagged "pulled in", an optional one that is installed "installed".
 func (p *pkgPage) depList(title string, deps []pkgview.DepRow) gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 4)
+	box.AddCSSClass("am-pkg-deplist")
+	box.AddCSSClass("am-over-grid-row")
 	box.Append(plainLabel(fmt.Sprintf("%s · %d", title, len(deps)), "am-kicker"))
 	for _, d := range deps {
 		name := plainLabel(d.Raw, "am-pkg-dep")

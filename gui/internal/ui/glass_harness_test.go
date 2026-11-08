@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -311,6 +312,9 @@ func covGlassShots(c *covEnv) {
 	c.quiet()
 	glassSetup(w)
 	tag := fmt.Sprintf("%s-%s", os.Getenv(glassModeEnv), os.Getenv(glassSchemeEnv))
+	if v, err := strconv.Atoi(os.Getenv("ARCHMAID_GUI_SHOT_W")); err == nil {
+		w.win.SetDefaultSize(v, 800) // a wider window, for screenshots
+	}
 	p := w.pkgs
 	pkgSeq(c,
 		func() { shoot(w, "glass", tag+"-overview"); w.stack.SetVisibleChildName("packages") },
@@ -339,10 +343,12 @@ func covGlassShots(c *covEnv) {
 				want, wantR := 0.0, 0.0
 				if os.Getenv(glassModeEnv) == "glass" {
 					first := grid.(*gtk.FlowBox).ChildAtIndex(0).Child()
-					second := grid.(*gtk.FlowBox).ChildAtIndex(1).Child()
 					fx, _, _, _, _ := alignBounds(w, first)
-					_, _, sr, _, _ := alignBounds(w, second)
-					want, wantR = fx, sr
+					want = fx
+					for i := 0; grid.(*gtk.FlowBox).ChildAtIndex(i) != nil; i++ {
+						_, _, cr, _, _ := alignBounds(w, grid.(*gtk.FlowBox).ChildAtIndex(i).Child())
+						wantR = math.Max(wantR, cr)
+					}
 				} else {
 					want, _, wantR, _, _ = alignBounds(w, grid)
 				}
@@ -378,7 +384,14 @@ func covGlassShots(c *covEnv) {
 					c.ok(math.Abs(kx-lx) <= 0.5, "the package hero's text starts at %.1f, the stat cells' at %.1f", kx, lx)
 				}
 			}
+			checkDetailColumn(c, w, p, "firefox")
 			shoot(w, "glass", tag+"-packages")
+			p.results.Emit("row-activated", rowByName(p.results, "paru-bin"))
+		},
+		func() {}, func() {}, func() {},
+		func() {
+			checkDetailColumn(c, w, p, "paru-bin (AUR)")
+			shoot(w, "glass", tag+"-packages-aur")
 			w.stack.SetVisibleChildName("overview")
 			c.feed(engine.NeedsConfirm{ID: 81, Title: "Remove these orphans?", Msg: "Nothing else needs them.", Items: []string{"python-foo", "libbar", "qux-git"}, Default: true, YesLabel: "Remove"})
 		},
@@ -440,4 +453,67 @@ func TestGUIGlassShots(t *testing.T) {
 			}
 		}
 	}
+}
+
+// checkDetailColumn measures the package detail from top to bottom (#262):
+// every block of the column starts on the stat grid's left edge (its own in
+// the default look, its first cell's in glass), every block that fills the
+// column ends on its right edge, and the dependency tags end there too.
+func checkDetailColumn(c *covEnv, w *Window, p *pkgPage, which string) {
+	near := func(a, b float64) bool { return math.Abs(a-b) <= 0.5 }
+	var grid *gtk.FlowBox
+	eachWidget(p.detail, func(wd gtk.Widgetter) {
+		if f, ok := wd.(*gtk.FlowBox); ok && grid == nil && f.HasCSSClass("am-grid") {
+			grid = f
+		}
+	})
+	if grid == nil {
+		c.fail("%s: no stat grid", which)
+		return
+	}
+	var left, right float64
+	if os.Getenv(glassModeEnv) == "glass" {
+		left, _, _, _, _ = alignBounds(w, grid.ChildAtIndex(0).Child())
+		var n int
+		for n = 0; grid.ChildAtIndex(n+1) != nil; n++ {
+		}
+		_, _, right, _, _ = alignBounds(w, grid.ChildAtIndex(n).Child())
+		// the last cell of a short line isn't at the right edge: the widest
+		right = 0
+		for i := 0; grid.ChildAtIndex(i) != nil; i++ {
+			_, _, r, _, _ := alignBounds(w, grid.ChildAtIndex(i).Child())
+			right = math.Max(right, r)
+		}
+	} else {
+		left, _, right, _, _ = alignBounds(w, grid)
+	}
+	blocks := 0
+	for ch := gtk.BaseWidget(p.detail).FirstChild(); ch != nil; ch = gtk.BaseWidget(ch).NextSibling() {
+		b := gtk.BaseWidget(ch)
+		if !b.IsVisible() || b.HasCSSClass("am-grid") {
+			continue // the grid is the reference
+		}
+		blocks++
+		x, _, r, _, _ := alignBounds(w, ch)
+		name := fmt.Sprintf("%s: block %d %v", which, blocks, b.CSSClasses())
+		c.ok(near(x, left), "%s starts at %.1f, the stat grid's edge is %.1f", name, x, left)
+		if b.HAlign() == gtk.AlignFill {
+			c.ok(near(r, right), "%s ends at %.1f, the stat grid's edge is %.1f", name, r, right)
+		}
+		// Dependency lists: their tags end on the right edge.
+		if b.HasCSSClass("am-pkg-deplist") {
+			maxTag := 0.0
+			eachWidget(ch, func(wd gtk.Widgetter) {
+				l, ok := wd.(*gtk.Label)
+				if ok && l.IsVisible() && (l.HasCSSClass("am-tag-ok") || l.HasCSSClass("am-tag-warn") || l.HasCSSClass("am-tag-neutral")) {
+					_, _, tr, _, _ := alignBounds(w, l)
+					maxTag = math.Max(maxTag, tr)
+				}
+			})
+			if maxTag > 0 {
+				c.ok(near(maxTag, right), "%s: its tags end at %.1f, the stat grid's edge is %.1f", name, maxTag, right)
+			}
+		}
+	}
+	c.ok(blocks >= 3, "%s: only %d blocks in the detail", which, blocks)
 }

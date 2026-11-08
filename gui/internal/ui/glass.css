@@ -82,7 +82,7 @@ window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
   background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
   border-radius: 8px;
 }
-.archmaid.am-glass .am-over-grid-row { margin-left: 4px; }
+.archmaid.am-glass .am-over-grid-row { margin-left: 4px; margin-right: 4px; }
 .archmaid.am-glass .am-hero.am-blueprint { background-color: @am_glass_card; }
 /* The grid of cells: separate glass cells 8 px apart instead of a hairline
    grid (the flow box spaces them 1 px; the rest is the cells' margin). */
