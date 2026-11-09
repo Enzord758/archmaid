@@ -6,13 +6,13 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
-### Changed
-
-- **A run in which nothing ran no longer replaces the Overview's Last run** (#276). Cancelling the Full Cleanup or Run topgrade confirm, closing the GUI on it, cancelling a password or polkit dialog, or giving up on authorisation all ended as `cancelled` and wrote that to `last-run.json`, so Last run and the DMS widget said "CANCELLED" and your last real run was gone from view. Now `last-run.json` keeps the last run that did something (aborted, failed, incomplete, ok, nothing-found are still recorded). A cancelled attempt that logged only its first lines no longer takes one of the five kept run folders from a real run. `TestLastRunNothingRanKeepsThePreviousRecord`, `TestStubRunsNeverEvictRealRuns`, `TestServicesPolkitCancel` and `TestAuditPrefetchCancelled` cover it.
-
 ## [2.6.1] - 2026-11-10
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
+
+### Changed
+
+- **A run in which nothing ran no longer replaces the Overview's Last run** (#276). Cancelling the Full Cleanup or Run topgrade confirm, closing the GUI on it, cancelling a password or polkit dialog, or giving up on authorisation all ended as `cancelled` and wrote that to `last-run.json`, so Last run and the DMS widget said "CANCELLED" and your last real run was gone from view. Now `last-run.json` keeps the last run that did something (aborted, failed, incomplete, ok, nothing-found are still recorded). A cancelled attempt that logged only its first lines no longer takes one of the five kept run folders from a real run. `TestLastRunNothingRanKeepsThePreviousRecord`, `TestStubRunsNeverEvictRealRuns`, `TestServicesPolkitCancel` and `TestAuditPrefetchCancelled` cover it.
 
 ### Fixed
 
