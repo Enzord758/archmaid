@@ -338,11 +338,17 @@ func safeLink(raw string) string {
 // (and at most 3). The pattern is internal/aursearch's: its own transport,
 // "archmaid" as User-Agent, no cookies.
 func httpGet(ctx context.Context, rawURL string) ([]byte, error) {
+	return httpGetLimited(ctx, rawURL, NewsTimeout, MaxNewsBody)
+}
+
+// httpGetLimited is httpGet with its own timeout and body cap (the mirror's
+// lastsync: 5 s, 64 bytes).
+func httpGetLimited(ctx context.Context, rawURL string, timeout time.Duration, maxBody int64) ([]byte, error) {
 	first, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, NewsTimeout)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
@@ -372,5 +378,5 @@ func httpGet(ctx context.Context, rawURL string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("news feed returned HTTP %d", resp.StatusCode)
 	}
-	return readCapped(resp.Body, MaxNewsBody)
+	return readCapped(resp.Body, maxBody)
 }

@@ -1,13 +1,14 @@
 // Package health is the read-only "System health" check behind the GUI's
-// Overview cell (docs/design/health.md is the contract). Five independent
-// checks, run in parallel under one deadline: failed systemd units, a stale
-// running kernel, .pacnew/.pacsave files, unread Arch news and free disk
-// space. Everything runs as the user: no root, no password, nothing that
+// Overview cell (docs/design/health.md is the contract). Eleven independent
+// checks in three groups, run in parallel under one deadline (failed systemd
+// units, a stale kernel, clock sync, crashes, a left-over pacman lock; .pacnew
+// files, AUR status, Arch news, the mirror; disk space, drive health). Everything runs as the user: no root, no password, nothing that
 // changes state; external programs are started as argv (never a shell)
 // through Deps.Query; every outside source is a Deps seam, so tests use fakes.
 //
 // Allowed imports: the standard library, internal/proc (Query), internal/report
-// (pacman.log parsing and the kernel check), internal/sanitize. Not allowed:
+// (pacman.log parsing and the kernel check), internal/sanitize, internal/pkgdb and
+// internal/aursearch (the AUR check). Not allowed:
 // steps, engine, privilege, gotk4.
 package health
 
@@ -53,12 +54,28 @@ const (
 	IDPacnew      = "pacnew"
 	IDNews        = "news"
 	IDDisk        = "disk"
+	IDPacmanLock  = "pacman-lock"
+	IDTimeSync    = "time-sync"
+	IDCrashes     = "crashes"
+	IDAUR         = "aur"
+	IDDiskHealth  = "disk-health"
+	IDMirror      = "mirror"
+)
+
+// Groups: the sheet's sections, in this order.
+const (
+	GroupSystem   = "system"
+	GroupPackages = "packages"
+	GroupHardware = "hardware"
 )
 
 // Check is one row of the sheet.
 type Check struct {
 	ID    string
 	Title string
+	// Group is GroupSystem, GroupPackages or GroupHardware: the sheet's
+	// section. Run returns the checks already ordered by group.
+	Group string
 	State State
 	// Detail is one plain-text line (sanitized, at most DetailMax runes).
 	Detail string
@@ -118,6 +135,20 @@ type Deps struct {
 	HTTPGet func(ctx context.Context, url string) ([]byte, error)
 	// NewsURL is the feed to fetch.
 	NewsURL string
+
+	// LockFile is pacman's database lock; Procs lists the names of the running
+	// processes (/proc/*/comm); Uptime is the time since boot.
+	LockFile string
+	Procs    func() ([]string, error)
+	Uptime   func() (time.Duration, error)
+	// Foreign lists the installed foreign packages (pacman -Qm, from the local
+	// DB); AURInfo asks the AUR RPC about names (one multi-info request).
+	Foreign func() ([]Foreign, error)
+	AURInfo func(ctx context.Context, names []string) ([]AURPkg, error)
+	// MirrorList is pacman's mirrorlist; MirrorGet fetches the mirror's
+	// lastsync file (at most MirrorBodyMax bytes).
+	MirrorList string
+	MirrorGet  func(ctx context.Context, url string) ([]byte, error)
 }
 
 // FSInfo is what statfs says about the mount holding a path.
@@ -142,6 +173,16 @@ func DefaultDeps() Deps {
 		FS:      statFS,
 		HTTPGet: httpGet,
 		NewsURL: NewsURL,
+
+		LockFile:   DefaultLockFile,
+		Procs:      listProcs,
+		Uptime:     readUptime,
+		Foreign:    localForeign,
+		AURInfo:    aurInfo,
+		MirrorList: DefaultMirrorList,
+		MirrorGet: func(ctx context.Context, u string) ([]byte, error) {
+			return httpGetLimited(ctx, u, MirrorTimeout, MirrorBodyMax)
+		},
 	}
 }
 
@@ -172,14 +213,20 @@ type checkFn func(ctx context.Context, d Deps) Check
 
 // order is the sheet's order.
 var order = []struct {
-	id, title string
-	fn        checkFn
+	id, title, group string
+	fn               checkFn
 }{
-	{IDFailedUnits, TitleFailedUnits, checkFailedUnits},
-	{IDRestart, TitleRestart, checkRestart},
-	{IDPacnew, TitlePacnew, checkPacnew},
-	{IDNews, TitleNews, checkNews},
-	{IDDisk, TitleDisk, checkDisk},
+	{IDFailedUnits, TitleFailedUnits, GroupSystem, checkFailedUnits},
+	{IDRestart, TitleRestart, GroupSystem, checkRestart},
+	{IDTimeSync, TitleTimeSync, GroupSystem, checkTimeSync},
+	{IDCrashes, TitleCrashes, GroupSystem, checkCrashes},
+	{IDPacmanLock, TitlePacmanLock, GroupSystem, checkPacmanLock},
+	{IDPacnew, TitlePacnew, GroupPackages, checkPacnew},
+	{IDAUR, TitleAUR, GroupPackages, checkAUR},
+	{IDNews, TitleNews, GroupPackages, checkNews},
+	{IDMirror, TitleMirror, GroupPackages, checkMirror},
+	{IDDisk, TitleDisk, GroupHardware, checkDisk},
+	{IDDiskHealth, TitleDiskHealth, GroupHardware, checkDiskHealth},
 }
 
 // Run runs every check in parallel under the Deadline (the parent ctx's, if
@@ -197,12 +244,12 @@ func Run(ctx context.Context, d Deps) Report {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					ch <- unknown(o.id, o.title, "check failed")
+					ch <- grouped(unknown(o.id, o.title, "check failed"), o.group)
 				}
 			}()
 			c := o.fn(ctx, d)
 			c.ID, c.Title = o.id, o.title
-			ch <- c
+			ch <- grouped(c, o.group)
 		}()
 	}
 	for i, o := range order {
@@ -213,11 +260,16 @@ func Run(ctx context.Context, d Deps) Report {
 			select {
 			case out[i] = <-chans[i]:
 			default:
-				out[i] = unknown(o.id, o.title, "timed out")
+				out[i] = grouped(unknown(o.id, o.title, "timed out"), o.group)
 			}
 		}
 	}
 	return Report{Checks: out, At: d.now()}
+}
+
+func grouped(c Check, g string) Check {
+	c.Group = g
+	return c
 }
 
 func unknown(id, title, why string) Check {
@@ -231,6 +283,12 @@ const (
 	TitlePacnew      = "Config files to merge"
 	TitleNews        = "Arch news"
 	TitleDisk        = "Disk space"
+	TitlePacmanLock  = "Package lock"
+	TitleTimeSync    = "Clock sync"
+	TitleCrashes     = "Crashes"
+	TitleAUR         = "AUR packages"
+	TitleDiskHealth  = "Drive health"
+	TitleMirror      = "Mirror"
 )
 
 // readCapped reads at most max bytes of r; more is an error.

@@ -326,7 +326,7 @@ func TestRunOrderAndAttention(t *testing.T) {
 			t.Errorf("%s: bare Deps should leave every check Unknown with a title: %v %q", c.ID, c.State, c.Title)
 		}
 	}
-	if !reflect.DeepEqual(ids, []string{"failed-units", "restart", "pacnew", "news", "disk"}) {
+	if !reflect.DeepEqual(ids, []string{"failed-units", "restart", "time-sync", "crashes", "pacman-lock", "pacnew", "aur", "news", "mirror", "disk", "disk-health"}) {
 		t.Errorf("order %v", ids)
 	}
 	if !r.At.Equal(t0) || r.Attention() != 0 {
@@ -377,6 +377,27 @@ func TestRunIsolation(t *testing.T) {
 	}
 	if by["disk"].State != OK {
 		t.Errorf("an independent check was disturbed: %+v", by["disk"])
+	}
+}
+
+// Run returns the checks grouped for the sheet: system, packages, hardware.
+func TestRunGroups(t *testing.T) {
+	r := Run(context.Background(), Deps{Now: func() time.Time { return t0 }})
+	want := map[string]string{"failed-units": "system", "restart": "system", "time-sync": "system", "crashes": "system", "pacman-lock": "system",
+		"pacnew": "packages", "aur": "packages", "news": "packages", "mirror": "packages", "disk": "hardware", "disk-health": "hardware"}
+	if len(r.Checks) != len(want) {
+		t.Fatalf("%d checks", len(r.Checks))
+	}
+	rank := map[string]int{"system": 0, "packages": 1, "hardware": 2}
+	last := ""
+	for _, c := range r.Checks {
+		if c.Group != want[c.ID] {
+			t.Errorf("%s: group %q", c.ID, c.Group)
+		}
+		if last != "" && rank[c.Group] < rank[last] {
+			t.Errorf("%s: groups out of order", c.ID)
+		}
+		last = c.Group
 	}
 }
 
