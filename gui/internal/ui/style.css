@@ -321,7 +321,7 @@
 .archmaid .am-health-detail { color: @am_muted; font-size: smaller; }
 .archmaid .am-news {
   padding: 10px 12px;
-  border-left: 3px solid @am_running_bar;
+  border: 1px solid alpha(@am_running_bar, 0.45);
   background-color: alpha(@am_running_bar, 0.08);
 }
 .archmaid .am-news-head { font-weight: 700; }

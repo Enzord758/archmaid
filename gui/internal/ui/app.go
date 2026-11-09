@@ -292,6 +292,7 @@ func Run(args []string, opts Options) int {
 			return
 		}
 		loadStyle()
+		installIcons()
 		w = newWindow(app, opts)
 		if opts.hook != nil {
 			opts.hook(w)

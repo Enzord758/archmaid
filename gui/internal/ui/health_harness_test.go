@@ -17,6 +17,7 @@ import (
 	"time"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/Enzord758/archmaid/gui/internal/healthview"
@@ -99,8 +100,10 @@ var (
 		{ID: "failed-units", Title: "Failed services", State: healthview.Look, Group: "system", Detail: "1 failed: bluetooth.service",
 			Copy: "journalctl -b -u bluetooth.service"},
 		{ID: "mirror", Title: "Mirror", State: healthview.Unknown, Group: "packages", Detail: "can't reach it"},
-		{ID: "evil", Title: "Evil link", State: healthview.OK, Group: "packages", Detail: "x", Link: "http://archlinux.org.evil.example/x"},
 	}}
+	// calmEvil is calm plus a row whose link is not archlinux.org's: tests only.
+	calmEvil = healthview.Report{Checks: append(append([]healthview.Check(nil), calmReport.Checks...),
+		healthview.Check{ID: "evil", Title: "Odd link", State: healthview.OK, Group: "packages", Detail: "x", Link: "http://archlinux.org.evil.example/x"})}
 )
 
 func init() {
@@ -149,6 +152,9 @@ func covHealthCell(c *covEnv) {
 			c.ok(emph && tagText == "look" && tagShown, "emphasised %v, tag %q (%v)", emph, tagText, tagShown)
 			c.ok(shown && line == "3 things need your attention", "the third line %q (%v), want 3 things", line, shown)
 			c.ok(w.health.icon.HasCSSClass("am-attn-icon"), "the icon is not warn-coloured")
+			c.ok(w.health.icon.IconName() == "archmaid-health-symbolic", "the cell's icon is %q, not archmaid's own pulse", w.health.icon.IconName())
+			p := gtk.IconThemeGetForDisplay(gdk.DisplayGetDefault()).LookupIcon("archmaid-health-symbolic", nil, 16, 1, gtk.TextDirNone, 0)
+			c.ok(p != nil && p.IsSymbolic(), "the pulse icon is not symbolic (it would not take the warn colour)")
 			shoot(w, "health", tagn("cell-attention"))
 			f.set(healthview.Report{Checks: []healthview.Check{look1(), {ID: "mirror", State: healthview.Unknown}}})
 			w.refreshHealth()
@@ -212,7 +218,7 @@ func covHealthSheet(c *covEnv) {
 		},
 		func() {
 			// LOOK first, then unknown, then OK; in group order inside each.
-			want := []string{"restart", "failed-units", "news", "mirror", "evil", "disk"}
+			want := []string{"restart", "failed-units", "news", "mirror", "disk"}
 			var heads []string
 			eachWidget(&d.Widget, func(wd gtk.Widgetter) {
 				if n := gtk.BaseWidget(wd).Name(); strings.HasPrefix(n, "section-") {
@@ -244,10 +250,9 @@ func covHealthSheet(c *covEnv) {
 				rd.Emit("clicked")
 				c.ok(slices.Contains(rec.Calls(), "uri https://archlinux.org/news/manual-intervention-for-pacman-700-and-local-repositories-required/"), "launched %q", rec.Calls())
 			}
-			c.ok(button("evil", "Open") == nil, "a link off archlinux.org got a button")
 			c.ok(button("disk", "Copy") == nil && button("disk", "Open") == nil, "a row without an action has a button")
 			// Check again: a spinner while it runs, then the new answer.
-			f.set(calmReport)
+			f.set(calmEvil)
 			again := button2(d, "Check again")
 			c.ok(again != nil, "no Check again")
 			if again != nil {
@@ -259,7 +264,8 @@ func covHealthSheet(c *covEnv) {
 			// The answer comes by an idle callback, which a busy frame clock
 			// (the sheet's spinner) can hold back: wait for it.
 			waitFor(func() bool { return !w.health.run.Running() }, func() {
-				c.ok(slices.Equal(rowNames(), []string{"mirror", "pacnew", "disk"}), "after Check again: %v", rowNames())
+				c.ok(slices.Equal(rowNames(), []string{"mirror", "pacnew", "evil", "disk"}), "after Check again: %v", rowNames())
+				c.ok(button("evil", "Open") == nil && button("evil", "Read") == nil, "a link off archlinux.org got a button")
 				again := button2(d, "Check again")
 				c.ok(again != nil && again.Sensitive(), "Check again is not back")
 				c.press(d, "close")

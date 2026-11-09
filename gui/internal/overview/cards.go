@@ -47,6 +47,10 @@ var cardInfo = map[string]struct {
 // and asks nothing), so it is in no menu; the cell opens a sheet (#270).
 const IDHealth = "health"
 
+// IconHealth is the cell's symbolic icon: archmaid's own pulse line
+// (ui/icons.go supplies it; the theme has none).
+const IconHealth = "archmaid-health-symbolic"
+
 // Cards is the Overview's action cells, in the menu's order: every entry
 // that starts an action (Entries without View log). System health sits where
 // "Run topgrade" was (the Updates card has Run topgrade now).
@@ -57,7 +61,7 @@ func Cards() []Card {
 			continue
 		}
 		if e.ID == actions.IDTopgrade {
-			out = append(out, Card{Entry: Entry{ID: IDHealth, Label: "System health", Icon: "utilities-system-monitor-symbolic", Kind: KindRun},
+			out = append(out, Card{Entry: Entry{ID: IDHealth, Label: "System health", Icon: IconHealth, Kind: KindRun},
 				Desc: "Failed services, restart, Arch news, disk"})
 			continue
 		}

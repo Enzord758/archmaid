@@ -365,7 +365,11 @@ func setPrivClass(l *gtk.Label, priv string) {
 // the title, the description and the running line.
 func (w *Window) newCell(c overview.Card) gtk.Widgetter {
 	head := gtk.NewBox(gtk.OrientationHorizontal, 8)
-	head.Append(gtk.NewImageFromIconName(c.Icon))
+	icon := c.Icon
+	if icon == overview.IconHealth {
+		icon = iconName(icon, "utilities-system-monitor-symbolic")
+	}
+	head.Append(gtk.NewImageFromIconName(icon))
 	spacer := gtk.NewBox(gtk.OrientationHorizontal, 0)
 	spacer.SetHExpand(true)
 	head.Append(spacer)
