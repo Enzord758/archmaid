@@ -11,8 +11,9 @@ Full Cleanup confirm sheets show `UnreadNews`.
 type State int // health.OK, health.Look, health.Unknown
 
 type Check struct {
-    ID     string // "failed-units" "restart" "pacnew" "news" "disk"
+    ID     string // see the table below
     Title  string // the row's name (below)
+    Group  string // "system", "packages" or "hardware": the sheet's section
     State  State
     Detail string // one plain-text line, sanitized, at most 200 runes
     Copy   string // a command for the user to paste ("" = no action button)
@@ -20,7 +21,7 @@ type Check struct {
 }
 
 type Report struct {
-    Checks []Check   // always 5, always in this order
+    Checks []Check   // always 11, grouped, in the order of the table below
     At     time.Time // Deps.Now() when Run finished
 }
 func (r Report) Attention() int // the number of Look checks (Unknown is not counted)
@@ -52,11 +53,13 @@ Helpers the GUI may use for wording of its own: `health.Ago(d)` ("5 min",
 
 - `Run` is safe to call from a goroutine; it spawns its own. Call it off the UI
   thread, never from a draw handler.
-- Typical time: 100-400 ms (two `systemctl` calls, one read of the end of
-  pacman.log, one statfs pair, news from the cache). With no fresh cache the
-  news check does one GET: up to 10 s. Hard limit for the whole `Run`: 15 s
+- Typical time: 0.3-1 s (`systemctl` x2, `timedatectl`, `coredumpctl`,
+  `busctl`, the end of pacman.log read twice, the local package DB read for
+  the AUR check, a process scan, statfs; news from the cache). Network
+  checks run in parallel, each with its own budget: news up to 10 s (1 GET),
+  AUR up to 10 s (the RPC, in requests of 150 names), mirror up to 5 s (1 GET). Hard limit for the whole `Run`: 15 s
   (or the ctx you pass, if shorter); a check still running then is Unknown
-  "timed out" while the other four keep their results. Show the sheet as soon
+  "timed out" while the others keep their results. Show the sheet as soon
   as it opens with a spinner per row, or wait for `Run`; there is no
   per-check callback.
 - Cancel with ctx (the sheet closing). Nothing is left running.
@@ -73,13 +76,23 @@ States: **OK** (green tag "OK"), **Look** (tag "LOOK", counts in "N things need
 your attention"), **Unknown** (neutral tag, "?" or "--"; never counted; the
 Detail is the short reason). Titles are the row names.
 
-| ID | Title |
-|---|---|
-| `failed-units` | Failed services |
-| `restart` | Restart recommended |
-| `pacnew` | Config files to merge |
-| `news` | Arch news |
-| `disk` | Disk space |
+`Report.Checks` is ordered by group; draw a section header whenever `Group`
+changes (or filter by `Group`). Section names for the GUI: System, Packages,
+Hardware.
+
+| Group | ID | Title |
+|---|---|---|
+| system | `failed-units` | Failed services |
+| system | `restart` | Restart recommended |
+| system | `time-sync` | Clock sync |
+| system | `crashes` | Crashes |
+| system | `pacman-lock` | Package lock |
+| packages | `pacnew` | Config files to merge |
+| packages | `aur` | AUR packages |
+| packages | `news` | Arch news |
+| packages | `mirror` | Mirror |
+| hardware | `disk` | Disk space |
+| hardware | `disk-health` | Drive health |
 
 ### 1. failed-units
 
@@ -187,6 +200,102 @@ skipped).
 Detail: `/ 118 G free · /boot 412 M free` (the `/boot` part only when separate).
 No Copy.
 
+### 6. time-sync (system)
+
+`timedatectl show -p NTP -p NTPSynchronized` (read-only).
+
+| State | Detail |
+|---|---|
+| OK | `Clock is synchronized`; or `Waiting for the first sync` (NTP on, not yet synced, uptime 10 min or less) |
+| Look | `Automatic time sync is off` (NTP=no); `Clock isn't synchronized` (NTP on, not synced, uptime over 10 min) |
+| Unknown | `can't read the clock state` (no timedatectl, a failure, unexpected output); `can't read uptime` |
+
+No Copy.
+
+### 7. crashes (system)
+
+`coredumpctl list --since=-24h --no-pager --no-legend -q`. Exit 1 with no
+output is OK. Only the first 256 KiB / 200 lines of output are read.
+
+| State | Detail | Copy |
+|---|---|---|
+| OK | `No crashes in the last 24 h` | |
+| Look | `3 crashes in 24 h: firefox, steam` (up to 3 distinct executable names, then ` +N more`; `200+` when capped) | `coredumpctl list --since=-24h` |
+| Unknown | `can't read the crash list` (no coredumpctl, other failures) | |
+
+Run as the user, coredumpctl lists the coredumps the user may read.
+
+### 8. pacman-lock (system)
+
+`/var/lib/pacman/db.lck` exists while no process named `pacman`, `yay`,
+`paru`, `makepkg` or `pamac*` is in /proc (the `comm` names, exact match).
+
+| State | Detail | Copy |
+|---|---|---|
+| OK | `No lock file`; or `pacman is running` (lock present, a pacman process alive) | |
+| Look | `pacman's lock is left over from a run that stopped` | `sudo rm /var/lib/pacman/db.lck` |
+| Unknown | `can't list processes` | |
+
+### 9. aur (packages)
+
+The installed packages that are in no sync database (`pacman -Qm`), read from
+the local DB with `internal/pkgdb` (default paths, `/etc/pacman.conf`), asked
+about in one `aursearch` multi-info call (its client, User-Agent and limits;
+10 s for the check). `-debug` packages (made by makepkg next to an AUR package)
+and illegal names are not asked about; at most 300 names (sorted) are.
+
+| State | Detail |
+|---|---|
+| OK | `No AUR packages`; `12 AUR packages, all current on the AUR` |
+| Look | `not in the AUR anymore: a, b +2 more`; `flagged out of date: c`; both joined with ` · ` |
+| Unknown | `Can't reach the AUR`; `AUR check timed out`; `can't read installed packages` |
+
+A hand-built package that was never on the AUR also shows as "not in the AUR
+anymore". No Copy.
+
+### 10. mirror (packages)
+
+The first active `Server = ...` line of `/etc/pacman.d/mirrorlist`
+(`https://host/archlinux/$repo/os/$arch`); the base is everything before
+`/$repo`. One GET of `<base>/lastsync` (only that path), which holds a unix
+time. http or https only (a LAN or http mirror is fine, user info, queries
+and other schemes are refused), 5 s timeout, 64-byte body cap, redirects only
+to the same host. The time must be plain digits between 2000 and 2200.
+
+| State | Detail |
+|---|---|
+| OK | `mirror.example.com synced 2 h ago` (up to 24 h; a time up to 1 h in the future counts as now) |
+| Look | `mirror.example.com synced 31 h ago` (over 24 h behind) |
+| Unknown | `can't read the mirrorlist`; `<host> has no lastsync` (404, offline); `<host> has no usable lastsync`; `<host> lastsync is in the future` (over 1 h) |
+
+No Copy.
+
+### 11. disk-health (hardware)
+
+One read-only call: `busctl --system --json=short --auto-start=no --timeout=5
+call org.freedesktop.UDisks2 /org/freedesktop/UDisks2
+org.freedesktop.DBus.ObjectManager GetManagedObjects`. It needs no root and
+no polkit (it reads the properties udisksd already holds); `--auto-start=no`
+means it never starts udisksd. The JSON (capped at 4 MiB) is parsed per drive
+object (those with `org.freedesktop.UDisks2.Drive`):
+
+- ATA (`Drive.Ata`): data counts once `SmartUpdated` is non-zero and
+  `SmartSupported`. Look when `SmartFailing`, or `SmartNumAttributesFailing`
+  > 0, or `SmartNumBadSectors` > 0.
+- NVMe (`NVMe.Controller`): data counts once `SmartUpdated` is non-zero. Look
+  when `SmartCriticalWarning` (an array of strings: spare, temperature,
+  degraded, readonly, ...) is non-empty. udisks 2.11 does **not** expose
+  "percent used" as a property (only through the `SmartGetAttributes` method,
+  which asks polkit), so it is not shown.
+
+| State | Detail |
+|---|---|
+| OK | `SMART is fine: Samsung SSD 870, Samsung 990 PRO` |
+| Look | `WD Blue: SMART says it's failing` / `8 bad sectors` / `2 SMART attributes failing` / `critical warning: spare, temperature`; several drives joined with ` · ` |
+| Unknown | `udisks2 isn't running` (busctl failed or udisksd not running); `no SMART data yet` (no drive has been read yet, or none supports SMART, e.g. a VM); `can't read drive data`; `drive data too large` |
+
+No Copy.
+
 ## Errors and robustness
 
 - One check failing, panicking or timing out never touches another; it is
@@ -196,7 +305,7 @@ No Copy.
 - No shell anywhere: `systemctl` is started by argv. The `Copy` strings are for
   the user's terminal; archmaid never runs them. Unit names go into `Copy`
   only after a strict character check (single-quoted otherwise).
-- Nothing is written except the news cache.
+- Nothing is written except the news cache. `busctl` is started with `--auto-start=no` so that asking never starts a service.
 
 ## Security notes (for review)
 
@@ -205,4 +314,7 @@ entities, no DTD expansion), only three fields read, title sanitized, link
 allow-listed, redirects pinned to the request's host, cache 0700/0600 and
 atomic, a symlinked or oversized or future-dated cache file is ignored. Tests:
 `internal/health/news_test.go` (`TestParseFeedHostile`, `TestHTTPGet`,
-`TestNewsCache`).
+`TestNewsCache`). The busctl JSON, the mirrorlist and lastsync are untrusted
+too: `internal/health/more_test.go` (`TestDiskHealth`, `TestFirstMirror`,
+`TestParseLastSync`, `TestMirror`) cover garbage, huge values, wrong types,
+negative and future times, and non-http schemes.
