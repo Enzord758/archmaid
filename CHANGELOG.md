@@ -2,12 +2,17 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2`, `v2.5.2..v2.5.3`, `v2.5.3..v2.5.4` and `v2.5.4..v2.5.5`.
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2`, `v2.5.2..v2.5.3`, `v2.5.3..v2.5.4`, `v2.5.4..v2.5.5` and `v2.5.5..v2.6.0`.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-11-09
+
+It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
+
 ### Added
 
+- **The System health checks** (#269, #271). Eleven read-only checks, run as you with no password and nothing changed: failed services (system and user), restart recommended (the running kernel is gone), clock sync, crashes in the last 24 h, a pacman lock left over with no package manager running, `.pacnew`/`.pacsave` files still to merge, AUR packages gone from the AUR or flagged out of date, Arch news since your last full system update, your first Arch mirror's `lastsync` (more than 24 h behind), free space (under 10 GiB on `/`, under 100 MiB on a separate `/boot`) and drive health (SMART through udisks2, which is not started for it). A check that can't run (offline, udisks2 not running) is shown as unknown and never counts. Three of them use the network: the Arch news feed (https://archlinux.org/feeds/news/, kept in `~/.cache/archmaid/arch-news.xml` and fetched at most every 3 hours), the AUR info lookup for your foreign packages, and the mirror's `/lastsync`; each has a short timeout and a size cap and follows no redirect off its host. The contract is `docs/design/health.md`.
 - **System health on the Overview** (#270, the GUI half of the health check). A "System health" cell takes the place of "Run topgrade" in the grid. When something needs attention it is tinted warn, with a thin warn edge, a warn icon, a `look` tag and a bold line "N things need your attention"; calm, it looks like the other cells, and Unknown checks never count. Clicking it opens a sheet: the rows that need attention first under "Needs your attention", then System, Packages and Hardware (unknown before OK), each row with its detail on one line and a Copy (a command to paste, never run) or Read/Open (an archlinux.org page only) button, and "Check again". The checks run at start, every 30 minutes, when the Overview is shown with a result over 5 minutes old, and after every run, off the main thread and never two at once. "Run topgrade" is now always on the Updates card (it was the Overview's only other way in), off while a run goes. The Run topgrade and Full Cleanup confirms open with a "NEWS · Read before updating" callout when there are Arch news posts since your last update (the newest title, "and N more", when it was posted, a link); it never blocks Run and is left out if the feed isn't ready within 1.5 s. The TUI is unchanged.
 
 ### Changed
@@ -500,7 +505,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.5.5...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/Enzord758/archmaid/compare/v2.5.5...v2.6.0
 [2.5.5]: https://github.com/Enzord758/archmaid/compare/v2.5.4...v2.5.5
 [2.5.4]: https://github.com/Enzord758/archmaid/compare/v2.5.3...v2.5.4
 [2.5.3]: https://github.com/Enzord758/archmaid/compare/v2.5.2...v2.5.3
