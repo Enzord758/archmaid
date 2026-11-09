@@ -30,9 +30,8 @@ func checkRestart(_ context.Context, d Deps) Check {
 
 // Disk thresholds.
 const (
-	rootMinBytes = 5 << 30  // / below this is Look
-	rootMinPct   = 5        // ... or below this share free
-	bootMinBytes = 50 << 20 // a separate /boot below this is Look
+	rootMinBytes = 10 << 30  // / below this is Look
+	bootMinBytes = 100 << 20 // a separate /boot below this is Look (a kernel and initramfs need ~150 MB)
 )
 
 func checkDisk(_ context.Context, d Deps) Check {
@@ -43,7 +42,7 @@ func checkDisk(_ context.Context, d Deps) Check {
 	if err != nil || root.Total == 0 {
 		return unknown(IDDisk, TitleDisk, "can't read disk space")
 	}
-	look := root.Avail < rootMinBytes || root.Avail*100 < root.Total*rootMinPct
+	look := root.Avail < rootMinBytes
 	detail := "/ " + ShortBytes(root.Avail) + " free"
 	// /boot counts only when it is its own mount (another device than /).
 	if boot, err := d.FS("/boot"); err == nil && boot.Total > 0 && boot.Dev != root.Dev {

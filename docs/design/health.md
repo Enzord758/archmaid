@@ -76,7 +76,7 @@ Detail is the short reason). Titles are the row names.
 | ID | Title |
 |---|---|
 | `failed-units` | Failed services |
-| `restart` | Restart needed |
+| `restart` | Restart recommended |
 | `pacnew` | Config files to merge |
 | `news` | Arch news |
 | `disk` | Disk space |
@@ -167,8 +167,8 @@ unread it is Unknown with `Can't reach archlinux.org; nothing new 5 h ago` (a
 stale "all clear" is not OK).
 
 `UnreadNews` returns the same items for the confirm sheets: `Items` newer than
-`Since`; when no full update is found (`Since` zero) the 3 newest items
-instead. An error (no feed and no cache) means: show no news block. The sheets
+`Since`; when no full update is found (`Since` zero) there are no items (and
+no error), so a sheet shows no news block. An error (no feed and no cache) means: show no news block. The sheets
 show `Title` as plain text, newest first, each with its date, and a link
 button only where `Link != ""`; show "(cached 5 h ago)" when `FromCache`.
 
@@ -180,7 +180,7 @@ skipped).
 
 | State | Rule |
 |---|---|
-| Look | `/` has less than 5 GiB free, **or** less than 5 % of its size free, **or** a separate `/boot` has less than 50 MiB free |
+| Look | `/` has less than 10 GiB free, **or** a separate `/boot` has less than 100 MiB free (absolute limits only; no percentage) |
 | OK | otherwise |
 | Unknown | `can't read disk space` (statfs of `/` failed) |
 

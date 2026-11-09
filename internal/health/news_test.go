@@ -360,10 +360,10 @@ func TestUnreadNews(t *testing.T) {
 	if res.Items[0].Link != "https://archlinux.org/news/a/" {
 		t.Errorf("link %q", res.Items[0].Link)
 	}
-	// No reference date: the newest three.
+	// No reference date: no items, no error.
 	d2 := newsDeps(t, "", body, nil, &gets)
 	res, err = UnreadNews(context.Background(), d2)
-	if err != nil || len(res.Items) != FallbackItems || !res.Since.IsZero() {
+	if err != nil || len(res.Items) != 0 || !res.Since.IsZero() {
 		t.Fatalf("%+v %v", res, err)
 	}
 	// Offline and nothing cached: an error, so the sheet shows no block.

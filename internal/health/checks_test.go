@@ -142,11 +142,11 @@ func TestDisk(t *testing.T) {
 		detail string
 	}{
 		{"plenty, separate boot", map[string]FSInfo{"/": {118 * G, 500 * G, 1}, "/boot": {412 * M, 1024 * M, 2}}, OK, "/ 118 G free · /boot 412 M free"},
-		{"root under 5 GiB", map[string]FSInfo{"/": {4*G + G/5, 500 * G, 1}}, Look, "/ 4.2 G free"},
-		{"root exactly 5 GiB is fine", map[string]FSInfo{"/": {5 * G, 100 * G, 1}}, OK, "/ 5.0 G free"},
-		{"root under 5 percent", map[string]FSInfo{"/": {40 * G, 1000 * G, 1}}, Look, "/ 40 G free"},
-		{"boot under 50 MiB", map[string]FSInfo{"/": {118 * G, 500 * G, 1}, "/boot": {49 * M, 1024 * M, 2}}, Look, "/ 118 G free · /boot 49 M free"},
-		{"boot exactly 50 MiB", map[string]FSInfo{"/": {118 * G, 500 * G, 1}, "/boot": {50 * M, 1024 * M, 2}}, OK, "/ 118 G free · /boot 50 M free"},
+		{"root under 10 GiB", map[string]FSInfo{"/": {9*G + G/2, 500 * G, 1}}, Look, "/ 9.5 G free"},
+		{"root exactly 10 GiB is fine", map[string]FSInfo{"/": {10 * G, 100 * G, 1}}, OK, "/ 10 G free"},
+		{"a low percentage alone is fine", map[string]FSInfo{"/": {40 * G, 1000 * G, 1}}, OK, "/ 40 G free"},
+		{"boot under 100 MiB", map[string]FSInfo{"/": {118 * G, 500 * G, 1}, "/boot": {99 * M, 1024 * M, 2}}, Look, "/ 118 G free · /boot 99 M free"},
+		{"boot exactly 100 MiB", map[string]FSInfo{"/": {118 * G, 500 * G, 1}, "/boot": {100 * M, 1024 * M, 2}}, OK, "/ 118 G free · /boot 100 M free"},
 		{"boot on the root device is not separate", map[string]FSInfo{"/": {118 * G, 500 * G, 1}, "/boot": {1 * M, 500 * G, 1}}, OK, "/ 118 G free"},
 		{"no /boot", map[string]FSInfo{"/": {118 * G, 500 * G, 1}}, OK, "/ 118 G free"},
 		{"root unreadable", map[string]FSInfo{}, Unknown, "can't read disk space"},

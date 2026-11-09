@@ -33,9 +33,6 @@ const (
 	// TitleMax and LinkMax cap an item's title (runes) and link (bytes).
 	TitleMax = 120
 	LinkMax  = 300
-	// FallbackItems: with no known last full update, UnreadNews returns this
-	// many of the newest items.
-	FallbackItems = 3
 
 	newsCacheName = "arch-news.xml"
 )
@@ -50,8 +47,8 @@ type NewsItem struct {
 // UnreadResult is what UnreadNews returns.
 type UnreadResult struct {
 	// Items are the news posted after Since, newest first (at most
-	// MaxNewsItems). When Since is zero (no full update found in the log) they
-	// are the FallbackItems newest.
+	// MaxNewsItems). When Since is zero (no full update found in the log) there
+	// are none: no items, no error.
 	Items []NewsItem
 	// Since is the last full system update ("" time when unknown).
 	Since time.Time
@@ -84,8 +81,6 @@ func unread(ctx context.Context, d Deps) (UnreadResult, error) {
 				res.Items = append(res.Items, it)
 			}
 		}
-	} else {
-		res.Items = items[:min(len(items), FallbackItems)]
 	}
 	return res, nil
 }

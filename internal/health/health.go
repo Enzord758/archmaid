@@ -227,7 +227,7 @@ func unknown(id, title, why string) Check {
 // Titles (the sheet's row names).
 const (
 	TitleFailedUnits = "Failed services"
-	TitleRestart     = "Restart needed"
+	TitleRestart     = "Restart recommended"
 	TitlePacnew      = "Config files to merge"
 	TitleNews        = "Arch news"
 	TitleDisk        = "Disk space"
