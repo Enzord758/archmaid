@@ -145,6 +145,10 @@ type Deps struct {
 	// DB); AURInfo asks the AUR RPC about names (one multi-info request).
 	Foreign func() ([]Foreign, error)
 	AURInfo func(ctx context.Context, names []string) ([]AURPkg, error)
+	// AURSeen is the names in the AUR audit's maintainer snapshot (read only):
+	// packages that were in the AUR before, and whether a readable snapshot
+	// exists. Nil means no snapshot.
+	AURSeen func() (map[string]bool, bool)
 	// MirrorList is pacman's mirrorlist; MirrorGet fetches the mirror's
 	// lastsync file (at most MirrorBodyMax bytes).
 	MirrorList string
@@ -179,6 +183,7 @@ func DefaultDeps() Deps {
 		Uptime:     readUptime,
 		Foreign:    localForeign,
 		AURInfo:    aurInfo,
+		AURSeen:    auditSeen,
 		MirrorList: DefaultMirrorList,
 		MirrorGet: func(ctx context.Context, u string) ([]byte, error) {
 			return httpGetLimited(ctx, u, MirrorTimeout, MirrorBodyMax)

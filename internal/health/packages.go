@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/audit"
 	"github.com/Enzord758/archmaid/internal/aursearch"
+	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/pkgdb"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 )
@@ -125,18 +128,33 @@ func checkAUR(ctx context.Context, d Deps) Check {
 	for _, p := range found {
 		known[p.Name] = p
 	}
+	// A package the AUR doesn't know is "gone" only if the audit's snapshot
+	// says it was in the AUR before. Without that it is a local build (or from
+	// a repo this machine doesn't have): never an alarm. With no readable
+	// snapshot there are no "gone" verdicts at all.
+	var seen map[string]bool
+	haveSnap := false
+	if d.AURSeen != nil {
+		seen, haveSnap = d.AURSeen()
+	}
 	var gone, flagged []string
+	inAUR, other := 0, 0
 	for _, n := range names {
 		p, ok := known[n]
 		switch {
-		case !ok:
+		case !ok && haveSnap && seen[n]:
 			gone = append(gone, n)
+		case !ok:
+			other++
 		case p.OutOfDate:
 			flagged = append(flagged, n)
+			inAUR++
+		default:
+			inAUR++
 		}
 	}
 	if len(gone) == 0 && len(flagged) == 0 {
-		return Check{State: OK, Detail: fmt.Sprintf("%d AUR packages, all current on the AUR", len(names))}
+		return Check{State: OK, Detail: aurOKDetail(inAUR, other, haveSnap)}
 	}
 	var parts []string
 	if len(gone) > 0 {
@@ -146,6 +164,57 @@ func checkAUR(ctx context.Context, d Deps) Check {
 		parts = append(parts, "flagged out of date: "+nameList(flagged))
 	}
 	return Check{State: Look, Detail: sanitize.Field(strings.Join(parts, " · "), DetailMax)}
+}
+
+// auditSeen is the real AURSeen: the names in the AUR audit's maintainer
+// snapshot (internal/audit, <state dir>/aur-maintainers.json), read only, never
+// written or advanced. Every entry in it came from an AUR answer, so "in the
+// snapshot" means "was in the AUR before". A missing or corrupt snapshot gives
+// false.
+func auditSeen() (map[string]bool, bool) {
+	dir := logstore.DefaultDir()
+	if dir == "" {
+		return nil, false
+	}
+	return seenIn(filepath.Join(dir, audit.SnapshotFile))
+}
+
+func seenIn(path string) (map[string]bool, bool) {
+	m, state := audit.LoadSnapshot(path)
+	if state != audit.BaselineOK {
+		return nil, false
+	}
+	seen := make(map[string]bool, len(m))
+	for n := range m {
+		seen[n] = true
+	}
+	return seen, true
+}
+
+// aurOKDetail: "3 AUR packages fine · 2 local builds". other counts the
+// foreign packages the AUR doesn't know; with a snapshot they are local builds
+// (it would have named them otherwise), without one we can't say.
+func aurOKDetail(inAUR, other int, haveSnap bool) string {
+	plural := func(n int, one, many string) string {
+		if n == 1 {
+			return fmt.Sprintf("%d %s", n, one)
+		}
+		return fmt.Sprintf("%d %s", n, many)
+	}
+	var s string
+	if inAUR == 0 {
+		s = "No AUR packages found"
+	} else {
+		s = plural(inAUR, "AUR package", "AUR packages") + " fine"
+	}
+	switch {
+	case other == 0:
+	case haveSnap:
+		s += " · " + plural(other, "local build", "local builds")
+	default:
+		s += " · " + fmt.Sprintf("%d not found on the AUR (no audit history to say if %s removed)", other, map[bool]string{true: "it was", false: "they were"}[other == 1])
+	}
+	return s
 }
 
 func nameList(n []string) string {

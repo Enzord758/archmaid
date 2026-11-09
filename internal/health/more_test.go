@@ -214,6 +214,15 @@ func TestAUR(t *testing.T) {
 	info := func(pk ...AURPkg) func(context.Context, []string) ([]AURPkg, error) {
 		return func(_ context.Context, names []string) ([]AURPkg, error) { return pk, nil }
 	}
+	seen := func(n ...string) func() (map[string]bool, bool) {
+		return func() (map[string]bool, bool) {
+			m := map[string]bool{}
+			for _, x := range n {
+				m[x] = true
+			}
+			return m, true
+		}
+	}
 	for _, c := range []struct {
 		name   string
 		d      Deps
@@ -222,11 +231,24 @@ func TestAUR(t *testing.T) {
 	}{
 		{"none installed", Deps{Foreign: foreign(), AURInfo: info()}, OK, "No AUR packages"},
 		{"only debug packages", Deps{Foreign: foreign("yay-debug"), AURInfo: info()}, OK, "No AUR packages"},
-		{"all current", Deps{Foreign: foreign("a", "b"), AURInfo: info(AURPkg{Name: "a"}, AURPkg{Name: "b"})}, OK, "2 AUR packages, all current on the AUR"},
-		{"gone", Deps{Foreign: foreign("a", "b", "c"), AURInfo: info(AURPkg{Name: "a"})}, Look, "not in the AUR anymore: b, c"},
-		{"flagged", Deps{Foreign: foreign("a", "c"), AURInfo: info(AURPkg{Name: "a"}, AURPkg{Name: "c", OutOfDate: true})}, Look, "flagged out of date: c"},
-		{"both", Deps{Foreign: foreign("a", "b", "c"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true})}, Look, "not in the AUR anymore: b, c · flagged out of date: a"},
-		{"many gone", Deps{Foreign: foreign("a", "b", "c", "d", "e", "f"), AURInfo: info()}, Look, "not in the AUR anymore: a, b, c, d +2 more"},
+		{"all current", Deps{Foreign: foreign("a", "b"), AURInfo: info(AURPkg{Name: "a"}, AURPkg{Name: "b"}), AURSeen: seen("a", "b")}, OK, "2 AUR packages fine"},
+		// The live VM case (#273): archmaid-git is a local build, never in the
+		// AUR and never in the audit's snapshot. It must not be "gone".
+		{"local builds are not gone", Deps{Foreign: foreign("archmaid-git", "archmaid-gui-git", "a"), AURInfo: info(AURPkg{Name: "a"}),
+			AURSeen: seen("a")}, OK, "1 AUR package fine · 2 local builds"},
+		{"local builds only", Deps{Foreign: foreign("archmaid-git"), AURInfo: info(), AURSeen: seen("a")}, OK, "No AUR packages found · 1 local build"},
+		{"snapshot package missing from the AUR", Deps{Foreign: foreign("a", "b", "c"), AURInfo: info(AURPkg{Name: "a"}), AURSeen: seen("a", "b", "c")},
+			Look, "not in the AUR anymore: b, c"},
+		{"gone and local mixed", Deps{Foreign: foreign("a", "b", "mine"), AURInfo: info(AURPkg{Name: "a"}), AURSeen: seen("a", "b")},
+			Look, "not in the AUR anymore: b"},
+		{"no snapshot: no gone verdicts", Deps{Foreign: foreign("a", "b", "c"), AURInfo: info(AURPkg{Name: "a"})},
+			OK, "1 AUR package fine · 2 not found on the AUR (no audit history to say if they were removed)"},
+		{"unreadable snapshot is no snapshot", Deps{Foreign: foreign("a", "b"), AURInfo: info(AURPkg{Name: "a"}), AURSeen: func() (map[string]bool, bool) { return nil, false }},
+			OK, "1 AUR package fine · 1 not found on the AUR (no audit history to say if it was removed)"},
+		{"no snapshot, flagged still shows", Deps{Foreign: foreign("a", "b"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true})}, Look, "flagged out of date: a"},
+		{"flagged", Deps{Foreign: foreign("a", "c"), AURInfo: info(AURPkg{Name: "a"}, AURPkg{Name: "c", OutOfDate: true}), AURSeen: seen("a", "c")}, Look, "flagged out of date: c"},
+		{"both", Deps{Foreign: foreign("a", "b", "c"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true}), AURSeen: seen("a", "b", "c")}, Look, "not in the AUR anymore: b, c · flagged out of date: a"},
+		{"many gone", Deps{Foreign: foreign("a", "b", "c", "d", "e", "f"), AURInfo: info(), AURSeen: seen("a", "b", "c", "d", "e", "f")}, Look, "not in the AUR anymore: a, b, c, d +2 more"},
 		{"rpc error", Deps{Foreign: foreign("a"), AURInfo: func(context.Context, []string) ([]AURPkg, error) { return nil, errors.New("offline") }}, Unknown, "Can't reach the AUR"},
 		{"rpc timeout", Deps{Foreign: foreign("a"), AURInfo: func(context.Context, []string) ([]AURPkg, error) { return nil, context.DeadlineExceeded }}, Unknown, "AUR check timed out"},
 		{"local db unreadable", Deps{Foreign: func() ([]Foreign, error) { return nil, errors.New("x") }, AURInfo: info()}, Unknown, "can't read installed packages"},
@@ -238,6 +260,37 @@ func TestAUR(t *testing.T) {
 				t.Errorf("= %v %q; want %v %q", got.State, got.Detail, c.state, c.detail)
 			}
 		})
+	}
+}
+
+// The snapshot is read through internal/audit, read-only: a real snapshot file
+// gives its names, a missing, corrupt or empty-path one gives "no snapshot",
+// and nothing is written or renamed (a corrupt file stays as it is).
+func TestSeenIn(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "good.json")
+	os.WriteFile(good, []byte(`{"archmaid-bin": {"maintainer": "alice"}, "old": "bob"}`), 0o600)
+	seen, ok := seenIn(good)
+	if !ok || !seen["archmaid-bin"] || !seen["old"] || seen["archmaid-git"] || len(seen) != 2 {
+		t.Errorf("%v %v", seen, ok)
+	}
+	if _, ok := seenIn(filepath.Join(dir, "missing.json")); ok {
+		t.Error("a missing snapshot counted")
+	}
+	bad := filepath.Join(dir, "bad.json")
+	os.WriteFile(bad, []byte("{not json"), 0o600)
+	if _, ok := seenIn(bad); ok {
+		t.Error("a corrupt snapshot counted")
+	}
+	if ents, _ := os.ReadDir(dir); len(ents) != 2 {
+		t.Errorf("health wrote or renamed files: %v", ents)
+	}
+	if b, _ := os.ReadFile(bad); string(b) != "{not json" {
+		t.Error("the corrupt snapshot was changed")
+	}
+	// The default reads the state dir of the (isolated) HOME: none there.
+	if _, ok := auditSeen(); ok {
+		t.Error("auditSeen found a snapshot in the test HOME")
 	}
 }
 
