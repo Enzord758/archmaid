@@ -77,11 +77,12 @@ func TestLastRunAbortedFullCleanup(t *testing.T) {
 	}
 }
 
-// End to end: a declined gate is a cancelled run.
-func TestLastRunDeclinedGateIsCancelled(t *testing.T) {
+// End to end: a declined gate is a cancelled run, and nothing ran: it leaves
+// no last-run.json (the previous run's record stays, #276).
+func TestLastRunDeclinedGateLeavesNoRecord(t *testing.T) {
 	runScenario(t, "fullcleanup_gate_declined.shim")
-	if r := readLastRun(t); r.Outcome != "cancelled" || r.Action != "fullcleanup" {
-		t.Fatalf("record = %+v", r)
+	if r, err := logs().ReadLastRun(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("record = %+v (%v), want none: nothing ran", r, err)
 	}
 }
 

@@ -354,13 +354,11 @@ if want fullcleanup-gate-declined; then
 	# Only the audit prefetch (pacman -Qqm, read-only) starts at the gate.
 	if grep -qvE "^pacman -Qqm --color never$" "$SHIM_LOG"; then cat "$SHIM_LOG"; fail "gate: a declined gate ran commands"; fi
 	refuse "$TXT" "Summary|DRYRUN" "gate: a declined gate produced a summary"
-	# By design (logstore.OutcomeCancelled: "nothing ran: declined gate") a declined
-	# gate leaves a "cancelled" last-run record, in the dry-run slot only.
-	LR="$STATE_DIR/dryrun/last-run.json"
-	[[ -f "$LR" ]] || fail "gate: no cancelled last-run record in the dry-run slot"
-	need "$LR" '"outcome": *"cancelled"' "gate: the last-run record is not 'cancelled'"
-	refuse "$LR" '"steps_failed": *[1-9]' "gate: the cancelled record counts failed steps"
+	# A declined gate is a run in which nothing ran (logstore.OutcomeCancelled):
+	# since #276 it leaves no last-run record in either slot, so the previous
+	# real run stays the Overview's and the widget's Last run.
+	[[ ! -e "$STATE_DIR/dryrun/last-run.json" ]] || fail "gate: a declined gate wrote a dry-run last-run record"
 	[[ ! -e "$STATE_DIR/last-run.json" ]] || fail "gate: a dry run wrote the real last-run slot"
 	refuse "$CLEANUP_LOG" "." "gate: a declined gate wrote to the cleanup log"
-	echo "PASS: declined gate returned to the menu; nothing ran, only a cancelled dry-run record"
+	echo "PASS: declined gate returned to the menu; nothing ran and no last-run record was written"
 fi

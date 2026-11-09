@@ -1877,7 +1877,18 @@ func TestGUILastRunTones(t *testing.T) {
 		if err := logstore.New(logstore.Options{Dir: dir, Now: earlier}).Append(logstore.Topgrade, "OK", "Topgrade completed", "done\n"); err != nil {
 			t.Fatal(err)
 		}
-		if err := logstore.New(logstore.Options{Dir: dir}).WriteLastRun(logstore.RunRecord{Action: actions.IDFullCleanup, Outcome: tc.outcome, StepsRefused: tc.refused, Started: now, Finished: now}); err != nil {
+		rec := logstore.RunRecord{V: 1, Action: actions.IDFullCleanup, Outcome: tc.outcome, StepsRefused: tc.refused, Started: now, Finished: now}
+		if tc.outcome == logstore.OutcomeCancelled {
+			// The store keeps no nothing-ran record any more (#276); an older
+			// archmaid wrote them, and the Overview still reads them.
+			b, err := json.Marshal(rec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, logstore.LastRunFile), append(b, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := logstore.New(logstore.Options{Dir: dir}).WriteLastRun(rec); err != nil {
 			t.Fatal(err)
 		}
 		rep, _ := child(t, "repair", "ARCHMAID_GUI_STATE="+dir)

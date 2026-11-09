@@ -112,6 +112,17 @@ func read(t *testing.T, p string) string {
 func lastRun(t *testing.T, outcome string, failed int) string {
 	t.Helper()
 	dir := t.TempDir()
+	if outcome == logstore.OutcomeCancelled {
+		// The store no longer keeps a nothing-ran record (#276), but an older
+		// archmaid wrote them, and the widget still reads them: write one as
+		// the old writer did.
+		b, err := json.Marshal(logstore.RunRecord{V: 1, Action: "fullcleanup", Started: t0.Add(-time.Minute),
+			Finished: t0, Outcome: outcome, StepsFailed: failed})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b) + "\n"
+	}
 	s := logstore.New(logstore.Options{Dir: dir})
 	err := s.WriteLastRun(logstore.RunRecord{Action: "fullcleanup", Started: t0.Add(-time.Minute),
 		Finished: t0, Outcome: outcome, StepsFailed: failed})

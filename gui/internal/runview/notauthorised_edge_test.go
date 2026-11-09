@@ -1,6 +1,7 @@
 package runview
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,10 +134,16 @@ func TestSummarizeNotAuthorisedOnlyWhenCancelled(t *testing.T) {
 	}
 	// A record on disk without steps_refused, as an older archmaid wrote it.
 	dir := t.TempDir()
-	if err := logstore.New(logstore.Options{Dir: dir}).WriteLastRun(logstore.RunRecord{Action: actions.IDFullCleanup, Outcome: logstore.OutcomeCancelled, Started: now, Finished: now}); err != nil {
+	// (The store keeps no nothing-ran record any more, #276, so the old
+	// writer's file is made by hand.)
+	cb, err := json.Marshal(logstore.RunRecord{V: 1, Action: actions.IDFullCleanup, Outcome: logstore.OutcomeCancelled, Started: now, Finished: now})
+	if err != nil {
 		t.Fatal(err)
 	}
 	p := filepath.Join(dir, logstore.LastRunFile)
+	if err := os.WriteFile(p, append(cb, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)

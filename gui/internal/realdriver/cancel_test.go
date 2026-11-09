@@ -1,10 +1,12 @@
 package realdriver
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
-	"slices"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -109,99 +111,135 @@ func TestServicesPolkitCancel(t *testing.T) {
 		answer      func(d engine.Driver, np engine.NeedsPassword)
 		outcome     engine.Outcome
 		refused     int
-		record      string // what the Overview says
 		finished    string // what the Run page's status line says
 	}{
 		{name: "own dialog cancelled", answer: func(d engine.Driver, np engine.NeedsPassword) {
 			d.Send(engine.CancelPrompt{Prompt: np.ID})
 		}, outcome: engine.OutcomeCancelled, refused: 0,
-			record: "Last run cancelled, nothing ran", finished: "Finished: cancelled"},
+			finished: "Finished: cancelled"},
 		{name: "three wrong passwords", answer: func(d engine.Driver, np engine.NeedsPassword) {
 			d.Send(engine.SubmitPassword{Prompt: np.ID, Password: "wrong"})
 		}, outcome: engine.OutcomeCompleted, refused: 1,
-			record: "Last run not authorised", finished: "Finished: not authorised"},
+			finished: "Finished: not authorised"},
 		{name: "desktop dialog cancelled", agent: "-", outcome: engine.OutcomeCompleted, refused: 1,
-			record: "Last run not authorised", finished: "Finished: not authorised"},
+			finished: "Finished: not authorised"},
 	} {
-		t.Run(c.name, func(t *testing.T) {
-			dir := cancelShims(t)
-			w := Start(fakes(t, Config{NoAskpass: true, TTYAgent: c.agent}))
-			defer w.Close()
-			d := w.New(w.Options())
-			defer d.Close()
-			d.Send(engine.Start{Action: actions.IDServices})
-			var evs []engine.Event
-			var fin engine.Finished
-			asked := 0
-			timeout := time.After(30 * time.Second)
-		loop:
-			for {
-				select {
-				case ev, ok := <-d.Events():
-					if !ok {
-						t.Fatal("Events closed early")
+		for _, seeded := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/previous record %v", c.name, seeded), func(t *testing.T) {
+				dir := cancelShims(t)
+				cfg := fakes(t, Config{NoAskpass: true, TTYAgent: c.agent})
+				// The run before this one, a real one: nothing that ends without
+				// a step having run may replace it (#276).
+				var seed []byte
+				if seeded {
+					os.MkdirAll(cfg.StateDir, 0o700)
+					seed = []byte(`{"v":1,"action":"fullcleanup","started":"2026-11-09T10:00:00Z","finished":"2026-11-09T10:05:00Z","outcome":"ok","steps_failed":0,"steps_skipped":0,"steps_refused":0,"dry_run":false}` + "\n")
+					if err := os.WriteFile(filepath.Join(cfg.StateDir, logstore.LastRunFile), seed, 0o600); err != nil {
+						t.Fatal(err)
 					}
-					evs = append(evs, ev)
-					switch ev := ev.(type) {
-					case engine.NeedsSelection:
-						d.Send(engine.Select{Prompt: ev.ID, Picked: ev.Items})
-					case engine.NeedsPassword:
-						if !ev.Polkit || c.answer == nil {
-							t.Fatalf("unexpected prompt %+v", ev)
+				}
+				w := Start(cfg)
+				defer w.Close()
+				d := w.New(w.Options())
+				defer d.Close()
+				d.Send(engine.Start{Action: actions.IDServices})
+				var evs []engine.Event
+				var fin engine.Finished
+				asked := 0
+				timeout := time.After(30 * time.Second)
+			loop:
+				for {
+					select {
+					case ev, ok := <-d.Events():
+						if !ok {
+							t.Fatal("Events closed early")
 						}
-						asked++
-						c.answer(d, ev)
-					case engine.Finished:
-						fin = ev
-						break loop
+						evs = append(evs, ev)
+						switch ev := ev.(type) {
+						case engine.NeedsSelection:
+							d.Send(engine.Select{Prompt: ev.ID, Picked: ev.Items})
+						case engine.NeedsPassword:
+							if !ev.Polkit || c.answer == nil {
+								t.Fatalf("unexpected prompt %+v", ev)
+							}
+							asked++
+							c.answer(d, ev)
+						case engine.Finished:
+							fin = ev
+							break loop
+						}
+					case <-timeout:
+						t.Fatalf("no Finished; events %#v", evs)
 					}
-				case <-timeout:
-					t.Fatalf("no Finished; events %#v", evs)
 				}
-			}
-			if c.answer != nil && asked == 0 {
-				t.Error("archmaid's dialog never asked")
-			}
-			var done []engine.StepDone
-			for _, ev := range evs {
-				if sd, ok := ev.(engine.StepDone); ok {
-					done = append(done, sd)
+				if c.answer != nil && asked == 0 {
+					t.Error("archmaid's dialog never asked")
 				}
-			}
-			want := steps.AuthRefused
-			if c.refused == 0 {
-				want = steps.Skipped
-			}
-			if len(done) != 1 || done[0].Status != want {
-				t.Errorf("StepDone %+v, want one with status %d", done, want)
-			}
-			if fin.Outcome != c.outcome || fin.Refused != c.refused || fin.Errs != 0 {
-				t.Errorf("Finished = %+v, want %v with %d refused", fin, c.outcome, c.refused)
-			}
-			rec, err := logstore.New(logstore.Options{Dir: w.cfg.StateDir}).ReadLastRun()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if rec.Action != actions.IDServices || rec.Outcome != logstore.OutcomeCancelled || rec.StepsRefused != c.refused {
-				t.Errorf("last-run.json = %+v, want cancelled with steps_refused %d", rec, c.refused)
-			}
-			if s := overview.Summarize(rec, rec.Finished); !slices.ContainsFunc(s.Issues, func(i string) bool { return strings.HasPrefix(i, c.record) }) {
-				t.Errorf("Overview issues %q, want %q", s.Issues, c.record)
-			}
-			m := runview.NewModel()
-			m.Apply(evs)
-			if status, _ := m.FinishedText(fin); !strings.HasPrefix(status, c.finished) {
-				t.Errorf("Run page %q, want %q", status, c.finished)
-			}
-			// pkexec ran once, for the two picked units' one call; the
-			// desktop case reached only the stand-in for the desktop's agent.
-			if got := readFile(t, filepath.Join(dir, "pkexec.log")); strings.Count(got, "disable-unit") != 1 {
-				t.Errorf("pkexec calls %q", got)
-			}
-			if _, err := os.Stat(filepath.Join(dir, "desktop.log")); (err == nil) != (c.agent == "-") {
-				t.Errorf("the desktop's agent asked: %v, want %v", err == nil, c.agent == "-")
-			}
-		})
+				var done []engine.StepDone
+				for _, ev := range evs {
+					if sd, ok := ev.(engine.StepDone); ok {
+						done = append(done, sd)
+					}
+				}
+				want := steps.AuthRefused
+				if c.refused == 0 {
+					want = steps.Skipped
+				}
+				if len(done) != 1 || done[0].Status != want {
+					t.Errorf("StepDone %+v, want one with status %d", done, want)
+				}
+				if fin.Outcome != c.outcome || fin.Refused != c.refused || fin.Errs != 0 {
+					t.Errorf("Finished = %+v, want %v with %d refused", fin, c.outcome, c.refused)
+				}
+				// Nothing ran, so the run is no "last run": the previous record
+				// stays byte for byte (or none appears), and the cancelled
+				// attempt leaves no run folder behind either.
+				got, rerr := os.ReadFile(filepath.Join(w.cfg.StateDir, logstore.LastRunFile))
+				if seeded {
+					if rerr != nil || string(got) != string(seed) {
+						t.Errorf("last-run.json = %q (%v), want the previous record unchanged", got, rerr)
+					}
+					rec, err := logstore.New(logstore.Options{Dir: w.cfg.StateDir}).ReadLastRun()
+					if err != nil || rec.Action != "fullcleanup" || rec.Outcome != logstore.OutcomeOK {
+						t.Errorf("ReadLastRun = %+v, %v", rec, err)
+					}
+					if s := overview.Summarize(rec, rec.Finished); len(s.Issues) != 0 {
+						t.Errorf("Overview issues %q, want the old ok run", s.Issues)
+					}
+				} else if !errors.Is(rerr, os.ErrNotExist) {
+					t.Errorf("last-run.json = %q (%v), want none: nothing ran", got, rerr)
+				}
+				// ... and no real run folder: what a run in which nothing ran
+				// logs is only stub entries (CHECK, SKIP), which the store does
+				// not count towards KeepRuns (logstore, stubLog).
+				ents, _ := os.ReadDir(w.cfg.StateDir)
+				for _, e := range ents {
+					if !e.IsDir() {
+						continue
+					}
+					logs, _ := os.ReadDir(filepath.Join(w.cfg.StateDir, e.Name()))
+					for _, l := range logs {
+						text := readFile(t, filepath.Join(w.cfg.StateDir, e.Name(), l.Name()))
+						if regexp.MustCompile(`\] (OK|FAIL|DRYRUN|ABORT): `).MatchString(text) {
+							t.Errorf("run folder %s holds %s with a step's entry: %s", e.Name(), l.Name(), text)
+						}
+					}
+				}
+				m := runview.NewModel()
+				m.Apply(evs)
+				if status, _ := m.FinishedText(fin); !strings.HasPrefix(status, c.finished) {
+					t.Errorf("Run page %q, want %q", status, c.finished)
+				}
+				// pkexec ran once, for the two picked units' one call; the
+				// desktop case reached only the stand-in for the desktop's agent.
+				if got := readFile(t, filepath.Join(dir, "pkexec.log")); strings.Count(got, "disable-unit") != 1 {
+					t.Errorf("pkexec calls %q", got)
+				}
+				if _, err := os.Stat(filepath.Join(dir, "desktop.log")); (err == nil) != (c.agent == "-") {
+					t.Errorf("the desktop's agent asked: %v, want %v", err == nil, c.agent == "-")
+				}
+			})
+		}
 	}
 }
 

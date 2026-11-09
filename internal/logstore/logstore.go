@@ -6,6 +6,7 @@ package logstore
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -369,13 +370,58 @@ func discoveryLogs(dir string) (cats []Category, only bool) {
 	only = len(entries) > 0
 	for _, e := range entries {
 		c := Category(strings.TrimSuffix(e.Name(), ".log"))
-		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".log") && c.Discovery() {
+		if e.Type().IsRegular() && strings.HasSuffix(e.Name(), ".log") &&
+			(c.Discovery() || (c.Valid() && stubLog(filepath.Join(dir, e.Name())))) {
 			cats = append(cats, c)
 			continue
 		}
 		only = false
 	}
 	return cats, only
+}
+
+// stubKind: the entry kinds a run writes before any step has run: the
+// discovery's CHECK record that heads a queue's log, and SKIP for a step that
+// was refused or cancelled. A log holding nothing else is the trace of a run in
+// which nothing ran (a declined gate, a cancelled or refused authorisation);
+// like a discovery log it is no real run and takes no KeepRuns slot (#276).
+func stubKind(kind string) bool { return kind == "CHECK" || kind == "SKIP" }
+
+// maxStubLog is the longest log read to tell a stub: a longer one is a real
+// run's.
+const maxStubLog = 64 << 10
+
+var entryHead = regexp.MustCompile(`^\[\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\] ([A-Z]+): `)
+
+// stubLog reports whether the log at path holds only stub entries (stubKind),
+// at least one. Anything it can't read, or doesn't understand, is not a stub.
+func stubLog(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxStubLog+1))
+	if err != nil || len(b) > maxStubLog {
+		return false
+	}
+	entries, inBlock := 0, false
+	for _, line := range strings.Split(string(b), "\n") {
+		switch {
+		case inBlock:
+			inBlock = line != "--- end output ---"
+		case strings.HasPrefix(line, "--- ") && strings.HasSuffix(line, " output ---"):
+			inBlock = true
+		case line == "":
+		default:
+			m := entryHead.FindStringSubmatch(line)
+			if m == nil || !stubKind(m[1]) {
+				return false
+			}
+			entries++
+		}
+	}
+	return entries > 0 && !inBlock
 }
 
 // Append writes a timestamped entry to cat's log. kind is a short tag (FAIL,
@@ -395,13 +441,14 @@ func (s *Store) Append(cat Category, kind, label, body string) error {
 	// records, makes this a real run; a discovery entry may supersede an
 	// older discovery-only run.
 	becomesReal := false
-	if s.keep > 0 && !cat.Discovery() {
+	stub := cat.Discovery() || stubKind(kind)
+	if s.keep > 0 && !stub {
 		_, only := discoveryLogs(run)
 		becomesReal = errors.Is(statErr, os.ErrNotExist) || only
 	}
 	defer func() {
 		switch {
-		case s.keep > 0 && cat.Discovery():
+		case s.keep > 0 && stub:
 			s.pruneDiscovery()
 		case becomesReal:
 			s.Prune(s.keep)

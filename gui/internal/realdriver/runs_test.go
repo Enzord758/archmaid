@@ -275,10 +275,23 @@ func TestAuditPrefetchCancelled(t *testing.T) {
 			w := Start(fakes(t, Config{NoAskpass: true}))
 			w.cfg.Foreign = f.list
 			defer w.Close()
+			// The run before this one: a declined gate is a run in which
+			// nothing ran, and leaves its record alone (#276).
+			slot := filepath.Join(w.cfg.StateDir, "dryrun", logstore.LastRunFile)
+			prev := []byte(`{"v":1,"action":"topgrade","started":"2026-11-09T10:00:00Z","finished":"2026-11-09T10:05:00Z","outcome":"ok","steps_failed":0,"steps_skipped":0,"steps_refused":0,"dry_run":true}` + "\n")
+			os.MkdirAll(filepath.Dir(slot), 0o700)
+			if err := os.WriteFile(slot, prev, 0o600); err != nil {
+				t.Fatal(err)
+			}
 			d := w.New(dryOptions(w))
 			defer d.Close() // also on a failure: nothing the Driver started outlives the test
 			gate := gateUp(t, d, f)
 			if how == "decline" {
+				defer func() {
+					if got, err := os.ReadFile(slot); err != nil || string(got) != string(prev) {
+						t.Errorf("a declined gate changed the last run: %q (%v)", got, err)
+					}
+				}()
 				d.Send(engine.Confirm{Prompt: gate, Yes: false})
 				timeout := time.After(10 * time.Second)
 				for fin := false; !fin; {

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -79,6 +80,14 @@ func (tg *sessionTarget) checkLastRun(t *testing.T) {
 		got := tg.lastRuns[0]
 		if got.Started.IsZero() || got.Finished.Before(got.Started) {
 			t.Errorf("the session's last run went from %v to %v", got.Started, got.Finished)
+		}
+		// A run in which nothing ran asks for a cancelled record, which the
+		// store doesn't keep: the previous record stays (#276).
+		if got.NothingRan() {
+			if r, err := logs().ReadLastRun(); !errors.Is(err, os.ErrNotExist) {
+				t.Errorf("a nothing-ran record was stored: %+v (%v)", r, err)
+			}
+			return
 		}
 		// what the effect carried is what the file got
 		if r, err := logs().ReadLastRun(); err != nil || norm(r) != norm(got) {

@@ -19,7 +19,7 @@ const (
 	// helper was refused); StepsRefused says how many. Not a clean run.
 	OutcomeIncomplete = "incomplete"
 	OutcomeAborted    = "aborted"   // stopped part-way (abort, or a declined required step)
-	OutcomeCancelled  = "cancelled" // nothing ran: declined gate, cancelled password, auth gave up
+	OutcomeCancelled  = "cancelled" // nothing ran: declined gate, cancelled password, auth gave up (never stored: WriteLastRun skips it)
 	// OutcomeNothingFound: the action ended at its discovery, which looked
 	// and found nothing to do ("Checked 23 stopped services: none are
 	// enabled."). A failed look is OutcomeFailed with StepsFailed 1.
@@ -73,12 +73,26 @@ func (s *Store) lastRunPath() string {
 	return filepath.Join(s.root, LastRunFile)
 }
 
+// NothingRan reports whether r is the record of a run in which nothing ran
+// (OutcomeCancelled: a declined gate, a cancelled or refused authorisation,
+// an Abort before the first step). Such a run is not a "last run".
+func (r RunRecord) NothingRan() bool { return r.Outcome == OutcomeCancelled }
+
 // WriteLastRun stores r atomically (temp file, fsync, rename: a reader sees the
 // old or the new record, never a torn one), 0600 in a 0700 directory. V is set
 // to 1. Times are encoded as RFC3339.
+//
+// A record for which NothingRan is true is not stored: the previous record,
+// the last run that did something, stays exactly as it was (and with none, none
+// appears). Aborted, failed, incomplete, ok and nothing-found records, a
+// discovery's included, are stored as always. The same holds for the dry-run
+// slot.
 func (s *Store) WriteLastRun(r RunRecord) error {
 	if s.err != nil {
 		return s.err
+	}
+	if r.NothingRan() {
+		return nil
 	}
 	r.V = 1
 	if r.Summary != nil && r.Summary.Attention == nil {
