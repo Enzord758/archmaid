@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **System health sheet: the scrollbar no longer sits on the buttons, and "Copy" says what it copies** (#275). When the sheet's list scrolls, its scrollbar now has a strip of its own beside the rows instead of floating over their right edge, where it covered the buttons. The Copy button is "Copy command", with the command in its tooltip (cut with "…" only when very long); clicking it says `Copied “<command>”. Paste it in a terminal.` (a very long command is cut in the toast; the clipboard always gets all of it). The news row's button is "Read on archlinux.org".
+
 ## [2.6.0] - 2026-11-09
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

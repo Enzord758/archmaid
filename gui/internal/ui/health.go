@@ -46,7 +46,8 @@ type healthState struct {
 	look    *gtk.Label // the corner tag
 	attn    *gtk.Label // the third line
 	sheet   *amDialog
-	fill    func() // redraws the open sheet
+	fill    func()              // redraws the open sheet
+	scroll  *gtk.ScrolledWindow // the open sheet list
 	spinner *adw.Spinner
 }
 
@@ -169,6 +170,10 @@ func (w *Window) openHealth() {
 	rows.AddCSSClass("am-health-rows")
 	sc := gtk.NewScrolledWindow()
 	sc.SetChild(rows)
+	// A scrollbar of its own beside the rows, not GTK's overlay one: that
+	// covers the right edge, and the row buttons are there (#275).
+	sc.SetOverlayScrolling(false)
+	h.scroll = sc
 	d.capList(sc, healthMaxHeight)
 	d.add(sc)
 
@@ -212,11 +217,18 @@ func (w *Window) openHealth() {
 			}
 		}
 	}
-	d.ConnectClosed(func() { h.sheet, h.fill = nil, nil })
+	d.ConnectClosed(func() { h.sheet, h.fill, h.scroll = nil, nil, nil })
 	h.sheet = d
 	h.fill()
 	d.show(w)
 }
+
+// How much of a command the Copy command button's tooltip and toast show
+// (healthview.Shown); the clipboard gets all of it.
+const (
+	healthTipMax   = 300
+	healthToastMax = 60
+)
 
 // healthMaxHeight is how tall the sheet's rows grow before they scroll.
 const healthMaxHeight = 440
@@ -274,16 +286,18 @@ func (w *Window) healthRow(c healthview.Check) gtk.Widgetter {
 
 	switch {
 	case c.Copy != "":
-		cp := gtk.NewButtonWithLabel("Copy")
+		cp := gtk.NewButtonWithLabel("Copy command")
 		cp.SetVAlign(gtk.AlignCenter)
-		cp.SetTooltipText(c.Copy)
+		cp.SetTooltipText(healthview.Shown(c.Copy, healthTipMax))
 		cmd := c.Copy
-		cp.ConnectClicked(func() { w.copyText(cmd, "Copied") })
+		cp.ConnectClicked(func() {
+			w.copyText(cmd, "Copied “"+healthview.Shown(cmd, healthToastMax)+"”. Paste it in a terminal.")
+		})
 		row.Append(cp)
 	case healthview.SafeLink(c.Link):
 		label := "Open"
 		if c.ID == "news" {
-			label = "Read"
+			label = "Read on archlinux.org"
 		}
 		op := gtk.NewButtonWithLabel(label)
 		op.SetVAlign(gtk.AlignCenter)

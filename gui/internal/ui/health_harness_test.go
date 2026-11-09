@@ -107,10 +107,10 @@ var (
 )
 
 func init() {
-	for _, s := range []string{"cov-health-cell", "cov-health-sheet", "cov-health-news", "cov-health-runs", "cov-health-topgrade"} {
+	for _, s := range []string{"cov-health-cell", "cov-health-sheet", "cov-health-news", "cov-health-runs", "cov-health-topgrade", "cov-health-scroll"} {
 		covScenarios[s] = map[string]func(*covEnv){
 			"cov-health-cell": covHealthCell, "cov-health-sheet": covHealthSheet, "cov-health-news": covHealthNews,
-			"cov-health-runs": covHealthRuns, "cov-health-topgrade": covHealthTopgrade,
+			"cov-health-runs": covHealthRuns, "cov-health-topgrade": covHealthTopgrade, "cov-health-scroll": covHealthScroll,
 		}[s]
 		covOptions[s] = func(o *Options, _ *report) {
 			healthFake = &fakeHealth{report: calmReport}
@@ -245,23 +245,25 @@ func covHealthSheet(c *covEnv) {
 			c.ok(strings.Contains(txt, "LOOK") && strings.Contains(txt, "OK"), "no state tags: %q", txt)
 			shoot(w, "health", fmt.Sprintf("sheet-%s-%s", os.Getenv(glassModeEnv), os.Getenv(glassSchemeEnv)))
 			// Copy: the command on the clipboard, never run, with a toast.
-			cp := button("failed-units", "Copy")
+			cp := button("failed-units", "Copy command")
 			if cp == nil {
-				c.fail("no Copy on the failed services row")
+				c.fail("no Copy command on the failed services row")
 			} else {
 				cp.Emit("clicked")
 				c.ok(w.copied == "journalctl -b -u bluetooth.service", "copied %q", w.copied)
-				c.ok(slices.Contains(w.toasted, "Copied"), "no Copied toast: %q", w.toasted)
+				c.ok(cp.TooltipText() == "journalctl -b -u bluetooth.service", "the button's tooltip is %q, not the command", cp.TooltipText())
+				c.ok(cp.TooltipText() == "journalctl -b -u bluetooth.service", "the button's tooltip is %q, not the command", cp.TooltipText())
+				c.ok(slices.Contains(w.toasted, "Copied “journalctl -b -u bluetooth.service”. Paste it in a terminal."), "no Copied toast: %q", w.toasted)
 			}
 			// Read: the news link, with the launcher; none for a link that isn't archlinux.org.
-			rd := button("news", "Read")
+			rd := button("news", "Read on archlinux.org")
 			if rd == nil {
 				c.fail("no Read on the news row")
 			} else {
 				rd.Emit("clicked")
 				c.ok(slices.Contains(rec.Calls(), "uri https://archlinux.org/news/manual-intervention-for-pacman-700-and-local-repositories-required/"), "launched %q", rec.Calls())
 			}
-			c.ok(button("disk", "Copy") == nil && button("disk", "Open") == nil, "a row without an action has a button")
+			c.ok(button("disk", "Copy command") == nil && button("disk", "Open") == nil, "a row without an action has a button")
 			// Check again: a spinner while it runs, then the new answer.
 			f.set(calmEvil)
 			again := button2(d, "Check again")
@@ -276,7 +278,7 @@ func covHealthSheet(c *covEnv) {
 			// (the sheet's spinner) can hold back: wait for it.
 			waitFor(func() bool { return !w.health.run.Running() }, func() {
 				c.ok(slices.Equal(rowNames(), []string{"mirror", "pacnew", "evil", "disk"}), "after Check again: %v", rowNames())
-				c.ok(button("evil", "Open") == nil && button("evil", "Read") == nil, "a link off archlinux.org got a button")
+				c.ok(button("evil", "Open") == nil && button("evil", "Read on archlinux.org") == nil, "a link off archlinux.org got a button")
 				again := button2(d, "Check again")
 				c.ok(again != nil && again.Sensitive(), "Check again is not back")
 				c.press(d, "close")
@@ -486,7 +488,7 @@ func TestGUIHealth(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain := t.TempDir()
-	for _, sc := range []string{"cov-health-cell", "cov-health-sheet", "cov-health-news"} {
+	for _, sc := range []string{"cov-health-cell", "cov-health-sheet", "cov-health-news", "cov-health-scroll"} {
 		for _, look := range []string{"default", "glass"} {
 			for _, scheme := range []string{"light", "dark"} {
 				dir := plain
