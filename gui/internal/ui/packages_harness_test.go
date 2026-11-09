@@ -657,7 +657,7 @@ func pkgGate(c *covEnv) {
 	pkgSeq(c,
 		func() {
 			c.ok(p.banner.Revealed(), "no updates banner")
-			c.ok(strings.HasPrefix(p.banner.Title(), "5 updates are waiting"), "banner %q", p.banner.Title())
+			c.ok(strings.HasPrefix(p.banner.Title(), "5 repository updates are waiting"), "banner %q", p.banner.Title())
 			e.typeQuery(p, "gvim")
 			e.advance(120)
 		},
@@ -668,7 +668,7 @@ func pkgGate(c *covEnv) {
 		func() {
 			c.ok(!btn(c, gtk.BaseWidget(p.root), "Install").Sensitive(), "Install works with updates waiting")
 			c.ok(btn(c, gtk.BaseWidget(p.root), "Add to list").Sensitive(), "Add to list should still work: the list is kept")
-			c.ok(has(pageLabels(p), "5 updates are waiting. Update the system before installing."), "no inline note: %q", pageLabels(p))
+			c.ok(has(pageLabels(p), "5 repository updates are waiting. Update the system before installing."), "no inline note: %q", pageLabels(p))
 			shoot(w, "cov-pkg-gate", "updates-pending")
 			btn(c, gtk.BaseWidget(p.root), "Add to list").Emit("clicked")
 		},

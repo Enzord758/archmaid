@@ -16,7 +16,7 @@ var ErrBlocked = errors.New("updates are waiting")
 type Gating struct {
 	Blocked bool
 	Pending int    // repo updates waiting
-	Text    string // "N updates are waiting"
+	Text    string // "N repository updates are waiting" (only repo updates block an install; the Overview counts AUR ones too)
 }
 
 // Config is the Controller's wiring.
@@ -105,7 +105,7 @@ func (c *Controller) Gating(m Mode) Gating {
 	if m != ModeInstall || !c.updates.BlocksInstall(c.cfg.Clock.Now()) {
 		return Gating{}
 	}
-	return Gating{Blocked: true, Pending: c.updates.Repo, Text: N(c.updates.Repo, "update is", "updates are") + " waiting"}
+	return Gating{Blocked: true, Pending: c.updates.Repo, Text: N(c.updates.Repo, "repository update is", "repository updates are") + " waiting"}
 }
 
 // Add puts p in the list (the round + on a row).

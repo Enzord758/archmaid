@@ -8,6 +8,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ### Changed
 
+- **The Packages update banner says "repository updates"** (#268). It read "4 updates are waiting. Update the system before installing." while the Overview said "10 updates waiting" (repository and AUR) for the same state. Only repository updates block an install, so the banner, the detail's note, the review sheet's note and its "Update the system first" message now say "4 repository updates are waiting" ("1 repository update is waiting"). The Overview's count is unchanged.
 - **A Packages run has its own log, `packages.log`** (#268). Its install, removal and AUR steps (fetch, build, collect, install, review record) logged into `cleanup.log`, so Last run said "Packages" over `cleanup.log`. They now write `packages.log`, which the Logs page lists as "Packages", the Overview's Last run names, and the TUI's View log picker offers. Run folders from before still hold their entries in `cleanup.log`, which opens as ever. `TestPackagesStepsLogToPackages`, the engine's install transcript and `TestRunsListPackagesLogAndKeepOldCleanupLogs` cover it.
 
 ## [2.5.5] - 2026-11-09

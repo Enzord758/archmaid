@@ -336,7 +336,7 @@ func (s *Sheet) View() SheetView {
 		}
 	case SheetPending:
 		v.Heading = "Update the system first"
-		v.Body = fmt.Sprintf("%s waiting. Arch does not support installing on a partly updated system.", N(s.pending, "update is", "updates are"))
+		v.Body = fmt.Sprintf("%s waiting. Arch does not support installing on a partly updated system.", N(s.pending, "repository update is", "repository updates are"))
 		v.NoLabel, v.UpdateFirst = "Close", true
 	case SheetStale:
 		v.Heading = "The list changed"
@@ -417,7 +417,7 @@ func (s *Sheet) notes(p steps.PkgPlan, remove bool) []Note {
 		ns = append(ns, Note{"", t, "Package lists are " + Age(s.DBAge) + " old. archmaid does not refresh them."})
 	}
 	if !remove && s.Blocked > 0 {
-		ns = append(ns, Note{"blocked", ToneWarn, N(s.Blocked, "update is", "updates are") + " waiting. Update the system first."})
+		ns = append(ns, Note{"blocked", ToneWarn, N(s.Blocked, "repository update is", "repository updates are") + " waiting. Update the system first."})
 	}
 	if remove {
 		if p.WithConfig {
@@ -537,7 +537,7 @@ func RefusalTextFor(r *steps.PkgRefusal, req []string) string {
 	case steps.RefuseBusy:
 		s = "Another package operation is running. Try again when it is done."
 	case steps.RefuseUpdatesPending:
-		s = N(r.Count, "update is", "updates are") + " waiting. Update the system first."
+		s = N(r.Count, "repository update is", "repository updates are") + " waiting. Update the system first."
 	default:
 		s = "The request was refused."
 	}

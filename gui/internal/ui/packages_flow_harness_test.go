@@ -309,7 +309,7 @@ func flowRefused(c *covEnv) {
 		until(sheetIs(p, pkgview.SheetPending)),
 		once(func() {
 			d := p.sheet
-			c.ok(d.Heading() == "Update the system first" && strings.Contains(dialogLabels(d, nil), "7 updates are waiting"), "pending sheet %q:\n%s", d.Heading(), dialogLabels(d, nil))
+			c.ok(d.Heading() == "Update the system first" && strings.Contains(dialogLabels(d, nil), "7 repository updates are waiting"), "pending sheet %q:\n%s", d.Heading(), dialogLabels(d, nil))
 			c.ok(d.ResponseLabel("update") == "Update system first", "no Update system first button")
 			shoot(w, "cov-pkg-flow-refused", "2-updates-pending")
 			// Update system first starts topgrade on the window's Driver.

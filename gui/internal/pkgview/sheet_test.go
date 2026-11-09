@@ -166,7 +166,7 @@ func TestSheetUpdatesWaitingBlockInstall(t *testing.T) {
 	if v.YesEnabled || !v.UpdateFirst {
 		t.Fatalf("enabled %v updateFirst %v", v.YesEnabled, v.UpdateFirst)
 	}
-	if !strings.Contains(joinNotes(v), "7 updates are waiting") {
+	if !strings.Contains(joinNotes(v), "7 repository updates are waiting") {
 		t.Fatalf("notes %q", joinNotes(v))
 	}
 	if _, ok := s.Confirm(); ok {
@@ -209,7 +209,7 @@ func TestSheetUpdatesPendingFromTheHelper(t *testing.T) {
 	s := startSheet(t, RequestFor(ModeInstall, []string{"x"}, false))
 	s.Apply(UpdatesPending{Count: 1})
 	v := s.View()
-	if v.State != SheetPending || !v.UpdateFirst || v.Body != "1 update is waiting. Arch does not support installing on a partly updated system." {
+	if v.State != SheetPending || !v.UpdateFirst || v.Body != "1 repository update is waiting. Arch does not support installing on a partly updated system." {
 		t.Fatalf("%+v", v)
 	}
 }
@@ -298,7 +298,7 @@ func (cr *ctlRig) setUpdates(repo, aur int, age time.Duration) {
 func TestGatingBlocksInstallNotRemove(t *testing.T) {
 	cr := newCtl()
 	cr.setUpdates(3, 0, time.Hour)
-	if g := cr.c.Gating(ModeInstall); !g.Blocked || g.Pending != 3 || g.Text != "3 updates are waiting" {
+	if g := cr.c.Gating(ModeInstall); !g.Blocked || g.Pending != 3 || g.Text != "3 repository updates are waiting" {
 		t.Fatalf("gating %+v", g)
 	}
 	if cr.c.Gating(ModeRemove).Blocked {
