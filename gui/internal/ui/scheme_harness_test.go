@@ -20,8 +20,14 @@ func init() { covScenarios["cov-scheme"] = covScheme }
 
 // hexOf is a widget's resolved text colour as #rrggbb.
 func hexOf(w gtk.Widgetter) string {
+	c := colourOf(w)
+	return fmt.Sprintf("#%02x%02x%02x", c[0], c[1], c[2])
+}
+
+// colourOf is a widget's resolved text colour as 0..255 components.
+func colourOf(w gtk.Widgetter) [3]int {
 	c := gtk.BaseWidget(w).Color()
-	return fmt.Sprintf("#%02x%02x%02x", int(c.Red()*255+0.5), int(c.Green()*255+0.5), int(c.Blue()*255+0.5))
+	return [3]int{int(c.Red()*255 + 0.5), int(c.Green()*255 + 0.5), int(c.Blue()*255 + 0.5)}
 }
 
 // covScheme flips the colour scheme light, dark, light, dark and reads the

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gresources>
+  <gresource prefix="/org/archmaid/icons">
+    <file alias="scalable/status/archmaid-health-symbolic.svg" compressed="false">archmaid-health-symbolic.svg</file>
+  </gresource>
+</gresources>

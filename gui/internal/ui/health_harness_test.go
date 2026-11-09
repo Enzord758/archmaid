@@ -137,6 +137,7 @@ func covHealthCell(c *covEnv) {
 	c.quiet()
 	glassSetup(w)
 	look := os.Getenv(glassModeEnv)
+	var warnInk, warnCSS [3]int
 	tagn := func(s string) string { return fmt.Sprintf("health-%s-%s-%s", look, os.Getenv(glassSchemeEnv), s) }
 	c.seq(300,
 		func() { w.win.SetDefaultSize(1440, 900) }, // for the screenshots
@@ -155,6 +156,12 @@ func covHealthCell(c *covEnv) {
 			c.ok(w.health.icon.IconName() == "archmaid-health-symbolic", "the cell's icon is %q, not archmaid's own pulse", w.health.icon.IconName())
 			p := gtk.IconThemeGetForDisplay(gdk.DisplayGetDefault()).LookupIcon("archmaid-health-symbolic", nil, 16, 1, gtk.TextDirNone, 0)
 			c.ok(p != nil && p.IsSymbolic(), "the pulse icon is not symbolic (it would not take the warn colour)")
+			// The pulse really is painted warn: its pixels, not just the class.
+			if ink, css, ok := iconInk(c); ok {
+				warnInk, warnCSS = ink, css
+				c.ok(inkIs(ink, css), "the attention icon is painted %v, its CSS colour is %v", ink, css)
+				c.ok(css != colourOf(w.health.cell), "the attention icon (%v) is not told apart from the cell's text", css)
+			}
 			shoot(w, "health", tagn("cell-attention"))
 			f.set(healthview.Report{Checks: []healthview.Check{look1(), {ID: "mirror", State: healthview.Unknown}}})
 			w.refreshHealth()
@@ -170,6 +177,10 @@ func covHealthCell(c *covEnv) {
 			emph, _, tagShown, _, lineShown := cellText(w)
 			c.ok(!emph && !tagShown && !lineShown, "calm: emphasised %v, tag %v, line %v", emph, tagShown, lineShown)
 			c.ok(!w.health.icon.HasCSSClass("am-attn-icon"), "a calm cell has a warn icon")
+			if ink, css, ok := iconInk(c); ok {
+				c.ok(inkIs(ink, css), "the calm icon is painted %v, its CSS colour is %v", ink, css)
+				c.ok(!inkIs(ink, warnInk) && css != warnCSS, "the calm icon (%v) is still warn (%v)", ink, warnInk)
+			}
 			shoot(w, "health", tagn("cell-calm"))
 		},
 	)
