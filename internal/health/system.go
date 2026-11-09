@@ -20,7 +20,7 @@ const DefaultLockFile = "/var/lib/pacman/db.lck"
 
 // pacmanProcs are the programs that hold (or make) pacman's lock; a process
 // whose name is one of these, or starts with "pamac" (pamac-daemon), counts.
-var pacmanProcs = map[string]bool{"pacman": true, "yay": true, "paru": true, "makepkg": true}
+var pacmanProcs = map[string]bool{"pacman": true, "yay": true, "paru": true, "makepkg": true, "packagekitd": true}
 
 func isPacmanProc(name string) bool {
 	return pacmanProcs[name] || strings.HasPrefix(name, "pamac")
@@ -53,26 +53,88 @@ func checkPacmanLock(_ context.Context, d Deps) Check {
 const maxProcs = 20000
 
 // listProcs is the real Procs: the comm of every process in /proc.
-func listProcs() ([]string, error) {
-	ents, err := os.ReadDir("/proc")
+func listProcs() ([]string, error) { return listProcsAt("/proc", "/proc/mounts") }
+
+// listProcsAt is listProcs over a /proc at procDir whose mount table is
+// mountsFile. The list is only trustworthy if it is complete: a /proc mounted
+// with hidepid=1/2 (or noaccess/invisible) hides other users' processes, so a
+// root pacman could be running unseen; the lock check would then tell the user
+// to delete a live lock. That is an error here (the check turns Unknown), as is
+// a comm that exists but can't be read, or a list cut at maxProcs.
+func listProcsAt(procDir, mountsFile string) ([]string, error) {
+	if procHidden(mountsFile) {
+		return nil, errors.New("/proc hides other users' processes (hidepid)")
+	}
+	ents, err := os.ReadDir(procDir)
 	if err != nil {
 		return nil, err
 	}
 	var out []string
-	for i, e := range ents {
-		if i >= maxProcs {
-			break
-		}
+	for _, e := range ents {
 		if _, err := strconv.Atoi(e.Name()); err != nil {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join("/proc", e.Name(), "comm"))
+		if len(out) >= maxProcs {
+			return nil, errors.New("too many processes to list")
+		}
+		b, err := os.ReadFile(filepath.Join(procDir, e.Name(), "comm"))
+		if errors.Is(err, os.ErrPermission) {
+			return nil, errors.New("a process's name is not readable")
+		}
 		if err != nil {
-			continue // the process ended, or is not ours to read
+			continue // the process ended
 		}
 		out = append(out, strings.TrimSpace(string(b)))
 	}
 	return out, nil
+}
+
+// procHidden reads a mount table for the /proc line and says whether its
+// options hide other users' processes from this one (hidepid=1, 2, noaccess or
+// invisible, unless gid= names a group this process is in). An unreadable
+// table says false: the per-process read errors still catch hidepid=1.
+func procHidden(mountsFile string) bool {
+	b, err := os.ReadFile(mountsFile)
+	if err != nil {
+		return false
+	}
+	hidden := false
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[1] != "/proc" || f[2] != "proc" {
+			continue
+		}
+		hide, gid := false, -1
+		for _, o := range strings.Split(f[3], ",") {
+			k, v, _ := strings.Cut(o, "=")
+			switch k {
+			case "hidepid":
+				hide = v == "1" || v == "2" || v == "noaccess" || v == "invisible"
+			case "gid":
+				if n, err := strconv.Atoi(v); err == nil {
+					gid = n
+				}
+			}
+		}
+		hidden = hide && !inGroup(gid)
+	}
+	return hidden
+}
+
+func inGroup(gid int) bool {
+	if gid < 0 {
+		return false
+	}
+	if os.Getgid() == gid {
+		return true
+	}
+	groups, _ := os.Getgroups()
+	for _, g := range groups {
+		if g == gid {
+			return true
+		}
+	}
+	return false
 }
 
 // readUptime is the real Uptime: /proc/uptime.
