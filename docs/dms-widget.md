@@ -314,13 +314,15 @@ user timer does and writes the cache).
 - last run: newest run dir `YYYYMMDD-HHMM` (or `YYYYMMDD-HHMM-NN`, a later run of the same minute) under the log dir (name pattern
   `runDirPattern`), `dryrun` separate. The outcome comes from `last-run.json`
   (written by `logstore.WriteLastRun` at the end of every queue: temp + fsync + rename,
-  0600, state dir 0700), one record, overwritten each run:
+  0600, state dir 0700), one record, overwritten by each run that did something:
   `{"v":1,"action":"fullcleanup","started":"<RFC3339>","finished":"<RFC3339>",
   "outcome":"ok|failed|incomplete|aborted|cancelled","steps_failed":0,"steps_skipped":0,
   "steps_refused":0,"dry_run":false}`.
   `action` is the menu id (`fullcleanup`, `clearcaches`, `repair`, `downloads`,
   `topgrade`, `services`, `auraudit`). `cancelled` = nothing ran (declined gate or
-  password prompt, sudo gave up with every step skipped); `aborted` = stopped part-way
+  password prompt, sudo gave up with every step skipped); the engine still asks for it,
+  but the store does not keep it (#276): a run in which nothing ran leaves the previous
+  record as it was, so a file saying `cancelled` only comes from an older version; `aborted` = stopped part-way
   (ctrl+c, or a declined required step); `incomplete` = nothing failed, but some steps
   never ran because privilege was refused (sudo gave up after three wrong passwords
   part-way, a refused helper). `steps_skipped` counts every step that didn't run;

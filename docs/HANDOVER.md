@@ -1163,7 +1163,7 @@ comments and `git log`; this is the "read before you touch it" list.
   record built in `internal/engine/queue.go`, written by the Driver)
   exactly once per action, at its end: summary (`ok`/`failed` by `errs`; `incomplete` when
   nothing failed but a step was refused sudo, counted in `steps_refused`; `cancelled` if no
-  step ran, e.g. sudo gave up), ctrl+c abort (`aborted`), a declined required step
+  step ran, e.g. sudo gave up; **never stored**, see below), ctrl+c abort (`aborted`), a declined required step
   (`aborted`, or `cancelled` if nothing ran yet), a declined gate or cancelled password
   prompt (`cancelled`), a Cancel in the GUI's own polkit dialog (as a declined required
   step: `cancelled` if nothing ran, else `aborted`; `steps_refused` 0), an action that ended at its discovery (`nothing-found`, or
@@ -1171,6 +1171,22 @@ comments and `git log`; this is the "read before you touch it" list.
   action is the menu `id` (the two static actions have ids `fullcleanup` and
   `topgrade`; Clear caches is `clearcaches`, and records from before it carry `usercache` or `wipecache`). A dry run writes `dryrun/last-run.json` instead and never touches
   the real one. `audit-state.json`: see its own entry below.
+  **A run in which nothing ran leaves `last-run.json` alone (#276).** The engine
+  still builds a `cancelled` record (a declined gate or required first step, a
+  cancelled password prompt, an auth give-up with every step refused, a Cancel in
+  the polkit dialog, an Abort before the first step), and `Finished` carries
+  `OutcomeCancelled`, but `Store.WriteLastRun` drops a record for which
+  `RunRecord.NothingRan()` (outcome `cancelled`) is true, for the dry-run slot
+  too: the previous record, the last run that did something, stays byte for
+  byte, and with none, none appears. `aborted` (something ran, then stopped),
+  `failed`, `incomplete`, `ok`, `nothing-found` and a failed look are written as
+  before. Records from older versions may still say `cancelled`; the Overview
+  and the widget read them as ever. The run's log: such a run writes at most
+  *stub* entries (the discovery's CHECK record that heads the queue, SKIP lines);
+  a run directory whose logs hold only those (`logstore.stubLog`) is, like a
+  discovery-only one, no real run: it takes no KeepRuns slot, cannot rotate a
+  real run out, and goes once a newer run holds that log; it becomes a real run
+  (and rotates) when a step's entry (OK, FAIL, DRYRUN, ABORT) arrives in it.
 - **The run report (#188) is the Driver's, not the Session's.** The engine stays
   pure. A Driver given `Deps.RunReport` (a `*report.Config`; nil, the default,
   means none) makes a `report.Collector` at each real `QueueStarted` (never in
