@@ -164,7 +164,15 @@ func (c *Client) do(ctx context.Context, method, pathQuery string, body io.Reade
 	defer cancel()
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport}
+	// A redirect stays on the AUR's own scheme and host: the request carries
+	// the user's package names (info), and a redirect to another host, or down
+	// to http, would hand them over.
+	client := &http.Client{Transport: transport, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 || req.URL.Scheme != via[0].URL.Scheme || req.URL.Host != via[0].URL.Host {
+			return errors.New("AUR redirect off its own host refused")
+		}
+		return nil
+	}}
 	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(c.cfg.BaseURL, "/")+pathQuery, body)
 	if err != nil {
 		return nil, err
