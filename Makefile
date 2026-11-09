@@ -62,7 +62,7 @@ gui:
 	@# internal/testenv's init would make archmaid-gui look su, sudo, pkexec and pkttyagent up on PATH again.
 	@# The list is captured first, so a go list that fails fails here instead of reading as "not linked".
 	cd $(GUI_DIR) && deps="$$(go list -deps ./cmd/archmaid-gui)" && test -n "$$deps" && ! printf '%s\n' "$$deps" | grep -qx 'github.com/Enzord758/archmaid/internal/testenv'
-	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview ./internal/overview ./internal/logview ./internal/settings ./internal/realdriver ./internal/plural ./internal/polkitagent ./scripts/nullbroadway && go test -count=1 ./...
+	cd $(GUI_DIR) && go test -race -count=1 ./internal/runview ./internal/overview ./internal/logview ./internal/healthview ./internal/settings ./internal/realdriver ./internal/plural ./internal/polkitagent ./scripts/nullbroadway && go test -count=1 ./...
 
 # `gui` plus the display tests on a private headless display (GTK Broadway on
 # gui/scripts/nullbroadway: no compositor, no window on the

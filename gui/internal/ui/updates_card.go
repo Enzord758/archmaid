@@ -161,7 +161,7 @@ func (w *Window) renderUpdates() {
 	} else {
 		u.check.SetTooltipText("Runs the timer's check now: no root, no password")
 	}
-	setShown(u.topg, v.Waiting)
+	setShown(u.topg, true) // always: the cell that had it is System health now (#270)
 	u.topg.SetSensitive(!w.busy)
 }
 

@@ -22,7 +22,7 @@ func TestCards(t *testing.T) {
 		}
 	}
 	want := []string{actions.IDFullCleanup, actions.IDClearCaches, actions.IDRepair, actions.IDDownloads,
-		actions.IDTopgrade, actions.IDServices, actions.IDAURAudit}
+		IDHealth, actions.IDServices, actions.IDAURAudit}
 	if !slices.Equal(ids, want) {
 		t.Errorf("cards %q, want %q (the menu without View log, Edit config and Exit)", ids, want)
 	}
@@ -166,7 +166,7 @@ func TestCardTextsAreShort(t *testing.T) {
 		actions.IDClearCaches: "Pick ~/.cache, the package cache or both",
 		actions.IDRepair:      "Reinstalls packages with missing files",
 		actions.IDDownloads:   "Files untouched for 30 days",
-		actions.IDTopgrade:    "AUR audit, then a full update",
+		IDHealth:              "Failed services, restart, Arch news, disk",
 		actions.IDServices:    "Enabled services that aren't running",
 		actions.IDAURAudit:    "Read-only check against the AUR",
 	}

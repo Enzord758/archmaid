@@ -17,6 +17,9 @@ type Launcher interface {
 	OpenFile(path string) error
 	// OpenFolder opens the folder path in the file manager.
 	OpenFolder(path string) error
+	// OpenURI opens a web address in the desktop's browser (only ever
+	// https://archlinux.org/…: health.go checks before it asks).
+	OpenURI(uri string) error
 	// ChooseFolder asks for a folder, starting at start ("" for the
 	// dialog's default), and calls done on the main thread with the chosen
 	// path, or an error (cancelled included).
@@ -40,6 +43,19 @@ func (l gtkLauncher) launch(path string) error {
 	fl := gtk.NewFileLauncher(gio.NewFileForPath(path))
 	fl.Launch(context.Background(), l.parent, func(res gio.AsyncResulter) {
 		if err := fl.LaunchFinish(res); err != nil && l.report != nil {
+			l.report(err)
+		}
+	})
+	return nil
+}
+
+func (l gtkLauncher) OpenURI(uri string) error {
+	if uri == "" {
+		return errNoPath
+	}
+	ul := gtk.NewURILauncher(uri)
+	ul.Launch(context.Background(), l.parent, func(res gio.AsyncResulter) {
+		if err := ul.LaunchFinish(res); err != nil && l.report != nil {
 			l.report(err)
 		}
 	})

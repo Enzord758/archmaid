@@ -177,7 +177,7 @@ func covUpdates(c *covEnv) {
 			c.ok(u.title.Text() == "Checking…", "title after click %q", u.title.Text())
 			c.ok(u.spin.IsVisible(), "no spinner while checking")
 			c.ok(!u.check.Sensitive(), "check button still enabled while checking")
-			c.ok(!u.topg.IsVisible(), "Run topgrade shown while checking")
+			c.ok(u.topg.IsVisible(), "Run topgrade hidden while checking: it is always there (#270)")
 			c.ok(u.detail.Text() == "1 held · checked 20 min ago", "detail while checking %q", u.detail.Text())
 			shoot(w, c.rep.Scenario, "checking")
 			return true
@@ -187,7 +187,7 @@ func covUpdates(c *covEnv) {
 			c.ok(f.callCount() == 1, "RefreshUpdates called %d times", f.callCount())
 			c.ok(u.tag.Text() == "UP TO DATE" && !u.spin.IsVisible(), "tag %q / spinner", u.tag.Text())
 			c.ok(u.check.Sensitive(), "check button not back")
-			c.ok(!u.topg.IsVisible(), "Run topgrade shown with nothing to update")
+			c.ok(u.topg.IsVisible(), "Run topgrade hidden with nothing to update: it is always there (#270)")
 			c.ok(strings.HasPrefix(u.detail.Text(), "1 held · checked just now"), "detail %q", u.detail.Text())
 			shoot(w, c.rep.Scenario, "uptodate")
 			// The silent check: nothing changes the file.
@@ -247,6 +247,6 @@ func covUpdatesNoCall(c *covEnv) {
 	c.seq(200, func() {
 		u := c.w.upd
 		c.ok(u.title.Text() == "Not checked yet" && u.tag.Text() == "NOT CHECKED", "title %q tag %q", u.title.Text(), u.tag.Text())
-		c.ok(!u.check.Sensitive() && !u.topg.IsVisible(), "check %v topgrade shown %v", u.check.Sensitive(), u.topg.IsVisible())
+		c.ok(!u.check.Sensitive() && u.topg.IsVisible(), "check %v topgrade shown %v", u.check.Sensitive(), u.topg.IsVisible())
 	}, func() { _ = os.RemoveAll(updEnv.dir) })
 }

@@ -138,3 +138,10 @@ window.archmaid.am-glass.am-glass-fb { background-color: @am_glass_win_fb; }
    fallback and the default look must not, or GTK would blur an empty
    backdrop itself. */
 window.archmaid.am-glass:not(.am-glass-fb) { backdrop-filter: blur(20px); }
+
+/* The emphasised System health cell keeps its warn tint in glass (the rule
+   above for the cells would otherwise paint its card over it). */
+.archmaid.am-glass .am-cell-attn {
+  background-color: alpha(@am_warn_bar, 0.16);
+  box-shadow: inset 0 0 0 1px alpha(@am_warn_bar, 0.45), 0 10px 30px @am_glass_shadow;
+}

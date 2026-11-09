@@ -24,7 +24,7 @@ type Card struct {
 
 // MaxDescLen is how long a cell's text may be (the owner's 2026-10-18
 // decision: short cells; Full Cleanup's hero text is the one long text).
-const MaxDescLen = 40
+const MaxDescLen = 42 // 40 until System health (#270): "Failed services, restart, Arch news, disk"
 
 // cardInfo is each action's description and privilege tag. The tag is
 // static on purpose: a discovery's steps exist only once it has run, and
@@ -43,12 +43,22 @@ var cardInfo = map[string]struct {
 	actions.IDAURAudit:    {"Read-only check against the AUR", ""},
 }
 
+// IDHealth is the System health cell's ID: not an action (it runs nothing
+// and asks nothing), so it is in no menu; the cell opens a sheet (#270).
+const IDHealth = "health"
+
 // Cards is the Overview's action cells, in the menu's order: every entry
-// that starts an action (Entries without View log).
+// that starts an action (Entries without View log). System health sits where
+// "Run topgrade" was (the Updates card has Run topgrade now).
 func Cards() []Card {
 	var out []Card
 	for _, e := range Entries() {
 		if e.Kind != KindRun {
+			continue
+		}
+		if e.ID == actions.IDTopgrade {
+			out = append(out, Card{Entry: Entry{ID: IDHealth, Label: "System health", Icon: "utilities-system-monitor-symbolic", Kind: KindRun},
+				Desc: "Failed services, restart, Arch news, disk"})
 			continue
 		}
 		info := cardInfo[e.ID]

@@ -75,6 +75,17 @@ func (w *Window) newOverview() gtk.Widgetter {
 		}
 		w.cells.Append(w.newCell(c))
 	}
+	// Run topgrade's way in is the Updates card's button now: it is the
+	// topgrade row (no cell of its own), so a start by action ID, the
+	// running state and the sensitivity treat it as before (#270).
+	if w.upd != nil {
+		for _, e := range overview.Entries() {
+			if e.ID == actions.IDTopgrade {
+				spin := adw.NewSpinner()
+				w.menu[e.ID] = &menuRow{entry: e, cell: w.upd.topg, sub: gtk.NewLabel(""), spin: spin}
+			}
+		}
+	}
 	box.Append(w.cells)
 	// Off screen the tick doesn't run, and a stale wide layout would count in
 	// the Overview's minimum width (a hidden stack page does): back to the
@@ -378,6 +389,19 @@ func (w *Window) newCell(c overview.Card) gtk.Widgetter {
 		rootUnder.SetVisible(w.narrow)
 		w.cellRoots = append(w.cellRoots, [2]*gtk.Label{wide, rootUnder})
 	}
+	// System health: a look tag at the icon line's end and a third line
+	// (healthview.CellFor); both hidden while the cell is calm.
+	var healthLook, healthAttn *gtk.Label
+	if c.ID == overview.IDHealth {
+		healthLook = tag("look", "am-tag-warn")
+		healthLook.SetVAlign(gtk.AlignCenter)
+		healthLook.SetVisible(false)
+		head.Append(healthLook)
+		healthAttn = gtk.NewLabel("")
+		healthAttn.SetXAlign(0)
+		healthAttn.SetWrap(true)
+		healthAttn.SetVisible(false)
+	}
 	desc := gtk.NewLabel(c.Desc)
 	desc.SetXAlign(0)
 	desc.SetWrap(true)
@@ -397,14 +421,25 @@ func (w *Window) newCell(c overview.Card) gtk.Widgetter {
 		inner.Append(rootUnder)
 	}
 	inner.Append(desc)
+	if healthAttn != nil {
+		inner.Append(healthAttn)
+	}
 	inner.Append(sub)
 	b := gtk.NewButton()
 	b.SetChild(inner)
 	b.AddCSSClass("am-cell")
 	b.AddCSSClass("flat")
 	id := c.ID
-	b.ConnectClicked(func() { w.startAction(id) })
+	if healthAttn != nil {
+		b.ConnectClicked(w.openHealth) // not an action: a sheet (#270)
+	} else {
+		b.ConnectClicked(func() { w.startAction(id) })
+	}
 	w.menu[c.ID] = &menuRow{entry: c.Entry, cell: b, sub: sub, spin: spin}
+	if healthAttn != nil {
+		icon, _ := gtk.BaseWidget(head).FirstChild().(*gtk.Image)
+		w.initHealth(b, icon, healthLook, healthAttn)
+	}
 	return b
 }
 
@@ -628,8 +663,9 @@ func (w *Window) updateOverview() {
 		}
 		r.sub.SetText(sub)
 		setShown(r.sub, sub != "")
-		// One action at a time.
-		r.cell.SetSensitive(!w.busy)
+		// One action at a time. System health runs nothing: its sheet opens
+		// while a run goes too.
+		r.cell.SetSensitive(!w.busy || id == overview.IDHealth)
 	}
 	w.dryFirst.SetSensitive(!w.busy)
 }

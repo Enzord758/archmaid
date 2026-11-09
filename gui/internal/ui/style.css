@@ -299,3 +299,31 @@
 .archmaid .am-pkg-trayname { font-family: "JetBrains Mono", monospace; }
 .archmaid .am-pkg-review-frame { border: 1px solid @am_rail; }
 .archmaid .am-pkg-review { font-size: smaller; padding: 6px; }
+
+/* System health (#270): the cell when something needs attention (a warn
+   tint of about 16 % of the bar colour, a thin inset warn edge, a warn
+   icon, a bold warn third line), the sheet's rows and the news block of the
+   confirms. State colours only on state. */
+.archmaid .am-cell-attn {
+  background-color: alpha(@am_warn_bar, 0.16);
+  box-shadow: inset 0 0 0 1px alpha(@am_warn_bar, 0.45);
+}
+.archmaid button.am-cell-attn:hover:not(:disabled) { background-color: alpha(@am_warn_bar, 0.22); }
+.archmaid .am-attn-icon { color: @am_warn; }
+.archmaid .am-cell-attn-line { color: @am_warn; font-weight: 700; }
+.archmaid .am-cell-checking { color: @am_muted; }
+.archmaid .am-health-section { margin: 12px 0 4px; }
+.archmaid .am-health-section:first-child { margin-top: 0; }
+.archmaid .am-health-row { padding: 9px 0; border-top: 1px solid @am_rail; }
+.archmaid .am-health-section + .am-health-row { border-top: 0; }
+.archmaid .am-health-row.am-health-ok { padding: 5px 0; }
+.archmaid .am-health-title { font-weight: 700; }
+.archmaid .am-health-detail { color: @am_muted; font-size: smaller; }
+.archmaid .am-news {
+  padding: 10px 12px;
+  border-left: 3px solid @am_running_bar;
+  background-color: alpha(@am_running_bar, 0.08);
+}
+.archmaid .am-news-head { font-weight: 700; }
+.archmaid .am-news-title { font-weight: 600; }
+.archmaid .am-news-link { padding-left: 0; }

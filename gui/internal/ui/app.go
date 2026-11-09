@@ -21,6 +21,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
 
+	"github.com/Enzord758/archmaid/gui/internal/healthview"
 	"github.com/Enzord758/archmaid/gui/internal/realdriver"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/actions"
@@ -88,6 +89,10 @@ type Options struct {
 	// check is queued, not when it is done. The Overview's Updates card
 	// reads updates-cache.json for the result. nil leaves its button off.
 	RefreshUpdates func(context.Context) error
+	// Health runs the System health checks and fetches the unread Arch
+	// news (internal/health through cmd/archmaid-gui's adapter); nil leaves
+	// the cell calm and the confirms without news. The stub has a demo one.
+	Health healthview.Source
 	// hook, when set, sees the window once it is built (the headless
 	// harness drives it from there).
 	hook func(*Window)
@@ -137,7 +142,7 @@ func Main(args []string) int {
 	if !l.stub {
 		return mainReal(l.args, l.confirm)
 	}
-	return Run(l.args, Options{Stub: true, NewDriver: stubDriver(l.script), Confirm: l.confirm, Packages: demoWiring()})
+	return Run(l.args, Options{Stub: true, NewDriver: stubDriver(l.script), Confirm: l.confirm, Packages: demoWiring(), Health: healthview.Demo()})
 }
 
 // launch is what the command line asks for.
@@ -230,7 +235,7 @@ func realConfig() realdriver.Config {
 // not available.
 func realOptions(base engine.Options, newDriver func(engine.Options) engine.Driver, notices func(func(string)), confirm string, atForcedExit func(), pk *realPackages) Options {
 	return Options{NewDriver: newDriver, Engine: base, KeepsPassword: true, KeepPreview: realdriver.KeepPreview, Notices: notices, Confirm: confirm,
-		AtForcedExit: atForcedExit, Packages: pk.wiring(), RefreshUpdates: driver.RefreshUpdates}
+		AtForcedExit: atForcedExit, Packages: pk.wiring(), RefreshUpdates: driver.RefreshUpdates, Health: realHealth()}
 }
 
 // stubDriver is the stub's NewDriver for an ARCHMAID_GUI_SCRIPT value

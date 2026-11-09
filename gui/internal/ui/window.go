@@ -102,6 +102,8 @@ type Window struct {
 	scrollQueued bool
 
 	dialogs map[engine.PromptID]*amDialog
+	// health is the System health cell, sheet and schedule (health.go).
+	health healthState
 	// openDialogs is every dialog being shown (glass.go): the content
 	// blur lasts while any is.
 	openDialogs map[*amDialog]bool
@@ -238,6 +240,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 		case "overview":
 			w.refreshUpdates()
 			w.refreshLastRun()
+			w.refreshHealthIfStale()
 		case "settings":
 			// A page of cards and fields starts at its top, as it does after a
 			// restart; it kept the offset it was left at (#266).
@@ -260,6 +263,7 @@ func newWindow(app *adw.Application, opts Options) *Window {
 		return true
 	})
 	w.buildShell()
+	w.startHealth()
 	w.applyGlass() // the skin the Settings page asked for (glass.go)
 	w.win.ConnectCloseRequest(w.closeRequest)
 
@@ -526,6 +530,7 @@ func (w *Window) redraw(c runview.Change) {
 		w.setBusy(false)
 		w.refreshLastRun()
 		w.refreshUpdates() // a topgrade run starts the check by itself
+		w.refreshHealth()  // it changed the news, the restart state, the units
 		w.invalidateUserCache()
 		w.reloadPackages() // topgrade, a Full Cleanup or a repair changed the packages
 		switch {

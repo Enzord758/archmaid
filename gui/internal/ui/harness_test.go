@@ -1549,7 +1549,7 @@ const repairNone = "No broken packages found."
 func TestGUIOverviewStarts(t *testing.T) {
 	needDisplay(t)
 	rep, _ := child(t, "repair")
-	want := []string{"fullcleanup", "clearcaches", "repair", "downloads", "topgrade", "services", "auraudit"}
+	want := []string{"fullcleanup", "clearcaches", "repair", "downloads", "health", "services", "auraudit"}
 	if !slices.Equal(rep.Menu, want) {
 		t.Errorf("menu %q, want %q", rep.Menu, want)
 	}

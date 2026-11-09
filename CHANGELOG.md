@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Added
+
+- **System health on the Overview** (#270, the GUI half of the health check). A "System health" cell takes the place of "Run topgrade" in the grid. When something needs attention it is tinted warn, with a thin warn edge, a warn icon, a `look` tag and a bold line "N things need your attention"; calm, it looks like the other cells, and Unknown checks never count. Clicking it opens a sheet: the rows that need attention first under "Needs your attention", then System, Packages and Hardware (unknown before OK), each row with its detail on one line and a Copy (a command to paste, never run) or Read/Open (an archlinux.org page only) button, and "Check again". The checks run at start, every 30 minutes, when the Overview is shown with a result over 5 minutes old, and after every run, off the main thread and never two at once. "Run topgrade" is now always on the Updates card (it was the Overview's only other way in), off while a run goes. The Run topgrade and Full Cleanup confirms open with a "NEWS · Read before updating" callout when there are Arch news posts since your last update (the newest title, "and N more", when it was posted, a link); it never blocks Run and is left out if the feed isn't ready within 1.5 s. The TUI is unchanged.
+
 ### Changed
 
 - **The Packages update banner says "repository updates"** (#268). It read "4 updates are waiting. Update the system before installing." while the Overview said "10 updates waiting" (repository and AUR) for the same state. Only repository updates block an install, so the banner, the detail's note, the review sheet's note and its "Update the system first" message now say "4 repository updates are waiting" ("1 repository update is waiting"). The Overview's count is unchanged.

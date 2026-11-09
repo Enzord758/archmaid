@@ -27,6 +27,7 @@ func (r *recordLauncher) add(s string) {
 
 func (r *recordLauncher) OpenFile(path string) error   { r.add("file " + path); return nil }
 func (r *recordLauncher) OpenFolder(path string) error { r.add("folder " + path); return nil }
+func (r *recordLauncher) OpenURI(uri string) error     { r.add("uri " + uri); return nil }
 func (r *recordLauncher) ChooseFolder(start string, done func(string, error)) {
 	r.add("choose " + start)
 	if r.Err != nil {

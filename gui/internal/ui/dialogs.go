@@ -9,6 +9,7 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
+	"github.com/Enzord758/archmaid/gui/internal/healthview"
 	"github.com/Enzord758/archmaid/gui/internal/plural"
 	"github.com/Enzord758/archmaid/gui/internal/runview"
 	"github.com/Enzord758/archmaid/internal/engine"
@@ -32,7 +33,11 @@ func (w *Window) prompt(p runview.Prompt) {
 	var d *amDialog
 	switch {
 	case p.Confirm != nil:
-		d = w.confirmDialog(*p.Confirm)
+		if w.wantsNews(*p.Confirm) {
+			w.confirmWithNews(p) // opens when the news is in, or after newsWait
+			return
+		}
+		d = w.confirmDialog(*p.Confirm, nil)
 	case p.Password != nil:
 		d = w.passwordDialog(*p.Password)
 	case p.Selection != nil:
@@ -72,7 +77,7 @@ func (w *Window) answer(id engine.PromptID, cmd func() engine.Command) {
 // Wide (task #95, widedialog.go): the gate's steps beside its notes, the
 // orphans beside what goes with them, as wide as that needs; one over the
 // other under the dialog's breakpoint.
-func (w *Window) confirmDialog(p engine.NeedsConfirm) *amDialog {
+func (w *Window) confirmDialog(p engine.NeedsConfirm, news *healthview.Unread) *amDialog {
 	heading, body := p.Title, p.Body
 	if heading == "" {
 		heading = p.Msg
@@ -114,6 +119,9 @@ func (w *Window) confirmDialog(p engine.NeedsConfirm) *amDialog {
 	default:
 		d.SetDefaultResponse("no")
 		d.SetResponseAppearance("yes", adw.ResponseSuggested)
+	}
+	if news != nil && len(news.Items) > 0 {
+		d.add(w.newsCallout(*news)) // Arch news since the last update (never blocks Run)
 	}
 	if w.drvDry {
 		d.add(dryBanner())

@@ -243,7 +243,7 @@ func realNarrow(c *covEnv) {
 	settled := func() bool { return finished && !w.busy }
 	measure("overview")
 	c.ok(w.heroSteps.Visible(), "the hero shows no plan: not the real Driver's Env")
-	c.ok(checkTags(c, "overview") >= 10, "overview: fewer tag lines found than the plan's 7 and the cells' 3")
+	c.ok(checkTags(c, "overview") >= 9, "overview: fewer tag lines found than the plan's 7 and the cells' 2 (Run topgrade is on the Updates card now, #270)")
 	// The rest of the Overview scrolled into view for the screenshots: the
 	// hero's buttons and the last run, then the cells at its end.
 	scroll, _ := w.stack.ChildByName("overview").(*gtk.ScrolledWindow)
