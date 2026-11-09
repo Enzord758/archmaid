@@ -246,12 +246,22 @@ and illegal names are not asked about; at most 300 names (sorted) are.
 
 | State | Detail |
 |---|---|
-| OK | `No AUR packages`; `12 AUR packages, all current on the AUR` |
+| OK | `No AUR packages`; `12 AUR packages fine`; `12 AUR packages fine · 2 local builds`; `No AUR packages found · 1 local build` |
+| OK (no audit history) | `12 AUR packages fine · 2 not found on the AUR (no audit history to say if they were removed)` |
 | Look | `not in the AUR anymore: a, b +2 more`; `flagged out of date: c`; both joined with ` · ` |
 | Unknown | `Can't reach the AUR`; `AUR check timed out`; `can't read installed packages` |
 
-A hand-built package that was never on the AUR also shows as "not in the AUR
-anymore". No Copy.
+**"Not in the AUR anymore" names only packages that were in the AUR before.**
+The AUR audit keeps a maintainer snapshot (`<state dir>/aur-maintainers.json`,
+`internal/audit`), whose entries all came from AUR answers. The check reads it
+read-only (`Deps.AURSeen`; never written, renamed or advanced). A foreign
+package the RPC doesn't know counts as gone only if the snapshot has it. One that
+is in neither is a local build (archmaid-git built from the repo, a package
+from a repo this machine lacks): it never makes a LOOK and is counted as a
+"local build" in the OK detail. With no readable snapshot (the audit never ran,
+or the file is corrupt) there are no "gone" verdicts at all, only
+"flagged out of date", and the unknown ones are counted as "not found on the AUR".
+No Copy.
 
 ### 10. mirror (packages)
 
