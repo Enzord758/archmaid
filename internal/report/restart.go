@@ -89,6 +89,79 @@ func kernelStale(running, modulesDir string, upgraded []Pkg) (stale bool, instal
 	return true, installed, dedupe(kernelPkgs)
 }
 
+// KernelCheck is kernelStale for a caller with no upgrade list (the System
+// health check): stale is true when the running release's modules folder is
+// gone while other kernels' folders are there, and installed is the release
+// that replaced it: the newest folder, preferring those whose flavour (the
+// text after the last "-", "cachyos" in 7.2.10-1-cachyos) is the running
+// one's. installed is "" when stale is false. Same safety as kernelStale:
+// nothing is claimed that wasn't seen.
+func KernelCheck(running, modulesDir string) (stale bool, installed string) {
+	if running == "" {
+		return false, ""
+	}
+	entries, err := os.ReadDir(modulesDir)
+	if err != nil {
+		return false, ""
+	}
+	var rels []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if e.Name() == running {
+			return false, ""
+		}
+		if _, err := os.Stat(filepath.Join(modulesDir, e.Name(), "pkgbase")); err == nil {
+			rels = append(rels, e.Name())
+		}
+	}
+	if len(rels) == 0 {
+		return false, ""
+	}
+	flavour := func(r string) string { return r[strings.LastIndex(r, "-")+1:] }
+	best := func(match bool) string {
+		b := ""
+		for _, r := range rels {
+			if match && flavour(r) != flavour(running) {
+				continue
+			}
+			if b == "" || versionLess(b, r) {
+				b = r
+			}
+		}
+		return b
+	}
+	if b := best(true); b != "" {
+		return true, b
+	}
+	return true, best(false)
+}
+
+// RunningKernel is `uname -r`, read from /proc ("" when unreadable).
+func RunningKernel() string { return runningKernel() }
+
+// ModulesDirFromEnv is the kernels' modules folder: DefaultModulesDir unless
+// EnvModulesDir overrides it.
+func ModulesDirFromEnv() string {
+	if p := os.Getenv(EnvModulesDir); p != "" {
+		return p
+	}
+	return DefaultModulesDir
+}
+
+// PacmanLogFromEnv is pacman's log: DefaultPacmanLog unless EnvPacmanLog
+// overrides it.
+func PacmanLogFromEnv() string {
+	if p := os.Getenv(EnvPacmanLog); p != "" {
+		return p
+	}
+	return DefaultPacmanLog
+}
+
+// UserCacheDir is the user's cache folder ($XDG_CACHE_HOME or ~/.cache).
+func UserCacheDir() string { return userCacheDir() }
+
 func dedupe(s []string) []string {
 	var out []string
 	seen := map[string]bool{}
