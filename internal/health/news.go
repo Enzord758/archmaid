@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/sanitize"
@@ -184,25 +185,32 @@ func loadNews(ctx context.Context, d Deps) (items []NewsItem, fromCache bool, ag
 }
 
 // readNewsCache reads the cache file at path: a regular file of at most
-// MaxNewsBody bytes that parses. age is how old it is by now; a file dated in
-// the future is no cache.
+// MaxNewsBody bytes that parses, owned by this user and not writable by group
+// or others, in a real folder (not a symlink) with the same ownership. age is
+// how old it is by now; a file dated in the future is no cache. The file is
+// opened without following a symlink and checked through the open descriptor,
+// so nothing can be swapped in between the check and the read.
 func readNewsCache(path string, now time.Time) (items []NewsItem, age time.Duration, ok bool) {
 	if path == "" {
 		return nil, 0, false
 	}
-	fi, err := os.Lstat(path)
-	if err != nil || !fi.Mode().IsRegular() || fi.Size() > MaxNewsBody {
+	uid := os.Getuid()
+	if di, err := os.Lstat(filepath.Dir(path)); err != nil || !di.IsDir() || !ownedPrivate(di, uid) {
+		return nil, 0, false
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, 0, false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || !fi.Mode().IsRegular() || fi.Size() > MaxNewsBody || !ownedPrivate(fi, uid) {
 		return nil, 0, false
 	}
 	age = now.Sub(fi.ModTime())
 	if age < 0 {
 		return nil, 0, false
 	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, 0, false
-	}
-	defer f.Close()
 	body, err := readCapped(f, MaxNewsBody)
 	if err != nil {
 		return nil, 0, false
@@ -214,6 +222,12 @@ func readNewsCache(path string, now time.Time) (items []NewsItem, age time.Durat
 	return items, age, true
 }
 
+// ownedPrivate: fi belongs to uid and neither its group nor others can write it.
+func ownedPrivate(fi os.FileInfo, uid int) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && int(st.Uid) == uid && fi.Mode().Perm()&0o022 == 0
+}
+
 // writeNewsCache stores body at path, atomically (a temp file in the same
 // folder, then rename), the folder 0700 and the file 0600.
 func writeNewsCache(path string, body []byte) {
@@ -221,7 +235,17 @@ func writeNewsCache(path string, body []byte) {
 		return
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	uid := os.Getuid()
+	// An existing folder must be a real one of ours: a symlink here would send
+	// the chmod and the file to wherever it points.
+	if di, err := os.Lstat(dir); err == nil {
+		if !di.IsDir() || !ownedPrivate(di, uid) {
+			return
+		}
+	} else if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	if di, err := os.Lstat(dir); err != nil || !di.IsDir() || !ownedPrivate(di, uid) {
 		return
 	}
 	if err := os.Chmod(dir, 0o700); err != nil {
