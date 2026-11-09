@@ -133,7 +133,7 @@ func (f Fetcher) Queue(plans []steps.AURPlan, deps *steps.Step, reviewed *Review
 		p := p
 		q = append(q,
 			steps.Step{
-				ID: steps.IDAURFetchPrefix + p.Base, Title: "Checking out " + p.Base + "…", LogLabel: "AUR checkout pinned",
+				ID: steps.IDAURFetchPrefix + p.Base, Title: "Checking out " + p.Base + "…", LogLabel: "AUR checkout pinned", Category: logstore.Packages,
 				Run: func(ctx context.Context, env steps.Env) steps.Result {
 					if env.DryRun {
 						return steps.Result{Output: "[dry-run] would pin " + p.Base + " to " + p.Commit}
@@ -147,12 +147,12 @@ func (f Fetcher) Queue(plans []steps.AURPlan, deps *steps.Step, reviewed *Review
 			steps.Step{
 				ID: steps.IDAURBuildPrefix + p.Base, Title: "Building " + p.Base + "…", LogLabel: "AUR package built",
 				Argv: f.MakepkgArgv(p.Base), Env: f.BuildEnv(p.Base),
-				AlwaysLog: true, Category: logstore.Cleanup,
+				AlwaysLog: true, Category: logstore.Packages,
 			})
 	}
 	q = append(q,
 		steps.Step{
-			ID: "aur-collect", Title: "Checking the built packages…", LogLabel: "AUR packages collected",
+			ID: "aur-collect", Title: "Checking the built packages…", LogLabel: "AUR packages collected", Category: logstore.Packages,
 			Run: func(ctx context.Context, env steps.Env) steps.Result {
 				if env.DryRun {
 					return steps.Result{Output: "[dry-run] would collect the built packages"}
@@ -167,7 +167,7 @@ func (f Fetcher) Queue(plans []steps.AURPlan, deps *steps.Step, reviewed *Review
 			},
 		},
 		steps.Step{
-			ID: "aur-remember", Title: "Recording what you reviewed…", LogLabel: "AUR review recorded",
+			ID: "aur-remember", Title: "Recording what you reviewed…", LogLabel: "AUR review recorded", Category: logstore.Packages,
 			Run: func(ctx context.Context, env steps.Env) steps.Result {
 				if env.DryRun {
 					return steps.Result{Output: "[dry-run] would record the reviewed commits"}
@@ -216,7 +216,7 @@ func InstallStep(built []BuiltFile) steps.Step {
 	return steps.Step{
 		ID: steps.IDPkgInstallLocal, Verb: steps.VerbPkgInstallLocal,
 		Title: "Installing AUR packages…", LogLabel: "AUR packages installed",
-		Items: names, PkgLocal: &local, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup,
+		Items: names, PkgLocal: &local, NeedsPriv: true, AlwaysLog: true, Category: logstore.Packages,
 	}
 }
 

@@ -130,7 +130,7 @@ func packagesRun(start time.Time, mode steps.PkgMode, stale bool) Script {
 		yes, label = "Remove", "Packages removed"
 	}
 	b.plan = []engine.PlanStep{{ID: id, Verb: verb, Title: title, LogLabel: label,
-		NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup}}
+		NeedsPriv: true, AlwaysLog: true, Category: logstore.Packages}}
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Checking the packages…"})
 	b.wait(400 * time.Millisecond)
 	pid := b.id()
@@ -150,7 +150,7 @@ func packagesRun(start time.Time, mode steps.PkgMode, stale bool) Script {
 	if stale {
 		b.wait(300 * time.Millisecond)
 		b.done(id, steps.Failed)
-		b.log(logstore.Cleanup, "FAIL: "+label)
+		b.log(logstore.Packages, "FAIL: "+label)
 		b.emit(engine.PackagesStale{Plan: &p})
 		b.emit(engine.Finished{Action: actions.IDPackages, Outcome: engine.OutcomeCompleted, Errs: 1,
 			Elapsed: b.now.Sub(b.started)}, engine.PhaseChanged{Phase: engine.PhaseIdle})
@@ -159,7 +159,7 @@ func packagesRun(start time.Time, mode steps.PkgMode, stale bool) Script {
 	b.wait(1500 * time.Millisecond)
 	b.out(id, "resolving dependencies...", "checking for conflicts...", "(3/3) installing foo")
 	b.done(id, steps.OK)
-	b.log(logstore.Cleanup, "OK: "+label)
+	b.log(logstore.Packages, "OK: "+label)
 	rep := runreport.Report{Action: actions.IDPackages, Started: start, Finished: b.now, Elapsed: b.now.Sub(b.started), Steps: runreport.StepTally{Done: 1}}
 	if mode == steps.PkgRemove {
 		rep.Packages = &runreport.Packages{Removed: []runreport.Pkg{{Name: "foo", Old: "1.2-1"}, {Name: "libfoo", Old: "1.2-1"}}}
@@ -210,9 +210,9 @@ func packagesAURRun(start time.Time, high bool) Script {
 	base := p.AUR[0].Base
 	build := steps.IDAURBuildPrefix + base
 	b.plan = []engine.PlanStep{
-		{ID: steps.IDPkgInstall, Verb: steps.VerbPkgInstall, Title: "Installing dependencies…", LogLabel: "Dependencies installed", NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup},
-		{ID: build, Title: "Building " + base + "…", LogLabel: "Built " + base, Category: logstore.Cleanup},
-		{ID: steps.IDPkgInstallLocal, Verb: steps.VerbPkgInstallLocal, Title: "Installing " + base + "…", LogLabel: "Installed " + base, NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup},
+		{ID: steps.IDPkgInstall, Verb: steps.VerbPkgInstall, Title: "Installing dependencies…", LogLabel: "Dependencies installed", NeedsPriv: true, AlwaysLog: true, Category: logstore.Packages},
+		{ID: build, Title: "Building " + base + "…", LogLabel: "Built " + base, Category: logstore.Packages},
+		{ID: steps.IDPkgInstallLocal, Verb: steps.VerbPkgInstallLocal, Title: "Installing " + base + "…", LogLabel: "Installed " + base, NeedsPriv: true, AlwaysLog: true, Category: logstore.Packages},
 	}
 	b.emit(engine.PhaseChanged{Phase: engine.PhaseDiscovering, Busy: "Checking the packages…"})
 	b.wait(600 * time.Millisecond)
@@ -234,12 +234,12 @@ func packagesAURRun(start time.Time, high bool) Script {
 	b.wait(time.Second)
 	b.out(steps.IDPkgInstall, "resolving dependencies...", "(1/1) installing libgit2")
 	b.done(steps.IDPkgInstall, steps.OK)
-	b.log(logstore.Cleanup, "OK: Dependencies installed")
+	b.log(logstore.Packages, "OK: Dependencies installed")
 	b.start(build)
 	b.wait(1500 * time.Millisecond)
 	b.out(build, "==> Making package: "+base+" 2.0.4-1", "==> Finished making: "+base+" 2.0.4-1")
 	b.done(build, steps.OK)
-	b.log(logstore.Cleanup, "OK: Built "+base)
+	b.log(logstore.Packages, "OK: Built "+base)
 	b.start(steps.IDPkgInstallLocal)
 	b.emit(engine.AuthWaiting{Kind: engine.WaitPolkit, Step: steps.IDPkgInstallLocal})
 	b.wait(800 * time.Millisecond)
@@ -247,7 +247,7 @@ func packagesAURRun(start time.Time, high bool) Script {
 	b.wait(time.Second)
 	b.out(steps.IDPkgInstallLocal, "loading packages...", "(1/1) installing "+base)
 	b.done(steps.IDPkgInstallLocal, steps.OK)
-	b.log(logstore.Cleanup, "OK: Installed "+base)
+	b.log(logstore.Packages, "OK: Installed "+base)
 	b.emit(engine.RunReport{Report: runreport.Report{Action: actions.IDPackages, Started: start, Finished: b.now, Elapsed: b.now.Sub(b.started), Steps: runreport.StepTally{Done: 3},
 		Packages: &runreport.Packages{Installed: []runreport.Pkg{{Name: "libgit2", New: "1.8.4-1"}, {Name: base, New: "2.0.4-1"}}}}})
 	b.finish(actions.IDPackages, engine.OutcomeCompleted)

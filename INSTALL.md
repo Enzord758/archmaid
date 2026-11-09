@@ -47,6 +47,6 @@ Removes the binary, and any stale icon or desktop entry an older install.sh wrot
 
 Logs go to `~/.local/state/archmaid/` — no setup needed. Each run gets a
 directory `<YYYYMMDD-HHMM>/` with one file per category (`topgrade.log`,
-`orphans.log`, `cleanup.log`, `audit.log`); `--dryrun` uses a single reused
+`orphans.log`, `cleanup.log`, `packages.log`, `audit.log`); `--dryrun` uses a single reused
 `dryrun/` directory. The newest 5 run directories are kept: the oldest goes when
 a real run writes its first entry, never at startup.

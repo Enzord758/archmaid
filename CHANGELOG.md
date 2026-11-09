@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Changed
+
+- **A Packages run has its own log, `packages.log`** (#268). Its install, removal and AUR steps (fetch, build, collect, install, review record) logged into `cleanup.log`, so Last run said "Packages" over `cleanup.log`. They now write `packages.log`, which the Logs page lists as "Packages", the Overview's Last run names, and the TUI's View log picker offers. Run folders from before still hold their entries in `cleanup.log`, which opens as ever. `TestPackagesStepsLogToPackages`, the engine's install transcript and `TestRunsListPackagesLogAndKeepOldCleanupLogs` cover it.
+
 ## [2.5.5] - 2026-11-09
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

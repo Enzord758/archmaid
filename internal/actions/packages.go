@@ -70,7 +70,7 @@ func Packages(p steps.PkgPlan) []steps.Step {
 		ID: steps.IDPkgInstall, Verb: steps.VerbPkgInstall,
 		Title: "Installing packages…", LogLabel: "Packages installed",
 		Items: slices.Clone(p.Targets), PkgPlan: &p,
-		NeedsPriv: true, AlwaysLog: true, Category: logstore.Cleanup,
+		NeedsPriv: true, AlwaysLog: true, Category: logstore.Packages,
 	}
 	if p.Mode == steps.PkgRemove {
 		st.ID, st.Verb = steps.IDPkgRemove, steps.VerbPkgRemove

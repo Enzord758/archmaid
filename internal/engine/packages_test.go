@@ -106,6 +106,10 @@ func TestPackagesInstallTranscript(t *testing.T) {
 	if d := doneOf(o)[steps.IDPkgInstall]; d.Status != steps.OK {
 		t.Errorf("StepDone = %+v", d)
 	}
+	// The run's entry goes to its own log, packages.log, not cleanup.log (#268).
+	if w, ok := find[WriteLog](o.Effects); !ok || w.Category != logstore.Packages || w.Label != "Packages installed" {
+		t.Errorf("the log entry = %+v (found %v), want Packages", w, ok)
+	}
 	if fin := event[Finished](t, o); fin.Outcome != OutcomeCompleted || fin.Errs != 0 || fin.Action != actions.IDPackages {
 		t.Errorf("Finished = %+v", fin)
 	}

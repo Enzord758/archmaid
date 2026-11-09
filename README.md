@@ -138,7 +138,7 @@ binary would shadow the package's.
 
 Each run gets a directory, `~/.local/state/archmaid/<YYYYMMDD-HHMM>/`, with
 one file per category (`topgrade.log`, `orphans.log`, `cleanup.log`,
-`audit.log`). Ordinary steps log only failures. topgrade, the AUR audit and
+`packages.log`, `audit.log`). Ordinary steps log only failures. topgrade, the AUR audit and
 the steps that remove or overwrite something log their outcome even on
 success. A dry run logs to a reused `dryrun/` directory. The newest 5 runs
 are kept. The oldest goes when a real run writes its first entry, never at

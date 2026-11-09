@@ -182,7 +182,7 @@ comments and `git log`; this is the "read before you touch it" list.
   - `privilege.CheckPassword` (so `Authenticate` and `Answer`) refuses a
     password with `\r` or `\n`; su's lockout notice is sanitized and clipped.
   - `sanitize.Mode`'s zero value is `Plain`; colours need `KeepSGR`.
-  - `logstore` writes only the four known categories (`Category.Valid`), and a
+  - `logstore` writes only the known categories (`Category.Valid`: topgrade, orphans, cleanup, packages (#268: the Packages page's installs, removals and AUR builds; older run folders hold them in cleanup.log, which still opens), audit, and the discovery ones), and a
     store without an absolute state dir (unset/relative `$HOME`, relative
     `Dir`) refuses every read and write (`ErrNoStateDir`), never
     `./.local/state`.

@@ -28,8 +28,9 @@ type Category string
 const (
 	Topgrade Category = "topgrade"
 	Orphans  Category = "orphans"
-	Cleanup  Category = "cleanup" // default: everything else
-	Audit    Category = "audit"   // AUR audit results
+	Cleanup  Category = "cleanup"  // default: everything else
+	Audit    Category = "audit"    // AUR audit results
+	Packages Category = "packages" // the Packages page's installs, removals and AUR builds (#268)
 )
 
 // The discovery categories: one per menu action that looks before it acts,
@@ -58,6 +59,7 @@ var Categories = []CategoryInfo{
 	{Topgrade, "Topgrade"},
 	{Orphans, "Orphan removal"},
 	{Cleanup, "Cleanup"},
+	{Packages, "Packages"},
 	{Audit, "AUR audit"},
 	{Services, "Services check"},
 	{Repair, "Package check"},
@@ -77,12 +79,12 @@ func (c Category) Label() string {
 	return string(c)
 }
 
-// Valid reports whether c is one of the nine categories. The set is fixed
+// Valid reports whether c is one of the ten categories. The set is fixed
 // here, not read from Categories (an exported var a caller could append to):
 // a category names a file, so "../x" must never become one.
 func (c Category) Valid() bool {
 	switch c {
-	case Topgrade, Orphans, Cleanup, Audit:
+	case Topgrade, Orphans, Cleanup, Packages, Audit:
 		return true
 	}
 	return c.Discovery()
