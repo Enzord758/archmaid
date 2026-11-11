@@ -34,6 +34,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "archmaid: warning: can't turn core dumps off:", err)
 	}
 	tui.Configure(f.dryRun, f.downloads)
+	tui.StartFullCleanup(f.fullCleanup)
 
 	// A missing piece of the actions' wiring would otherwise panic mid-action.
 	env := tui.ActionEnv()
@@ -68,11 +69,12 @@ func main() {
 }
 
 // usage is what --help prints.
-const usage = `Usage: archmaid [--dryrun] [--downloads <folder>] | --version
+const usage = `Usage: archmaid [-fc] [--dryrun] [--downloads <folder>] | --version
 
 A terminal UI for Arch Linux maintenance.
 
 Options:
+  -fc, --full-cleanup   open Full Cleanup straight away (asks before anything runs)
   --dryrun              log what each step would run instead of running it
   --downloads <folder>  the folder "Delete old downloads" cleans
                         (also --downloads=<folder>)
@@ -86,10 +88,12 @@ var errHelp = errors.New("help requested")
 // errVersion is parseArgs' answer to --version: print the version, exit 0.
 var errVersion = errors.New("version requested")
 
-// flags is the command line: --dryrun and --downloads' folder ("" for none).
+// flags is the command line: --dryrun, --downloads' folder ("" for none) and
+// -fc / --full-cleanup.
 type flags struct {
-	dryRun    bool
-	downloads string
+	fullCleanup bool
+	dryRun      bool
+	downloads   string
 }
 
 // startup is everything main does before the TUI: the askpass relay and the
@@ -126,7 +130,8 @@ func startup(args []string, stdout, stderr io.Writer) (f flags, code int, start 
 	return f, 0, true
 }
 
-// parseArgs reads the command-line flags: --dryrun, and --downloads <dir>
+// parseArgs reads the command-line flags: --dryrun, -fc / --full-cleanup
+// (open Full Cleanup's gate at start-up; repeating it is harmless), and --downloads <dir>
 // (or --downloads=<dir>), the folder "Delete old downloads" cleans. --help
 // and -h return errHelp. Anything else is an error: an ignored typo used to
 // start the TUI, and a mistyped --dryrun would make that a real run.
@@ -141,6 +146,9 @@ func parseArgs(args []string) (flags, error) {
 		switch {
 		case a == "--dryrun":
 			f.dryRun = true
+		case a == "-fc" || a == "--full-cleanup":
+			// One token, not -f and -c combined: both alone stay unknown.
+			f.fullCleanup = true
 		case a == "--downloads":
 			if i+1 >= len(args) {
 				return flags{}, errors.New("--downloads needs a folder")

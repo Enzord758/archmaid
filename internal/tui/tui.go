@@ -30,6 +30,20 @@ func Configure(dry bool, downloads string) {
 	dryRun, downloadsFlag = dry, downloads
 }
 
+// StartFullCleanup makes the TUI open Full Cleanup at once (-fc,
+// --full-cleanup), as if it had been picked in the menu: its gate shows first
+// and nothing runs before the user answers. Declining lands on the menu. Call
+// it with Configure, before Run.
+func StartFullCleanup(on bool) {
+	startAction = ""
+	if on {
+		startAction = actions.IDFullCleanup
+	}
+}
+
+// startAction is the menu action Init starts at once ("" for none).
+var startAction string
+
 // ActionEnv is what the actions get from the TUI; main builds the Session
 // with it and checks it with Validate. See actionEnv for what it reads when.
 func ActionEnv() actions.Env { return actionEnv() }

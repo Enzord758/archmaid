@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/report"
 )
 
@@ -116,6 +117,10 @@ type model struct {
 	// model runs its actions on, and the prompts it has open. nil only in
 	// a test that just draws the model.
 	eng *engineState
+
+	// startAction is the action Init starts as if the user had picked it
+	// (-fc, --full-cleanup); "" for none.
+	startAction string
 }
 
 func initialModel() model {
@@ -139,9 +144,16 @@ func initialModel() model {
 		password: pw,
 		tail:     newLineTail(maxVisibleLines),
 		status:   systemStatus(),
+
+		startAction: startAction,
 	}
 }
 
 func (m model) Init() tea.Cmd {
+	// The same Start the menu's Enter sends: the engine's reply (the gate)
+	// arrives as an Event like any other, so declining it ends on the menu.
+	if m.startAction != "" && m.eng != nil {
+		m.send(engine.Start{Action: m.startAction})
+	}
 	return tea.Batch(m.spinner.Tick, refreshStatus())
 }

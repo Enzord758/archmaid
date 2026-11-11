@@ -138,3 +138,36 @@ func TestParseArgsDownloads(t *testing.T) {
 		t.Fatalf("err = %v, want it to name the option", err)
 	}
 }
+
+// TestParseArgsFullCleanup: -fc and --full-cleanup are one flag, a single
+// token (not combined short flags), in any order with the others; repeating
+// it is harmless; -f and -c alone stay unknown.
+func TestParseArgsFullCleanup(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want flags
+		err  bool
+	}{
+		{args: []string{"-fc"}, want: flags{fullCleanup: true}},
+		{args: []string{"--full-cleanup"}, want: flags{fullCleanup: true}},
+		{args: []string{"-fc", "--full-cleanup", "-fc"}, want: flags{fullCleanup: true}},
+		{args: []string{"-fc", "--dryrun"}, want: flags{fullCleanup: true, dryRun: true}},
+		{args: []string{"--dryrun", "--full-cleanup"}, want: flags{fullCleanup: true, dryRun: true}},
+		{args: []string{"--downloads", "/d", "-fc"}, want: flags{fullCleanup: true, downloads: "/d"}},
+		{args: []string{"--full-cleanup", "--dryrun", "--downloads=/d"}, want: flags{fullCleanup: true, dryRun: true, downloads: "/d"}},
+		{args: []string{"-f"}, err: true},
+		{args: []string{"-c"}, err: true},
+		{args: []string{"-cf"}, err: true},
+		{args: []string{"-fc", "-f"}, err: true},
+		{args: []string{"--full"}, err: true},
+		{args: []string{"--full-cleanup=1"}, err: true},
+	} {
+		f, err := parseArgs(tc.args)
+		if (err != nil) != tc.err || (!tc.err && f != tc.want) {
+			t.Fatalf("parseArgs(%q) = %+v, %v; want %+v, err=%v", tc.args, f, err, tc.want, tc.err)
+		}
+	}
+	if !strings.Contains(usage, "  -fc, --full-cleanup   open Full Cleanup straight away (asks before anything runs)\n") {
+		t.Fatalf("usage does not list -fc, --full-cleanup:\n%s", usage)
+	}
+}
