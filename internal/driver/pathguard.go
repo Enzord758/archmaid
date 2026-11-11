@@ -50,7 +50,7 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 	if d.keep.Spent() || !e.Step.Asks() || e.Env.DryRun {
 		return
 	}
-	shadows, done := scanPath(privilege.ChildPATH(spec.Env, spec.ExtraEnv), pathScanMax)
+	shadows, done := scanPath(privilege.ChildPATH(spec.Env, spec.ExtraEnv), spec.Env, spec.ExtraEnv, pathScanMax)
 	if done && len(shadows) == 0 {
 		return
 	}
@@ -58,7 +58,7 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 	d.keepOffWhy = keepOffReason(done)
 	what := "the check of this step's PATH didn't finish in " + pathScanMax.String()
 	if done {
-		what = "this step's PATH has something that could stand in for sudo: " + namesOf(shadows)
+		what = "this step's PATH or sudo config has something that could stand in for sudo: " + namesOf(shadows)
 	}
 	cat := e.Step.Category
 	if !cat.Valid() {
@@ -92,7 +92,7 @@ func keepOffReason(done bool) string {
 // and the step, and the guard turns the password off at that moment
 // whatever the sheet said.
 func PreviewKeepOff() string {
-	shadows, done := scanPath(privilege.ChildPATH(nil, nil), pathScanMax)
+	shadows, done := scanPath(privilege.ChildPATH(nil, nil), nil, nil, pathScanMax)
 	if done && len(shadows) == 0 {
 		return ""
 	}
@@ -102,12 +102,17 @@ func PreviewKeepOff() string {
 // pathShadows is the scan (a seam: a test makes it hang).
 var pathShadows = privilege.PathShadows
 
-// scanPath is pathShadows(path) within max; done is false when it took
-// longer.
-func scanPath(path string, max time.Duration) (shadows []privilege.Shadow, done bool) {
-	scan := pathShadows                    // read here, on the loop, not on the scan's goroutine
-	ch := make(chan []privilege.Shadow, 1) // the scan never blocks on it, finished or abandoned
-	go func() { ch <- scan(path) }()
+// configShadows is the config scan (privilege.ConfigShadows: a sudo or
+// pacman the user's topgrade, paru or yay config names), a seam like
+// pathShadows.
+var configShadows = privilege.ConfigShadows
+
+// scanPath is pathShadows(path) and configShadows(env, extra) within max; done
+// is false when they took longer.
+func scanPath(path string, env, extra []string, max time.Duration) (shadows []privilege.Shadow, done bool) {
+	scan, cfg := pathShadows, configShadows // read here, on the loop, not on the scan's goroutine
+	ch := make(chan []privilege.Shadow, 1)  // the scan never blocks on it, finished or abandoned
+	go func() { ch <- append(scan(path), cfg(env, extra)...) }()
 	t := time.NewTimer(max)
 	defer t.Stop()
 	select {

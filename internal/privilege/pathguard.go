@@ -39,10 +39,15 @@ type Shadow struct {
 	Path string
 	// Relative marks a relative PATH entry.
 	Relative bool
+	// Note, for a config file (ConfigShadows), is what in it is the risk.
+	Note string
 }
 
 // String names the shadow for a log line or the step's output.
 func (s Shadow) String() string {
+	if s.Note != "" {
+		return s.Path + " " + s.Note
+	}
 	if s.Relative {
 		if s.Path == "" {
 			return "an empty PATH entry (the current folder)"
