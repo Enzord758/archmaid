@@ -3,6 +3,7 @@ package health
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -137,24 +138,44 @@ func checkAUR(ctx context.Context, d Deps) Check {
 	if d.AURSeen != nil {
 		seen, haveSnap = d.AURSeen()
 	}
+	// What is held on purpose is not an alarm: an out-of-date package whose
+	// pending update waits in the cooldown (the maintainer already published
+	// the fix), and one the AUR audit holds (it has its own report).
+	var held HeldSet
+	if d.Held != nil {
+		held = d.Held()
+	}
 	var gone, flagged []string
-	inAUR, other := 0, 0
+	inAUR, other, cool, audited := 0, 0, 0, 0
 	for _, n := range names {
+		if held.Cooldown[n] {
+			cool++
+		}
+		if held.Audit[n] {
+			audited++
+		}
 		p, ok := known[n]
 		switch {
 		case !ok && haveSnap && seen[n]:
 			gone = append(gone, n)
 		case !ok:
 			other++
-		case p.OutOfDate:
+		case p.OutOfDate && !held.Cooldown[n] && !held.Audit[n]:
 			flagged = append(flagged, n)
 			inAUR++
 		default:
 			inAUR++
 		}
 	}
+	heldNote := ""
+	if cool > 0 {
+		heldNote += " · " + plural(cool, "update", "updates") + " held (cooldown)"
+	}
+	if audited > 0 {
+		heldNote += fmt.Sprintf(" · %d held by the AUR audit", audited)
+	}
 	if len(gone) == 0 && len(flagged) == 0 {
-		return Check{State: OK, Detail: aurOKDetail(inAUR, other, haveSnap)}
+		return Check{State: OK, Detail: sanitize.Field(aurOKDetail(inAUR, other, haveSnap)+heldNote, DetailMax)}
 	}
 	var parts []string
 	if len(gone) > 0 {
@@ -163,7 +184,94 @@ func checkAUR(ctx context.Context, d Deps) Check {
 	if len(flagged) > 0 {
 		parts = append(parts, "flagged out of date: "+nameList(flagged))
 	}
-	return Check{State: Look, Detail: sanitize.Field(strings.Join(parts, " · "), DetailMax)}
+	return Check{State: Look, Detail: sanitize.Field(strings.Join(parts, " · ")+heldNote, DetailMax)}
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
+}
+
+// HeldSet is what is held back on purpose, by package name.
+type HeldSet struct {
+	// Cooldown: foreign packages with a pending AUR update held by the
+	// cooldown (updates-cache.json v3: "packages" entries with src "aur" and
+	// held true; with paru nothing is held, it prints no age tags).
+	Cooldown map[string]bool
+	// Audit: packages the AUR audit holds, its high findings not accepted yet
+	// (audit-state.json).
+	Audit map[string]bool
+}
+
+// maxHeldFile caps updates-cache.json as read here; maxHeldNames the names.
+const (
+	maxHeldFile  = 1 << 20
+	maxHeldNames = 200
+)
+
+// readHeld is the real Held: both files of the state dir, read only; a
+// missing or unreadable one holds nothing.
+func readHeld() HeldSet {
+	dir := logstore.DefaultDir()
+	if dir == "" {
+		return HeldSet{}
+	}
+	return heldIn(dir)
+}
+
+func heldIn(dir string) HeldSet {
+	var h HeldSet
+	if f, err := os.Open(filepath.Join(dir, "updates-cache.json")); err == nil {
+		if b, err := readCapped(f, maxHeldFile); err == nil {
+			h.Cooldown = parseCooldownHeld(b)
+		}
+		f.Close()
+	}
+	if st, err := audit.ReadState(filepath.Join(dir, audit.StateFile)); err == nil {
+		for i, f := range st.High {
+			if i >= maxHeldNames {
+				break
+			}
+			if pkgdb.ValidName(f.Pkg) {
+				if h.Audit == nil {
+					h.Audit = map[string]bool{}
+				}
+				h.Audit[f.Pkg] = true
+			}
+		}
+	}
+	return h
+}
+
+// parseCooldownHeld reads the names of the held AUR updates in
+// updates-cache.json's bytes: src "aur" and held true. Text another program
+// wrote: legal package names only, at most maxHeldNames entries looked at.
+func parseCooldownHeld(b []byte) map[string]bool {
+	var raw struct {
+		Packages []struct {
+			Name string `json:"name"`
+			Src  string `json:"src"`
+			Held *bool  `json:"held"`
+		} `json:"packages"`
+	}
+	if json.Unmarshal(b, &raw) != nil {
+		return nil
+	}
+	var out map[string]bool
+	for i, p := range raw.Packages {
+		if i >= maxHeldNames {
+			break
+		}
+		if p.Src == "aur" && p.Held != nil && *p.Held && pkgdb.ValidName(p.Name) {
+			if out == nil {
+				out = map[string]bool{}
+			}
+			out[p.Name] = true
+		}
+	}
+	return out
 }
 
 // auditSeen is the real AURSeen: the names in the AUR audit's maintainer
@@ -243,12 +351,25 @@ const (
 )
 
 func checkMirror(ctx context.Context, d Deps) Check {
-	if d.MirrorGet == nil || d.MirrorList == "" {
+	if d.MirrorGet == nil {
 		return unknown(IDMirror, TitleMirror, "can't check the mirror")
 	}
-	base, host, err := firstMirror(d.MirrorList)
+	// pacman uses the first server of the repo section in pacman.conf's order:
+	// a Server line in [core] before its Include of the mirrorlist beats the
+	// mirrorlist's first. pacman-conf says which (read only); when it is not
+	// there or fails, the mirrorlist's first is the best guess.
+	base, host, err, asked := confMirror(ctx, d)
+	if !asked {
+		if d.MirrorList == "" {
+			return unknown(IDMirror, TitleMirror, "can't check the mirror")
+		}
+		base, host, err = firstMirror(d.MirrorList)
+		if err != nil {
+			return unknown(IDMirror, TitleMirror, "can't read the mirrorlist")
+		}
+	}
 	if err != nil {
-		return unknown(IDMirror, TitleMirror, "can't read the mirrorlist")
+		return unknown(IDMirror, TitleMirror, "can't read the mirror setting")
 	}
 	// Only /lastsync is ever fetched from the user's mirror.
 	body, err := d.MirrorGet(ctx, base+"/lastsync")
@@ -269,6 +390,38 @@ func checkMirror(ctx context.Context, d Deps) Check {
 		return Check{State: Look, Detail: detail}
 	}
 	return Check{State: OK, Detail: detail}
+}
+
+// confMirror asks `pacman-conf --repo core Server` for pacman's first server
+// of [core] (the servers in pacman's order, $repo and $arch expanded) and
+// returns its base: the line without its /core/os/<arch>. asked is false when
+// pacman-conf could not answer (no Query, not installed, a failure, no server
+// at all: the caller falls back to the mirrorlist); with asked true a line that
+// is not a usable mirror is err.
+func confMirror(ctx context.Context, d Deps) (base, host string, err error, asked bool) {
+	if d.Query == nil {
+		return "", "", nil, false
+	}
+	out, qerr := d.Query(ctx, "pacman-conf", "--repo", "core", "Server")
+	if qerr != nil {
+		return "", "", nil, false
+	}
+	first := ""
+	for _, l := range strings.Split(limitBytes(out, 16<<10), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			first = l
+			break
+		}
+	}
+	if first == "" {
+		return "", "", nil, false
+	}
+	i := strings.LastIndex(first, "/core/os/")
+	if i <= 0 || len(first) > 500 {
+		return "", "", errors.New("not a mirror URL"), true
+	}
+	base, host, err = mirrorBase(first[:i] + "/$repo")
+	return base, host, err, true
 }
 
 // parseLastSync reads a mirror's lastsync file: a unix time in seconds, plain

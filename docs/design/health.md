@@ -249,6 +249,7 @@ and illegal names are not asked about; at most 300 names (sorted) are.
 | OK | `No AUR packages`; `12 AUR packages fine`; `12 AUR packages fine · 2 local builds`; `No AUR packages found · 1 local build` |
 | OK (no audit history) | `12 AUR packages fine · 2 not found on the AUR (no audit history to say if they were removed)` |
 | Look | `not in the AUR anymore: a, b +2 more`; `flagged out of date: c`; both joined with ` · ` |
+| (OK or Look, appended) | ` · 1 update held (cooldown)`, ` · 2 held by the AUR audit` |
 | Unknown | `Can't reach the AUR`; `AUR check timed out`; `can't read installed packages` |
 
 **"Not in the AUR anymore" names only packages that were in the AUR before.**
@@ -261,22 +262,42 @@ from a repo this machine lacks): it never makes a LOOK and is counted as a
 "local build" in the OK detail. With no readable snapshot (the audit never ran,
 or the file is corrupt) there are no "gone" verdicts at all, only
 "flagged out of date", and the unknown ones are counted as "not found on the AUR".
+
+**What is held on purpose is not an alarm (#283).** A package flagged out of
+date whose pending update is held by the cooldown (updates-cache.json v3
+`packages`: `src` "aur", `held` true; the maintainer already published the fix,
+it only waits) is not LOOK, and neither is one the AUR audit holds (a high
+finding not accepted yet, audit-state.json; the audit has its own report).
+They are counted in the detail instead, over the installed foreign packages
+only. LOOK stays for "gone from the AUR (it was in the snapshot)" and "flagged
+out of date with no pending update". With paru nothing is held by the cooldown
+(it prints no age tags), so that rule never applies. Both files are read only
+(`Deps.Held`).
+
 No Copy.
 
 ### 10. mirror (packages)
 
-The first active `Server = ...` line of `/etc/pacman.d/mirrorlist`
-(`https://host/archlinux/$repo/os/$arch`); the base is everything before
-`/$repo`. One GET of `<base>/lastsync` (only that path), which holds a unix
+The mirror pacman really uses: the first server of the `[core]` section in
+**pacman.conf's order**, which is a `Server =` line written in `[core]` before
+its `Include` of the mirrorlist when there is one (a LAN mirror, say), else the
+mirrorlist's first. It is read with `pacman-conf --repo core Server` (read
+only; the servers in pacman's order, `$repo` and `$arch` expanded): the first
+line is `https://host/archlinux/core/os/x86_64`, and the base is everything
+before `/core/os/`. When pacman-conf is not installed, fails or prints no
+server, the first active `Server = ...` line of `/etc/pacman.d/mirrorlist`
+(`https://host/archlinux/$repo/os/$arch`, the base everything before `/$repo`)
+stands in. A line pacman-conf printed that is not a usable mirror URL is
+Unknown, not a fallback. One GET of `<base>/lastsync` (only that path), which holds a unix
 time. http or https only (a LAN or http mirror is fine, user info, queries
 and other schemes are refused), 5 s timeout, 64-byte body cap, redirects only
 to the same host. The time must be plain digits between 2000 and 2200.
 
 | State | Detail |
 |---|---|
-| OK | `mirror.example.com synced 2 h ago` (up to 24 h; a time up to 1 h in the future counts as now) |
+| OK | `192.168.1.189:8099 synced 20 min ago`, `mirror.example.com synced 2 h ago` (the host, and its port when it has one, that was checked; up to 24 h; a time up to 1 h in the future counts as now) |
 | Look | `mirror.example.com synced 31 h ago` (over 24 h behind) |
-| Unknown | `can't read the mirrorlist`; `<host> has no lastsync` (404, offline); `<host> has no usable lastsync`; `<host> lastsync is in the future` (over 1 h) |
+| Unknown | `can't read the mirror setting` (pacman-conf's line is no mirror URL); `can't read the mirrorlist` (the fallback); `<host> has no lastsync` (404, offline); `<host> has no usable lastsync`; `<host> lastsync is in the future` (over 1 h) |
 
 No Copy.
 

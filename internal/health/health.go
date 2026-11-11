@@ -149,6 +149,10 @@ type Deps struct {
 	// packages that were in the AUR before, and whether a readable snapshot
 	// exists. Nil means no snapshot.
 	AURSeen func() (map[string]bool, bool)
+	// Held reads what is deliberately held back: AUR updates in the cooldown
+	// (updates-cache.json) and packages the AUR audit holds (audit-state.json).
+	// Nil means nothing is held.
+	Held func() HeldSet
 	// MirrorList is pacman's mirrorlist; MirrorGet fetches the mirror's
 	// lastsync file (at most MirrorBodyMax bytes).
 	MirrorList string
@@ -184,6 +188,7 @@ func DefaultDeps() Deps {
 		Foreign:    localForeign,
 		AURInfo:    aurInfo,
 		AURSeen:    auditSeen,
+		Held:       readHeld,
 		MirrorList: DefaultMirrorList,
 		MirrorGet: func(ctx context.Context, u string) ([]byte, error) {
 			return httpGetLimited(ctx, u, MirrorTimeout, MirrorBodyMax)

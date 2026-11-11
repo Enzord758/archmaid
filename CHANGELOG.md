@@ -6,6 +6,11 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **System health: the mirror check looks at the mirror pacman uses** (#283). It took the first `Server =` of `/etc/pacman.d/mirrorlist`, but pacman uses the first server of `[core]` in `pacman.conf`'s order, so a `Server =` line written in `[core]` before its `Include` (a LAN mirror) was never the one checked. It now asks `pacman-conf --repo core Server` (read only) and checks that server's `/lastsync`, and names it ("192.168.1.189:8099 synced 20 min ago"); without pacman-conf it falls back to the mirrorlist's first. `TestMirrorFollowsPacmanConf`.
+- **System health: AUR packages held on purpose are not an alarm** (#283). A package flagged out of date whose update is waiting in the 72 h cooldown (the maintainer has published the fix) and one the AUR audit holds no longer make the AUR row say "look"; the row mentions them ("1 update held (cooldown)", "1 held by the AUR audit"). Packages gone from the AUR, and flagged ones with no update pending, still do. With paru nothing is held by the cooldown. `TestAURHeldIsNotAnAlarm`.
+
 ### Added
 
 - **Held updates in the GUI** (#280). The Updates card's "N held" is now a link ("4 held ›", accent colour, always underlined, tooltip "Show held updates"); it shows only while something is held, either by the cooldown (a current check lists AUR updates younger than 72 h) or by an AUR audit. It opens a "Held updates" sheet: "Cooldown · newer than 72 h" with a `held 2d4h` tag, the package, `from → to · free in 20 h` ("free soon" when the check could not read its age, which still counts as held) and a "Review and update" button, and "Held by the AUR audit" with the finding and an "Open audit" button (the existing Audit AUR packages action). An empty section is hidden, and the list scrolls beside its scrollbar, never under it. "Review and update" is the Packages page's AUR install for exactly that package: the plan, the PKGBUILD review box you have to tick, then the root helper's install, with the same password rules; it never skips the review, never touches the page's own list, waits for repository updates like any install, and checks for updates again when the run is over so the list follows.
