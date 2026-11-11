@@ -275,7 +275,7 @@ only the relay's counters are lost. Then collect, merge, and reset:
 ```sh
 $V/vm.sh sudo 'tar -C / -czf /tmp/archmaid-cover.tgz var/lib/archmaid-cover home/enzord/archmaid-cover && chown enzord /tmp/archmaid-cover.tgz'
 out=$(mktemp -d) && $V/vm.sh get /tmp/archmaid-cover.tgz "$out/" && tar -C "$out" -xzf "$out/archmaid-cover.tgz"
-scripts/cover-merge.sh -o "$(mktemp -d)" "$COVER_OUT/merged/covdata" "$out/var/lib/archmaid-cover" "$out/home/enzord/archmaid-cover"
+scripts/cover-merge.sh -o "$(mktemp -d)" "$COVER_OUT/merged/covdata" "$out/var/lib/archmaid-cover" "$out/home/$USER/archmaid-cover"
 $V/run.sh --reset
 ```
 

@@ -93,7 +93,7 @@ func longPrompts() []struct {
 		findings = append(findings, engine.AuditFinding{Name: fmt.Sprintf("aur-package-%02d-git", i), High: i%7 == 0,
 			Flags: []string{"new maintainer", "out of date"}, Reason: "maintainer someone → " + strings.Repeat("someone-else", 3)})
 	}
-	longPath := "/home/enzord/" + strings.Repeat("a-deep-folder/", 12) + "and-a-file-name-without-any-breaks-" + strings.Repeat("z", 60)
+	longPath := "~/" + strings.Repeat("a-deep-folder/", 12) + "and-a-file-name-without-any-breaks-" + strings.Repeat("z", 60)
 	type p = struct {
 		name     string
 		ev       engine.Event

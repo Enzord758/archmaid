@@ -289,7 +289,7 @@ optional `checkupdates` (see below), no network.
     "steps_refused": 0,
     "dry_run": false
   },
-  "log_dir": "/home/enzord/.local/state/archmaid",
+  "log_dir": "~/.local/state/archmaid",
   "aur": {
     "snapshot": { "present": true, "readable": true, "packages": 27, "age_days": 3 },
     "high_unacked": 0,
