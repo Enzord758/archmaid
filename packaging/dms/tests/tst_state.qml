@@ -400,10 +400,10 @@ TestCase {
 
     function test_launchPlan() {
         compare(State.launchPlan(true, "kitty", true).argv, ["archmaid-gui", "--confirm", "fullcleanup"]);
-        compare(State.launchPlan(false, "kitty", true).argv, ["kitty", "-e", "archmaid"]);
-        compare(State.launchPlan(false, "  foot  --server ", false).argv, ["foot", "--server", "-e", "archmaid"]);
-        compare(State.launchPlan(false, "", true).argv, ["xdg-terminal-exec", "archmaid"]);
-        compare(State.launchPlan(false, undefined, true).argv, ["xdg-terminal-exec", "archmaid"]);
+        compare(State.launchPlan(false, "kitty", true).argv, ["kitty", "-e", "archmaid", "--full-cleanup"]);
+        compare(State.launchPlan(false, "  foot  --server ", false).argv, ["foot", "--server", "-e", "archmaid", "--full-cleanup"]);
+        compare(State.launchPlan(false, "", true).argv, ["xdg-terminal-exec", "archmaid", "--full-cleanup"]);
+        compare(State.launchPlan(false, undefined, true).argv, ["xdg-terminal-exec", "archmaid", "--full-cleanup"]);
         const none = State.launchPlan(false, "   ", false);
         verify(none.argv === undefined);
         verify(none.error.indexOf("TERMINAL") >= 0);

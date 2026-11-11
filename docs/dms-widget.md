@@ -236,7 +236,8 @@ Found: dms-shell 1.6.2-1, quickshell 0.3.1-1.1. Installed plugins in
 - Helper: installed or not (hint text only).
 - Button **Run Full Cleanup**: launches `archmaid-gui --confirm fullcleanup` (the
   GTK app opened on Full Cleanup's confirm) if `archmaid-gui` is on PATH, else
-  `$TERMINAL -e archmaid` (setting: command override). It only *starts a UI*;
+  `$TERMINAL -e archmaid --full-cleanup` (setting: command override; the TUI
+  opens on the same gate). It only *starts a UI*;
   all authentication happens there.
 - Button Refresh.
 

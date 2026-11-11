@@ -710,6 +710,8 @@ function ago(then, now) {
 //   hasGui      archmaid-gui is on PATH
 //   terminal    value of $TERMINAL ("" or undefined when unset)
 //   hasXdgTerm  xdg-terminal-exec is on PATH
+// The TUI fallback passes --full-cleanup, so it opens Full Cleanup's gate like
+// the GUI's --confirm fullcleanup does.
 // Returns {argv:[...]} or {error:"..."}. argv is never run through a shell.
 function launchPlan(hasGui, terminal, hasXdgTerm) {
     if (hasGui)
@@ -718,8 +720,8 @@ function launchPlan(hasGui, terminal, hasXdgTerm) {
         return w.length > 0;
     });
     if (words.length > 0)
-        return { argv: words.concat(["-e", "archmaid"]) };
+        return { argv: words.concat(["-e", "archmaid", "--full-cleanup"]) };
     if (hasXdgTerm)
-        return { argv: ["xdg-terminal-exec", "archmaid"] };
+        return { argv: ["xdg-terminal-exec", "archmaid", "--full-cleanup"] };
     return { error: "Set $TERMINAL (for example kitty) or install xdg-terminal-exec to open the archmaid TUI" };
 }

@@ -72,7 +72,9 @@ binary would shadow the package's.
      co-maintainer records, so a takeover would pass without a warning.
    - It writes none of the state files the widget reads.
 
-2. **Try a dry run**: `archmaid --dryrun`, or in the GUI: Settings → Dry
+2. **Try a dry run**: `archmaid --dryrun` (add `-fc` or `--full-cleanup` to open
+   Full Cleanup's confirm at once; it asks before anything runs, and declining
+   lands on the menu; `-fc` is one token, not `-f -c`), or in the GUI: Settings → Dry
    run. A dry run changes nothing except the `dryrun/` log folder. It still
    asks the AUR (one request) and runs the read-only orphan query.
 3. **For the GUI, polkit's `pkttyagent`** (part of the `polkit` package)

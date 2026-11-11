@@ -336,7 +336,7 @@ if want help-and-bad-flag; then
 	hc="$SCRATCH_ROOT/help-cover" # outside $h: the check below wants $h empty
 	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" $(cover_env "$hc") ./archmaid --help 2>&1)" || rc=$?
 	[[ $rc -eq 0 ]] || fail "help: --help exited $rc"
-	[[ "$out" == *"Usage: archmaid"* && "$out" == *"--dryrun"* && "$out" == *"--downloads"* ]] ||
+	[[ "$out" == *"Usage: archmaid"* && "$out" == *"--dryrun"* && "$out" == *"--downloads"* && "$out" == *"-fc, --full-cleanup"* ]] ||
 		fail "help: usage text incomplete: $out"
 	rc=0; out="$(env HOME="$h" XDG_STATE_HOME="$h/.local/state" $(cover_env "$hc") ./archmaid --bogus 2>&1)" || rc=$?
 	[[ $rc -eq 2 ]] || fail "help: --bogus exited $rc, want 2"
@@ -361,4 +361,19 @@ if want fullcleanup-gate-declined; then
 	[[ ! -e "$STATE_DIR/last-run.json" ]] || fail "gate: a dry run wrote the real last-run slot"
 	refuse "$CLEANUP_LOG" "." "gate: a declined gate wrote to the cleanup log"
 	echo "PASS: declined gate returned to the menu; nothing ran and no last-run record was written"
+fi
+
+if want fullcleanup-flag-declined; then
+	# --dryrun --full-cleanup: the tape sends no key before the gate shows, so
+	# the gate was opened by the flag alone. Declined, as the menu's pick is.
+	run_tape fullcleanup-flag-declined
+	need "$TXT" "Proceed with full cleanup" "flag: --full-cleanup did not open the gate"
+	[[ "$(awk '/Proceed with full cleanup/{a=NR} /Full Cleanup/{m=NR} END{print (m>a)}' "$TXT")" == 1 ]] ||
+		fail "flag: the menu did not reappear after declining"
+	if grep -qvE "^pacman -Qqm --color never$" "$SHIM_LOG"; then cat "$SHIM_LOG"; fail "flag: a declined gate ran commands"; fi
+	refuse "$TXT" "Summary|DRYRUN" "flag: a declined gate produced a summary"
+	[[ ! -e "$STATE_DIR/dryrun/last-run.json" ]] || fail "flag: a declined gate wrote a dry-run last-run record"
+	[[ ! -e "$STATE_DIR/last-run.json" ]] || fail "flag: a dry run wrote the real last-run slot"
+	refuse "$CLEANUP_LOG" "." "flag: a declined gate wrote to the cleanup log"
+	echo "PASS: --full-cleanup opened the gate; declined: the menu, nothing ran, no last-run record"
 fi

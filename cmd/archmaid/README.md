@@ -126,6 +126,16 @@ it would do* instead of running it, logs **every** step (not just failures) to
 discovery still runs, so the menus show real data. A `[dry-run]` tag appears in
 the header. This is the safe way to exercise the whole UI.
 
+## Start at Full Cleanup
+
+`archmaid -fc` (or `archmaid --full-cleanup`, the same flag) starts the TUI and opens Full Cleanup
+at once, as if you had picked "Full Cleanup (Recommended)" in the menu: its gate shows first and
+nothing runs before you confirm; the password and audit flow then follows as usual. Declining the
+gate lands on the menu, as after picking it by hand. It combines with `--dryrun` and `--downloads`
+in any order, and repeating it is harmless. `-fc` is a single token, not combined short flags:
+`-f` and `-c` alone are unknown options (exit 2). The GUI's counterpart is `archmaid-gui --confirm
+fullcleanup`.
+
 ## Downloads folder
 
 "Delete old downloads" cleans the first of these that is an existing folder:
