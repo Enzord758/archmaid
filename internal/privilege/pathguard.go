@@ -10,12 +10,12 @@ import (
 
 // The kept password's PATH guard (docs/HANDOVER.md, "archmaid doesn't trust
 // PATH for privilege"). archmaid runs su, sudo and pkexec by absolute path
-// (internal/sysbin), but topgrade, yay and makepkg start sudo by name, on
+// (internal/sysbin), but topgrade, paru, yay and makepkg start sudo by name, on
 // the PATH archmaid hands the step. A program called sudo in a directory
 // that comes first (~/.local/bin, a relative entry, a dir an installer
 // added) runs instead of /usr/bin/sudo. A script there that execs the real
 // sudo with a command of its own (`exec /usr/bin/sudo -A sh -c '…'`) is
-// then sudo, run by yay: the askpass request passes Request.Verify and
+// then sudo, run by paru or yay: the askpass request passes Request.Verify and
 // Requester.KeptMayAnswer, and the kept password would answer it without a
 // dialog. So the Driver scans the step's PATH when a step that gets the
 // askpass starts, and turns the kept password off for the run when
@@ -31,7 +31,7 @@ var ShadowNames = []string{"sudo", "sudo-rs", "doas", "run0", "please", "su", "p
 // A Shadow is what could stand in for a privileged program on a step's
 // PATH: a file named one of ShadowNames in a directory before the system's
 // own file of that name (PathShadows), or a relative PATH entry (searched
-// from whatever directory the program that looks runs in: yay builds in
+// from whatever directory the program that looks runs in: the AUR helper builds in
 // the package's own folder).
 type Shadow struct {
 	// Path is the file, or the relative PATH entry as written ("" is the

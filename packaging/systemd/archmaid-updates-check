@@ -1,9 +1,15 @@
 #!/bin/sh
 # Counts pending updates for the archmaid DMS widget: repo updates with
-# checkupdates (pacman-contrib) and AUR updates with `yay -Qua`. Run by
-# archmaid-updates-check.service (a systemd USER unit) as the logged-in user:
-# no root, no sudo. checkupdates syncs its own temporary database and
-# `yay -Qua` only queries, so the system's pacman db is not touched.
+# checkupdates (pacman-contrib) and AUR updates with `paru -Qua` or `yay -Qua`.
+# Run by archmaid-updates-check.service (a systemd USER unit) as the logged-in
+# user: no root, no sudo. checkupdates syncs its own temporary database and
+# `-Qua` only queries, so the system's pacman db is not touched.
+#
+# The AUR helper is the one archmaid works with (internal/aurhelper, the same
+# choice): [linux] arch_package_manager in the user's topgrade config
+# (~/.config/topgrade.toml, or topgrade/topgrade.toml there; $XDG_CONFIG_HOME
+# honoured) when it says paru or yay and that program is installed, else the
+# first installed of paru, yay (topgrade's autodetect order), else none.
 #
 # Output: ~/.local/state/archmaid/updates-cache.json, 0600, replaced atomically:
 #   {"v":3,"count":10,"repo":9,"aur":1,"aur_held":2,"checked":"2026-10-04T17:55:00+02:00",
@@ -11,7 +17,7 @@
 #                {"name":"zen-browser-bin","from":"1.17.2-1","to":"1.17.3-1","src":"aur","held":false,"age":"3d4h"},
 #                {"name":"spotify","from":"1.2.74-1","to":"1.2.76-1","src":"aur","held":true,"age":"2d4h"}]}
 # packages  the pending updates themselves (schema v3), for the widget's list:
-#   the repo lines first (checkupdates order), then the AUR lines (yay order),
+#   the repo lines first (checkupdates order), then the AUR lines (the helper's order),
 #   at most 200 in all, cut from the end (no truncated field: the widget works
 #   "N more not shown" out from the counts). Per entry: name, from, to, src
 #   ("repo" or "aur"); AUR entries also have held (bool, the same test as
@@ -19,17 +25,20 @@
 #   readable). Allow-list: name ^[A-Za-z0-9@._+-]{1,64}$ (64 = audit.FieldMax),
 #   from and to ^[A-Za-z0-9._+:~-]{1,48}$, age ^[0-9]+[dhms]([0-9]+[dhms])*$.
 #   A line that fails it, or is not exactly "name old -> new" (plus " [age]"
-#   for yay), is dropped from packages but still counted. Nothing is escaped:
+#   for yay), is dropped from packages but still counted (paru's " [ignored]"
+#   lines are not updates and are not counted). Nothing is escaped:
 #   only allow-listed text is ever printed inside quotes, so the JSON cannot
 #   break whatever a package or an AUR maintainer calls things. If building the
 #   list fails, the counts are still written, as v3 without packages (= no
 #   list). Size: at most 200 entries of < 250 bytes, far below 1 MiB.
 # repo      pending repo updates (checkupdates)
-# aur       pending AUR updates yay's cooldown would let through
-# aur_held  pending AUR updates younger than the cooldown (yay would hold them back)
+# aur       pending AUR updates yay's cooldown would let through (with paru, which
+#           has no cooldown and prints no age tags, all of them)
+# aur_held  pending AUR updates younger than the cooldown (yay would hold them back;
+#           always 0 with paru)
 # count     repo + aur (held ones are not counted)
-# aur and aur_held are null when yay is not installed or its check failed; the
-# repo count is still written. When checkupdates fails (offline, db locked) the
+# aur and aur_held are null when no AUR helper is installed or its check failed;
+# the repo count is still written. When checkupdates fails (offline, db locked) the
 # old file is left as it is; the widget treats a count older than 3 days as
 # unknown.
 #
@@ -37,6 +46,11 @@
 # 1 = no updates, with nothing on stderr (printUpdateList returns an error with
 # an empty message, which main does not log); 1 with a message on stderr, or
 # any other status (e.g. 124 from timeout) = failure.
+# paru -Qua (Morganamilo/paru src/query.rs print_upgrade_list): lines
+# "name old -> new" (the new version "latest-commit" for a -git package, " [ignored]"
+# appended to an ignored one), exit 0 when something is listed and 1 when
+# nothing is; an AUR error is an error message on stderr and exit 1. The same
+# rule as yay's covers it.
 #
 # Each listed AUR update ends in an age tag such as [1d9h], [3d], [6h54m]
 # (yay pkg/text FormatAgeTag/FormatDuration): the time since the AUR package's
@@ -44,7 +58,8 @@
 # to minutes and then to its two largest units, so the shown age is never
 # larger than the real one. "3d" is therefore >= 72 h (eligible) and "2d23h" is
 # < 72 h (held). A line without a readable tag (older yay, odd output) cannot be
-# dated and counts as held, never as eligible.
+# dated and counts as held, never as eligible. paru prints no tags and has no
+# cooldown: there every listed update is eligible and none is held.
 set -eu
 umask 077
 
@@ -74,11 +89,49 @@ case "$rc" in
 	;;
 esac
 
-# split_aur reads a `yay -Qua` listing and prints "<eligible> <held>".
+# The AUR helper (see the header): the topgrade config's choice when it is
+# paru or yay and installed, else the first installed of paru, yay.
+helper=""
+cfgdir="$HOME/.config"
+case "${XDG_CONFIG_HOME:-}" in /*) cfgdir="$XDG_CONFIG_HOME" ;; esac
+want=""
+for f in "$cfgdir/topgrade.toml" "$cfgdir/topgrade/topgrade.toml"; do
+	[ -r "$f" ] || continue
+	want="$(awk '
+		/^[ \t]*\[/ { s = $0; sub(/[ \t]*#.*$/, "", s); sub(/^[ \t]+/, "", s); inlinux = (s == "[linux]"); next }
+		inlinux && /^[ \t]*arch_package_manager[ \t]*=/ {
+			v = $0; sub(/^[^=]*=[ \t]*/, "", v)
+			q = substr(v, 1, 1)
+			if (q != "\"" && q != "\047") exit
+			v = substr(v, 2); e = index(v, q)
+			if (e > 0) print substr(v, 1, e - 1)
+			exit
+		}' "$f" 2>/dev/null)" || want=""
+	break
+done
+case "$want" in
+paru | yay) command -v "$want" >/dev/null 2>&1 && helper="$want" ;;
+esac
+if [ -z "$helper" ]; then
+	for h in paru yay; do
+		if command -v "$h" >/dev/null 2>&1; then
+			helper="$h"
+			break
+		fi
+	done
+fi
+# paru prints no age tags and holds nothing back: notag=1 makes every listed
+# update eligible and drops its " [ignored]" lines.
+notag=0
+[ "$helper" = paru ] && notag=1
+
+# split_aur reads a `<helper> -Qua` listing and prints "<eligible> <held>".
 split_aur() {
 	esc="$(printf '\033')"
-	sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | awk -v hours="$COOLDOWN_HOURS" '
+	sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | awk -v hours="$COOLDOWN_HOURS" -v notag="$notag" '
 	NF == 0 { next }
+	notag && / \[ignored\]$/ { next }
+	notag { eligible++; next }
 	{
 		ok = 0
 		if (match($0, /\[[0-9]+[dhms]([0-9]+[dhms])*\]$/)) {
@@ -101,8 +154,9 @@ split_aur() {
 # joined by commas, no trailing newline: $1 = repo|aur, $2 = most entries.
 list_json() {
 	esc="$(printf '\033')"
-	sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | LC_ALL=C awk -v src="$1" -v max="$2" -v hours="$COOLDOWN_HOURS" '
+	sed "s/${esc}\\[[0-9;]*[A-Za-z]//g" | LC_ALL=C awk -v src="$1" -v max="$2" -v hours="$COOLDOWN_HOURS" -v notag="$notag" '
 	n >= max || index($0, "\t") { next }
+	notag && / \[ignored\]$/ { next }
 	{
 		line = $0
 		tag = ""
@@ -116,8 +170,8 @@ list_json() {
 		if (f[1] !~ /^[A-Za-z0-9@._+-]+$/ || f[2] !~ /^[A-Za-z0-9._+:~-]+$/ || f[4] !~ /^[A-Za-z0-9._+:~-]+$/) next
 		e = sprintf("{\"name\":\"%s\",\"from\":\"%s\",\"to\":\"%s\",\"src\":\"%s\"", f[1], f[2], f[4], src)
 		if (src == "aur") {
-			isheld = 1
-			if (tag != "") {
+			isheld = notag ? 0 : 1
+			if (tag != "" && !notag) {
 				t = tag
 				secs = 0
 				while (match(t, /^[0-9]+[dhms]/)) {
@@ -129,7 +183,7 @@ list_json() {
 				isheld = !(secs >= hours * 3600)
 			}
 			e = e sprintf(",\"held\":%s", isheld ? "true" : "false")
-			if (tag != "") e = e sprintf(",\"age\":\"%s\"", tag)
+			if (tag != "" && !notag) e = e sprintf(",\"age\":\"%s\"", tag)
 		}
 		printf "%s%s}", (n++ ? "," : ""), e
 	}'
@@ -139,15 +193,15 @@ aur=null
 held=null
 ylist=""
 yok=""
-if command -v yay >/dev/null 2>&1; then
+if [ -n "$helper" ]; then
 	errf="$(mktemp "$state/updates-yay.err.XXXXXX")"
 	# No TTY under systemd: stdin from /dev/null so nothing can prompt, and a
 	# timeout so a hung AUR/network call cannot block the unit.
 	yrc=0
 	if command -v timeout >/dev/null 2>&1; then
-		ylist="$(timeout 120 yay -Qua </dev/null 2>"$errf")" || yrc=$?
+		ylist="$(timeout 120 "$helper" -Qua </dev/null 2>"$errf")" || yrc=$?
 	else
-		ylist="$(yay -Qua </dev/null 2>"$errf")" || yrc=$?
+		ylist="$("$helper" -Qua </dev/null 2>"$errf")" || yrc=$?
 	fi
 	case "$yrc" in
 	0) set -- $(printf '%s\n' "$ylist" | split_aur) && aur=$1 && held=$2 && yok=1 ;;
@@ -157,10 +211,10 @@ if command -v yay >/dev/null 2>&1; then
 			held=0
 			yok=1
 		else
-			echo "archmaid-updates-check: yay -Qua failed (exit 1), AUR count unknown" >&2
+			echo "archmaid-updates-check: $helper -Qua failed (exit 1), AUR count unknown" >&2
 		fi
 		;;
-	*) echo "archmaid-updates-check: yay -Qua failed (exit $yrc), AUR count unknown" >&2 ;;
+	*) echo "archmaid-updates-check: $helper -Qua failed (exit $yrc), AUR count unknown" >&2 ;;
 	esac
 fi
 

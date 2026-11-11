@@ -11,7 +11,7 @@ import (
 )
 
 // The TUI's sudo wrapper (docs/HANDOVER.md, "Nothing may prompt on the raw
-// tty"). topgrade, yay and makepkg start sudo by name, and in the TUI their
+// tty"). topgrade, paru, yay and makepkg start sudo by name, and in the TUI their
 // sudo has the TUI's terminal: without a reusable ticket (timestamp_timeout=0,
 // a lapsed or dropped one) it would prompt there, under the full-screen UI,
 // outside archmaid. So the TUI's askpass Server also writes a `sudo` of its
@@ -20,8 +20,8 @@ import (
 // a sudo started by name is then this script, which execs the real sudo by
 // absolute path (sysbin.Sudo, fixed when it is written) with -A, so a
 // password goes through archmaid's popup (and Request.Answer's su check),
-// never the terminal. It execs, so the real sudo's parent stays topgrade or
-// yay, and Request.Verify sees the same process tree as without it.
+// never the terminal. It execs, so the real sudo's parent stays topgrade or the AUR helper (paru or
+// yay), and Request.Verify sees the same process tree as without it.
 //
 // -A is left out when the caller already said how sudo gets its password
 // (-A/--askpass, -S/--stdin, -n/--non-interactive, also in a cluster such as

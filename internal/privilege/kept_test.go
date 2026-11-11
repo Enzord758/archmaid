@@ -138,7 +138,8 @@ func TestBytesRefuseALineBreak(t *testing.T) {
 }
 
 // The chain Verify reports runs from sudo's caller up to the step, and the
-// kept password may answer only when it is all topgrade and yay.
+// kept password may answer only when it is all topgrade and an AUR helper
+// (paru or yay, at their package paths).
 func TestRequesterChain(t *testing.T) {
 	req, _ := unverifiedPipeRequest(t)
 	from, err := verifyAgainst(t, req, fakeTree())
@@ -154,6 +155,17 @@ func TestRequesterChain(t *testing.T) {
 		{"/usr/bin/yay", "", "/usr/bin/topgrade"},
 		{"/usr/bin/makepkg"},
 		{"/home/me/topgrade"},
+		// A paru or yay that is not the package's: found earlier on PATH, or
+		// just named alike.
+		{"/home/me/.local/bin/paru", "/usr/bin/topgrade"},
+		{"/usr/local/bin/paru", "/usr/bin/topgrade"},
+		{"/usr/local/bin/yay", "/usr/bin/topgrade"},
+		{"paru", "/usr/bin/topgrade"},
+		{"/usr/bin/paru-bin", "/usr/bin/topgrade"},
+		{"/usr/bin/paruu", "/usr/bin/topgrade"},
+		{"/usr/bin/pikaur", "/usr/bin/topgrade"},
+		{"/usr/bin/trizen", "/usr/bin/topgrade"},
+		{"/usr/bin/paru", "/usr/bin/makepkg", "/usr/bin/topgrade"},
 	} {
 		if (Requester{Chain: chain}).KeptMayAnswer() {
 			t.Errorf("chain %q may have the kept password", chain)

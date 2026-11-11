@@ -486,11 +486,20 @@ type Requester struct {
 }
 
 // keptCallers are the programs the GUI's kept password (KeptPassword) may
-// answer a sudo for: topgrade, the step, and the yay it runs. pacman never
-// runs sudo (it runs as root under it), and nothing else belongs between
-// the step and its sudo: a makepkg, or a shell from a PKGBUILD's build(),
-// gets the user's dialog naming it, never the kept password.
-var keptCallers = map[string]bool{"/usr/bin/topgrade": true, "/usr/bin/yay": true}
+// answer a sudo for: topgrade, the step, and the AUR helper it runs, paru or
+// yay (internal/aurhelper: the two it supports, topgrade's own pair). Only
+// these absolute paths, as the kernel reports a process's real binary
+// (/proc/<pid>/exe): a paru or yay found elsewhere on PATH, whatever it is
+// called, is not one. pacman never runs sudo (it runs as root under it), and
+// nothing else belongs between the step and its sudo: a makepkg, or a shell
+// from a PKGBUILD's build(), gets the user's dialog naming it, never the kept
+// password. Adding a helper here is a security decision: it can ask for the
+// password and is trusted to ask only for what it is running.
+var keptCallers = map[string]bool{
+	"/usr/bin/topgrade": true,
+	"/usr/bin/paru":     true,
+	"/usr/bin/yay":      true,
+}
 
 // KeptMayAnswer reports whether the kept password may answer this request:
 // every process from sudo's caller up to the step's child is one of the

@@ -14,7 +14,7 @@ import (
 )
 
 // The kept password's PATH guard (privilege.PathShadows; docs/HANDOVER.md,
-// "archmaid doesn't trust PATH for privilege"). Topgrade, and the yay and
+// "archmaid doesn't trust PATH for privilege"). Topgrade, and the paru, yay and
 // makepkg it runs, start sudo by name on the step's PATH; something that
 // stands in for sudo there would be answered from the kept password
 // without a dialog. So when a step that gets the askpass starts its child,

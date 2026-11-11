@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -219,6 +220,19 @@ func updatesRun(t *testing.T, out string, rc int, yay *yayShim, old string) (str
 // (to make a step of the script fail).
 func updatesRunTools(t *testing.T, out string, rc int, yay *yayShim, old, skip string) (string, error) {
 	t.Helper()
+	var helpers map[string]*yayShim
+	if yay != nil {
+		helpers = map[string]*yayShim{"yay": yay}
+	}
+	raw, _, err := updatesRunHelpers(t, out, rc, helpers, "", old, skip)
+	return raw, err
+}
+
+// updatesRunHelpers is the general form: fake AUR helpers by name (paru, yay),
+// and topgradeConf, the content of ~/.config/topgrade.toml ("" = none). It also
+// returns the names of the helpers the script ran, sorted.
+func updatesRunHelpers(t *testing.T, out string, rc int, helpers map[string]*yayShim, topgradeConf, old, skip string) (string, []string, error) {
+	t.Helper()
 	bin := t.TempDir()
 	for _, tool := range []string{"sh", "mktemp", "date", "grep", "chmod", "mkdir", "rm", "mv", "cat", "timeout", "sed", "awk"} {
 		if tool == skip {
@@ -246,15 +260,24 @@ func updatesRunTools(t *testing.T, out string, rc int, yay *yayShim, old, skip s
 		return f
 	}
 	shim("checkupdates", "cat "+put("cu.out", out)+"\nexit "+strconv.Itoa(rc)+"\n")
-	if yay != nil {
-		// The script must ask for exactly -Qua and give yay no stdin.
-		shim("yay", "[ \"$*\" = -Qua ] || exit 64\nif read -r _; then exit 65; fi\n"+
-			"cat "+put("yay.out", yay.out)+"\ncat "+put("yay.err", yay.err)+" >&2\nexit "+strconv.Itoa(yay.rc)+"\n")
+	for name, h := range helpers {
+		// The script must ask for exactly -Qua and give the helper no stdin.
+		shim(name, "[ \"$*\" = -Qua ] || exit 64\nif read -r _; then exit 65; fi\n"+
+			"echo "+name+" >>"+put(name+".ran", "")+"\n"+
+			"cat "+put(name+".out", h.out)+"\ncat "+put(name+".err", h.err)+" >&2\nexit "+strconv.Itoa(h.rc)+"\n")
 	}
 	// The script writes under $HOME/.local/state/archmaid, the folder
 	// logstore and the widget use, whatever XDG_STATE_HOME says: that
 	// variable points at a different scratch dir, which must stay empty.
 	home, other := t.TempDir(), t.TempDir()
+	if topgradeConf != "" {
+		if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".config", "topgrade.toml"), []byte(topgradeConf), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	state := filepath.Join(home, ".local", "state")
 	p := filepath.Join(state, "archmaid", "updates-cache.json")
 	if old != "" {
@@ -272,9 +295,16 @@ func updatesRunTools(t *testing.T, out string, rc int, yay *yayShim, old, skip s
 	if ents, _ := os.ReadDir(other); len(ents) != 0 {
 		t.Fatalf("XDG_STATE_HOME was written to: %v", ents)
 	}
+	var ran []string
+	for name := range helpers {
+		if b, _ := os.ReadFile(filepath.Join(data, name+".ran")); len(b) > 0 {
+			ran = append(ran, name)
+		}
+	}
+	sort.Strings(ran)
 	b, rerr := os.ReadFile(p)
 	if rerr != nil {
-		return "", runErr
+		return "", ran, runErr
 	}
 	if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o600 {
 		t.Fatalf("%s mode = %v, want 0600", p, fi.Mode())
@@ -285,7 +315,7 @@ func updatesRunTools(t *testing.T, out string, rc int, yay *yayShim, old, skip s
 	if ents, _ := os.ReadDir(filepath.Dir(p)); len(ents) != 1 {
 		t.Fatalf("state dir keeps stray files: %v", ents)
 	}
-	return string(b), runErr
+	return string(b), ran, runErr
 }
 
 // updatesWith is updatesRun for a passing script with the given yay.

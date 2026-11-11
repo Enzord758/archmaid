@@ -54,7 +54,7 @@ type Privileged interface {
 // is none. SudoDir is that Server's sudo wrapper directory
 // ((*Server).SudoDir, the TUI's only), or "": with Wrapper, Env puts it
 // first on the PATH of every step that gets the askpass, so a sudo that
-// topgrade, yay or makepkg start by name asks through archmaid
+// topgrade, paru, yay or makepkg start by name asks through archmaid
 // (sudowrap.go).
 type Sudo struct {
 	Wrapper string
@@ -87,7 +87,7 @@ func (Sudo) Probe(ctx context.Context) bool {
 // sudo asks again: with the askpass and the sudo wrapper wired (Wrapper and
 // SudoDir) each such sudo asks through archmaid, so the run goes on and
 // detail is NoTicketNote, with a nil error; without the sudo wrapper,
-// topgrade's and yay's sudo would ask on the terminal, so it is
+// topgrade's and the AUR helper's sudo would ask on the terminal, so it is
 // ErrNoTicket and the run must not start.
 func (s Sudo) Authenticate(ctx context.Context, pw string) (detail string, err error) {
 	if detail, err := CheckPassword(ctx, pw); err != nil {
@@ -100,7 +100,7 @@ func (s Sudo) Authenticate(ctx context.Context, pw string) (detail string, err e
 	if err := cmd.Run(); err != nil {
 		return lockoutNotice(stderr.String()), err
 	}
-	// Is the ticket just minted reusable? topgrade's and yay's own sudo
+	// Is the ticket just minted reusable? topgrade's and the AUR helper's own sudo
 	// reads it. `sudo -n -v` never prompts and never counts toward
 	// faillock; it fails with timestamp_timeout=0, timestamp_type=ppid (the
 	// ticket is bound to the sudo that minted it), or anything else that
@@ -119,7 +119,7 @@ func (s Sudo) Authenticate(ctx context.Context, pw string) (detail string, err e
 // ErrNoTicket is Authenticate's error when the password was right but sudo
 // did not keep a ticket another sudo can reuse, and there is no sudo
 // wrapper to send the steps' own sudo through archmaid (see Authenticate).
-// The run must not start: topgrade's and yay's sudo would prompt on the
+// The run must not start: topgrade's and the AUR helper's sudo would prompt on the
 // terminal.
 var ErrNoTicket = errors.New("privilege: sudo's ticket is not reusable")
 
@@ -131,7 +131,7 @@ const NoTicketNote = "sudo won't keep your password between prompts here, so arc
 
 // NoTicketMessage is what the user is told when ErrNoTicket refuses a run.
 const NoTicketMessage = "sudo didn't keep your password for this terminal (sudo's ticket isn't reusable here, " +
-	"e.g. timestamp_timeout=0). topgrade and yay would then ask for it directly on the terminal, outside " +
+	"e.g. timestamp_timeout=0). topgrade and the AUR helper would then ask for it directly on the terminal, outside " +
 	"archmaid. Run this from archmaid-gui, or allow sudo to keep the ticket."
 
 // Refresh runs `sudo -n -v`, extending the cached ticket non-interactively —

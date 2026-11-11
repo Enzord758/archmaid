@@ -7,7 +7,7 @@
 // check, `sudo -S -v`) or let it stand in for polkit. So archmaid names
 // each one here, by its path on Arch (/usr/bin, where each of these
 // packages installs it), and runs that file. What archmaid's children start
-// by name (topgrade's yay, yay's sudo) still goes through their PATH:
+// by name (topgrade's paru or yay, their sudo) still goes through their PATH:
 // internal/privilege's PATH guard (pathguard.go) covers the kept password
 // there (docs/HANDOVER.md, "archmaid doesn't trust PATH for privilege").
 //
@@ -43,7 +43,8 @@ var (
 	Pkttyagent = "/usr/bin/pkttyagent"
 	// Topgrade is the update step's program (privilege.Sudo.Command runs a
 	// step's "topgrade" from here). The kept password's allowlist
-	// (privilege.Requester.KeptMayAnswer) trusts /usr/bin/topgrade only.
+	// (privilege.Requester.KeptMayAnswer) trusts /usr/bin/topgrade, and the AUR helpers
+	// /usr/bin/paru and /usr/bin/yay it runs.
 	Topgrade = "/usr/bin/topgrade"
 )
 

@@ -10,7 +10,7 @@ package driver
 //     against the running step's child (our uid, our helper, run by sudo,
 //     inside that child's process tree), whose step is a NeedsPriv child,
 //     whose helper is in that child's session (Detach makes every step a
-//     session leader), and whose sudo was started by topgrade or yay with
+//     session leader), and whose sudo was started by topgrade or the AUR helper with
 //     nothing else between it and the step (Requester.KeptMayAnswer: a
 //     makepkg or a PKGBUILD's shell gets the user's dialog). A sudo process
 //     that asks a second time was refused what it got: the kept password
