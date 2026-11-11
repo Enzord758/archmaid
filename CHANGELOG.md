@@ -2,14 +2,13 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2`, `v2.5.2..v2.5.3`, `v2.5.3..v2.5.4`, `v2.5.4..v2.5.5`, `v2.5.5..v2.6.0`, `v2.6.0..v2.6.1` and `v2.6.1..v2.6.2`.
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2`, `v2.5.2..v2.5.3`, `v2.5.3..v2.5.4`, `v2.5.4..v2.5.5`, `v2.5.5..v2.6.0`, `v2.6.0..v2.6.1` and `v2.6.1..v2.7.0`.
 
 ## [Unreleased]
 
-### Fixed
+## [2.7.0] - 2026-11-12
 
-- **System health: the mirror check looks at the mirror pacman uses** (#283). It took the first `Server =` of `/etc/pacman.d/mirrorlist`, but pacman uses the first server of `[core]` in `pacman.conf`'s order, so a `Server =` line written in `[core]` before its `Include` (a LAN mirror) was never the one checked. It now asks `pacman-conf --repo core Server` (read only) and checks that server's `/lastsync`, and names it ("192.168.1.189:8099 synced 20 min ago"); without pacman-conf it falls back to the mirrorlist's first. `TestMirrorFollowsPacmanConf`.
-- **System health: AUR packages held on purpose are not an alarm** (#283). A package flagged out of date whose update is waiting in the 72 h cooldown (the maintainer has published the fix) and one the AUR audit holds no longer make the AUR row say "look"; the row mentions them ("1 update held (cooldown)", "1 held by the AUR audit"). Packages gone from the AUR, and flagged ones with no update pending, still do. With paru nothing is held by the cooldown. `TestAURHeldIsNotAnAlarm`.
+It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
 ### Added
 
@@ -18,17 +17,16 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 - **Held updates in the GUI** (#280). The Updates card's "N held" is now a link ("4 held ›", accent colour, always underlined, tooltip "Show held updates"); it shows only while something is held, either by the cooldown (a current check lists AUR updates younger than 72 h) or by an AUR audit. It opens a "Held updates" sheet: "Cooldown · newer than 72 h" with a `held 2d4h` tag, the package, `from → to · free in 20 h` ("free soon" when the check could not read its age, which still counts as held) and a "Review and update" button, and "Held by the AUR audit" with the finding and an "Open audit" button (the existing Audit AUR packages action). An empty section is hidden, and the list scrolls beside its scrollbar, never under it. "Review and update" is the Packages page's AUR install for exactly that package: the plan, the PKGBUILD review box you have to tick, then the root helper's install, with the same password rules; it never skips the review, never touches the page's own list, waits for repository updates like any install, and checks for updates again when the run is over so the list follows.
 - **paru works as well as yay** (#278). archmaid picks the AUR helper the way topgrade does: the `arch_package_manager` in your topgrade config when it is paru or yay and installed, else the first installed of paru, yay. Full Cleanup's AUR cache step runs it (`paru -Sc --aur --noconfirm` in the GUI, `paru -Sc --noconfirm` in the TUI, the same flags as yay's), the run summary measures paru's clone folder, the widget's update check lists `paru -Qua` (paru has no age tags, so all its AUR updates count as waiting), and paru may ask for the kept password in the GUI as yay does, only at `/usr/bin/paru`. With neither installed the step says so and does nothing. The package suggests both as optional dependencies.
 
-### Fixed
-
-- **"Edit topgrade config" no longer writes a key topgrade rejects** (#278). The default file had `aur_command = "yay"` in `[linux]`, which topgrade does not have (its parser refuses unknown keys there), so a new config made topgrade fail to start. It names the installed helper with `arch_package_manager` now, or leaves the choice to topgrade.
-
-## [2.6.2] - 2026-11-11
-
-It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
-
 ### Changed
 
 - **Packaging: `udisks2` is an optional dependency of archmaid-gui-git, and the widget's optional dependency is named `dux-shell`.** System health's Drive health row reads SMART from udisks2 and shows unknown without it; DMS is now packaged as `dux-shell`, which replaces and provides `dms-shell`, so the old name still resolved.
+
+### Fixed
+
+- **System health: the mirror check looks at the mirror pacman uses** (#283). It took the first `Server =` of `/etc/pacman.d/mirrorlist`, but pacman uses the first server of `[core]` in `pacman.conf`'s order, so a `Server =` line written in `[core]` before its `Include` (a LAN mirror) was never the one checked. It now asks `pacman-conf --repo core Server` (read only) and checks that server's `/lastsync`, and names it ("192.168.1.189:8099 synced 20 min ago"); without pacman-conf it falls back to the mirrorlist's first. `TestMirrorFollowsPacmanConf`.
+- **System health: AUR packages held on purpose are not an alarm** (#283). A package flagged out of date whose update is waiting in the 72 h cooldown (the maintainer has published the fix) and one the AUR audit holds no longer make the AUR row say "look"; the row mentions them ("1 update held (cooldown)", "1 held by the AUR audit"). Packages gone from the AUR, and flagged ones with no update pending, still do. With paru nothing is held by the cooldown. `TestAURHeldIsNotAnAlarm`.
+- **"Edit topgrade config" no longer writes a key topgrade rejects** (#278). The default file had `aur_command = "yay"` in `[linux]`, which topgrade does not have (its parser refuses unknown keys there), so a new config made topgrade fail to start. It names the installed helper with `arch_package_manager` now, or leaves the choice to topgrade.
+- **The kept password stays off when a helper's own config picks its sudo or pacman** (#282). A paru, yay or topgrade whose config (paru.conf `Sudo`/`Pacman`/`PacmanConf`, yay's `sudobin`/`pacmanbin`/`pacmanconf`, topgrade's `sudo_command`) names something other than the system's own is no longer answered from the password archmaid keeps for the run: such a config could be written by a package's build script. The run then asks at each prompt and logs which file did it. Ordinary configs change nothing.
 
 ## [2.6.1] - 2026-11-10
 
@@ -541,8 +539,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.6.2...HEAD
-[2.6.2]: https://github.com/Enzord758/archmaid/compare/v2.6.1...v2.6.2
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.7.0...HEAD
+[2.7.0]: https://github.com/Enzord758/archmaid/compare/v2.6.1...v2.7.0
 [2.6.1]: https://github.com/Enzord758/archmaid/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/Enzord758/archmaid/compare/v2.5.5...v2.6.0
 [2.5.5]: https://github.com/Enzord758/archmaid/compare/v2.5.4...v2.5.5
