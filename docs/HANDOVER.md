@@ -746,6 +746,20 @@ comments and `git log`; this is the "read before you touch it" list.
     timeout: off; only a real `NeedsPriv` child under `KeepPassword`; the
     owner's `PATH` shape: on). Its stand-in `/usr/bin` holds every name,
     as Arch's holds `su`, `pkexec` and `run0`.
+    **The config guard (#282)** is the same scan's second half
+    (`privilege.ConfigShadows`, in the same timed goroutine): topgrade,
+    paru and yay choose the sudo they run, and the pacman and pacman.conf
+    that sudo runs as root, from files the user (so a build script of an
+    earlier run) can write: topgrade.toml `sudo_command`; paru.conf `Sudo`,
+    `SudoFlags`, `Pacman`, `PacmanConf`, `Include` (`$PARU_CONF` honoured); yay's
+    config.json / init.lua `sudobin`, `sudoflags`, `pacmanbin`, `pacmanconf`.
+    A script named there that `exec`s the real `sudo -A` is a kept caller's
+    child, so the kept password would answer it. Any of those set to
+    something but the system's own value, or a config file that can't be
+    read, turns the kept password off like a shadow (`configguard_test.go`,
+    `internal/driver/configguard_test.go`). Flag-only keys the guard does not
+    read (paru's `[bin]` others, topgrade `[commands]`) run as the user or
+    under a shell, which `keptCallers` refuses.
   - *Not covered* (open, Dev 3): a file planted on `PATH` after the scan,
     while the step runs. That needs a process of the user's own uid
     acting mid-run. Rejected for now: the *pin dir* (a private dir of
