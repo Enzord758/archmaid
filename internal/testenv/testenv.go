@@ -211,8 +211,12 @@ func run(m interface{ Run() int }, made *[]string) int {
 		// (internal/report): a test must never see the machine's own.
 		"ARCHMAID_PACMAN_LOG":  filepath.Join(home, "no-pacman.log"),
 		"ARCHMAID_MODULES_DIR": filepath.Join(home, "no-modules"),
-		"PATH":                 trapBin + string(os.PathListSeparator) + os.Getenv("PATH"),
-		MarkerEnv:              marker,
+		// The AUR helper is yay in every test, whatever the machine has
+		// installed (internal/aurhelper): the shims the tests put on PATH are
+		// yay's, and a paru must never be picked by detection.
+		"ARCHMAID_AUR_HELPER": "yay",
+		"PATH":                trapBin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		MarkerEnv:             marker,
 	} {
 		if old, ok := os.LookupEnv(k); ok {
 			saved[k] = old

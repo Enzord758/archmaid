@@ -35,6 +35,10 @@ import "os"
 //     environment variable for it, and topgrade passes yay only its config's
 //     [linux] yay_arguments (src/steps/os/archlinux.rs), so yay and pacman
 //     under topgrade stay plain unless the owner's topgrade.toml asks.
+//   - paru colours when pacman.conf has Color and stdout and stderr are
+//     terminals, unless --color says always/auto/never (src/config.rs:
+//     `Colors::from("auto")` needs both to be terminals); --color is a
+//     global it forwards to pacman. No environment variable either.
 //   - hyprpm colours always (hyprpm/src/helpers/Colors.hpp, no tty check).
 //
 // NO_COLOR (no-color.org: set and not empty) turns the switches off.
@@ -51,9 +55,11 @@ func topgradeColourEnv() []string {
 	return []string{"CLICOLOR_FORCE=1"}
 }
 
-// yayColourArgs are the arguments that make yay, and the pacman it runs,
-// colour into a pipe: --color always, or none under NO_COLOR.
-func yayColourArgs() []string {
+// aurColourArgs are the arguments that make the AUR helper (yay or paru), and
+// the pacman it runs, colour into a pipe: --color always, or none under
+// NO_COLOR. paru takes the same global (command_line.rs: "color" takes a value,
+// `Colors::from("always")`) and passes it on to pacman.
+func aurColourArgs() []string {
 	if colourOff() {
 		return nil
 	}

@@ -57,8 +57,8 @@ fi
 
 # The privileged binaries match internal/testenv's traps (su, sudo, pkexec,
 # runuser, faillock): none may run for real, and calling any is a failure.
-SHIMMED=(sudo pacman systemctl topgrade yay paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
-MUTATING=(sudo topgrade yay paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
+SHIMMED=(sudo pacman systemctl topgrade yay paru paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
+MUTATING=(sudo topgrade yay paru paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
 
 fail() { echo "FAIL: $*"; exit 1; }
 
@@ -122,7 +122,7 @@ run_tape() {
 	# browser-retry.sh runs it once more only if VHS's headless browser
 	# never started (a runner flake, before the tape typed anything).
 	"$E2E/browser-retry.sh" env HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" \
-		PATH="$shims:$PATH" SHIM_LOG="$SHIM_LOG" \
+		PATH="$shims:$PATH" SHIM_LOG="$SHIM_LOG" ARCHMAID_AUR_HELPER=yay \
 		HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
 		ALL_PROXY=http://127.0.0.1:9 $(cover_env "$dir/cover") "$@" \
 		vhs "e2e/$name.tape"

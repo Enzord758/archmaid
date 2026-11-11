@@ -16,6 +16,7 @@ import (
 
 	"github.com/Enzord758/archmaid/gui/internal/logview"
 	"github.com/Enzord758/archmaid/internal/actions"
+	"github.com/Enzord758/archmaid/internal/aurhelper"
 	"github.com/Enzord758/archmaid/internal/engine"
 	"github.com/Enzord758/archmaid/internal/frontend"
 	"github.com/Enzord758/archmaid/internal/logstore"
@@ -334,7 +335,7 @@ func covSettings(c *covEnv) {
 	p.editor.Emit("clicked")
 	c.ok(p.configError.Text() == "Couldn't open it: no default app", "config error %q", p.configError.Text())
 	b, err := os.ReadFile(conf)
-	c.ok(err == nil && string(b) == frontend.DefaultTopgradeConfig, "config %q %v, want the defaults", b, err)
+	c.ok(err == nil && string(b) == frontend.TopgradeConfigFor(aurhelper.Helper{Name: "yay"}), "config %q %v, want the defaults naming yay", b, err)
 	c.ok(strings.Join(fl.Calls(), ",") == "file "+conf, "launched %q", fl.Calls())
 
 	// A folder typed with spaces around it is kept trimmed, and applies

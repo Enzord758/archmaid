@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Enzord758/archmaid/internal/aurhelper"
 	"github.com/Enzord758/archmaid/internal/frontend"
 )
 
@@ -33,8 +34,8 @@ func TestGUISettingsCards(t *testing.T) {
 	if !slices.Equal(rep.Launched, want) {
 		t.Errorf("launched\n%q\nwant\n%q", rep.Launched, want)
 	}
-	if b, err := os.ReadFile(conf); err != nil || string(b) != frontend.DefaultTopgradeConfig {
-		t.Errorf("topgrade config %q %v, want the defaults", b, err)
+	if b, err := os.ReadFile(conf); err != nil || string(b) != frontend.TopgradeConfigFor(aurhelper.Helper{Name: "yay"}) {
+		t.Errorf("topgrade config %q %v, want the defaults naming yay (ARCHMAID_AUR_HELPER, testenv)", b, err)
 	}
 	// The About line names the build: no link-time version in a test
 	// binary, so the VCS stamp or "unknown" follows the prefix.

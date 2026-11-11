@@ -2,7 +2,6 @@ package report
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Enzord758/archmaid/internal/aurhelper"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -34,8 +34,9 @@ type Config struct {
 	// ModulesDir is where the kernels' module folders are (restart.go).
 	ModulesDir string
 	// TmpDirs, JournalDirs and UserCacheDir are the targets of the temp
-	// files, journal and user cache steps. YayDir returns yay's build
-	// folder ("" if unknown, then its area is unknown).
+	// files, journal and user cache steps. YayDir returns the AUR helper's
+	// (paru's or yay's) build folder ("" if unknown, then its area is
+	// unknown); the field keeps its name from when yay was the only helper.
 	TmpDirs, JournalDirs []string
 	UserCacheDir         string
 	YayDir               func() string
@@ -65,7 +66,7 @@ const (
 
 // DefaultConfig is the real thing: /var/log/pacman.log, the commands by
 // name, /proc's kernel release, /tmp and /var/tmp, the journal's folders,
-// ~/.cache and yay's build folder.
+// ~/.cache and the AUR helper's build folder.
 func DefaultConfig() *Config {
 	c := &Config{
 		PacmanLog:    DefaultPacmanLog,
@@ -75,7 +76,7 @@ func DefaultConfig() *Config {
 		TmpDirs:      []string{"/tmp", "/var/tmp"},
 		JournalDirs:  []string{"/var/log/journal", "/run/log/journal"},
 		UserCacheDir: userCacheDir(),
-		YayDir:       yayBuildDir,
+		YayDir:       aurBuildDir,
 	}
 	if p := os.Getenv(EnvPacmanLog); p != "" {
 		c.PacmanLog = p
@@ -105,36 +106,14 @@ func userCacheDir() string {
 }
 
 // yayBuildDir is where yay -Sc cleans: the buildDir of yay's config.json
-// when it names one, else yay's default, <cache>/yay.
-func yayBuildDir() string {
-	cfgHome := os.Getenv("XDG_CONFIG_HOME")
-	if !filepath.IsAbs(cfgHome) {
-		h, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		cfgHome = filepath.Join(h, ".config")
-	}
-	if b, err := os.ReadFile(filepath.Join(cfgHome, "yay", "config.json")); err == nil {
-		var c struct {
-			BuildDir string `json:"buildDir"`
-		}
-		if json.Unmarshal(b, &c) == nil && c.BuildDir != "" {
-			d := os.ExpandEnv(c.BuildDir)
-			if rest, ok := strings.CutPrefix(d, "~/"); ok {
-				if h, err := os.UserHomeDir(); err == nil {
-					d = filepath.Join(h, rest)
-				}
-			}
-			if filepath.IsAbs(d) {
-				return d
-			}
-		}
-	}
-	if d := userCacheDir(); d != "" {
-		return filepath.Join(d, "yay")
-	}
-	return ""
+// when it names one, else yay's default, <cache>/yay (internal/aurhelper).
+func yayBuildDir() string { return aurhelper.BuildDir(aurhelper.Deps{}, aurhelper.Yay) }
+
+// aurBuildDir is where the AUR helper in use (paru or yay, aurhelper.Detect)
+// builds, which its -Sc cleans: paru's clone folder or yay's build folder.
+// "" when there is no helper.
+func aurBuildDir() string {
+	return aurhelper.BuildDir(aurhelper.Deps{}, aurhelper.Detect(aurhelper.Deps{}).Name)
 }
 
 // Collector watches one run and makes its Report. It is told when each step
@@ -237,9 +216,10 @@ func areaGroup(id string) string {
 	return id
 }
 
-// areasOf are the areas step st cleans. Under sudo, yay -Sc does both
-// pacman -Sc and yay's own cleaning; under polkit (--aur) only the latter,
-// pacman -Sc being the part IDPkgCacheUninstalled.
+// areasOf are the areas step st cleans. Under sudo, the AUR helper's -Sc (paru
+// or yay) does both pacman -Sc and its own cleaning; under polkit (--aur) only
+// the latter, pacman -Sc being the part IDPkgCacheUninstalled. With no helper
+// installed the step is an in-process note and cleans nothing.
 func areasOf(st steps.Step) []string {
 	switch st.ID {
 	case steps.IDPaccache:
@@ -249,6 +229,9 @@ func areasOf(st steps.Step) []string {
 	case steps.IDPkgCacheUninstalled:
 		return []string{AreaPkgUninstalled}
 	case steps.IDYayCache:
+		if st.Run != nil {
+			return nil
+		}
 		if slices.Contains(st.Argv, "--aur") {
 			return []string{AreaYay}
 		}

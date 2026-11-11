@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Enzord758/archmaid/internal/audit"
+	"github.com/Enzord758/archmaid/internal/aurhelper"
 	"github.com/Enzord758/archmaid/internal/downloads"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -76,6 +77,10 @@ type Env struct {
 	// LookPath finds a program on PATH; nil means exec.LookPath. Full
 	// Cleanup asks it for hyprpm.
 	LookPath func(file string) (string, error)
+	// AURHelper picks the AUR helper (paru or yay; internal/aurhelper); nil
+	// means aurhelper.Detect with LookPath and the real config files. Full
+	// Cleanup's AUR cache step runs it, or says there is none.
+	AURHelper func() aurhelper.Helper
 	// RepairWorkers is how many `pacman -Qkq` Repair's user scan runs side by
 	// side; 0 means DefaultRepairWorkers.
 	RepairWorkers int
@@ -118,6 +123,14 @@ func (e Env) Validate() error {
 		return fmt.Errorf("actions.Env: required %s not set", strings.Join(missing, ", "))
 	}
 	return nil
+}
+
+// aurHelper is the AUR helper for this machine and its Env.
+func (e Env) aurHelper() aurhelper.Helper {
+	if e.AURHelper != nil {
+		return e.AURHelper()
+	}
+	return aurhelper.Detect(aurhelper.Deps{LookPath: e.lookPath})
 }
 
 func (e Env) lookPath(file string) (string, error) {

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Enzord758/archmaid/internal/aurhelper"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/proc"
 	"github.com/Enzord758/archmaid/internal/steps"
@@ -17,9 +18,10 @@ import (
 // a front end drives every queue the same way.
 
 func fullCleanupSteps(env Env) []steps.Step {
+	aur := env.aurHelper()
 	queue := []steps.Step{
 		// The AUR audit runs first, directly in front of topgrade, so a
-		// maintainer change can gate the update before yay builds anything
+		// maintainer change can gate the update before the AUR helper builds anything
 		// (see Env.AuditStep). Read-only; one network call.
 		env.AuditStep(),
 		// Then topgrade: update the system, then clean up the result. It's
@@ -28,7 +30,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 		// primed + kept alive — topgrade shells out to sudo pacman itself,
 		// and that sudo reads the primed ticket. In the TUI, NeedsPriv also
 		// puts archmaid's sudo wrapper first on its PATH
-		// (privilege/sudowrap.go): a sudo topgrade, yay or makepkg start by
+		// (privilege/sudowrap.go): a sudo topgrade, paru, yay or makepkg start by
 		// name asks through archmaid's popup whenever it needs the password
 		// (no reusable ticket, or one that lapsed mid-run), never on the tty.
 		// AlwaysLog: it changes more than any other step (a full system
@@ -62,20 +64,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 		// puts the removal step right after itself when it finds any (see
 		// findOrphans), so building this queue runs nothing.
 		orphanProbeStep(env),
-		{
-			ID:    steps.IDYayCache,
-			Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned",
-			Argv: append([]string{"yay", "-Sc", "--noconfirm"}, yayColourArgs()...),
-			// yay runs `sudo pacman -Sc` itself. NeedsPriv gives its child
-			// what topgrade's gets in the TUI, the askpass and the sudo
-			// wrapper first on its PATH, so that sudo asks through the
-			// popup whenever it has no reusable ticket, never on the tty
-			// (it did, #194). Under polkit (the GUI) this step is split
-			// (polkitFullCleanup): pacman -Sc goes into the root helper's
-			// one call, and yay cleans only its own cache, without sudo,
-			// so it is no root step there.
-			NeedsPriv: true,
-		},
+		aurCacheStep(aur, false),
 		// Temp files are aged out by the system's own tmpfiles.d rules (on
 		// Arch: /tmp after 10 days, /var/tmp after 30), not a hand-rolled
 		// find/rm. The rules know what must survive — the sockets and lock
@@ -102,7 +91,7 @@ func fullCleanupSteps(env Env) []steps.Step {
 	}
 
 	if env.Polkit {
-		queue = polkitFullCleanup(queue)
+		queue = polkitFullCleanup(queue, aur)
 	}
 
 	// Hyprland plugins go last: hyprpm drops the sudo ticket on exit, so after
@@ -129,6 +118,33 @@ func fullCleanupSteps(env Env) []steps.Step {
 var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPkgCacheUninstalled, steps.IDTmpfiles,
 	steps.IDJournal, steps.IDIntegrity}
 
+// aurCacheStep is Full Cleanup's AUR cache step for the AUR helper h (paru or
+// yay, internal/aurhelper). Its ID stays IDYayCache: renaming it would break
+// the logs and transcripts that key on it.
+//
+// Under sudo (aurOnly false) the helper runs `sudo pacman -Sc` itself.
+// NeedsPriv gives its child what topgrade's gets in the TUI, the askpass and
+// the sudo wrapper first on its PATH, so that sudo asks through the popup
+// whenever it has no reusable ticket, never on the tty (it did, #194). Under
+// polkit (the GUI, aurOnly) the step is split (polkitFullCleanup): pacman -Sc
+// goes into the root helper's one call, and the helper cleans only its own
+// cache with --aur, without sudo, so it is no root step there.
+//
+// With no helper installed the step is an in-process one that says so and
+// does nothing, so the checklist shows why there is no AUR cleaning.
+func aurCacheStep(h aurhelper.Helper, aurOnly bool) steps.Step {
+	st := steps.Step{ID: steps.IDYayCache, Title: "Cleaning AUR cache…", LogLabel: "AUR cache cleaned"}
+	if h.None() {
+		st.Run = func(context.Context, steps.Env) steps.Result {
+			return steps.Result{Output: "No AUR helper (paru or yay) is installed: nothing to clean."}
+		}
+		return st
+	}
+	st.Argv = h.CleanArgv(aurOnly, aurColourArgs())
+	st.NeedsPriv = !aurOnly
+	return st
+}
+
 // polkitFullCleanup is Full Cleanup's queue under polkit, where the owner's
 // rule is ONE polkit dialog per run (as the TUI asks one sudo password):
 // its root steps run as one root-helper full-cleanup call (Step.Combine;
@@ -139,16 +155,16 @@ var fullCleanupRoot = []string{steps.IDPaccache, steps.IDPkgCacheUninstalled, st
 //
 // The GUI's other rule is as few password prompts as possible, and none
 // stored. Without a terminal, sudo's ticket is keyed on its parent process,
-// so yay -Sc's `sudo pacman -Sc` asked through askpass again after
+// so the AUR helper's `sudo pacman -Sc` asked through askpass again after
 // topgrade's. It is split instead: pacman -Sc becomes a part of the one
 // call (IDPkgCacheUninstalled, the helper's clean-uninstalled, after the
-// orphan removal so their packages go too), and the yay step runs
-// `yay -Sc --aur --noconfirm`, which cleans only yay's own build cache as
-// the user: in yay (v13.0.1, clean.go and parser.go) --aur sets the AUR
-// mode, in which -Sc runs no pacman and needs no root, so no sudo. That
-// leaves topgrade as the only step with an askpass. The sudo queue (the
-// TUI) is untouched.
-func polkitFullCleanup(queue []steps.Step) []steps.Step {
+// orphan removal so their packages go too), and the AUR cache step runs
+// `<helper> -Sc --aur --noconfirm`, which cleans only the helper's own build
+// cache as the user: in yay (v13.0.1, clean.go and parser.go) and paru
+// (command_line.rs, clean.rs) --aur sets the AUR mode, in which -Sc runs no
+// pacman and needs no root, so no sudo. That leaves topgrade as the only step
+// with an askpass. The sudo queue (the TUI) is untouched.
+func polkitFullCleanup(queue []steps.Step, aur aurhelper.Helper) []steps.Step {
 	byID := map[string]steps.Step{}
 	for _, s := range queue {
 		byID[s.ID] = s
@@ -160,10 +176,7 @@ func polkitFullCleanup(queue []steps.Step) []steps.Step {
 		// runs only as a part of the full-cleanup call.
 		Argv: []string{"pacman", "-Sc", "--noconfirm"}, NeedsPriv: true,
 	}
-	yay := byID[steps.IDYayCache]
-	yay.Argv = append([]string{"yay", "-Sc", "--aur", "--noconfirm"}, yayColourArgs()...)
-	yay.NeedsPriv = false // no sudo here: the GUI's yay step is a plain user step
-	byID[steps.IDYayCache] = yay
+	byID[steps.IDYayCache] = aurCacheStep(aur, true) // no sudo here: a plain user step
 	out := []steps.Step{byID[steps.IDAURAudit], byID[steps.IDTopgrade], byID[steps.IDOrphansProbe]}
 	for _, id := range fullCleanupRoot {
 		s := byID[id]
@@ -175,7 +188,7 @@ func polkitFullCleanup(queue []steps.Step) []steps.Step {
 
 func topgradeSteps(env Env) []steps.Step {
 	return []steps.Step{
-		// The same AUR audit gate as Full Cleanup: topgrade runs yay, so a
+		// The same AUR audit gate as Full Cleanup: topgrade runs the AUR helper, so a
 		// maintainer change must be able to stop the update (see Env.AuditStep).
 		env.AuditStep(),
 		// NeedsPriv: topgrade shells out to sudo internally, so prime +

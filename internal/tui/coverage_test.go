@@ -42,7 +42,7 @@ func TestEditConfigCreatesFileAndOpensEditor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config not created: %v", err)
 	}
-	if !strings.Contains(string(data), "aur_command") {
+	if !strings.Contains(string(data), "arch_package_manager") || strings.Contains(string(data), "aur_command") {
 		t.Fatalf("default config missing expected content:\n%s", data)
 	}
 	if gotCmd == nil || len(gotCmd.Args) != 2 ||

@@ -240,8 +240,8 @@ const (
 	IDPaccacheWipe  = "paccache-wipe"
 	IDOrphansProbe  = "orphans-probe"
 	IDOrphansRemove = "orphans-remove"
-	IDYayCache      = "yay-cache"
-	// IDPkgCacheUninstalled is, under polkit only, the root half of yay -Sc
+	IDYayCache      = "yay-cache" // the AUR cache step of paru or yay; the ID stays (logs, transcripts key on it)
+	// IDPkgCacheUninstalled is, under polkit only, the root half of the AUR helper's -Sc
 	// (pacman -Sc), run as a part of the root helper's full-cleanup; its
 	// Verb is VerbFullCleanup, as it has no verb of its own.
 	IDPkgCacheUninstalled = "pkg-cache-uninstalled"

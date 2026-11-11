@@ -17,7 +17,7 @@ import (
 // engine.PartStarted and engine.PartDone, so every step keeps its row.
 
 // PartCleanUninstalled is the helper's full-cleanup part that is no verb of
-// its own: pacman -Sc, the root half of yay -Sc. Its step
+// its own: pacman -Sc, the root half of the AUR helper's -Sc. Its step
 // (steps.IDPkgCacheUninstalled) carries Verb full-cleanup.
 const PartCleanUninstalled = "clean-uninstalled"
 

@@ -5,11 +5,22 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/Enzord758/archmaid/internal/aurhelper"
 )
 
 // DefaultTopgradeConfig is what "Edit topgrade config" creates when the user
-// has no topgrade config yet: the TUI before it opens $EDITOR, the GUI
-// before it hands the file to the desktop's default app.
+// has no topgrade config yet and no AUR helper is installed (or topgrade has
+// to find one itself): the TUI before it opens $EDITOR, the GUI before it
+// hands the file to the desktop's default app. TopgradeConfigFor adds the line
+// that names an installed helper.
+//
+// There is no "aur_command" here: topgrade has no such key, and its [linux]
+// table rejects unknown keys, so a config with it made topgrade refuse to
+// start. The AUR helper is `arch_package_manager` (topgrade's config.rs;
+// allowed: autodetect, aura, garuda_update, pacman, pamac, paru, pikaur,
+// shelly, trizen, yay).
 const DefaultTopgradeConfig = `# topgrade configuration
 # Documentation: https://github.com/topgrade-rs/topgrade/wiki/Configuration
 
@@ -18,12 +29,25 @@ assume_yes = true
 cleanup = true
 
 [linux]
-aur_command = "yay"
+# The AUR helper (paru or yay) is found by topgrade itself. To pin one:
+# arch_package_manager = "paru"
 
 # Disable steps you don't want by setting them to false:
 # [skip_steps]
 # flatpak = false
 `
+
+// TopgradeConfigFor is DefaultTopgradeConfig naming the AUR helper h in its
+// [linux] table (a helper that is installed, internal/aurhelper); with none it
+// is DefaultTopgradeConfig as it is.
+func TopgradeConfigFor(h aurhelper.Helper) string {
+	if h.None() {
+		return DefaultTopgradeConfig
+	}
+	return strings.Replace(DefaultTopgradeConfig,
+		"# The AUR helper (paru or yay) is found by topgrade itself. To pin one:\n# arch_package_manager = \"paru\"\n",
+		"# The AUR helper, found installed (topgrade finds one itself when this is left out):\narch_package_manager = \""+h.Name+"\"\n", 1)
+}
 
 // ErrNoHome: the home directory is unknown ($HOME unset or relative), so
 // there is no config path to create or open.
@@ -39,11 +63,17 @@ func TopgradeConfigPath() (string, error) {
 	return filepath.Join(home, ".config", "topgrade.toml"), nil
 }
 
-// EnsureTopgradeConfig creates path with DefaultTopgradeConfig when nothing
+// EnsureTopgradeConfig creates path with TopgradeConfigFor the AUR helper that
+// is installed (DefaultTopgradeConfig when none) when nothing
 // is there (its directory too), and never touches an existing file, not
 // even one that appears between the check and the write (O_EXCL). created
 // says whether it wrote the file.
 func EnsureTopgradeConfig(path string) (created bool, err error) {
+	return EnsureTopgradeConfigWith(path, TopgradeConfigFor(aurhelper.Detect(aurhelper.Deps{})))
+}
+
+// EnsureTopgradeConfigWith is EnsureTopgradeConfig writing content.
+func EnsureTopgradeConfigWith(path, content string) (created bool, err error) {
 	if _, err := os.Lstat(path); err == nil || !errors.Is(err, fs.ErrNotExist) {
 		return false, err
 	}
@@ -57,7 +87,7 @@ func EnsureTopgradeConfig(path string) (created bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if _, err := f.WriteString(DefaultTopgradeConfig); err != nil {
+	if _, err := f.WriteString(content); err != nil {
 		f.Close()
 		return true, err
 	}
