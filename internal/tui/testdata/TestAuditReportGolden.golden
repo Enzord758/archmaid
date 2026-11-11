@@ -13,7 +13,7 @@ AUR audit
 │                                                                            │
 │ Flagged maintainers stay flagged on every audit until you've checked them  │
 │ and press a to accept.                                                     │
-│ Recent = pushed within 72h, the same window as the yay cooldown hook.      │
+│ Recent = pushed within 72h, the same window as an AUR cooldown hook.       │
 │                                                                            │
 │                                                                            │
 │                                                                            │

@@ -15,7 +15,7 @@ import (
 // own unit.
 
 // CheckTimeout is how long the card waits for the cache to change after the
-// check was started (the script has its own 120 s yay timeout).
+// check was started (the script has its own 120 s timeout for the AUR helper).
 const CheckTimeout = 2 * time.Minute
 
 // reasonMax cuts a failure reason to a cell's line.

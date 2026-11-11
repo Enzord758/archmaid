@@ -9,5 +9,5 @@ audit ✖ yay-bin  maintainer changed: jguer → mallory
 audit ✖ foo-git  adopted by eve (was orphaned)
 audit
 audit Flagged maintainers stay flagged on every audit until you've checked them and press a to accept.
-audit Recent = pushed within 72h, the same window as the yay cooldown hook.
+audit Recent = pushed within 72h, the same window as an AUR cooldown hook.
 end   outcome=report errs=0 skipped=0

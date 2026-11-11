@@ -149,7 +149,7 @@ func (s *Session) authDone(o *Output, in AuthDone) {
 	}
 	if in.NoTicket {
 		// Right password, unusable ticket, and no sudo wrapper to send
-		// topgrade's and yay's own sudo through archmaid: they would
+		// topgrade's and the AUR helper's own sudo through archmaid: they would
 		// prompt on the raw tty. Nothing has run.
 		r.attempts = 0
 		o.event(AuthResolved{})

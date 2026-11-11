@@ -20,7 +20,7 @@ import (
 var askpassWrapper string
 
 // askpassSudoDir is the server's sudo wrapper directory, put first on the
-// PATH of the steps that get the askpass, so that a sudo topgrade, yay or
+// PATH of the steps that get the askpass, so that a sudo topgrade, paru, yay or
 // makepkg start by name asks through the TUI's popup, never on its
 // terminal (privilege's sudowrap.go); "" while askpass isn't wired up. Set
 // and cleared with askpassWrapper.

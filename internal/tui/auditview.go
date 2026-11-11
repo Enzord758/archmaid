@@ -39,6 +39,6 @@ func renderAudit(res audit.Result) string {
 	if high > 0 && !res.DryRun() {
 		b.WriteString(statusStyle.Render("Flagged maintainers stay flagged on every audit until you've checked them and press a to accept.") + "\n")
 	}
-	b.WriteString(statusStyle.Render("Recent = pushed within 72h, the same window as the yay cooldown hook."))
+	b.WriteString(statusStyle.Render("Recent = pushed within 72h, the same window as an AUR cooldown hook."))
 	return b.String()
 }

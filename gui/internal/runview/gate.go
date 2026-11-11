@@ -22,7 +22,7 @@ func GateKicker(plan []engine.PlanStep) string {
 // PrivTag is a step's privilege tag: "root" for a step archmaid runs as
 // root (through the root helper, a Verb: Full Cleanup's run together under
 // one polkit authorisation), "sudo" for one that runs as the user and gets
-// root through its own sudo (topgrade: its yay and pacman call sudo, which
+// root through its own sudo (topgrade: its AUR helper and pacman call sudo, which
 // asks through archmaid's askpass), "" for a step that needs neither. The
 // gate's rail, the Overview's plan and the Run page's step headers tag a
 // step with it, and GateNotes counts the root ones, so the note's count is

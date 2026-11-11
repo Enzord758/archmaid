@@ -135,7 +135,7 @@ func AURAudit(start time.Time) Script {
 			"✖ yay-bin  maintainer changed: jguer → mallory\n" +
 			"✖ foo-git  adopted by eve (was orphaned)\n\n" +
 			"Flagged maintainers stay flagged on every audit until you've checked them and press a to accept.\n" +
-			"Recent = pushed within 72h, the same window as the yay cooldown hook.",
+			"Recent = pushed within 72h, the same window as an AUR cooldown hook.",
 		Audit: &engine.AuditReport{
 			Total: 2, CanAccept: true,
 			Findings: []engine.AuditFinding{

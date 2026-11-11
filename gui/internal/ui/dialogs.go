@@ -309,7 +309,7 @@ func (d *amDialog) itemList(title string, items []string, destructive bool) gtk.
 // KeptNote is what a password dialog adds on the real Driver, which keeps
 // the run's first password (driver.Deps.KeepPassword): the spec's wording
 // (1.11), unchanged.
-const KeptNote = "archmaid keeps this password in memory for this run only. It answers topgrade's and yay's sudo and archmaid's own polkit prompts. Any other program that asks shows this dialog with its name."
+const KeptNote = "archmaid keeps this password in memory for this run only. It answers topgrade's and the AUR helper's (paru or yay) sudo and archmaid's own polkit prompts. Any other program that asks shows this dialog with its name."
 
 // KeptOffNote is what the dialog says instead of KeptNote when the Driver
 // keeps passwords but this prompt's password will not be kept (the PATH

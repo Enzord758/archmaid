@@ -98,7 +98,7 @@ sudo pacman -U "$P"/archmaid-gui-git-r*.pkg.tar.zst   # the GUI; install both to
 | `/usr/share/polkit-1/actions/org.archmaid.helper.policy` | 0644 | one action per helper verb |
 | `/usr/share/doc/archmaid/helper.md` | 0644 | helper docs |
 | `/etc/xdg/quickshell/dms-plugins/archmaid/{plugin.json,ArchmaidWidget.qml,state.js}` | 0644 | DMS widget plugin (system plugin dir); enable it in DMS |
-| `/usr/lib/archmaid/archmaid-updates-check` | 0755 | runs `checkupdates` and `yay -Qua`, writes the pending counts |
+| `/usr/lib/archmaid/archmaid-updates-check` | 0755 | runs `checkupdates` and `paru -Qua` or `yay -Qua` (the AUR helper archmaid works with), writes the pending counts |
 | `/usr/lib/systemd/user/archmaid-updates-check.{service,timer}` | 0644 | user timer, every 30 min; `systemctl --user enable --now archmaid-updates-check.timer` |
 
 `archmaid-gui-git`:

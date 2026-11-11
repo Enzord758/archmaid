@@ -88,7 +88,8 @@ straight over via `lipgloss`).
   `~/.config/yay/init.lua` (holds back AUR upgrades pushed to in the last 72h,
   logged to `~/.local/state/yay/cooldown.log`; `YAY_NO_COOLDOWN=1` bypasses it).
   That hook lives in the dotfiles, not in this repo — archmaid's Full Cleanup
-  runs yay unattended via topgrade, so the hold has to be yay-side.
+  runs the AUR helper unattended via topgrade, so the hold has to be helper-side
+  (that hook is yay's; paru has none, and its AUR updates all count as eligible).
 - **Edit topgrade config** hands the terminal to `$EDITOR` via `tea.ExecProcess`,
   creating `~/.config/topgrade.toml` with defaults first.
 - **Abortable steps** — ctrl+c while a step runs opens a confirmation; confirming

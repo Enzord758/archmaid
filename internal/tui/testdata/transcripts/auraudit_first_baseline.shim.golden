@@ -9,5 +9,5 @@ audit
 audit ⚠ foo-git  orphaned · 0 votes
 audit
 audit First audit: maintainers saved as the baseline. Adoptions and maintainer changes are flagged from the next audit on.
-audit Recent = pushed within 72h, the same window as the yay cooldown hook.
+audit Recent = pushed within 72h, the same window as an AUR cooldown hook.
 end   outcome=report errs=0 skipped=0

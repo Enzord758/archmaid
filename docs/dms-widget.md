@@ -104,7 +104,7 @@ the AUR, and writes `updates-cache.json` (0600, atomic) **in the archmaid state 
 ```
 
 `packages` (schema v3) lists the repo lines first (checkupdates order), then the AUR
-lines (yay order), at most 200 in all, cut from the end; there is no `truncated` field,
+lines (the AUR helper's order), at most 200 in all, cut from the end; there is no `truncated` field,
 the widget works "N more not shown" out from the counts. AUR entries always have `held`
 (the same test as the counts: no readable age tag = held); `age` is there only when the
 tag is readable. Only allow-listed text is ever printed: `name` `^[A-Za-z0-9@._+-]{1,64}$`,

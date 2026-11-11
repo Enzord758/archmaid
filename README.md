@@ -115,7 +115,7 @@ binary would shadow the package's.
 - **GUI.** A run asks for your password once, in the GUI's own dialog,
   and keeps it in memory for that run only (an mlocked page, never written
   anywhere, wiped when the run ends however it ends, and after 60 minutes
-  at most). It then answers topgrade's and yay's `sudo` prompts and the
+  at most). It then answers topgrade's and the AUR helper's (paru or yay) `sudo` prompts and the
   one polkit request of Full Cleanup's root steps: archmaid registers
   polkit's own text agent (`pkttyagent`) for the GUI, so the desktop's
   polkit dialog doesn't appear for archmaid's own calls. Anything else that

@@ -124,7 +124,8 @@ package_archmaid-git() {
   optdepends=('archmaid-gui-git: GTK4/libadwaita window (the DMS widget opens it instead of the TUI)'
               'dux-shell: archmaid bar widget (installed under /etc/xdg/quickshell/dms-plugins; dux-shell replaces and provides dms-shell)'
               'topgrade: system/AUR update step in the TUI'
-              'yay: AUR cache cleaning and updates')
+              'paru: an AUR helper (paru or yay): AUR updates and cache cleaning'
+              'yay: an AUR helper (paru or yay): AUR updates and cache cleaning')
   install=archmaid.install
   provides=("$_pkgname")
   conflicts=("$_pkgname")
