@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
@@ -27,12 +28,14 @@ type updatesView struct {
 	v                 overview.CardView
 	busy, canCheck    bool
 	checking, hasCall bool
+	link              string // the held link's text, "" hides it
 }
 
 // updatesWidgets are the card's widgets.
 type updatesWidgets struct {
 	icon          *gtk.Image
 	title, detail *gtk.Label
+	held          *gtk.Button // "N held ›": opens the held updates sheet
 	tag           *gtk.Label
 	meta          *gtk.Box
 	spin          *adw.Spinner
@@ -99,6 +102,16 @@ func (w *Window) newUpdatesCard() gtk.Widgetter {
 	u.meta = gtk.NewBox(gtk.OrientationHorizontal, 8)
 	w.topRows.line.AddWidget(u.meta)
 	u.meta.Append(u.tag)
+	// The held link: accent, always underlined, a pointer (#280). A flat
+	// button (the "link" class, our CSS), not a LinkButton: it opens a sheet.
+	u.held = gtk.NewButtonWithLabel("")
+	u.held.AddCSSClass("link")
+	u.held.AddCSSClass("am-held-link")
+	u.held.SetVAlign(gtk.AlignStart)
+	u.held.SetCursorFromName("pointer")
+	u.held.SetTooltipText("Show held updates")
+	u.held.ConnectClicked(w.openHeld)
+	u.meta.Append(u.held)
 	u.detail.SetHExpand(true)
 	u.meta.Append(u.detail)
 	box.Append(u.meta)
@@ -112,6 +125,7 @@ func (w *Window) newUpdatesCard() gtk.Widgetter {
 // reads it then).
 func (w *Window) readUpdates() {
 	w.updU, w.updMod = overview.ReadUpdatesStamp(w.opts.StateDir)
+	w.readHeld()
 }
 
 // renderUpdates draws the card from w.updU, the card state and the busy flag.
@@ -121,15 +135,27 @@ func (w *Window) renderUpdates() {
 		return
 	}
 	v := w.updCard.View(w.updU, time.Now())
+	link := w.held.LinkText(w.updU, time.Now())
 	st := updatesView{v: v, busy: w.busy, canCheck: !w.busy && w.opts.RefreshUpdates != nil && !w.updCard.Checking(),
-		checking: w.updCard.Checking(), hasCall: w.opts.RefreshUpdates != nil}
+		checking: w.updCard.Checking(), hasCall: w.opts.RefreshUpdates != nil, link: link}
 	if u.shown != nil && *u.shown == st {
 		return
 	}
 	u.shown = &st
 	u.title.SetText(v.Title)
-	u.detail.SetText(v.Detail)
+	detail := v.Detail
+	if link != "" && strings.HasPrefix(detail, "checked ") {
+		detail = "· " + detail // "4 held › · checked 3 min ago"
+	}
+	u.detail.SetText(detail)
 	u.detail.SetVisible(v.Detail != "")
+	u.held.SetLabel(link)
+	setShown(u.held, link != "")
+	if link != "" {
+		// What a screen reader says: the label alone ends in an arrow.
+		gtk.BaseWidget(u.held).UpdateProperty([]gtk.AccessibleProperty{gtk.AccessiblePropertyLabel},
+			[]coreglib.Value{*coreglib.NewValue("Show held updates (" + strings.TrimSuffix(link, " ›") + ")")})
+	}
 	for _, c := range []string{"ok", "warn", "danger", "neutral"} {
 		u.tag.RemoveCSSClass("am-tag-" + c)
 		u.icon.RemoveCSSClass("am-tag-" + c)
@@ -152,7 +178,7 @@ func (w *Window) renderUpdates() {
 	u.tag.AddCSSClass("am-tag-" + tone)
 	u.tag.SetText(v.Tag)
 	u.tag.SetVisible(v.Tag != "")
-	u.meta.SetVisible(v.Tag != "" || v.Detail != "")
+	u.meta.SetVisible(v.Tag != "" || v.Detail != "" || link != "")
 	setShown(u.spin, v.Spinner)
 	u.check.SetLabel("Check for updates")
 	u.check.SetSensitive(st.canCheck)
@@ -213,6 +239,7 @@ func (w *Window) pollUpdates() (done bool) {
 		return false
 	}
 	w.updU, w.updMod = u, mod
+	w.readHeld()
 	w.updGen++
 	w.renderUpdates()
 	return true

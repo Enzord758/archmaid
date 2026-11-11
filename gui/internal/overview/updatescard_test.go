@@ -24,7 +24,7 @@ func TestUpdatesCardTexts(t *testing.T) {
 		tone               string
 		waiting            bool
 	}{
-		{"waiting and held", upd(5, 2, 17*time.Minute), "5 updates waiting", "2 held · checked 17 min ago", "UPDATES", "warn", true},
+		{"waiting and held", upd(5, 2, 17*time.Minute), "5 updates waiting", "checked 17 min ago", "UPDATES", "warn", true},
 		{"one", upd(1, 0, 3*time.Minute), "1 update waiting", "checked 3 min ago", "UPDATES", "warn", true},
 		{"up to date", upd(0, 0, 5*time.Hour), "Up to date", "checked 5 h ago", "UP TO DATE", "ok", false},
 		{"not checked", Updates{}, "Not checked yet", "", "NOT CHECKED", "neutral", false},

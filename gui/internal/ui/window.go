@@ -166,6 +166,10 @@ type Window struct {
 	upd        *updatesWidgets
 	updCard    overview.UpdatesCard
 	updU       overview.Updates
+	held       overview.Held // the held updates (held.go) as last read with the cache
+	heldSheet  *amDialog     // the "Held updates" sheet, nil when closed
+	heldFill   func()        // redraws the open held sheet
+	heldRun    string        // a held update's review or install is going (its name)
 	updMod     time.Time
 	updGen     int
 	updCancel  context.CancelFunc
@@ -530,6 +534,7 @@ func (w *Window) redraw(c runview.Change) {
 		w.setBusy(false)
 		w.refreshLastRun()
 		w.refreshUpdates() // a topgrade run starts the check by itself
+		w.heldRunEnded()   // a held update's install: check again, the list changed
 		w.refreshHealth()  // it changed the news, the restart state, the units
 		w.invalidateUserCache()
 		w.reloadPackages() // topgrade, a Full Cleanup or a repair changed the packages

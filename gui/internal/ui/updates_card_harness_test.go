@@ -144,7 +144,7 @@ func covUpdates(c *covEnv) {
 		func() bool { w.pickPage("overview"); return true },
 		func() bool {
 			c.ok(u.title.Text() == "3 updates waiting", "title %q", u.title.Text())
-			c.ok(strings.Contains(u.detail.Text(), "1 held") && strings.Contains(u.detail.Text(), "checked 20 min ago"), "detail %q", u.detail.Text())
+			c.ok(u.detail.Text() == "· checked 20 min ago" && u.held.Label() == "1 held ›", "detail %q", u.detail.Text())
 			c.ok(u.tag.Text() == "UPDATES", "tag %q", u.tag.Text())
 			c.ok(u.topg.IsVisible() && u.topg.Sensitive(), "Run topgrade not offered with updates waiting")
 			c.ok(u.check.Sensitive() && !u.spin.IsVisible(), "check button/spinner idle state")
@@ -178,7 +178,7 @@ func covUpdates(c *covEnv) {
 			c.ok(u.spin.IsVisible(), "no spinner while checking")
 			c.ok(!u.check.Sensitive(), "check button still enabled while checking")
 			c.ok(u.topg.IsVisible(), "Run topgrade hidden while checking: it is always there (#270)")
-			c.ok(u.detail.Text() == "1 held · checked 20 min ago", "detail while checking %q", u.detail.Text())
+			c.ok(u.detail.Text() == "· checked 20 min ago" && u.held.Label() == "1 held ›", "detail while checking %q", u.detail.Text())
 			shoot(w, c.rep.Scenario, "checking")
 			return true
 		},
@@ -188,7 +188,7 @@ func covUpdates(c *covEnv) {
 			c.ok(u.tag.Text() == "UP TO DATE" && !u.spin.IsVisible(), "tag %q / spinner", u.tag.Text())
 			c.ok(u.check.Sensitive(), "check button not back")
 			c.ok(u.topg.IsVisible(), "Run topgrade hidden with nothing to update: it is always there (#270)")
-			c.ok(strings.HasPrefix(u.detail.Text(), "1 held · checked just now"), "detail %q", u.detail.Text())
+			c.ok(strings.HasPrefix(u.detail.Text(), "· checked just now") && u.held.Label() == "1 held ›", "detail %q", u.detail.Text())
 			shoot(w, c.rep.Scenario, "uptodate")
 			// The silent check: nothing changes the file.
 			f.setMode("silent", 0)

@@ -127,12 +127,8 @@ func cacheView(u Updates, now time.Time) CardView {
 		}
 		return CardView{Title: t, Tag: "UNKNOWN", Tone: "neutral"}
 	}
-	var parts []string
-	if u.AURHeld > 0 {
-		parts = append(parts, plural.N(u.AURHeld, "held", "held"))
-	}
-	parts = append(parts, "checked "+Ago(u.Checked, now))
-	v := CardView{Detail: strings.Join(parts, " · ")}
+	// The held count is not in the line: it is the card's link (Held.LinkText).
+	v := CardView{Detail: "checked " + Ago(u.Checked, now)}
 	if u.Count == 0 {
 		v.Title, v.Tag, v.Tone = "Up to date", "UP TO DATE", "ok"
 		return v

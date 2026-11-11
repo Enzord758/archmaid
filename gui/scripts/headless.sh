@@ -66,6 +66,7 @@ if [[ $# -eq 0 ]]; then
 	glass='^TestGUIGlass$'
 	align='^TestGUI(OverviewAlign|OverviewHero|LogsAlign)$'
 	health='^TestGUIHealth$'
+	held='^TestGUIHeld$'
 	glass2='^TestGUI(GlassShots|GlassLayout|ColourSchemeLive|SettingsScroll)$'
 	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
 	# The screenshot capture (shot.go) is built only with -tags shots:
@@ -90,9 +91,10 @@ if [[ $# -eq 0 ]]; then
 	"$self" go test -tags shots -count=1 -v -run "$glass" ./internal/ui
 	"$self" go test -tags shots -count=1 -v -run "$glass2" ./internal/ui
 	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test -tags shots -count=1 -v -run "$health" ./internal/ui
+	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test -tags shots -count=1 -v -run "$held" ./internal/ui
 	HEADLESS_WIDTH=2000 HEADLESS_HEIGHT=1000 "$self" go test -tags shots -count=1 -v -run "$align" ./internal/ui
 	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$pkgflow|$glass|$glass2|$health|$align|$perf" ./internal/ui
+	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$pkgflow|$glass|$glass2|$health|$held|$align|$perf" ./internal/ui
 fi
 
 

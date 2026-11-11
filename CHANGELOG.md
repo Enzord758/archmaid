@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Added
+
+- **Held updates in the GUI** (#280). The Updates card's "N held" is now a link ("4 held ›", accent colour, always underlined, tooltip "Show held updates"); it shows only while something is held, either by the cooldown (a current check lists AUR updates younger than 72 h) or by an AUR audit. It opens a "Held updates" sheet: "Cooldown · newer than 72 h" with a `held 2d4h` tag, the package, `from → to · free in 20 h` ("free soon" when the check could not read its age, which still counts as held) and a "Review and update" button, and "Held by the AUR audit" with the finding and an "Open audit" button (the existing Audit AUR packages action). An empty section is hidden, and the list scrolls beside its scrollbar, never under it. "Review and update" is the Packages page's AUR install for exactly that package: the plan, the PKGBUILD review box you have to tick, then the root helper's install, with the same password rules; it never skips the review, never touches the page's own list, waits for repository updates like any install, and checks for updates again when the run is over so the list follows.
+
 ## [2.6.2] - 2026-11-11
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

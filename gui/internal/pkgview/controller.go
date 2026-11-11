@@ -57,6 +57,7 @@ type Controller struct {
 	cfg     Config
 	updates overview.Updates
 	started bool // the current request's run has started
+	direct  bool // the request is ReviewAUR's, not the list's
 
 	reloading, reloadAgain bool
 }
@@ -137,7 +138,33 @@ func (c *Controller) Review() error {
 		c.cfg.Changed()
 		return ErrBlocked
 	}
+	c.direct = false
 	c.begin(req)
+	return nil
+}
+
+// ErrSheetOpen: ReviewAUR was asked while a review is already up.
+var ErrSheetOpen = errors.New("a review is already open")
+
+// ReviewAUR starts the AUR install review of exactly one package, the one
+// of a held update (#280): the same request, plan, PKGBUILD review and
+// helper install as an AUR install from the page, without touching the
+// page's list (a finished run leaves the list as it was). An install waits
+// for repository updates like any other (ErrBlocked). The package may be
+// installed already: this is its update.
+func (c *Controller) ReviewAUR(name string) error {
+	if !pkgdb.ValidName(name) {
+		return errors.New("not a package name")
+	}
+	if c.Sheet.Open() {
+		return ErrSheetOpen
+	}
+	if g := c.Gating(ModeInstall); g.Blocked {
+		c.cfg.Changed()
+		return ErrBlocked
+	}
+	c.direct = true
+	c.begin(steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{name}, AUR: true})
 	return nil
 }
 
@@ -175,7 +202,7 @@ func (c *Controller) Handle(ev Event) {
 	case RunStarted:
 		c.started = true
 	case Done:
-		if c.started && e.OK {
+		if c.started && e.OK && !c.direct {
 			c.List.Clear()
 		}
 		if c.started {
