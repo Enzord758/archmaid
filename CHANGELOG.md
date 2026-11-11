@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Changed
+
+- **Packaging: `udisks2` is an optional dependency of archmaid-gui-git, and the widget's optional dependency is named `dux-shell`.** System health's Drive health row reads SMART from udisks2 and shows unknown without it; DMS is now packaged as `dux-shell`, which replaces and provides `dms-shell`, so the old name still resolved.
+
 ## [2.6.1] - 2026-11-10
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

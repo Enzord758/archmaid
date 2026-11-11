@@ -122,7 +122,7 @@ package_archmaid-git() {
   # pull it in. Both are hard depends: the timer is part of the package.
   depends=('glibc' 'pacman' 'pacman-contrib' 'fakeroot' 'polkit' 'systemd')
   optdepends=('archmaid-gui-git: GTK4/libadwaita window (the DMS widget opens it instead of the TUI)'
-              'dms-shell: archmaid bar widget (installed under /etc/xdg/quickshell/dms-plugins)'
+              'dux-shell: archmaid bar widget (installed under /etc/xdg/quickshell/dms-plugins; dux-shell replaces and provides dms-shell)'
               'topgrade: system/AUR update step in the TUI'
               'yay: AUR cache cleaning and updates')
   install=archmaid.install
@@ -162,8 +162,11 @@ package_archmaid-gui-git() {
            'glib2' 'glibc')
   # The Packages page's AUR install fetches with git and builds with makepkg
   # as the user; repo installs and everything else work without them.
+  # udisks2: System health's Drive health row reads SMART from a running
+  # udisksd over D-Bus (never starts it); without it the row is unknown.
   optdepends=('git: install AUR packages from the Packages page'
-              'base-devel: build AUR packages from the Packages page')
+              'base-devel: build AUR packages from the Packages page'
+              'udisks2: drive health (SMART) in System health')
   provides=("$_pkgname-gui")
   conflicts=("$_pkgname-gui")
 
