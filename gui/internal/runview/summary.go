@@ -171,6 +171,8 @@ func quietHeadline(r report.Report) (kicker, tone, headline string) {
 	switch {
 	case action == steps.IDPkgRemove, isPkgAction(action) && removedOnly(r):
 		return "DONE", "ok", "Packages removed"
+	case isPkgAction(action) && updatedOnly(r):
+		return "DONE", "ok", "Packages updated"
 	case isPkgAction(action):
 		return "DONE", "ok", "Packages installed"
 	}
@@ -203,9 +205,14 @@ func subLine(r report.Report) string {
 	var parts []string
 	switch {
 	case r.Packages != nil && isPkgAction(r.Action):
-		// A Packages page run: what it installed or removed, not "0 upgraded".
+		// A Packages page run: what it installed, upgraded (an AUR package
+		// that was installed already, "Review and update" on a held one: pacman
+		// logs that as upgraded, not installed) or removed.
 		if n := len(r.Packages.Installed); n > 0 {
 			parts = append(parts, plural.N(n, "package", "packages")+" installed")
+		}
+		if n := len(r.Packages.Upgraded); n > 0 {
+			parts = append(parts, plural.N(n, "package", "packages")+" upgraded")
 		}
 		if n := len(r.Packages.Removed); n > 0 {
 			parts = append(parts, plural.N(n, "package", "packages")+" removed")
@@ -259,23 +266,36 @@ func packagesBlock(r report.Report) *PackagesBlock {
 		return nil
 	}
 	if isPkgAction(r.Action) {
-		// A Packages page run has no upgrades to count: the block is its
-		// installs and removals.
+		// A Packages page run: the block is its installs, upgrades (an AUR
+		// package updated from the held sheet) and removals.
 		b := &PackagesBlock{}
-		switch {
-		case len(p.Installed) > 0 && len(p.Removed) > 0:
-			b.Head = fmt.Sprintf("%d installed, %d removed", len(p.Installed), len(p.Removed))
-		case len(p.Removed) > 0:
-			b.Head = fmt.Sprintf("%d removed", len(p.Removed))
-		default:
-			b.Head = fmt.Sprintf("%d installed", len(p.Installed))
+		var heads []string
+		if len(p.Installed) > 0 {
+			heads = append(heads, fmt.Sprintf("%d installed", len(p.Installed)))
 		}
-		for i, in := range p.Installed {
-			if i == MaxPackageRows {
-				b.Hidden = len(p.Installed) - MaxPackageRows
-				break
+		if len(p.Upgraded) > 0 {
+			heads = append(heads, fmt.Sprintf("%d upgraded", len(p.Upgraded)))
+		}
+		if len(p.Removed) > 0 {
+			heads = append(heads, fmt.Sprintf("%d removed", len(p.Removed)))
+		}
+		if len(heads) == 0 {
+			heads = append(heads, "0 installed")
+		}
+		b.Head = strings.Join(heads, ", ")
+		rows := len(p.Installed) + len(p.Upgraded)
+		add := func(name, ch string) {
+			if len(b.Rows) == MaxPackageRows {
+				b.Hidden = rows - MaxPackageRows
+				return
 			}
-			b.Rows = append(b.Rows, PackageRow{Name: safeName(in.Name), Change: sanitize.Field(in.New, 40)})
+			b.Rows = append(b.Rows, PackageRow{Name: safeName(name), Change: ch})
+		}
+		for _, in := range p.Installed {
+			add(in.Name, sanitize.Field(in.New, 40))
+		}
+		for _, u := range p.Upgraded {
+			add(u.Name, change(u))
 		}
 		if len(p.Removed) > 0 {
 			b.Lines = append(b.Lines, LabelledLine{"Removed", fmt.Sprintf("%d · %s", len(p.Removed), nameList(pkgNames(p.Removed), 3))})
@@ -314,10 +334,17 @@ func isPkgAction(a string) bool {
 	return a == actions.IDPackages || a == steps.IDPkgInstall || a == steps.IDPkgRemove
 }
 
+// updatedOnly: the run upgraded packages that were installed already and
+// installed or removed none (the held sheet's "Review and update").
+func updatedOnly(r report.Report) bool {
+	p := r.Packages
+	return p != nil && len(p.Upgraded) > 0 && len(p.Installed) == 0 && len(p.Removed) == 0
+}
+
 // removedOnly: the run took packages away and put none in (the engine's one
 // action ID does not say which of the two it was).
 func removedOnly(r report.Report) bool {
-	return r.Packages != nil && len(r.Packages.Removed) > 0 && len(r.Packages.Installed) == 0
+	return r.Packages != nil && len(r.Packages.Removed) > 0 && len(r.Packages.Installed) == 0 && len(r.Packages.Upgraded) == 0
 }
 
 func change(p report.Pkg) string {

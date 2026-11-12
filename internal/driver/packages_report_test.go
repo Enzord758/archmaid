@@ -132,6 +132,25 @@ func TestPackagesRunReport(t *testing.T) {
 			t.Errorf("summary %+v", rec.Summary)
 		}
 	})
+	// An AUR package that is installed already and is updated through the
+	// Packages page (the held sheet's "Review and update"): pacman logs
+	// `upgraded`, so the report has it under Upgraded and none under Installed,
+	// and last-run.json's summary counts it as upgraded (#285; the run page's
+	// summary counts it too, gui/internal/runview).
+	t.Run("aur upgrade", func(t *testing.T) {
+		w := newReportWorld(t)
+		r := reportRig(t, w, false, sizedPlan(steps.PkgInstall),
+			logHelper(t, w, "[t] [ALPM] upgraded foo (1-1 -> 2-1)\n", nil), true)
+		evs := r.runPackages(steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"foo"}, AUR: true}, true)
+		rr, ok := reportOf(evs)
+		p := rr.Report.Packages
+		if !ok || p == nil || len(p.Upgraded) != 1 || len(p.Installed) != 0 || p.Upgraded[0].Name != "foo" || p.Upgraded[0].New != "2-1" {
+			t.Fatalf("report %+v packages %+v", rr, p)
+		}
+		if rec, _ := r.log.ReadLastRun(); rec.Summary == nil || rec.Summary.Upgraded != 1 || rec.Summary.Installed != 0 || rec.Outcome != logstore.OutcomeOK {
+			t.Errorf("record %+v", rec)
+		}
+	})
 	t.Run("dry run has none", func(t *testing.T) {
 		w := newReportWorld(t)
 		r := reportRig(t, w, true, sizedPlan(steps.PkgInstall), logHelper(t, w, "", nil), false)

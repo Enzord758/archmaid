@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **An AUR update through the Packages page no longer ends "0 installed"** (#285). "Review and update" on a held package (termix-bin in the VM) installed it, but the run summary said "PACKAGES 0 installed": the package was installed already, so pacman logged it as upgraded, and the Packages run's summary only counted installs. It counts upgrades now: "1 package upgraded", the block head "1 upgraded" (or "1 installed, 1 upgraded") with the old → new version row, and the headline "Packages updated" when nothing else changed. `last-run.json` already held it as `summary.upgraded`. `TestSummaryPackagesRunUpgrade`, and `TestPackagesRunReport/aur upgrade` for the report and the record.
+
 ## [2.7.0] - 2026-11-12
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
