@@ -30,6 +30,7 @@ import (
 var (
 	healthEveryMS    uint = 30 * 60 * 1000
 	healthStale           = 5 * time.Minute
+	healthSheetStale      = time.Minute // opening the sheet re-runs the checks when the last run is older
 	healthRunTimeout      = 20 * time.Second
 	newsWait              = 1500 * time.Millisecond
 )
@@ -221,6 +222,12 @@ func (w *Window) openHealth() {
 	h.sheet = d
 	h.fill()
 	d.show(w)
+	// The checks read things that change (pacman.conf, the units, the news):
+	// a sheet opened on a result over a minute old shows it with "Checking…"
+	// while the checks run again (#286; never two at once: Runner).
+	if h.run.Stale(time.Now(), healthSheetStale) {
+		w.refreshHealth()
+	}
 }
 
 // How much of a command the Copy command button's tooltip and toast show

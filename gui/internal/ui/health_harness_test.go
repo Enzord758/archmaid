@@ -107,10 +107,10 @@ var (
 )
 
 func init() {
-	for _, s := range []string{"cov-health-cell", "cov-health-sheet", "cov-health-news", "cov-health-runs", "cov-health-topgrade", "cov-health-scroll"} {
+	for _, s := range []string{"cov-health-cell", "cov-health-sheet", "cov-health-news", "cov-health-runs", "cov-health-topgrade", "cov-health-scroll", "cov-health-reopen"} {
 		covScenarios[s] = map[string]func(*covEnv){
 			"cov-health-cell": covHealthCell, "cov-health-sheet": covHealthSheet, "cov-health-news": covHealthNews,
-			"cov-health-runs": covHealthRuns, "cov-health-topgrade": covHealthTopgrade, "cov-health-scroll": covHealthScroll,
+			"cov-health-runs": covHealthRuns, "cov-health-topgrade": covHealthTopgrade, "cov-health-scroll": covHealthScroll, "cov-health-reopen": covHealthReopen,
 		}[s]
 		covOptions[s] = func(o *Options, _ *report) {
 			healthFake = &fakeHealth{report: calmReport}
@@ -120,6 +120,9 @@ func init() {
 			case "cov-health-runs":
 				healthEveryMS, healthStale = 700, 150*time.Millisecond
 				healthFake.runDelay = 120 * time.Millisecond
+			case "cov-health-reopen":
+				healthSheetStale = 300 * time.Millisecond
+				healthFake.runDelay = 400 * time.Millisecond
 			case "cov-health-cell":
 				healthFake.hold = make(chan struct{}) // the first run is held: "Checking…"
 			}
@@ -500,6 +503,7 @@ func TestGUIHealth(t *testing.T) {
 		}
 	}
 	child(t, "cov-health-runs")
+	child(t, "cov-health-reopen")
 	child(t, "cov-health-topgrade")
 }
 

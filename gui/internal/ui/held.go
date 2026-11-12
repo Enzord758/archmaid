@@ -62,22 +62,23 @@ func (w *Window) openHeld() {
 			rows.Remove(c)
 		}
 		cool, aud := w.heldCooldown(), w.held.Audit
-		section := func(title string) {
+		section := func(title, tip string) {
 			head := gtk.NewLabel(title)
+			head.SetTooltipText(tip)
 			head.SetXAlign(0)
 			head.AddCSSClass("am-kicker")
 			head.AddCSSClass("am-health-section")
 			rows.Append(head)
 		}
 		if len(cool) > 0 {
-			section("COOLDOWN · NEWER THAN 72 H")
+			section("COOLDOWN · NEWER THAN 72 H", "AUR updates newer than 72 hours are held back until they have aged")
 			for _, h := range cool {
 				rows.Append(w.heldRow("held-"+h.Name, h.Tag(), "am-tag-warn", h.Name, h.Detail(), "Review and update",
 					func() { w.reviewHeld(h.Name) }))
 			}
 		}
 		if len(aud) > 0 {
-			section("HELD BY THE AUR AUDIT")
+			section("HELD BY THE AUR AUDIT", "Only high findings you have not accepted yet are listed here: low and medium ones, and accepted ones, are not")
 			for _, a := range aud {
 				rows.Append(w.heldRow("audit-"+a.Pkg, "audit", "am-tag-danger", a.Pkg, a.Reason, "Open audit", w.openHeldAudit))
 			}
