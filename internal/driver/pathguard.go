@@ -3,6 +3,7 @@ package driver
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -55,7 +56,7 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 		return
 	}
 	d.keep.Fail()
-	d.keepOffWhy = keepOffReason(done)
+	d.keepOffWhy = keepOffReason(done, shadows)
 	what := "the check of this step's PATH didn't finish in " + pathScanMax.String()
 	if done {
 		what = "this step's PATH or sudo config has something that could stand in for sudo: " + namesOf(shadows)
@@ -73,11 +74,56 @@ func (d *Driver) guardPath(e engine.StartStep, spec proc.Spec) {
 
 // keepOffReason is the one-line why a failed guard gives the password
 // dialog (NeedsPassword.KeepOff) and the gate's note (PreviewKeepOff).
-func keepOffReason(done bool) string {
+func keepOffReason(done bool, shadows []privilege.Shadow) string {
 	if !done {
 		return "the PATH check didn't finish in time"
 	}
-	return "the PATH check found something that could stand in for sudo"
+	// A shadow with a Note is a config file (a topgrade, paru or yay config
+	// that names a sudo or pacman of its own), else a file on PATH.
+	var cfgs []privilege.Shadow
+	onPath := false
+	for _, s := range distinctShadows(shadows) {
+		if s.Note != "" {
+			cfgs = append(cfgs, s)
+		} else {
+			onPath = true
+		}
+	}
+	var parts []string
+	if onPath || len(cfgs) == 0 {
+		parts = append(parts, "the PATH check found something that could stand in for sudo")
+	}
+	if len(cfgs) > 0 {
+		c := cfgs[0]
+		what := "your " + configTool(c.Path) + " config (" + tildePath(c.Path) + ") " + sanitize.Clip(sanitize.OneLine(c.Note), 60)
+		if n := len(cfgs) - 1; n > 0 {
+			what += fmt.Sprintf(" (and %d more)", n)
+		}
+		parts = append(parts, what)
+	}
+	return strings.Join(parts, ", and ")
+}
+
+// configTool is the program a config file of the guard belongs to.
+func configTool(path string) string {
+	base, dir := filepath.Base(path), filepath.Base(filepath.Dir(path))
+	switch {
+	case base == "topgrade.toml":
+		return "topgrade"
+	case base == "paru.conf" || dir == "paru":
+		return "paru"
+	case dir == "yay":
+		return "yay"
+	}
+	return "tool"
+}
+
+// tildePath is path for a sentence: the home folder as ~, one line, short.
+func tildePath(path string) string {
+	if home := os.Getenv("HOME"); filepath.IsAbs(home) && strings.HasPrefix(path, home+"/") {
+		path = "~" + strings.TrimPrefix(path, home)
+	}
+	return sanitize.Clip(sanitize.OneLine(path), 80)
 }
 
 // PreviewKeepOff is the PATH guard's verdict as of now, without its side
@@ -96,7 +142,7 @@ func PreviewKeepOff() string {
 	if done && len(shadows) == 0 {
 		return ""
 	}
-	return keepOffReason(done)
+	return keepOffReason(done, shadows)
 }
 
 // pathShadows is the scan (a seam: a test makes it hang).
