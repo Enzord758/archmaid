@@ -46,11 +46,11 @@ func TestAURHeldIsNotAnAlarm(t *testing.T) {
 		{"out of date and held by the cooldown: OK",
 			Deps{Foreign: foreign("a", "b"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true}, AURPkg{Name: "b"}), AURSeen: seen("a", "b"), Held: held([]string{"a"}, nil)},
 			OK, "2 AUR packages fine · 1 update held (cooldown)"},
-		{"out of date with no pending update: LOOK",
+		{"out of date with no pending update: a note",
 			Deps{Foreign: foreign("a", "b"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true}, AURPkg{Name: "b"}), AURSeen: seen("a", "b"), Held: held([]string{"b"}, nil)},
-			Look, "flagged out of date: a · 1 update held (cooldown)"},
-		{"out of date and nothing held: LOOK",
-			Deps{Foreign: foreign("a"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true}), AURSeen: seen("a")}, Look, "flagged out of date: a"},
+			OK, "2 AUR packages fine · 1 flagged out of date: a · 1 update held (cooldown)"},
+		{"out of date and nothing held: a note, not LOOK (#287)",
+			Deps{Foreign: foreign("a"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true}), AURSeen: seen("a")}, OK, "1 AUR package fine · 1 flagged out of date: a"},
 		{"held by the AUR audit and out of date: not LOOK",
 			Deps{Foreign: foreign("a"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true}), AURSeen: seen("a"), Held: held(nil, []string{"a"})},
 			OK, "1 AUR package fine · 1 held by the AUR audit"},
@@ -67,9 +67,9 @@ func TestAURHeldIsNotAnAlarm(t *testing.T) {
 			Deps{Foreign: foreign("a"), AURInfo: info(AURPkg{Name: "a"}), AURSeen: seen("a"), Held: held([]string{"zzz"}, []string{"yyy"})},
 			OK, "1 AUR package fine"},
 		// paru: nothing is held by the cooldown (no age tags), so the rule never applies.
-		{"no cooldown holds (paru): out of date is LOOK",
+		{"no cooldown holds (paru): out of date is a note",
 			Deps{Foreign: foreign("a"), AURInfo: info(AURPkg{Name: "a", OutOfDate: true}), AURSeen: seen("a"), Held: held(nil, nil)},
-			Look, "flagged out of date: a"},
+			OK, "1 AUR package fine · 1 flagged out of date: a"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got := checkAUR(context.Background(), c.d)

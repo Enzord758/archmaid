@@ -120,7 +120,9 @@ func checkNews(ctx context.Context, d Deps) Check {
 	if n > 1 {
 		detail = fmt.Sprintf("%d new since your last update, newest: %s", n, first.Title)
 	}
-	return Check{State: Look, Detail: sanitize.Field(detail+suffix, DetailMax), Link: first.Link}
+	// Keyed by the newest unread post: a newer one re-alerts.
+	return Check{State: Look, Detail: sanitize.Field(detail+suffix, DetailMax), Link: first.Link,
+		Items: []Item{{Key: fmt.Sprintf("news:%d", first.Date.Unix()), Label: sanitize.Field(first.Title, 80)}}}
 }
 
 // newsReason is the short reason shown for an Unknown news check.

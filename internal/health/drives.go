@@ -44,16 +44,18 @@ func checkDiskHealth(ctx context.Context, d Deps) Check {
 		return unknown(IDDiskHealth, TitleDiskHealth, "can't read drive data")
 	}
 	var bad, good []string
+	var items []Item
 	for _, dr := range drives {
 		if p := dr.problem(); p != "" {
 			bad = append(bad, dr.name()+": "+p)
+			items = append(items, Item{Key: itemKey("drive:", dr.id), Label: dr.name()})
 		} else if dr.hasData() {
 			good = append(good, dr.name())
 		}
 	}
 	switch {
 	case len(bad) > 0:
-		return Check{State: Look, Detail: sanitize.Field(strings.Join(bad, " · "), DetailMax)}
+		return Check{State: Look, Detail: sanitize.Field(strings.Join(bad, " · "), DetailMax), Items: items}
 	case len(good) > 0:
 		return Check{State: OK, Detail: sanitize.Field("SMART is fine: "+strings.Join(good, ", "), DetailMax)}
 	}

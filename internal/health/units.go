@@ -52,7 +52,14 @@ func checkFailedUnits(ctx context.Context, d Deps) Check {
 	if n > len(shown) {
 		detail += fmt.Sprintf(" +%d more", n-len(shown))
 	}
-	return Check{State: Look, Detail: sanitize.Field(detail, DetailMax), Copy: journalCommand(sys, usr)}
+	var items []Item
+	for _, u := range sys {
+		items = append(items, Item{Key: itemKey("unit:", u), Label: sanitize.Field(u, 80)})
+	}
+	for _, u := range usr {
+		items = append(items, Item{Key: itemKey("user-unit:", u), Label: sanitize.Field(u, 80) + " (user)"})
+	}
+	return Check{State: Look, Detail: sanitize.Field(detail, DetailMax), Copy: journalCommand(sys, usr), Items: items}
 }
 
 // failedUnits lists the failed units of the system manager, or of the user's

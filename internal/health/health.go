@@ -35,6 +35,9 @@ const (
 	// Unknown: the check could not tell (offline, no tool, unreadable). It is
 	// neutral: never counted by Attention.
 	Unknown
+	// Ignored: the check is Look, but every item that makes it so is one the
+	// user ignored (ignore.go). It counts nowhere; the GUI shows it greyed.
+	Ignored
 )
 
 func (s State) String() string {
@@ -43,6 +46,8 @@ func (s State) String() string {
 		return "ok"
 	case Look:
 		return "look"
+	case Ignored:
+		return "ignored"
 	}
 	return "unknown"
 }
@@ -84,15 +89,24 @@ type Check struct {
 	Copy string
 	// Link is an https://archlinux.org/ address ("" = none).
 	Link string
+	// Items are the things a Look check is about, each ignorable by itself
+	// (ignore.go; the keys are listed in docs/design/health.md). Set when State
+	// is Look: the items that are not ignored. Nil otherwise.
+	Items []Item
+	// IgnoredItems are the items of this check the user ignored: all of them
+	// when State is Ignored, some while it is Look. Nil when none.
+	IgnoredItems []Item
 }
 
 // Report is the result of Run.
 type Report struct {
-	Checks []Check
-	At     time.Time
+	Checks  []Check
+	At      time.Time
+	ignored []IgnoredItem
 }
 
-// Attention is the number of checks in state Look.
+// Attention is the number of checks in state Look: a check whose Look items
+// are all ignored is Ignored and not counted.
 func (r Report) Attention() int {
 	n := 0
 	for _, c := range r.Checks {
@@ -135,6 +149,9 @@ type Deps struct {
 	HTTPGet func(ctx context.Context, url string) ([]byte, error)
 	// NewsURL is the feed to fetch.
 	NewsURL string
+	// IgnoreLoad returns the ignored item keys and when they were ignored
+	// (IgnoreStore.Load); nil means nothing is ignored. Run only reads it.
+	IgnoreLoad func() map[string]time.Time
 
 	// LockFile is pacman's database lock; Procs lists the names of the running
 	// processes (/proc/*/comm); Uptime is the time since boot.
@@ -181,6 +198,8 @@ func DefaultDeps() Deps {
 		FS:      statFS,
 		HTTPGet: httpGet,
 		NewsURL: NewsURL,
+
+		IgnoreLoad: DefaultIgnoreStore().Load,
 
 		LockFile:   DefaultLockFile,
 		Procs:      listProcs,
@@ -274,7 +293,18 @@ func Run(ctx context.Context, d Deps) Report {
 			}
 		}
 	}
-	return Report{Checks: out, At: d.now()}
+	rep := Report{Checks: out, At: d.now()}
+	var ign map[string]time.Time
+	if d.IgnoreLoad != nil {
+		ign = d.IgnoreLoad()
+	}
+	for i := range rep.Checks {
+		rep.Checks[i] = applyIgnores(rep.Checks[i], ign)
+		for _, it := range rep.Checks[i].IgnoredItems {
+			rep.ignored = append(rep.ignored, IgnoredItem{CheckID: rep.Checks[i].ID, Title: rep.Checks[i].Title, Item: it, Since: ign[it.Key]})
+		}
+	}
+	return rep
 }
 
 func grouped(c Check, g string) Check {

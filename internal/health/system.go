@@ -45,7 +45,7 @@ func checkPacmanLock(_ context.Context, d Deps) Check {
 			return Check{State: OK, Detail: "pacman is running"}
 		}
 	}
-	return Check{State: Look, Detail: "pacman's lock is left over from a run that stopped",
+	return Check{State: Look, Detail: "pacman's lock is left over from a run that stopped", Items: []Item{{Key: IDPacmanLock, Label: "Lock file"}},
 		Copy: "sudo rm " + DefaultLockFile}
 }
 
@@ -187,7 +187,7 @@ func checkTimeSync(ctx context.Context, d Deps) Check {
 	}
 	switch {
 	case ntp == "no":
-		return Check{State: Look, Detail: "Automatic time sync is off"}
+		return Check{State: Look, Detail: "Automatic time sync is off", Items: []Item{{Key: IDTimeSync, Label: "Time sync is off"}}}
 	case synced == "yes":
 		return Check{State: OK, Detail: "Clock is synchronized"}
 	}
@@ -201,7 +201,7 @@ func checkTimeSync(ctx context.Context, d Deps) Check {
 	if up <= syncGrace {
 		return Check{State: OK, Detail: "Waiting for the first sync"}
 	}
-	return Check{State: Look, Detail: "Clock isn't synchronized"}
+	return Check{State: Look, Detail: "Clock isn't synchronized", Items: []Item{{Key: IDTimeSync, Label: "Clock not synchronized"}}}
 }
 
 func limitBytes(b []byte, n int) string {
@@ -251,7 +251,11 @@ func checkCrashes(ctx context.Context, d Deps) Check {
 	if len(exes) > len(names) {
 		detail += fmt.Sprintf(" +%d more", len(exes)-len(names))
 	}
-	return Check{State: Look, Detail: sanitize.Field(detail, DetailMax), Copy: CrashCopy}
+	var items []Item
+	for _, e := range exes {
+		items = append(items, Item{Key: itemKey("crash:", e), Label: sanitize.Field(e, 40)})
+	}
+	return Check{State: Look, Detail: sanitize.Field(detail, DetailMax), Copy: CrashCopy, Items: items}
 }
 
 // parseCoredumps reads `coredumpctl list --no-legend` lines:

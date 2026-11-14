@@ -22,10 +22,13 @@ func checkRestart(_ context.Context, d Deps) Check {
 	if !stale {
 		return Check{State: OK, Detail: "Running " + running}
 	}
+	key := itemKey("restart:", installed) // a newer kernel re-alerts
 	if installed == "" {
 		installed = "newer"
+		key = IDRestart
 	}
-	return Check{State: Look, Detail: sanitize.Field(fmt.Sprintf("running %s · installed %s", running, sanitize.Field(installed, 60)), DetailMax)}
+	return Check{State: Look, Detail: sanitize.Field(fmt.Sprintf("running %s · installed %s", running, sanitize.Field(installed, 60)), DetailMax),
+		Items: []Item{{Key: key, Label: "Running " + running}}}
 }
 
 // Disk thresholds.
@@ -43,16 +46,21 @@ func checkDisk(_ context.Context, d Deps) Check {
 		return unknown(IDDisk, TitleDisk, "can't read disk space")
 	}
 	look := root.Avail < rootMinBytes
+	var items []Item
+	if look {
+		items = append(items, Item{Key: "disk:/", Label: "/"})
+	}
 	detail := "/ " + ShortBytes(root.Avail) + " free"
 	// /boot counts only when it is its own mount (another device than /).
 	if boot, err := d.FS("/boot"); err == nil && boot.Total > 0 && boot.Dev != root.Dev {
 		detail += " · /boot " + ShortBytes(boot.Avail) + " free"
 		if boot.Avail < bootMinBytes {
 			look = true
+			items = append(items, Item{Key: "disk:/boot", Label: "/boot"})
 		}
 	}
 	if look {
-		return Check{State: Look, Detail: detail}
+		return Check{State: Look, Detail: detail, Items: items}
 	}
 	return Check{State: OK, Detail: detail}
 }

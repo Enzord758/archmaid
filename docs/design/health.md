@@ -8,7 +8,7 @@ Full Cleanup confirm sheets show `UnreadNews`.
 ## API
 
 ```go
-type State int // health.OK, health.Look, health.Unknown
+type State int // health.OK, health.Look, health.Unknown, health.Ignored
 
 type Check struct {
     ID     string // see the table below
@@ -18,13 +18,25 @@ type Check struct {
     Detail string // one plain-text line, sanitized, at most 200 runes
     Copy   string // a command for the user to paste ("" = no action button)
     Link   string // "https://archlinux.org/..." only, or "" (no link button)
+    // Ignoring (#287, below):
+    Items        []Item // when Look: the items that make it so and are not ignored
+    IgnoredItems []Item // the ones the user ignored (all of them when Ignored)
 }
+
+type Item struct{ Key, Label string } // Key: stable, see "Ignoring"
 
 type Report struct {
     Checks []Check   // always 11, grouped, in the order of the table below
     At     time.Time // Deps.Now() when Run finished
 }
-func (r Report) Attention() int // the number of Look checks (Unknown is not counted)
+func (r Report) Attention() int // the number of Look checks (Unknown and Ignored are not counted)
+func (r Report) Ignored() []IgnoredItem // every ignored item, for the "Ignored" list
+
+type IgnoredItem struct {
+    CheckID, Title string
+    Item           Item
+    Since          time.Time // when it was ignored
+}
 
 func DefaultDeps() Deps
 func Run(ctx context.Context, d Deps) Report
@@ -74,7 +86,9 @@ Helpers the GUI may use for wording of its own: `health.Ago(d)` ("5 min",
 
 States: **OK** (green tag "OK"), **Look** (tag "LOOK", counts in "N things need
 your attention"), **Unknown** (neutral tag, "?" or "--"; never counted; the
-Detail is the short reason). Titles are the row names.
+Detail is the short reason), **Ignored** (the check is Look, but every item that
+makes it so was ignored by the user: greyed, never counted; see "Ignoring").
+Titles are the row names.
 
 `Report.Checks` is ordered by group; draw a section header whenever `Group`
 changes (or filter by `Group`). Section names for the GUI: System, Packages,
@@ -248,9 +262,19 @@ and illegal names are not asked about; at most 300 names (sorted) are.
 |---|---|
 | OK | `No AUR packages`; `12 AUR packages fine`; `12 AUR packages fine · 2 local builds`; `No AUR packages found · 1 local build` |
 | OK (no audit history) | `12 AUR packages fine · 2 not found on the AUR (no audit history to say if they were removed)` |
-| Look | `not in the AUR anymore: a, b +2 more`; `flagged out of date: c`; both joined with ` · ` |
-| (OK or Look, appended) | ` · 1 update held (cooldown)`, ` · 2 held by the AUR audit` |
+| Look | `not in the AUR anymore: a, b +2 more` (and nothing else makes it Look) |
+| (OK or Look, appended) | ` · 1 flagged out of date: unigine-superposition (flagged 8 months ago)`, ` · 1 update held (cooldown)`, ` · 2 held by the AUR audit` |
 | Unknown | `Can't reach the AUR`; `AUR check timed out`; `can't read installed packages` |
+
+**"Flagged out of date" is a note, not an alarm (#287).** The maintainer may
+simply not have got to it and nothing here can change that, so a check whose
+only finding is flagged packages is OK; the detail names them (up to 4, then
+` +N more`) with when the AUR RPC's `OutOfDate` timestamp says they were flagged
+("flagged 8 months ago", "3 days ago", "5 hours ago", "2 years ago"; no age when
+the RPC gave none or it is in the future). The held rules below still decide the
+wording: a flagged package whose update waits in the cooldown, or that the AUR
+audit holds, is counted there instead and not listed as flagged. LOOK stays only
+for "gone from the AUR (it was in the snapshot)".
 
 **"Not in the AUR anymore" names only packages that were in the AUR before.**
 The AUR audit keeps a maintainer snapshot (`<state dir>/aur-maintainers.json`,
@@ -326,6 +350,66 @@ object (those with `org.freedesktop.UDisks2.Drive`):
 | Unknown | `udisks2 isn't running` (busctl failed or udisksd not running); `no SMART data yet` (no drive has been read yet, or none supports SMART, e.g. a VM); `can't read drive data`; `drive data too large` |
 
 No Copy.
+
+## Ignoring (#287)
+
+A Look check names the things it is about as **Items**, each with a stable
+**Key**, so the user can ignore them one by one. The GUI offers an "Ignore"
+button on a Look row (per item when there are several: the items are the
+chips or lines of the row), and an "Ignored" section at the bottom of the sheet
+listing `Report.Ignored()` with an "Undo" button each.
+
+**Effect.** `Run` loads the ignore list and, for each Look check, splits its
+items into active and ignored:
+- none ignored: unchanged;
+- some ignored: still **Look**; `Items` are the active ones, `IgnoredItems` the
+  ignored ones, and ` · N ignored` is appended to the Detail;
+- all ignored: the state is **Ignored**: `Items` nil, `IgnoredItems` all of them,
+  Detail, Copy and Link kept (the row is shown greyed, its command still
+  copyable); it counts nowhere (`Attention()` counts Look checks only).
+
+**New items still alert.** The list is by key, so a unit that fails later, a
+newer kernel, a package that goes missing from the AUR are not in it: the check is
+Look again for that item while the others stay ignored. Only a Look check is
+touched; OK and Unknown never are. A Look check that came without items (none
+does today) is ignorable by its check ID.
+
+**Keys** (all printable text, at most 300 bytes; control characters are dropped
+from the value part):
+
+| Check | Items (key; label) |
+|---|---|
+| failed-units | one per failed unit: `unit:<name>` (system), `user-unit:<name>` (user); the unit name, ` (user)` appended for a user unit |
+| restart | `restart:<installed kernel release>` (the newest installed release, so a newer kernel re-alerts); `restart` when the release is unknown; "Running <release>" |
+| time-sync | `time-sync` (both "sync is off" and "not synchronized"); the reason |
+| crashes | one per crashing executable: `crash:<executable base name>`; the name |
+| pacman-lock | `pacman-lock`; "Lock file" |
+| pacnew | one per file: `pacnew:<absolute path>`; the path |
+| aur | one per package gone from the AUR: `aur-gone:<name>`; the name. (Flagged out of date is a note and has no item.) |
+| news | `news:<unix time of the newest unread post>` (a newer post re-alerts); the post's title |
+| mirror | `mirror:<host[:port]>` (another mirror re-alerts); the host |
+| disk | one per low mount: `disk:/`, `disk:/boot`; the mount |
+| disk-health | one per drive with a problem: `drive:<udisks drive id>`; the drive's model |
+
+**The store.** `health.IgnoreStore` (`DefaultIgnoreStore()` for the real one;
+`Dir` is the state dir, "" is `~/.local/state/archmaid`):
+`Load() map[string]time.Time`, `Ignore(key) error`, `Unignore(key) error`.
+`Deps.IgnoreLoad` is the seam `Run` reads (`DefaultDeps` has
+`DefaultIgnoreStore().Load`); the GUI calls `Ignore` and `Unignore` when the
+user clicks, then runs the checks again. **`Run` never writes: the ignore file
+is the only thing health writes, and only through those two calls.**
+
+The file is `health-ignore.json` in the state dir: `{"v":1,"ignored":{"<key>":
+"<RFC3339 time ignored>"}}`, written atomically (a 0600 temp file in the 0700
+state dir, fsynced, renamed over it), at most 500 keys (`ErrIgnoreFull`), keys
+checked by `ValidKey` (`ErrBadKey`). Ignoring a key again keeps its first time.
+It is read only if it is a regular file owned by the user, not writable by
+group or others, at most 256 KiB, the same file between the check and the open,
+JSON of version 1; whatever else it is (a symlink, someone else's file, huge,
+garbled) reads as an empty list and is never followed, and the next `Ignore`
+replaces it (a symlink is replaced itself, what it pointed at is not touched).
+Keys that are not valid are dropped on load; a time that does not parse is the
+zero time.
 
 ## Errors and robustness
 

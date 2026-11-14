@@ -28,6 +28,9 @@ type Foreign struct{ Name, Version string }
 type AURPkg struct {
 	Name      string
 	OutOfDate bool
+	// Flagged is when it was flagged out of date (the RPC's OutOfDate
+	// timestamp); zero when not flagged or not given.
+	Flagged time.Time
 }
 
 // AUR check limits.
@@ -76,7 +79,7 @@ func aurInfoAt(ctx context.Context, base string, names []string) ([]AURPkg, erro
 	for _, p := range pk {
 		a := AURPkg{Name: p.Name}
 		if p.AUR != nil && !p.AUR.OutOfDate.IsZero() {
-			a.OutOfDate = true
+			a.OutOfDate, a.Flagged = true, p.AUR.OutOfDate
 		}
 		out = append(out, a)
 	}
@@ -146,6 +149,7 @@ func checkAUR(ctx context.Context, d Deps) Check {
 		held = d.Held()
 	}
 	var gone, flagged []string
+	flaggedAt := map[string]time.Time{}
 	inAUR, other, cool, audited := 0, 0, 0, 0
 	for _, n := range names {
 		if held.Cooldown[n] {
@@ -161,30 +165,72 @@ func checkAUR(ctx context.Context, d Deps) Check {
 		case !ok:
 			other++
 		case p.OutOfDate && !held.Cooldown[n] && !held.Audit[n]:
+			// Flagged out of date is a note, not an alarm: the maintainer
+			// may simply not have got to it, and nothing here can change that.
 			flagged = append(flagged, n)
+			flaggedAt[n] = p.Flagged
 			inAUR++
 		default:
 			inAUR++
 		}
 	}
 	heldNote := ""
+	if len(flagged) > 0 {
+		heldNote += " · " + flaggedNote(flagged, flaggedAt, d.now())
+	}
 	if cool > 0 {
 		heldNote += " · " + plural(cool, "update", "updates") + " held (cooldown)"
 	}
 	if audited > 0 {
 		heldNote += fmt.Sprintf(" · %d held by the AUR audit", audited)
 	}
-	if len(gone) == 0 && len(flagged) == 0 {
+	if len(gone) == 0 {
 		return Check{State: OK, Detail: sanitize.Field(aurOKDetail(inAUR, other, haveSnap)+heldNote, DetailMax)}
 	}
+	var items []Item
+	for _, n := range gone {
+		items = append(items, Item{Key: itemKey("aur-gone:", n), Label: sanitize.Field(n, 64)})
+	}
+	return Check{State: Look, Detail: sanitize.Field("not in the AUR anymore: "+nameList(gone)+heldNote, DetailMax), Items: items}
+}
+
+// flaggedNote: "1 flagged out of date: foo (flagged 8 months ago)"; up to
+// aurShown names, then "+N more". The age is left out when the RPC gave none.
+func flaggedNote(names []string, at map[string]time.Time, now time.Time) string {
+	shown := names
+	if len(shown) > aurShown {
+		shown = shown[:aurShown]
+	}
 	var parts []string
-	if len(gone) > 0 {
-		parts = append(parts, "not in the AUR anymore: "+nameList(gone))
+	for _, n := range shown {
+		s := n
+		if t := at[n]; !t.IsZero() && t.Before(now) {
+			s += " (flagged " + agoLong(now.Sub(t)) + " ago)"
+		}
+		parts = append(parts, s)
 	}
-	if len(flagged) > 0 {
-		parts = append(parts, "flagged out of date: "+nameList(flagged))
+	out := fmt.Sprintf("%d flagged out of date: %s", len(names), strings.Join(parts, ", "))
+	if len(names) > len(shown) {
+		out += fmt.Sprintf(" +%d more", len(names)-len(shown))
 	}
-	return Check{State: Look, Detail: sanitize.Field(strings.Join(parts, " · ")+heldNote, DetailMax)}
+	return out
+}
+
+// agoLong writes how long ago for flags that last months: "3 hours", "5 days",
+// "8 months", "2 years".
+func agoLong(d time.Duration) string {
+	days := int(d / (24 * time.Hour))
+	switch {
+	case d < time.Hour:
+		return "under an hour"
+	case days < 1:
+		return plural(int(d/time.Hour), "hour", "hours")
+	case days < 60:
+		return plural(days, "day", "days")
+	case days < 730:
+		return plural(days/30, "month", "months")
+	}
+	return plural(days/365, "year", "years")
 }
 
 func plural(n int, one, many string) string {
@@ -387,7 +433,7 @@ func checkMirror(ctx context.Context, d Deps) Check {
 	age = max(age, 0)
 	detail := sanitize.Field(host, 60) + " synced " + Ago(age) + " ago"
 	if age > MirrorMaxAge {
-		return Check{State: Look, Detail: detail}
+		return Check{State: Look, Detail: detail, Items: []Item{{Key: itemKey("mirror:", host), Label: sanitize.Field(host, 60)}}}
 	}
 	return Check{State: OK, Detail: detail}
 }

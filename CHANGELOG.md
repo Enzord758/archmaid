@@ -6,6 +6,14 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Changed
+
+- **System health: a package flagged out of date no longer makes the AUR row say "look"** (#287). The maintainer may simply not have got to it, and there is nothing to do about it, so it is a note now ("1 flagged out of date: unigine-superposition (flagged 8 months ago)", with the age from the AUR when it gives one). The row looks only at packages that are gone from the AUR. `TestAURFlaggedNote`.
+
+### Added
+
+- **System health: the backend for ignoring** (#287). Every check that can say "look" now names the things it is about (a failed unit, a `.pacnew` file, a package gone from the AUR, the newer kernel, a drive), each with a stable key, so they can be ignored one by one: ignoring part of a check leaves it "look" for the rest, ignoring all of it makes it "ignored" (counted nowhere), and anything new, such as another unit that fails or a newer kernel, shows again. The choices are kept in `~/.local/state/archmaid/health-ignore.json` (written atomically, 0600; a symlink, someone else's file or a garbled one is read as empty and never followed), written only when asked to and never by a check. The buttons and the "Ignored" list in the window come next; the contract is `docs/design/health.md`. `TestRunIgnoring`, `TestIgnoreStoreRoundTrip`, `TestIgnoreStoreHostileFile`.
+
 ## [2.7.1] - 2026-11-12
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

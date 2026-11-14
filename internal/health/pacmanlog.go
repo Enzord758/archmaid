@@ -144,5 +144,9 @@ func checkPacnew(ctx context.Context, d Deps) Check {
 	if len(files) > len(shown) {
 		detail += fmt.Sprintf(" +%d more", len(files)-len(shown))
 	}
-	return Check{State: Look, Detail: sanitize.Field(detail, DetailMax), Copy: "sudo pacdiff"}
+	var items []Item
+	for _, f := range files {
+		items = append(items, Item{Key: itemKey("pacnew:", f), Label: sanitize.Field(f, 80)})
+	}
+	return Check{State: Look, Detail: sanitize.Field(detail, DetailMax), Copy: "sudo pacdiff", Items: items}
 }
