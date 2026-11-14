@@ -332,6 +332,9 @@
 .archmaid .am-health-section + .am-health-row { border-top: 0; }
 .archmaid .am-health-row.am-health-ok { padding: 5px 0; }
 .archmaid .am-health-title { font-weight: 700; }
+/* An ignored item (#288): the row greyed, still readable. */
+.archmaid .am-health-ignored { opacity: 0.7; }
+.archmaid .am-ignore-pop { padding: 4px; }
 .archmaid .am-health-detail { color: @am_muted; font-size: smaller; }
 .archmaid .am-news {
   padding: 10px 12px;

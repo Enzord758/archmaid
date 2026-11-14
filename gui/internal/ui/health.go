@@ -216,6 +216,7 @@ func (w *Window) openHealth() {
 					rows.Append(w.healthRow(c))
 				}
 			}
+			w.ignoredSection(rows, h.report)
 		}
 	}
 	d.ConnectClosed(func() { h.sheet, h.fill, h.scroll = nil, nil, nil })
@@ -311,6 +312,9 @@ func (w *Window) healthRow(c healthview.Check) gtk.Widgetter {
 		link := c.Link
 		op.ConnectClicked(func() { w.openLink(link) })
 		row.Append(op)
+	}
+	if ig := w.ignoreButton(c); ig != nil {
+		row.Append(ig)
 	}
 	return row
 }

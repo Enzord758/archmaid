@@ -23,6 +23,9 @@ const (
 	OK State = iota
 	Look
 	Unknown
+	// Ignored: every item that made the check Look is ignored by the user
+	// (#287). It counts nowhere and is listed in the sheet's IGNORED section.
+	Ignored
 )
 
 // Check is one row of the report.
@@ -34,12 +37,29 @@ type Check struct {
 	Detail, Copy, Link string
 	// Group orders rows within a state: "system", "packages", "hardware".
 	Group string
+	// Items are what makes a Look check so and is not ignored, IgnoredItems
+	// what the user ignored (all of it when the state is Ignored): the sheet
+	// offers Ignore per item (#288).
+	Items, IgnoredItems []Item
+}
+
+// Item is one thing a check is about (a failed unit, a kernel, a post). Key
+// is stable and is what the ignore list stores; Label is what the row shows.
+type Item struct{ Key, Label string }
+
+// IgnoredItem is an ignored item, for the sheet's IGNORED section.
+type IgnoredItem struct {
+	CheckID, Title string
+	Item           Item
+	Since          time.Time // when it was ignored
 }
 
 // Report is what a run of the checks found.
 type Report struct {
 	Checks []Check
 	At     time.Time
+	// IgnoredList is every ignored item, in the report's order.
+	IgnoredList []IgnoredItem
 }
 
 // Attention is the number of checks that say Look. Unknown is not counted.
@@ -108,6 +128,9 @@ func (r Report) Sections() []Section {
 	rest := map[string][]Check{}
 	var groups []string
 	for _, c := range r.Sorted() {
+		if c.State == Ignored {
+			continue // listed item by item in the IGNORED section (IgnoredList)
+		}
 		if c.State == Look {
 			look = append(look, c)
 			continue
@@ -131,6 +154,59 @@ func (r Report) Sections() []Section {
 	return out
 }
 
+// ApplyIgnores splits each Look check's Items by the ignore list (key to the
+// time it was ignored), the way the backend does (#287): none ignored leaves
+// the check as it is; some ignored leaves it Look with the active Items, the
+// ignored ones in IgnoredItems and " · N ignored" appended to the Detail; all
+// ignored makes it Ignored. IgnoredList gets every ignored item. For a Source
+// that is not the real one (the stub, tests).
+func (r *Report) ApplyIgnores(ign map[string]time.Time) {
+	r.IgnoredList = nil
+	for i := range r.Checks {
+		c := &r.Checks[i]
+		if c.State != Look {
+			continue
+		}
+		var active, ignored []Item
+		for _, it := range c.Items {
+			if at, ok := ign[it.Key]; ok {
+				ignored = append(ignored, it)
+				r.IgnoredList = append(r.IgnoredList, IgnoredItem{CheckID: c.ID, Title: c.Title, Item: it, Since: at})
+			} else {
+				active = append(active, it)
+			}
+		}
+		c.Items, c.IgnoredItems = active, ignored
+		switch {
+		case len(ignored) == 0:
+		case len(active) == 0:
+			c.State = Ignored
+		default:
+			c.Detail += fmt.Sprintf(" · %d ignored", len(ignored))
+		}
+	}
+}
+
+// IgnoredRows is what the IGNORED section lists: the report's ignored
+// items, and any ignored item a check carries that the list lacks (a source
+// that fills only the checks), without a time.
+func (r Report) IgnoredRows() []IgnoredItem {
+	out := append([]IgnoredItem(nil), r.IgnoredList...)
+	have := map[string]bool{}
+	for _, it := range out {
+		have[it.Item.Key] = true
+	}
+	for _, c := range r.Checks {
+		for _, it := range c.IgnoredItems {
+			if !have[it.Key] {
+				have[it.Key] = true
+				out = append(out, IgnoredItem{CheckID: c.ID, Title: c.Title, Item: it})
+			}
+		}
+	}
+	return out
+}
+
 // NewsItem is one Arch news post.
 type NewsItem struct {
 	Title, Link string
@@ -150,6 +226,14 @@ type Unread struct {
 type Source interface {
 	Run(ctx context.Context) Report
 	UnreadNews(ctx context.Context) (Unread, error)
+}
+
+// Ignorer is a Source that keeps the ignore list (#288): the sheet's Ignore
+// and Undo write through it and then run the checks again. A Source without
+// it has no Ignore buttons.
+type Ignorer interface {
+	Ignore(key string) error
+	Unignore(key string) error
 }
 
 // Cell is what the Overview's System health cell shows.
