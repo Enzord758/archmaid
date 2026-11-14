@@ -2,18 +2,22 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2`, `v2.5.2..v2.5.3`, `v2.5.3..v2.5.4`, `v2.5.4..v2.5.5`, `v2.5.5..v2.6.0`, `v2.6.0..v2.6.1`, `v2.6.1..v2.7.0` and `v2.7.0..v2.7.1`.
+the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2`, `v2.5.2..v2.5.3`, `v2.5.3..v2.5.4`, `v2.5.4..v2.5.5`, `v2.5.5..v2.6.0`, `v2.6.0..v2.6.1`, `v2.6.1..v2.7.0`, `v2.7.0..v2.7.1` and `v2.7.1..v2.8.0`.
 
 ## [Unreleased]
 
-### Changed
+## [2.8.0] - 2026-11-14
 
-- **System health: a package flagged out of date no longer makes the AUR row say "look"** (#287). The maintainer may simply not have got to it, and there is nothing to do about it, so it is a note now ("1 flagged out of date: unigine-superposition (flagged 8 months ago)", with the age from the AUR when it gives one). The row looks only at packages that are gone from the AUR. `TestAURFlaggedNote`.
+It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
 ### Added
 
 - **System health: Ignore** (#288). A "look" row in the sheet has a quiet "Ignore" button ("Stop counting this until something new shows up here"). A row with several items (two failed services, three config files) opens a small popover with an "Ignore" for each item and "Ignore all". Ignored items leave the count and the row, and are listed under IGNORED at the bottom of the sheet with the check, the item, when you ignored it and an "Undo"; a check that is only partly ignored stays "look" with "· N ignored" in its line. A new item (another failed unit, a newer kernel or news post) alerts again by design. With everything ignored the Overview cell is calm. If the list can't be saved a toast says why and nothing changes. The stub (`--stub`) keeps its list in memory.
 - **System health: the backend for ignoring** (#287). Every check that can say "look" now names the things it is about (a failed unit, a `.pacnew` file, a package gone from the AUR, the newer kernel, a drive), each with a stable key, so they can be ignored one by one: ignoring part of a check leaves it "look" for the rest, ignoring all of it makes it "ignored" (counted nowhere), and anything new, such as another unit that fails or a newer kernel, shows again. The choices are kept in `~/.local/state/archmaid/health-ignore.json` (written atomically, 0600; a symlink, someone else's file or a garbled one is read as empty and never followed), written only when asked to and never by a check. The buttons and the "Ignored" list in the window come next; the contract is `docs/design/health.md`. `TestRunIgnoring`, `TestIgnoreStoreRoundTrip`, `TestIgnoreStoreHostileFile`.
+
+### Changed
+
+- **System health: a package flagged out of date no longer makes the AUR row say "look"** (#287). The maintainer may simply not have got to it, and there is nothing to do about it, so it is a note now ("1 flagged out of date: unigine-superposition (flagged 8 months ago)", with the age from the AUR when it gives one). The row looks only at packages that are gone from the AUR. `TestAURFlaggedNote`.
 
 ## [2.7.1] - 2026-11-12
 
@@ -559,7 +563,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.7.1...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.8.0...HEAD
+[2.8.0]: https://github.com/Enzord758/archmaid/compare/v2.7.1...v2.8.0
 [2.7.1]: https://github.com/Enzord758/archmaid/compare/v2.7.0...v2.7.1
 [2.7.0]: https://github.com/Enzord758/archmaid/compare/v2.6.1...v2.7.0
 [2.6.1]: https://github.com/Enzord758/archmaid/compare/v2.6.0...v2.6.1
