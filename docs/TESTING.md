@@ -173,8 +173,45 @@ any IP socket (checked from its fds against `/proc/net/{tcp,udp}{,6}`).
 The script drops `WAYLAND_DISPLAY`, `DISPLAY` and
 `HYPRLAND_INSTANCE_SIGNATURE`, and runs the command on a private D-Bus with
 no service activation (no portal, at-spi or gvfs starts). The server and the
-command run under `timeout` (`HEADLESS_TIMEOUT`, default 60 s; the suite takes
-~7.5 min warm, so with no command it runs nineteen parts of at most ~40 s, each with its own display server (the coverage scenarios are one part, the wide dialogs and `TestGUIMinWidthToggle` one `TestGUIWideDialogsLong` another and `TestGUIWideDialogsLongResize` (~41 s with the one before it) a last one, on a 1600x1000 screen: `HEADLESS_WIDTH`, `HEADLESS_HEIGHT`); CI sets 600), so nothing outlives the run, and its cleanup trap removes the runtime dir whatever failed (`TestHeadlessServerFails`).
+command run under `timeout` (`HEADLESS_TIMEOUT`; the cleanup trap removes the
+runtime dir whatever failed, `TestHeadlessServerFails`), so nothing outlives
+the run.
+
+**The default run is parallel (#290).** With no command, `headless.sh`
+builds the `internal/ui` test binary once per tag set (plain, and
+`-tags shots`; ~3 s warm), then runs 24 parts of it, `HEADLESS_JOBS` (default
+4, 1..8) at a time, longest first. A part is one `-test.run` regex (the last,
+`rest`, is everything the others skip, so a new test is never left out) on
+its own nullbroadway display, private session bus, `XDG_RUNTIME_DIR` and
+testenv marker, so a part never sees or kills another's processes; its cap is
+`HEADLESS_TIMEOUT` (default 180 s here, CI sets 600). Output is printed per
+part when all have ended, then a table of each part's seconds and the wall
+time; any failed part fails the run, after the others have finished.
+`HEADLESS_JOBS=1` runs them one at a time, the old way (~14 min). The perf
+part (`TestGUIFirstFrameAndIdleRAM`, `TestGUIThroughput`) runs alone, after
+the others, when `ARCHMAID_GUI_PERF=1` asks for the budgets, which measure
+the machine. The parts' screens: 1600x1000 for the wide dialogs and the
+health sheets (the wide dialogs' 1460x930 window needs it), 2000x1000 for the
+alignment checks, 1280x800 for the rest (`HEADLESS_WIDTH`, `HEADLESS_HEIGHT`).
+
+Part times alone (s), 2026-11-15, an idle 16-core machine: health 60, wide
+56, pkgs 49, glass 48, pkgflow 45, minheight 44, align 44, perf 44, rest 43,
+stops 39, glass2 39, real 39, tones 39, states 37, narrow 36, prompts 31,
+starts 29, svc 29, cov-2 24, widelong 24, held 23, cov-1 19, widelongr 17,
+healthign 11: 854 s in a row, ~240 s four at a time (four at a time cost
+the parts nothing measurable here). The longest single test is
+`TestGUIHealth` (~60 s), so more jobs would not shorten the run much.
+`gui/scripts/headless-cover.sh` keeps its own list of groups.
+
+**Waiting in the harness.** A display scenario never waits a fixed time for
+something the machine has to finish: `covEnv.seqWhen` runs a step once its
+condition holds, `covEnv.settled` calls back once a probe (a size, a
+dialog's bounds) has been the same for three polls, and `pkgSeq` also waits
+for the detail pane's layout to stop moving; each fails the scenario after
+30 s naming what never happened. A scenario that ends with the window busy
+would hang at its close (a busy window asks "Stop the run and quit?"), so a
+step that closes the window waits for the run to be over. A child of a
+`child()` test may run 100 s, and the goroutine-leak check retries for 15 s.
 
 Why not `gtk4-broadwayd`, GTK's own server: with no browser connected it
 answers each frame's roundtrip locally, and GDK then draws one frame a
