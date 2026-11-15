@@ -299,9 +299,29 @@ func recentButton(p *pkgPage, name string) *gtk.Button {
 // no redraw pending. A run that can't settle in 5 s fails.
 func pkgSeq(c *covEnv, steps ...func()) {
 	p := c.w.pkgs
+	// steady: the detail pane's own and its children's bounds are what they
+	// were at the last poll (120 ms ago). Layout lags the model on a
+	// loaded machine (a scrollbar appearing narrows every block 11 px after
+	// the step that caused it), and a step that measures must not catch it
+	// half-way.
+	prev := ""
+	steady := func() bool {
+		var b strings.Builder
+		if p.detail != nil {
+			eachWidget(p.detail, func(wd gtk.Widgetter) {
+				bx, ok := boundsIn(wd, c.w.win)
+				fmt.Fprintf(&b, "%v%+v;", ok, bx)
+			})
+		}
+		cur := b.String()
+		same := cur == prev
+		prev = cur
+		return same
+	}
 	idle := func() bool {
 		// A dialog is settled once its opening animation is over.
-		return p.ctl == nil || (!p.ctl.Search.Busy() && !p.dirty && (p.sheet == nil || time.Since(p.sheetAt) > 700*time.Millisecond) && time.Since(p.navAt) > 500*time.Millisecond)
+		quiet := p.ctl == nil || (!p.ctl.Search.Busy() && !p.dirty && (p.sheet == nil || time.Since(p.sheetAt) > 700*time.Millisecond) && time.Since(p.navAt) > 500*time.Millisecond)
+		return steady() && quiet
 	}
 	var run func(i int)
 	run = func(i int) {

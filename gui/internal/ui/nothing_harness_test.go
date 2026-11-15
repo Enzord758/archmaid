@@ -79,38 +79,42 @@ func covCachesStay(c *covEnv) {
 		}
 		return false
 	}
-	c.seq(900,
-		func() {
+	dlg := func() bool { return w.dialogs[1] != nil }
+	c.seqWhen(150,
+		when{run: func() {
 			w.pickPage("overview")
 			seen = nil
 			w.startAction(actions.IDClearCaches)
 			c.ok(w.stack.VisibleChildName() == "overview" && !ranPage(), "measuring: page %q, visited %v", w.stack.VisibleChildName(), seen)
 			c.ok(w.busy, "not busy while measuring")
-		},
-		func() {
-			c.ok(w.dialogs[1] != nil, "no pick dialog")
+		}},
+		// The measurement runs on a goroutine: each pick is waited for, not
+		// guessed at with a pause (900 ms failed once on a loaded machine).
+		when{ready: dlg, run: func() {
 			c.ok(w.stack.VisibleChildName() == "overview" && !ranPage(), "pick: page %q, visited %v", w.stack.VisibleChildName(), seen)
 			c.ok(!strings.Contains(cacheCell(w), "Measuring"), "cell while the pick is open %q", cacheCell(w))
 			shoot(w, "cov-cachesstay", "pick")
 			if d := w.dialogs[1]; d != nil {
 				c.press(d, "cancel")
 			}
-		},
-		func() {
+		}},
+		when{run: func() {
 			c.ok(!w.busy && w.stack.VisibleChildName() == "overview" && !ranPage(), "after Cancel: busy %v page %q, visited %v", w.busy, w.stack.VisibleChildName(), seen)
 			c.ok(!strings.Contains(cacheCell(w), "Measuring"), "cell after Cancel %q", cacheCell(w))
 			w.startAction(actions.IDClearCaches)
-		},
-		func() {
-			c.ok(w.dialogs[1] != nil && len(w.checks) > 0, "no second pick")
+		}},
+		when{ready: func() bool { return dlg() && len(w.checks) > 0 }, run: func() {
 			c.ok(!ranPage(), "the Run page showed before the queue: %v", seen)
 			if d := w.dialogs[1]; d != nil && len(w.checks) > 0 {
 				w.checks[0].SetActive(true)
 				c.press(d, "ok")
 			}
-		},
-		func() {
+		}},
+		// The run is over before the window closes: a close while it is busy
+		// asks "Stop the run and quit?" and never closes (the 60 s hang of
+		// the old fixed 900 ms pause when the run was slow).
+		when{ready: func() bool { return ranPage() && !w.busy }, run: func() {
 			c.ok(ranPage() && w.queued && w.stack.VisibleChildName() == "run", "queue started: page %q queued %v, visited %v", w.stack.VisibleChildName(), w.queued, seen)
-		},
+		}},
 	)
 }

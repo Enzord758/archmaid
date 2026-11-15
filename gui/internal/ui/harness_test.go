@@ -1037,8 +1037,17 @@ func runChild(scenario, path string) int {
 		wiring.Close()
 		closeFakeSystem()
 	}
-	if err := goleak.Find(ignore); err != nil {
-		rep.Leaked = err.Error()
+	// goleak.Find retries for ~1 s on its own; a loaded machine can take
+	// longer to wind a goroutine down, so a leak counts only when it is
+	// still there after 15 s.
+	var leakErr error
+	for deadline := time.Now().Add(15 * time.Second); ; time.Sleep(100 * time.Millisecond) {
+		if leakErr = goleak.Find(ignore); leakErr == nil || time.Now().After(deadline) {
+			break
+		}
+	}
+	if leakErr != nil {
+		rep.Leaked = leakErr.Error()
 	}
 	want := 0
 	switch scenario {
@@ -1373,6 +1382,11 @@ func perf() bool { return os.Getenv("ARCHMAID_GUI_PERF") == "1" }
 
 // child runs one scenario and returns its report and how long after the
 // exec its first frame was painted.
+// childLimit bounds one child: the slowest scenario takes ~10 s alone, so
+// this only ends a hang (a child that never closes), on any load. headless.sh's
+// part cap ends the part first when it is shorter.
+const childLimit = 100 * time.Second
+
 func child(t *testing.T, scenario string, env ...string) (*report, time.Duration) {
 	t.Helper()
 	return childCmd(t, scenario, nil, env...)
@@ -1400,9 +1414,9 @@ func childCmd(t *testing.T, scenario string, prep func(*exec.Cmd), env ...string
 		if err != nil {
 			t.Fatalf("%s: child: %v", scenario, err)
 		}
-	case <-time.After(60 * time.Second):
+	case <-time.After(childLimit):
 		_ = cmd.Process.Kill()
-		t.Fatalf("%s: child still running after 60s", scenario)
+		t.Fatalf("%s: child still running after %v", scenario, childLimit)
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {

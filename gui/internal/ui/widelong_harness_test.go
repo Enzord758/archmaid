@@ -283,6 +283,14 @@ func wideLong(c *covEnv) {
 		c.rep.Narrow = append(c.rep.Narrow, fmt.Sprintf("%s %dx%d: sheet %.0fx%.0f at y=%.0f, middle scrolls %v, lists scrolling inside it %d %v",
 			name, wd, ht, sb.w, sb.h, sb.y, middle, inner, innerH))
 	}
+	// sized: the window's size once it is the one wanted, else "".
+	sized := func() string {
+		want := wideLongSizes[size]
+		if w.win.Width() != want[0] || w.win.Height() != want[1] {
+			return ""
+		}
+		return fmt.Sprintf("%dx%d", want[0], want[1])
+	}
 	var step func()
 	step = func() {
 		if next == len(prompts) {
@@ -293,26 +301,44 @@ func wideLong(c *covEnv) {
 				return
 			}
 			w.win.SetDefaultSize(wideLongSizes[size][0], wideLongSizes[size][1])
-			coreglib.TimeoutAdd(400, step)
+			c.settled("the resized window", sized, step)
 			return
 		}
 		p := prompts[next]
 		c.feed(p.ev)
-		coreglib.TimeoutAdd(600, func() {
+		var id engine.PromptID
+		switch ev := p.ev.(type) {
+		case engine.NeedsConfirm:
+			id = ev.ID
+		case engine.NeedsSelection:
+			id = ev.ID
+		case engine.OutputReport:
+			id = ev.ID
+		case engine.NeedsPassword:
+			id = ev.ID
+		}
+		// Settled: the window at its size, the dialog up and its sheet no
+		// longer moving (not a fixed pause: 600 ms was not always enough).
+		c.settled(p.name+"'s dialog", func() string {
+			d := w.dialogs[id]
+			if d == nil || sized() == "" {
+				return ""
+			}
+			var sheet gtk.Widgetter
+			eachWidget(d, func(x gtk.Widgetter) {
+				if sheet == nil && gtk.BaseWidget(x).CSSName() == "sheet" {
+					sheet = x
+				}
+			})
+			if sheet == nil {
+				return ""
+			}
+			b, ok := boundsIn(sheet, w.win)
+			return fmt.Sprintf("%v %+v", ok, b)
+		}, func() {
 			want := wideLongSizes[size]
 			c.ok(w.win.Width() == want[0] && w.win.Height() == want[1], "the window is %dx%d, want %dx%d (the headless output too small?)",
 				w.win.Width(), w.win.Height(), want[0], want[1])
-			var id engine.PromptID
-			switch ev := p.ev.(type) {
-			case engine.NeedsConfirm:
-				id = ev.ID
-			case engine.NeedsSelection:
-				id = ev.ID
-			case engine.OutputReport:
-				id = ev.ID
-			case engine.NeedsPassword:
-				id = ev.ID
-			}
 			if d := w.dialogs[id]; d == nil {
 				c.fail("%s: no dialog", p.name)
 			} else {
@@ -325,5 +351,5 @@ func wideLong(c *covEnv) {
 	}
 	w.win.SetDefaultSize(wideLongSizes[0][0], wideLongSizes[0][1])
 	w.onApply = func(runview.Change) {}
-	coreglib.TimeoutAdd(400, step)
+	c.settled("the first window", sized, step)
 }

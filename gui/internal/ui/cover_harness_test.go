@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/diamondburned/gotk4-adwaita/pkg/adw"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
@@ -71,6 +72,81 @@ func (c *covEnv) seq(gap uint, steps ...func()) {
 		})
 	}
 	run(0)
+}
+
+// covWaitLimit is how long a wait on a condition may take before the
+// scenario fails: generous, since it only matters when something is broken
+// (a loaded machine takes seconds where an idle one takes milliseconds).
+const covWaitLimit = 30 * time.Second
+
+// when is a step that runs once ready() holds (polled every 40 ms), not
+// after a fixed pause: the step of a seqWhen.
+type when struct {
+	ready func() bool
+	run   func()
+}
+
+// seqWhen is seq for steps that depend on something the machine has to
+// finish (a measurement on a goroutine, a dialog's layout): each step runs
+// gap ms after the one before and then waits for its ready() (a nil ready
+// is true), up to covWaitLimit, where the scenario fails naming the step.
+func (c *covEnv) seqWhen(gap uint, steps ...when) {
+	var run func(i int)
+	run = func(i int) {
+		if i == len(steps) {
+			c.finish()
+			return
+		}
+		coreglib.TimeoutAdd(gap, func() {
+			start := time.Now()
+			var poll func() bool
+			poll = func() bool {
+				if steps[i].ready != nil && !steps[i].ready() {
+					if time.Since(start) > covWaitLimit {
+						c.fail("step %d: its condition never held in %v", i, covWaitLimit)
+						c.w.quitting = true // a busy window would ask before it closes
+						c.finish()
+						return false
+					}
+					return true
+				}
+				steps[i].run()
+				run(i + 1)
+				return false
+			}
+			if poll() {
+				coreglib.TimeoutAdd(40, poll)
+			}
+		})
+	}
+	run(0)
+}
+
+// settled calls then once probe() has returned the same non-empty string
+// three polls (40 ms) in a row: the layout it describes has stopped
+// moving, whatever the machine's speed. It fails the scenario after
+// covWaitLimit.
+func (c *covEnv) settled(what string, probe func() string, then func()) {
+	start := time.Now()
+	last, same := "", 0
+	coreglib.TimeoutAdd(40, func() bool {
+		if p := probe(); p != "" && p == last {
+			same++
+		} else {
+			last, same = p, 0
+		}
+		if same >= 3 {
+			then()
+			return false
+		}
+		if time.Since(start) > covWaitLimit {
+			c.fail("%s never settled (last %q)", what, last)
+			c.w.quitting = true
+			c.finish()
+			return false
+		}
+		return true
+	})
 }
 
 // feed applies events as the pump would.
