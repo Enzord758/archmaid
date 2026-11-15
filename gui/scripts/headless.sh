@@ -32,71 +32,135 @@ self="$(realpath "${BASH_SOURCE[0]}")"
 cd "$(dirname "$self")/.."
 
 limit="${HEADLESS_TIMEOUT:-60}"
-# The whole display suite takes ~135 s, past the bound, so the default runs
-# it in fifteen parts of at most ~40 s, each with its own display and timeout:
-# the prompts, the real Driver and Stop, the Full Cleanup and the shimmed
-# password and services scenarios, the engine stopping and the instance
-# check with the 630x372 windows, the narrow/toast/tones/Logs/Settings
-# windows, the wide dialogs and the breakpoint toggle, the wide dialogs
-# with long content, the glass skin (screenshots, ~40 s), the Overview's
-# starts, the coverage scenarios (cover_harness_test.go), the first frame
-# and throughput proofs (~41 s: Broadway's PNG uploads slow the floods to
-# ~6 s each), the rest. The wide dialogs (TestGUIWideDialogs)
-# run their 1460x930 window on a screen of 1600x1000 (HEADLESS_WIDTH,
-# HEADLESS_HEIGHT; default 1280x800): the screen bounds the window.
-# TestGUIMinWidthToggle (~12 s) shares that part (~28 s): with the narrow
-# or the states part it would be ~43 or ~47 s. TestGUIWideDialogsLong
-# (~25 s, the same screen) is a part of its own: with them it would be ~53 s;
-# TestGUIWideDialogsLongResize (~41 s with them) is another.
 if [[ $# -eq 0 ]]; then
-	long='^TestGUIPrompts$'
-	real='^TestGUI(RealDriver|StopAndQuit|RunColour)$'
-	svc='^TestGUI(FullCleanup|OnePassword|RealServices)$'
-	stops='^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
-	narrow='^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards|NavSync)$'
-	tones='^TestGUI(LastRunTones|AuditRerun|MinHeight|AgeTick)$'
-	states='^TestGUIMinWidthStates$'
-	wide='^TestGUI(WideDialogs|MinWidthToggle|GateNotesFit|RunReport)$'
-	widelong='^TestGUIWideDialogsLong$'
-	widelongr='^TestGUIWideDialogsLongResize$'
-	starts='^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
-	cov='^TestGUICov'
-	pkgs='^TestGUIPackages$'
-	pkgflow='^TestGUIPackages(Flow|TabsAndStatus)$'
-	glass='^TestGUIGlass$'
-	align='^TestGUI(OverviewAlign|OverviewHero|LogsAlign)$'
-	health='^TestGUIHealth$'
-	held='^TestGUIHeld$'
-	healthign='^TestGUIHealthIgnore$'
-	glass2='^TestGUI(GlassShots|GlassLayout|ColourSchemeLive|SettingsScroll)$'
-	perf='^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
-	# The screenshot capture (shot.go) is built only with -tags shots:
-	# always for the group that tests it, and for every group when
-	# ARCHMAID_GUI_SHOTS asks for screenshots.
-	tags=()
-	[[ -n "${ARCHMAID_GUI_SHOTS:-}" ]] && tags=(-tags shots)
-	"$self" go test "${tags[@]}" -count=1 -v -run "$long" ./internal/ui
-	"$self" go test "${tags[@]}" -count=1 -v -run "$real" ./internal/ui
-	"$self" go test "${tags[@]}" -count=1 -v -run "$svc" ./internal/ui
-	"$self" go test -tags shots -count=1 -v -run "$stops" ./internal/ui
-	"$self" go test -tags shots -count=1 -v -run "$narrow" ./internal/ui
-	"$self" go test -tags shots -count=1 -v -run "$tones" ./internal/ui
-	"$self" go test -tags shots -count=1 -v -run "$states" ./internal/ui
-	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$wide" ./internal/ui
-	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$widelong" ./internal/ui
-	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test "${tags[@]}" -count=1 -v -run "$widelongr" ./internal/ui
-	"$self" go test "${tags[@]}" -count=1 -v -run "$starts" ./internal/ui
-	"$self" go test "${tags[@]}" -count=1 -v -run "$cov" ./internal/ui
-	"$self" go test "${tags[@]}" -count=1 -v -run "$pkgs" ./internal/ui
-	"$self" go test "${tags[@]}" -count=1 -v -run "$pkgflow" ./internal/ui
-	"$self" go test -tags shots -count=1 -v -run "$glass" ./internal/ui
-	"$self" go test -tags shots -count=1 -v -run "$glass2" ./internal/ui
-	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test -tags shots -count=1 -v -run "$health" ./internal/ui
-	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test -tags shots -count=1 -v -run "$held" ./internal/ui
-	HEADLESS_WIDTH=1600 HEADLESS_HEIGHT=1000 "$self" go test -tags shots -count=1 -v -run "$healthign" ./internal/ui
-	HEADLESS_WIDTH=2000 HEADLESS_HEIGHT=1000 "$self" go test -tags shots -count=1 -v -run "$align" ./internal/ui
-	"$self" go test "${tags[@]}" -count=1 -v -run "$perf" ./internal/ui
-	exec "$self" go test "${tags[@]}" -count=1 -v -skip "$long|$real|$svc|$stops|$narrow|$tones|$states|$wide|$widelong|$widelongr|$starts|$cov|$pkgs|$pkgflow|$glass|$glass2|$health|$healthign|$held|$align|$perf" ./internal/ui
+	# The default run: the display suite in parts, HEADLESS_JOBS (default 4,
+	# at most 8) at a time, each part its own display, session bus and
+	# timeout (the parts' runtime dirs, sockets and testenv markers are
+	# their own, so none sees another's processes). The test binary is built
+	# once per tag set, outside the timeouts, and the parts run it, so no part
+	# pays for a build or a link. A part's output is printed whole when it
+	# ends, in the order below, then a table of every part's time. HEADLESS_JOBS=1
+	# runs them one after another (the old, slower, order).
+	#
+	# A part is "name|width|height|tags|regex": the screen (the wide dialogs'
+	# 1460x930 window needs 1600x1000: the screen bounds the window), tags
+	# "s" (built with -tags shots: the screenshot capture, shot.go) or "t"
+	# (the same only when ARCHMAID_GUI_SHOTS asks for screenshots), and the
+	# -run regex. The last part, "rest", is everything the others skip.
+	# Where a part's time is (docs/TESTING.md has the table): they are sized to
+	# end together, ~25-45 s alone each, the longest first.
+	parts=(
+		'health|1600|1000|s|^TestGUIHealth$'
+		'wide|1600|1000|t|^TestGUI(WideDialogs|MinWidthToggle|GateNotesFit|RunReport)$'
+		'glass|1280|800|s|^TestGUIGlass$'
+		'pkgs|1280|800|t|^TestGUIPackages$'
+		'minheight|1280|800|s|^TestGUIMinHeight$'
+		'pkgflow|1280|800|t|^TestGUIPackages(Flow|TabsAndStatus)$'
+		'align|2000|1000|s|^TestGUI(OverviewAlign|OverviewHero|LogsAlign)$'
+		'perf|1280|800|t|^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
+		'stops|1280|800|s|^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
+		'glass2|1280|800|s|^TestGUI(GlassShots|GlassLayout|ColourSchemeLive|SettingsScroll)$'
+		'real|1280|800|t|^TestGUI(RealDriver|StopAndQuit|RunColour)$'
+		'states|1280|800|s|^TestGUIMinWidthStates$'
+		'narrow|1280|800|s|^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards|NavSync)$'
+		'tones|1280|800|s|^TestGUI(LastRunTones|AuditRerun|AgeTick)$'
+		'prompts|1280|800|t|^TestGUIPrompts$'
+		'starts|1280|800|t|^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
+		'svc|1280|800|t|^TestGUI(FullCleanup|OnePassword|RealServices)$'
+		'cov-2|1280|800|t|^TestGUICov[N-Z]'
+		'held|1600|1000|s|^TestGUIHeld$'
+		'widelong|1600|1000|t|^TestGUIWideDialogsLong$'
+		'cov-1|1280|800|t|^TestGUICov[A-M]'
+		'widelongr|1600|1000|t|^TestGUIWideDialogsLongResize$'
+		'healthign|1600|1000|s|^TestGUIHealthIgnore$'
+	)
+	jobs="${HEADLESS_JOBS:-4}"
+	[[ "$jobs" =~ ^[1-8]$ ]] || {
+		echo "HEADLESS_JOBS must be 1..8, not $jobs" >&2
+		exit 2
+	}
+	# Several parts at once run slower than one alone: a part's own cap is
+	# generous unless the caller sets one (the run's own cap is the make
+	# target's `timeout`).
+	export HEADLESS_TIMEOUT="${HEADLESS_TIMEOUT:-180}"
+	# The perf part measures the machine; with the budgets on it runs alone.
+	alone=""
+	[[ -n "${ARCHMAID_GUI_PERF:-}" ]] && alone=perf
+	skip=""
+	for p in "${parts[@]}"; do
+		IFS='|' read -r _ _ _ _ re <<<"$p"
+		skip+="${skip:+|}$re"
+	done
+	parts+=("rest|1280|800|t|")
+	out="$(mktemp -d)"
+	bins="$out/bin"
+	mkdir -p "$bins"
+	pids=()
+	cleanup() {
+		local pid
+		for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null || true; done
+		rm -rf "$out"
+	}
+	trap cleanup EXIT
+	trap 'exit 130' INT TERM
+	# One test binary per tag set, built outside the timeouts. It runs from
+	# the package's directory, as go test would run it.
+	shotsonly=()
+	[[ -n "${ARCHMAID_GUI_SHOTS:-}" ]] && shotsonly=(-tags shots)
+	built=$SECONDS
+	go test -c "${shotsonly[@]}" -o "$bins/ui-t" ./internal/ui
+	go test -c -tags shots -o "$bins/ui-s" ./internal/ui
+	echo "test binaries built in $((SECONDS - built)) s" >&2
+	run_part() { # run_part name width height tags regex
+		local name="$1" wd="$2" ht="$3" tg="$4" re="$5" bin="$bins/ui-$4" start=$SECONDS rc=0 sel
+		if [[ -n "$re" ]]; then
+			sel=(-test.run "$re")
+		else
+			sel=(-test.skip "$skip")
+		fi
+		HEADLESS_WIDTH="$wd" HEADLESS_HEIGHT="$ht" "$self" bash -c 'cd internal/ui && exec "$@"' _ "$bin" -test.count=1 -test.v "${sel[@]}" >"$out/$name.log" 2>&1 || rc=$?
+		echo "$rc" >"$out/$name.rc"
+		echo "$((SECONDS - start))" >"$out/$name.secs"
+		echo "part $name: $((SECONDS - start)) s, $([[ $rc -eq 0 ]] && echo ok || echo "FAIL ($rc)")" >&2
+	}
+	started=$SECONDS
+	running=0
+	order=()
+	for p in "${parts[@]}"; do
+		IFS='|' read -r name wd ht tg re <<<"$p"
+		[[ "$name" == "$alone" ]] && continue
+		order+=("$name")
+		while ((running >= jobs)); do
+			wait -n || true
+			running=$((running - 1))
+		done
+		run_part "$name" "$wd" "$ht" "$tg" "$re" &
+		pids+=($!)
+		running=$((running + 1))
+	done
+	wait || true
+	if [[ -n "$alone" ]]; then
+		for p in "${parts[@]}"; do
+			IFS='|' read -r name wd ht tg re <<<"$p"
+			[[ "$name" == "$alone" ]] || continue
+			order+=("$name")
+			run_part "$name" "$wd" "$ht" "$tg" "$re"
+		done
+	fi
+	bad=0
+	for name in "${order[@]}"; do
+		echo "=== part $name"
+		cat "$out/$name.log"
+	done
+	echo
+	printf '%-10s %6s  %s\n' part secs result
+	for name in "${order[@]}"; do
+		rc="$(cat "$out/$name.rc" 2>/dev/null || echo 1)"
+		[[ "$rc" -eq 0 ]] || bad=1
+		printf '%-10s %6s  %s\n' "$name" "$(cat "$out/$name.secs" 2>/dev/null || echo ?)" "$([[ "$rc" -eq 0 ]] && echo ok || echo "FAIL ($rc)")"
+	done
+	echo "all parts: $((SECONDS - started)) s wall, $jobs at a time"
+	exit "$bad"
 fi
 
 
