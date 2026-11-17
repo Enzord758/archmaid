@@ -201,7 +201,12 @@ starts 29, svc 29, cov-2 24, widelong 24, held 23, cov-1 19, widelongr 17,
 healthign 11: 854 s in a row, ~240 s four at a time (four at a time cost
 the parts nothing measurable here). The longest single test is
 `TestGUIHealth` (~60 s), so more jobs would not shorten the run much.
-`gui/scripts/headless-cover.sh` keeps its own list of groups.
+The parts are defined once, in `gui/scripts/parts.sh`, which `headless.sh`
+and `gui/scripts/headless-cover.sh` both source (`check.sh` fails if either
+names a test itself); `headless-cover.sh` runs the same parts under the cover
+exec wrapper, `HEADLESS_JOBS` at a time too (every process writes its own
+covcounters file into the covdata dir, so concurrent parts merge as one
+run), ~4.5 min instead of ~15.
 
 **Waiting in the harness.** A display scenario never waits a fixed time for
 something the machine has to finish: `covEnv.seqWhen` runs a step once its

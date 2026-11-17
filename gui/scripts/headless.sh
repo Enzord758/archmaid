@@ -42,38 +42,9 @@ if [[ $# -eq 0 ]]; then
 	# ends, in the order below, then a table of every part's time. HEADLESS_JOBS=1
 	# runs them one after another (the old, slower, order).
 	#
-	# A part is "name|width|height|tags|regex": the screen (the wide dialogs'
-	# 1460x930 window needs 1600x1000: the screen bounds the window), tags
-	# "s" (built with -tags shots: the screenshot capture, shot.go) or "t"
-	# (the same only when ARCHMAID_GUI_SHOTS asks for screenshots), and the
-	# -run regex. The last part, "rest", is everything the others skip.
-	# Where a part's time is (docs/TESTING.md has the table): they are sized to
-	# end together, ~25-45 s alone each, the longest first.
-	parts=(
-		'health|1600|1000|s|^TestGUIHealth$'
-		'wide|1600|1000|t|^TestGUI(WideDialogs|MinWidthToggle|GateNotesFit|RunReport)$'
-		'glass|1280|800|s|^TestGUIGlass$'
-		'pkgs|1280|800|t|^TestGUIPackages$'
-		'minheight|1280|800|s|^TestGUIMinHeight$'
-		'pkgflow|1280|800|t|^TestGUIPackages(Flow|TabsAndStatus)$'
-		'align|2000|1000|s|^TestGUI(OverviewAlign|OverviewHero|LogsAlign)$'
-		'perf|1280|800|t|^TestGUI(FirstFrameAndIdleRAM|Throughput)$'
-		'stops|1280|800|s|^TestGUI(EngineStops|StubOwnInstance|Shots|DMSColoursWin|SmallWindow)$'
-		'glass2|1280|800|s|^TestGUI(GlassShots|GlassLayout|ColourSchemeLive|SettingsScroll)$'
-		'real|1280|800|t|^TestGUI(RealDriver|StopAndQuit|RunColour)$'
-		'states|1280|800|s|^TestGUIMinWidthStates$'
-		'narrow|1280|800|s|^TestGUI(NarrowNav|ToastPlain|MinWidth|LogsPage|SettingsCards|NavSync)$'
-		'tones|1280|800|s|^TestGUI(LastRunTones|AuditRerun|AgeTick)$'
-		'prompts|1280|800|t|^TestGUIPrompts$'
-		'starts|1280|800|t|^TestGUI(DryFirst|ConfirmFlag|RepairNothingFound|OverviewStarts|ClearRerun)$'
-		'svc|1280|800|t|^TestGUI(FullCleanup|OnePassword|RealServices)$'
-		'cov-2|1280|800|t|^TestGUICov[N-Z]'
-		'held|1600|1000|s|^TestGUIHeld$'
-		'widelong|1600|1000|t|^TestGUIWideDialogsLong$'
-		'cov-1|1280|800|t|^TestGUICov[A-M]'
-		'widelongr|1600|1000|t|^TestGUIWideDialogsLongResize$'
-		'healthign|1600|1000|s|^TestGUIHealthIgnore$'
-	)
+	# The parts (and the "rest" part that runs everything they skip) are
+	# defined in parts.sh, which headless-cover.sh sources too.
+	source "$(dirname "$self")/parts.sh"
 	jobs="${HEADLESS_JOBS:-4}"
 	[[ "$jobs" =~ ^[1-8]$ ]] || {
 		echo "HEADLESS_JOBS must be 1..8, not $jobs" >&2
@@ -86,11 +57,7 @@ if [[ $# -eq 0 ]]; then
 	# The perf part measures the machine; with the budgets on it runs alone.
 	alone=""
 	[[ -n "${ARCHMAID_GUI_PERF:-}" ]] && alone=perf
-	skip=""
-	for p in "${parts[@]}"; do
-		IFS='|' read -r _ _ _ _ re <<<"$p"
-		skip+="${skip:+|}$re"
-	done
+	skip="$(parts_skip)"
 	parts+=("rest|1280|800|t|")
 	out="$(mktemp -d)"
 	bins="$out/bin"

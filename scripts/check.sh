@@ -177,6 +177,18 @@ for pkg in $mains; do
 		exit 1
 	fi
 done
+# The display suite's parts are defined once, in gui/scripts/parts.sh; the two
+# runners source it and must not carry a test list of their own (#291).
+for f in gui/scripts/headless.sh gui/scripts/headless-cover.sh; do
+	grep -q 'source .*parts\.sh' "$f" || {
+		echo "FAIL: $f doesn't source gui/scripts/parts.sh"
+		exit 1
+	}
+	if grep -n 'TestGUI' "$f"; then
+		echo "FAIL: $f names a test; the parts live in gui/scripts/parts.sh only"
+		exit 1
+	fi
+done
 # Only the e2e harness's test build sets internal/sysbin back to bare names
 # (-ldflags -X): the package, the owner's own build (install.sh, into
 # ~/.local/bin) and the VM's cover builds keep /usr/bin. The package and
