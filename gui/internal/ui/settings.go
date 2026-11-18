@@ -169,6 +169,10 @@ func card(kicker, title, help string, children ...gtk.Widgetter) gtk.Widgetter {
 	t := gtk.NewLabel(title)
 	t.AddCSSClass("title-3")
 	t.SetXAlign(0)
+	// Wrapping, so a larger font doesn't make the title the page's minimum
+	// width (#294).
+	t.SetWrap(true)
+	t.SetWrapMode(pango.WrapWordChar)
 	h := gtk.NewLabel(help)
 	h.AddCSSClass("dim-label")
 	h.SetXAlign(0)
@@ -227,7 +231,17 @@ func (w *Window) topgradeCard() gtk.Widgetter {
 			p.showConfigError("Couldn't open the folder: " + err.Error())
 		}
 	})
-	buttons := gtk.NewBox(gtk.OrientationHorizontal, 8)
+	// A flow, not a row: side by side the two buttons ask for 346 px (449
+	// with a larger font), more than a 300 px window has, and libadwaita
+	// logs "exceeds AdwBreakpointBin width" at every resize step (#294).
+	buttons := gtk.NewFlowBox()
+	buttons.SetSelectionMode(gtk.SelectionNone)
+	buttons.SetColumnSpacing(8)
+	buttons.SetRowSpacing(8)
+	buttons.SetMaxChildrenPerLine(2)
+	buttons.SetHAlign(gtk.AlignStart)
+	buttons.SetFocusable(false)
+	buttons.AddCSSClass("am-card-buttons")
 	buttons.Append(p.editor)
 	buttons.Append(folder)
 	p.configError = errorLabel()
