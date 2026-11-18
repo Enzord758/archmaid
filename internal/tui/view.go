@@ -112,7 +112,7 @@ func (m model) viewMenu() string {
 			cursor = cursorStyle.Render("➤ ")
 			style = selectedStyle
 		}
-		b.WriteString(cursor + style.Render(it.Icon+"  "+it.Label) + "\n")
+		b.WriteString(cursor + style.Render(it.Icon+"  "+m.menuLabel(it)) + "\n")
 	}
 	b.WriteString("\n" + hintStyle.Render("↑/↓ move · enter select · q quit"))
 	return b.String()

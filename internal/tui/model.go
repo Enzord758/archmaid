@@ -162,5 +162,5 @@ func (m model) Init() tea.Cmd {
 	if m.startAction != "" && m.eng != nil {
 		m.send(engine.Start{Action: m.startAction})
 	}
-	return tea.Batch(m.spinner.Tick, refreshStatus())
+	return tea.Batch(m.spinner.Tick, refreshStatus(), m.startupChecks())
 }

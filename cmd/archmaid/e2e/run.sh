@@ -127,6 +127,13 @@ run_tape() {
 		ALL_PROXY=http://127.0.0.1:9 $(cover_env "$dir/cover") "$@" \
 		vhs "e2e/$name.tape"
 	cover_collect "$dir/cover"
+	# The TUI runs System health's checks when it starts (the menu line): their
+	# read-only questions are split off into HEALTH_LOG, so every tape's
+	# assertions about the shim log are about its own action.
+	HEALTH_LOG="$dir/shim.health"
+	grep -E '^(timedatectl|busctl|coredumpctl|pacman-conf) |^systemctl (--user )?--failed ' "$SHIM_LOG" >"$HEALTH_LOG" || true
+	grep -vE '^(timedatectl|busctl|coredumpctl|pacman-conf) |^systemctl (--user )?--failed ' "$SHIM_LOG" >"$SHIM_LOG.rest" || true
+	mv "$SHIM_LOG.rest" "$SHIM_LOG"
 	for c in "${MUTATING[@]}"; do
 		# sudo is allowed only in its two read-only forms: the ticket probe and
 		# Repair's root recheck (the shim only logs them and prints canned output).
@@ -153,9 +160,7 @@ run_tape() {
 	# Every tape is a dry run, which never refreshes the widget's update
 	# count. The real refresh starts the user unit and, if that fails, runs
 	# the installed check by absolute path, which no shim here can catch.
-	# (System health asks the user manager `systemctl --user --failed`: read only.)
-	grep -v '^systemctl --user --failed ' "$SHIM_LOG" >"$dir/shim.nofailed" || true
-	refuse "$dir/shim.nofailed" '^systemctl --user ' "$name: the widget's update check was started"
+	refuse "$SHIM_LOG" '^systemctl --user ' "$name: the widget's update check was started"
 	CLEANUP_LOG="$HOME_DIR/.local/state/archmaid/dryrun/cleanup.log"
 	STATE_DIR="$HOME_DIR/.local/state/archmaid"
 }
@@ -335,11 +340,13 @@ fi
 if want health; then
 	run_tape health SHIM_FAILED=fake-beta.service
 	need "$TXT" "System health +[0-9]+ things? needs? attention" "health: the summary line was not shown"
+	need "$TXT" "System health · [0-9]+ things? needs? attention" "health: the menu line was not shown"
 	need "$TXT" "Needs your attention" "health: the look section was not shown"
 	need "$TXT" "Failed services" "health: the failed-services row was not shown"
 	need "$TXT" "1 failed: fake-beta.service" "health: the row lacks its detail"
 	need "$TXT" "journalctl -b -u fake-beta.service" "health: c did not print the command"
-	need "$SHIM_LOG" "^systemctl --failed " "health: the system manager was never asked"
+	need "$HEALTH_LOG" "^systemctl --failed " "health: the system manager was never asked"
+	need "$HEALTH_LOG" "^systemctl --user --failed " "health: the user manager was never asked"
 	refuse "$SHIM_LOG" "^journalctl " "health: the command was run, not just printed"
 	# Read only: the screen writes nothing of its own (the ignore list).
 	[[ ! -e "$STATE_DIR/health-ignore.json" ]] || fail "health: an ignore list appeared without ignoring"

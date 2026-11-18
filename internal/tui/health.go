@@ -16,6 +16,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/health"
+	"github.com/Enzord758/archmaid/internal/held"
 	"github.com/Enzord758/archmaid/internal/sanitize"
 )
 
@@ -496,4 +497,49 @@ func (m model) viewHealth() string {
 	}
 	b.WriteString(hintStyle.Render(m.healthHint()))
 	return b.String()
+}
+
+// ── the menu's lines ─────────────────────────────────────────────────────────
+
+// healthAtStart says whether the TUI runs the checks and reads the held
+// lists when it starts, for the menu's lines. A test that must not wait for
+// them turns it off.
+var healthAtStart = true
+
+type heldLoadedMsg struct{ set held.Set }
+
+// startupChecks is the run the menu's lines come from, off the loop: the
+// checks (their result is taken as run 0, unless the screen has started a
+// newer one meanwhile) and the held lists.
+func (m model) startupChecks() tea.Cmd {
+	if m.eng == nil || !healthAtStart {
+		return nil
+	}
+	return tea.Batch(
+		func() tea.Msg { return healthDoneMsg{seq: 0, rep: healthRun(context.Background())} },
+		func() tea.Msg { return heldLoadedMsg{set: heldRead()} },
+	)
+}
+
+// menuLabel is an entry's label as the menu shows it: System health says
+// what needs attention, Held updates how many are held, when there are any.
+func (m model) menuLabel(a actions.Action) string {
+	switch a.ID {
+	case idHealth:
+		if !m.health.have {
+			break
+		}
+		switch n := m.health.rep.Attention(); n {
+		case 0:
+		case 1:
+			return a.Label + " · 1 thing needs attention"
+		default:
+			return fmt.Sprintf("%s · %d things need attention", a.Label, n)
+		}
+	case idHeld:
+		if n := heldCount(m.held.set, heldNow()); n > 0 {
+			return fmt.Sprintf("%s · %d held", a.Label, n)
+		}
+	}
+	return a.Label
 }

@@ -69,6 +69,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case healthDoneMsg:
 		return m.healthDone(msg)
 
+	case heldLoadedMsg:
+		m.held.set = msg.set
+		return m, nil
+
 	case healthIgnoredMsg:
 		return m.healthIgnored(msg)
 

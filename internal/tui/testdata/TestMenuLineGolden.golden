@@ -1,0 +1,17 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM avail: 8G   Cache: 512M
+
+➤ 󰓦  Full Cleanup (Recommended)
+  󰃨  Clear caches
+  󰚰  Repair broken packages
+  󰋊  Delete old downloads
+  󰏗  Run topgrade (system update)
+  󰒔  Disable unused services
+  󰶚  Audit AUR packages
+  󰗶  System health · 2 things need attention
+  󰬀  Held updates · 3 held
+  󰙪  Edit topgrade config
+  󰑇  View log
+  󰗼  Exit
+
+↑/↓ move · enter select · q quit
