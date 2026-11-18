@@ -197,7 +197,7 @@ func (s Sudo) Command(argv []string, needsPriv bool) proc.Spec {
 }
 
 // program is what runs for a step's argv[0]: the privileged programs a
-// step names (sudo, topgrade) from internal/sysbin, read at the call;
+// step names (sudo, topgrade, paru, yay) from internal/sysbin, read at the call;
 // anything else by its name.
 func program(name string) string {
 	switch name {
@@ -205,6 +205,10 @@ func program(name string) string {
 		return sysbin.Sudo
 	case "topgrade":
 		return sysbin.Topgrade
+	case "paru":
+		return sysbin.Paru
+	case "yay":
+		return sysbin.Yay
 	}
 	return name
 }

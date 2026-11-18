@@ -67,7 +67,7 @@ func TestSysbinDefaultsAbsolute(t *testing.T) {
 			t.Errorf("sysbin.All()[%d] = %q under testenv, want %s's bare name %q", i, got, names[i], filepath.Base(p))
 		}
 	}
-	for _, want := range []string{"su", "sudo", "pkexec", "pkttyagent", "topgrade"} {
+	for _, want := range []string{"su", "sudo", "pkexec", "pkttyagent", "topgrade", "paru", "yay"} {
 		if !slices.ContainsFunc(paths, func(p string) bool { return filepath.Base(p) == want }) {
 			t.Errorf("internal/sysbin has no path for %s", want)
 		}

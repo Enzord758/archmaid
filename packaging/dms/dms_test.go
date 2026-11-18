@@ -246,12 +246,22 @@ func updatesRunHelpers(t *testing.T, out string, rc int, helpers map[string]*yay
 			t.Fatal(err)
 		}
 	}
-	shim := func(name, body string) {
-		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+	// The script runs the AUR helper as /usr/bin/<name> (#292), which a test
+	// must not reach: it runs a copy with that prefix pointed at abs, where
+	// the fake helpers live. bin, the script's PATH, holds a decoy paru and
+	// yay that fail the test if the script ever looks a helper up by name.
+	abs := t.TempDir()
+	shimIn := func(dir, name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+body), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
+	shim := func(name, body string) { shimIn(bin, name, body) }
 	data := t.TempDir()
+	decoyLog := filepath.Join(data, "decoy.log")
+	for _, name := range []string{"paru", "yay"} {
+		shim(name, "echo "+name+" >>"+decoyLog+"\nexit 1\n")
+	}
 	put := func(name, body string) string {
 		f := filepath.Join(data, name)
 		if err := os.WriteFile(f, []byte(body), 0o600); err != nil {
@@ -262,7 +272,7 @@ func updatesRunHelpers(t *testing.T, out string, rc int, helpers map[string]*yay
 	shim("checkupdates", "cat "+put("cu.out", out)+"\nexit "+strconv.Itoa(rc)+"\n")
 	for name, h := range helpers {
 		// The script must ask for exactly -Qua and give the helper no stdin.
-		shim(name, "[ \"$*\" = -Qua ] || exit 64\nif read -r _; then exit 65; fi\n"+
+		shimIn(abs, name, "[ \"$*\" = -Qua ] || exit 64\nif read -r _; then exit 65; fi\n"+
 			"echo "+name+" >>"+put(name+".ran", "")+"\n"+
 			"cat "+put(name+".out", h.out)+"\ncat "+put(name+".err", h.err)+" >&2\nexit "+strconv.Itoa(h.rc)+"\n")
 	}
@@ -288,10 +298,24 @@ func updatesRunHelpers(t *testing.T, out string, rc int, helpers map[string]*yay
 			t.Fatal(err)
 		}
 	}
-	cmd := exec.Command(filepath.Join(bin, "sh"), "../systemd/archmaid-updates-check")
+	orig, err := os.ReadFile("../systemd/archmaid-updates-check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(orig), "/usr/bin/") {
+		t.Fatal("archmaid-updates-check names no /usr/bin/ helper path")
+	}
+	script := filepath.Join(data, "archmaid-updates-check")
+	if err := os.WriteFile(script, []byte(strings.ReplaceAll(string(orig), "/usr/bin/", abs+"/")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(filepath.Join(bin, "sh"), script)
 	cmd.Env = []string{"PATH=" + bin, "HOME=" + home, "XDG_STATE_HOME=" + other}
 	cmd.Stdin = strings.NewReader("an input line\n")
 	runErr := cmd.Run()
+	if b, _ := os.ReadFile(decoyLog); len(b) > 0 {
+		t.Fatalf("the script ran an AUR helper found on PATH instead of its /usr/bin path:\n%s", b)
+	}
 	if ents, _ := os.ReadDir(other); len(ents) != 0 {
 		t.Fatalf("XDG_STATE_HOME was written to: %v", ents)
 	}

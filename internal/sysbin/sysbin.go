@@ -7,7 +7,7 @@
 // check, `sudo -S -v`) or let it stand in for polkit. So archmaid names
 // each one here, by its path on Arch (/usr/bin, where each of these
 // packages installs it), and runs that file. What archmaid's children start
-// by name (topgrade's paru or yay, their sudo) still goes through their PATH:
+// by name (topgrade's own paru or yay, their sudo) still goes through their PATH:
 // internal/privilege's PATH guard (pathguard.go) covers the kept password
 // there (docs/HANDOVER.md, "archmaid doesn't trust PATH for privilege").
 //
@@ -46,7 +46,14 @@ var (
 	// (privilege.Requester.KeptMayAnswer) trusts /usr/bin/topgrade, and the AUR helpers
 	// /usr/bin/paru and /usr/bin/yay it runs.
 	Topgrade = "/usr/bin/topgrade"
+	// Paru and Yay are the AUR helper archmaid itself starts: Full Cleanup's
+	// AUR cache step (internal/actions aurCacheStep, run from here by
+	// privilege.Sudo.Command), and the helper internal/aurhelper.Detect
+	// picks (it looks for these paths, never the names on PATH). The
+	// updates-check script runs /usr/bin/$helper alike.
+	Paru = "/usr/bin/paru"
+	Yay  = "/usr/bin/yay"
 )
 
 // All is every path above, in order.
-func All() []*string { return []*string{&Su, &Sudo, &Pkexec, &Pkttyagent, &Topgrade} }
+func All() []*string { return []*string{&Su, &Sudo, &Pkexec, &Pkttyagent, &Topgrade, &Paru, &Yay} }

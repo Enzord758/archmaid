@@ -96,7 +96,7 @@ func TestCheckPasswordRunsSysbinSu(t *testing.T) {
 // keeps its name.
 func TestCommandRunsSysbin(t *testing.T) {
 	dir := t.TempDir()
-	for p, name := range map[*string]string{&sysbin.Sudo: "sudo", &sysbin.Topgrade: "topgrade"} {
+	for p, name := range map[*string]string{&sysbin.Sudo: "sudo", &sysbin.Topgrade: "topgrade", &sysbin.Paru: "paru", &sysbin.Yay: "yay"} {
 		old := *p
 		*p = filepath.Join(dir, "abs", name)
 		t.Cleanup(func() { *p = old })
@@ -110,7 +110,9 @@ func TestCommandRunsSysbin(t *testing.T) {
 		{[]string{"sudo", "paccache", "-r"}, true, sysbin.Sudo, "sudo paccache -r", []string{"-A", "paccache", "-r"}},
 		{[]string{"sudo", "pacman", "-Qkq"}, false, sysbin.Sudo, "sudo pacman -Qkq", []string{"-n", "pacman", "-Qkq"}},
 		{[]string{"topgrade", "-y", "--no-retry", "--disable", "hyprpm"}, true, sysbin.Topgrade, "topgrade -y --no-retry --disable hyprpm", []string{"-y", "--no-retry", "--disable", "hyprpm"}},
-		{[]string{"yay", "-Sc", "--aur"}, false, "yay", "yay -Sc --aur", []string{"-Sc", "--aur"}},
+		{[]string{"yay", "-Sc", "--aur"}, false, sysbin.Yay, "yay -Sc --aur", []string{"-Sc", "--aur"}},
+		{[]string{"paru", "-Sc", "--noconfirm"}, true, sysbin.Paru, "paru -Sc --noconfirm", []string{"-Sc", "--noconfirm"}},
+		{[]string{"pikaur", "-Sc"}, false, "pikaur", "pikaur -Sc", []string{"-Sc"}},
 	} {
 		spec := Sudo{Wrapper: "/run/user/1000/w"}.Command(c.argv, c.priv)
 		if spec.Name != c.name || spec.Display != c.display || strings.Join(spec.Args, " ") != strings.Join(c.args, " ") {

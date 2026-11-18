@@ -110,11 +110,11 @@ for f in "$cfgdir/topgrade.toml" "$cfgdir/topgrade/topgrade.toml"; do
 	break
 done
 case "$want" in
-paru | yay) command -v "$want" >/dev/null 2>&1 && helper="$want" ;;
+paru | yay) [ -x "/usr/bin/$want" ] && helper="$want" ;;
 esac
 if [ -z "$helper" ]; then
 	for h in paru yay; do
-		if command -v "$h" >/dev/null 2>&1; then
+		if [ -x "/usr/bin/$h" ]; then
 			helper="$h"
 			break
 		fi
@@ -199,9 +199,9 @@ if [ -n "$helper" ]; then
 	# timeout so a hung AUR/network call cannot block the unit.
 	yrc=0
 	if command -v timeout >/dev/null 2>&1; then
-		ylist="$(timeout 120 "$helper" -Qua </dev/null 2>"$errf")" || yrc=$?
+		ylist="$(timeout 120 "/usr/bin/$helper" -Qua </dev/null 2>"$errf")" || yrc=$?
 	else
-		ylist="$("$helper" -Qua </dev/null 2>"$errf")" || yrc=$?
+		ylist="$("/usr/bin/$helper" -Qua </dev/null 2>"$errf")" || yrc=$?
 	fi
 	case "$yrc" in
 	0) set -- $(printf '%s\n' "$ylist" | split_aur) && aur=$1 && held=$2 && yok=1 ;;

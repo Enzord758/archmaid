@@ -32,6 +32,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/Enzord758/archmaid/internal/sysbin"
 )
 
 // The supported helpers.
@@ -53,8 +55,9 @@ const EnvOverride = "ARCHMAID_AUR_HELPER"
 type Helper struct {
 	// Name is Paru, Yay or "".
 	Name string
-	// Path is where LookPath found it ("" for an override or none). The step's
-	// argv names the program by Name, as the other steps do.
+	// Path is the sysbin path it was found at ("" for an override or none).
+	// The step's argv names the program by Name, as the other steps do;
+	// privilege.Sudo.Command runs it from internal/sysbin.
 	Path string
 }
 
@@ -215,7 +218,9 @@ func ParseArchPackageManager(b []byte) string {
 	return ""
 }
 
-// Detect decides the helper (see the package comment).
+// Detect decides the helper (see the package comment). "Installed" means the
+// file at internal/sysbin's path (/usr/bin/paru, /usr/bin/yay): the helper is
+// found and run by that path only, never by its name on PATH.
 func Detect(d Deps) Helper {
 	switch o := d.getenv(EnvOverride); o {
 	case Paru, Yay:
@@ -224,16 +229,26 @@ func Detect(d Deps) Helper {
 		return Helper{}
 	}
 	if want := ConfiguredManager(d); want == Paru || want == Yay {
-		if p, err := d.lookPath(want); err == nil {
+		if p, err := d.lookPath(sysbinPath(want)); err == nil {
 			return Helper{Name: want, Path: p}
 		}
 	}
 	for _, name := range Supported {
-		if p, err := d.lookPath(name); err == nil {
+		if p, err := d.lookPath(sysbinPath(name)); err == nil {
 			return Helper{Name: name, Path: p}
 		}
 	}
 	return Helper{}
+}
+
+// sysbinPath is where archmaid runs the helper name from: internal/sysbin's
+// path (/usr/bin/paru, /usr/bin/yay in the product), read at the call. A paru
+// or yay earlier on PATH (~/.local/bin) is never looked up and never run.
+func sysbinPath(name string) string {
+	if name == Yay {
+		return sysbin.Yay
+	}
+	return sysbin.Paru
 }
 
 // CleanArgv is the AUR cache step's command line: `<helper> -Sc [--aur]

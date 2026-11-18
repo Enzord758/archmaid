@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Fixed
+
+- **Security hardening: the AUR helper is started by its package path** (#292). Full Cleanup's AUR cache step and the updates check used to start `paru` or `yay` by name, so a program of that name early on `PATH` (`~/.local/bin`) would have been run instead of the real helper. archmaid now looks for the helper only at `/usr/bin/paru` and `/usr/bin/yay` (`internal/sysbin`, like `sudo` and `topgrade`), and the updates-check script runs `/usr/bin/$helper`. A helper installed elsewhere is no longer used. `TestDetectIgnoresPathHelpers`, `TestCommandRunsSysbin`, the updates-check script tests.
+
 ## [2.8.0] - 2026-11-14
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).

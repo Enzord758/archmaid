@@ -31,7 +31,7 @@ E2E="$PWD/e2e"
 # build that names internal/sysbin, and testenv's TestE2EBuildsBareSysbin
 # keeps this list complete.
 SYSBIN=github.com/Enzord758/archmaid/internal/sysbin
-SYSBIN_LDFLAGS="-X $SYSBIN.Su=su -X $SYSBIN.Sudo=sudo -X $SYSBIN.Pkexec=pkexec -X $SYSBIN.Pkttyagent=pkttyagent -X $SYSBIN.Topgrade=topgrade"
+SYSBIN_LDFLAGS="-X $SYSBIN.Su=su -X $SYSBIN.Sudo=sudo -X $SYSBIN.Pkexec=pkexec -X $SYSBIN.Pkttyagent=pkttyagent -X $SYSBIN.Topgrade=topgrade -X $SYSBIN.Paru=paru -X $SYSBIN.Yay=yay"
 COVER_DIR="${E2E_COVER_DIR:-}"
 if [[ -n "$COVER_DIR" ]]; then
 	mkdir -p "$COVER_DIR"
@@ -45,7 +45,7 @@ fi
 # Refuse to drive a binary whose sysbin paths aren't the bare names: read
 # what it links (scripts/sysbinvals reads the ELF file, it never runs it;
 # -trimpath keeps -ldflags out of `go version -m`). The TUI links Su, Sudo,
-# Pkexec and Topgrade (Pkttyagent is the GUI's).
+# Pkexec, Topgrade, Paru and Yay (Pkttyagent is the GUI's).
 SYSBIN_VALS="$(go run ../../scripts/sysbinvals archmaid)" ||
 	{ echo "FAIL: can't read ./archmaid's sysbin paths"; exit 1; }
 grep -qx 'Sudo=sudo' <<<"$SYSBIN_VALS" ||
