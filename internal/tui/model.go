@@ -33,6 +33,7 @@ const (
 	screenAbortConfirm // ctrl+c while running → confirm before stopping the step
 	screenAudit        // scrollable AUR-audit report (see audit.go)
 	screenHealth       // the System health checks (health.go)
+	screenHeld         // the held updates (held.go)
 )
 
 // ── model ────────────────────────────────────────────────────────────────────
@@ -121,6 +122,8 @@ type model struct {
 
 	// health is the System health screen's state (health.go).
 	health healthState
+	// held is the Held updates screen's state (held.go).
+	held heldState
 
 	// startAction is the action Init starts as if the user had picked it
 	// (-fc, --full-cleanup); "" for none.

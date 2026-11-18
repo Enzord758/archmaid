@@ -23,6 +23,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.termWidth, m.termHeight = msg.Width, msg.Height
 		m.resizeOutput()
 		m.healthLayout()
+		m.heldLayout()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -218,6 +219,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case screenHealth:
 		return m.healthKey(msg)
 
+	case screenHeld:
+		return m.heldKey(msg)
+
 	case screenNotice:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -257,6 +261,8 @@ func (m model) activate() (tea.Model, tea.Cmd) {
 	switch a.ID {
 	case idHealth:
 		return m.openHealth()
+	case idHeld:
+		return m.openHeld()
 	case actions.IDExit:
 		return m, tea.Quit
 	case actions.IDViewLog:

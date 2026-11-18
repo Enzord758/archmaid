@@ -77,7 +77,7 @@ func TestMenuHasHealthBeforeEditConfig(t *testing.T) {
 		ids = append(ids, a.ID)
 	}
 	n := len(ids)
-	if ids[n-1] != actions.IDExit || ids[n-2] != actions.IDViewLog || ids[n-3] != actions.IDEditConfig || ids[n-4] != idHealth {
+	if ids[n-1] != actions.IDExit || ids[n-2] != actions.IDViewLog || ids[n-3] != actions.IDEditConfig || ids[n-4] != idHeld || ids[n-5] != idHealth {
 		t.Fatalf("menu ends %v", ids[max(n-5, 0):])
 	}
 	// The engine's menu is untouched: the GUI shows it too.
@@ -200,7 +200,7 @@ func TestHealthOpenRunsOffTheLoop(t *testing.T) {
 	defer func() { healthRun = old }()
 
 	m := sizedModel()
-	m.cursor = len(menu()) - 4
+	m.cursor = len(menu()) - 5
 	if menu()[m.cursor].ID != idHealth {
 		t.Fatalf("menu index drifted: %q", menu()[m.cursor].ID)
 	}
@@ -496,7 +496,7 @@ func TestHealthTeatest(t *testing.T) {
 
 	tm := teatest.NewTestModel(t, fixedModel(), teatest.WithInitialTermSize(80, 24))
 	waitForText(t, tm, "System health")
-	for range len(menu()) - 4 {
+	for range len(menu()) - 5 {
 		tm.Send(tea.KeyMsg{Type: tea.KeyDown})
 	}
 	tm.Send(tea.KeyMsg{Type: tea.KeyEnter})

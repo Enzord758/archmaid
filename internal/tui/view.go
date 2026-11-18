@@ -84,6 +84,8 @@ func (m model) viewOf(s screen) string {
 		return m.viewAudit()
 	case screenHealth:
 		return m.viewHealth()
+	case screenHeld:
+		return m.viewHeld()
 	case screenDiscovering:
 		return m.viewDiscovering()
 	case screenServices:

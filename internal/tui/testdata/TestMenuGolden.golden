@@ -9,6 +9,7 @@ archmaid — Arch maintenance  [dry-run]
   󰒔  Disable unused services
   󰶚  Audit AUR packages
   󰗶  System health
+  󰬀  Held updates
   󰙪  Edit topgrade config
   󰑇  View log
   󰗼  Exit

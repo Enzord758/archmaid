@@ -1,0 +1,24 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM avail: 8G   Cache: 512M
+
+Held updates  3 held
+
+These AUR updates are held back on purpose. Updating one now skips that safety
+window, so review its PKGBUILD first.                                         
+                                                                              
+Cooldown · newer than 72 h                                                    
+  spotify  held 2d4h                                                          
+    1.2.74-1 → 1.2.76-1 · free in 20 h                                        
+  noage  held                                                                 
+    1-1 → 2-1 · free soon                                                     
+                                                                              
+Held by the AUR audit                                                         
+  dux-search-bin                                                              
+    new co-maintainer · not accepted yet                                      
+                                                                              
+Run "Audit AUR packages" from the menu and press a once you have checked them.
+                                                                              
+Review and update                                                             
+Read the PKGBUILD, then run it yourself in a terminal:                        
+  paru -S spotify                                                             
+↑/↓ scroll · esc back

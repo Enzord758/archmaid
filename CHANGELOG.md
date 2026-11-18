@@ -8,6 +8,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ### Added
 
+- **TUI: Held updates** (#295). A menu entry "Held updates" lists the AUR updates held back for the 72 h cooldown (from `updates-cache.json`, only while that cache is under a day old, like the GUI card) with their versions and when they are free, and the packages an AUR audit holds. For each held update it prints the command to run yourself (`paru -S <package>`, or yay), and says the GUI's Packages page offers the PKGBUILD review; the TUI never installs AUR packages. The reading moved from the GUI to a shared `internal/held`, with no change for the GUI. `TestHeldGolden`, `TestHeldPrintsTheCommandNeverRunsIt`.
 - **TUI: System health** (#295). A menu entry "System health" opens the eleven checks the GUI's Overview shows: "Needs your attention" first, then System, Packages and Hardware, a check that could not tell as "?" and an ignored one greyed, each with its detail wrapped to the terminal. The checks run off the UI loop with a spinner. On a "look" row: `c` copies its command to the terminal's clipboard (OSC 52) and prints it, `o` prints its link (archmaid never starts a browser), `i` ignores the check's items and `u` undoes that (through the same `health-ignore.json` as the GUI; a `--dryrun` leaves the list alone), `r` runs the checks again. `TestHealthGolden`, `TestHealthTeatest`, the `health` e2e tape.
 
 ### Fixed

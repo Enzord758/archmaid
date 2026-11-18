@@ -59,6 +59,8 @@ type AuditHold struct {
 
 // Set is everything the sheet lists.
 type Set struct {
+	// Checked is when the cache's check ran (zero when it can't be read).
+	Checked  time.Time
 	Cooldown []Pkg
 	Audit    []AuditHold
 }
@@ -130,6 +132,39 @@ func ParseHeld(b []byte) []Pkg {
 	return out
 }
 
+// CacheFresh is how old the cache may be for its cooldown list to count: a
+// stale cache says nothing about what is held now (the Overview card's rule,
+// overview.UpdatesFresh).
+const CacheFresh = 24 * time.Hour
+
+// CooldownAt is the cooldown rows that count at now: none unless the cache
+// was checked within CacheFresh (a check dated in the future, by more than a
+// minute, is not fresh either).
+func (s Set) CooldownAt(now time.Time) []Pkg {
+	if s.Checked.IsZero() {
+		return nil
+	}
+	if age := now.Sub(s.Checked); age < -time.Minute || age > CacheFresh {
+		return nil
+	}
+	return s.Cooldown
+}
+
+// parseChecked reads the cache's "checked" time (zero when it isn't one).
+func parseChecked(b []byte) time.Time {
+	var raw struct {
+		Checked string `json:"checked"`
+	}
+	if json.Unmarshal(b, &raw) != nil {
+		return time.Time{}
+	}
+	t, err := time.Parse(time.RFC3339, raw.Checked)
+	if err != nil {
+		return time.Time{}
+	}
+	return t
+}
+
 // Read reads both files from stateDir ("" is logstore's default). A
 // missing or unreadable file is an empty list.
 func Read(stateDir string) Set {
@@ -141,6 +176,7 @@ func Read(stateDir string) Set {
 	if f, err := os.Open(filepath.Join(root, "updates-cache.json")); err == nil {
 		if b, err := io.ReadAll(io.LimitReader(f, maxUpdatesFile)); err == nil {
 			h.Cooldown = ParseHeld(b)
+			h.Checked = parseChecked(b)
 		}
 		f.Close()
 	}

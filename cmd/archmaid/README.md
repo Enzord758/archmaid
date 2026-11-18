@@ -91,6 +91,7 @@ straight over via `lipgloss`).
   runs the AUR helper unattended via topgrade, so the hold has to be helper-side
   (that hook is yay's; paru has none, and its AUR updates all count as eligible).
 - **System health** (`health.go`) lists `internal/health`'s eleven checks (look rows first, then System, Packages, Hardware; `?` for unknown, greyed when ignored). They run in a command off the UI loop (`healthRun`, a seam) with a spinner; only the newest run's result is taken. `c` copies the row's command through OSC 52 and prints it, `o` prints the link (no browser is ever started), `i`/`u` ignore and undo through `health.IgnoreStore` (left alone under `--dryrun`), `r` re-runs.
+- **Held updates** (`held.go`) shows `internal/held`: the cooldown-held AUR updates (only while `updates-cache.json` is under 24 h old) and the packages the AUR audit holds. It prints `<helper> -S <package>` for the user to run after reviewing the PKGBUILD, and never installs anything itself.
 - **Edit topgrade config** hands the terminal to `$EDITOR` via `tea.ExecProcess`,
   creating `~/.config/topgrade.toml` with defaults first.
 - **Abortable steps** — ctrl+c while a step runs opens a confirmation; confirming

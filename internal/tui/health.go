@@ -68,7 +68,7 @@ func menu() []actions.Action {
 
 // tuiEntries are the menu entries the TUI adds.
 func tuiEntries() []actions.Action {
-	return []actions.Action{{ID: idHealth, Icon: "󰗶", Label: "System health"}}
+	return []actions.Action{{ID: idHealth, Icon: "󰗶", Label: "System health"}, {ID: idHeld, Icon: "󰬀", Label: "Held updates"}}
 }
 
 // healthState is the screen's state.
