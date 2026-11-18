@@ -82,6 +82,42 @@ Helpers the GUI may use for wording of its own: `health.Ago(d)` ("5 min",
   ~10 ms, else up to 10 s. Call it when the sheet opens and fill the news
   block when it returns; on error show no block.
 
+## health.json: the widget's copy (#296)
+
+The DMS widget only reads state files, so the health result is also written to
+`~/.local/state/archmaid/health.json`. Writers: `archmaid --health-report` (no
+TUI, no tty, exit 0; run by the updates timer's script after the updates
+check) and the GUI after each of its own health runs, so the widget agrees
+with the window. Both use `health.WriteReportFile`; the last writer wins.
+
+```json
+{"v":1,"at":"2026-11-18T09:30:12Z","attention":2,
+ "checks":[
+  {"id":"failed-units","title":"Failed services","state":"look","detail":"2 failed: foo.service, bar.service"},
+  {"id":"restart","title":"Restart recommended","state":"ok","detail":"Running kernel is the installed one"},
+  {"id":"mirror","title":"Mirror","state":"unknown","detail":"offline"},
+  {"id":"pacnew","title":"Config files to merge","state":"ignored","detail":"1 .pacnew file (ignored)"}]}
+```
+
+- `v`: 1. A reader that sees another number shows nothing.
+- `at`: when the run finished, RFC 3339 in UTC (`Report.At`). The widget should
+  treat a file older than 3 days as unknown (the updates cache's rule).
+- `attention`: the number of checks whose state is `look` (`Report.Attention()`;
+  `unknown` and `ignored` are not counted). Always equal to the count in `checks`.
+- `checks`: the 11 checks in `Report.Checks` order (system, packages, hardware);
+  at most 16 entries are ever written. Per check, exactly four string fields:
+  `id` (the table below), `title` (the row's name), `state` (`ok`, `look`,
+  `unknown` or `ignored`) and `detail` (one plain-text line, sanitized,
+  at most 200 runes, may be empty). No group, no items, no copy command, no
+  link: the widget links to the GUI for those.
+- Written atomically (temp file in the same folder, then rename), file 0600,
+  folder 0700, never through a symlinked or foreign-owned folder (the news cache's
+  rules). At most 16 KiB. Compact JSON on one line plus a newline. Text is
+  escaped by `encoding/json` and also run through `sanitize.Field` again, so a
+  hostile unit name or news title cannot carry control characters.
+- A failed write is silent for the GUI and a message on stderr (exit 0 still)
+  for `--health-report`: a stale file is better than a broken updates check.
+
 ## The checks
 
 States: **OK** (green tag "OK"), **Look** (tag "LOOK", counts in "N things need
