@@ -183,6 +183,31 @@ rule(G + "ui/overview.go", r"refreshLastRun", "E", "the last-run cell is built b
 rule(G + "ui/timeline.go", r"newRunPage.func", "E", "ConnectBind always follows ConnectSetup, which stores the header in tl.headers", "", lo=133, hi=135, rec="keep: fail-closed")
 rule(G + "ui/", r"", "A", "a new headless scenario: the key, scroll and click it needs, a log page state (no logs, unreadable, empty), a settings error, a signal mid-run, a stale prompt", "gui/internal/ui/harness_test.go")
 
+# ---- added at 3f8f0d0 (the refresh of #293): code and line moves since the last map.
+# The reasons are the map's usual ones; the E rows are new and NOT yet reviewed
+# by Dev 3 / the lead (docs/coverage-exempt.md lists them like the others).
+TMP = "write/chmod/fsync/close of a fresh temp file fail only on ENOSPC/EIO; no seam"
+rule("internal/logstore/lastrun.go", r"Store.WriteLastRun", "E", "json.Marshal of a RunRecord can't fail", "", lo=100, hi=106, rec="keep-exempt")
+rule("internal/logstore/lastrun.go", r"Store.WriteLastRun", "E", TMP, "", lo=107, hi=140, rec="make-testable: the shared atomic-write helper with an injectable failure")
+rule("internal/privilege/sudowrap.go", r"writeSudoWrapper", "E", "write/close of the wrapper into the 0700 dir just created can't fail short of ENOSPC/EIO", "", lo=118, hi=140, rec="keep")
+rule("internal/privilege/sudowrap.go", r"ctimeNs", "E", "Sys() of a Lstat on Linux is always a *syscall.Stat_t", "", rec="keep: // unreachable")
+rule("internal/privilege/configguard.go", r"", "A", "a sudoers/config line with an odd form (empty, comment-only, a quote that never closes): a table row each", "internal/privilege/configguard_test.go")
+rule("internal/aurbuild/reviewed.go", r"Reviewed.Mark", "E", "json.MarshalIndent of the reviewed map can't fail; MkdirAll/CreateTemp/write/close of a fresh temp file fail only on ENOSPC/EIO", "", lo=88, hi=110, rec="make-testable: the shared atomic-write helper with an injectable failure")
+rule("internal/health/news.go", r"writeNewsCache", "A", "the cache dir a symlink, a file or someone else's (ownedPrivate); a read-only parent", "internal/health/cachehard_test.go", lo=230, hi=250)
+rule("internal/health/news.go", r"writeNewsCache", "E", TMP, "", lo=251, hi=280, rec="make-testable: the shared atomic-write helper with an injectable failure")
+rule("internal/health/ignore.go", r"IgnoreStore.write", "E", TMP, "", lo=225, hi=260, rec="make-testable: the shared atomic-write helper with an injectable failure")
+rule("internal/health/", r"", "A", "a fake seam (Query, FS, HTTPGet, a temp dir) that fails, a file that is unreadable or hostile", "internal/health/*_test.go")
+rule("internal/pkgdb/", r"", "A", "a corrupt or truncated sync db / desc, an unreadable repo dir; pkgdbtest's own helper errors", "internal/pkgdb/*_test.go")
+rule("internal/aurbuild/", r"", "A", "a fake fetcher/hasher that fails, an unreadable or oversized file in a reviewed package", "internal/aurbuild/*_test.go")
+rule("internal/report/", r"", "A", "an unreadable pacman.log, a walk that hits an unreadable entry, odd versions", "internal/report/*_test.go")
+rule("internal/actions/", r"", "A", "the cache measure/discovery with a fake FS that fails", "internal/actions/*_test.go")
+rule("internal/aurhelper/", r"", "A", "a topgrade config of an odd form, an AUR helper missing from PATH", "internal/aurhelper/*_test.go")
+rule("internal/aursearch/", r"", "A", "a response of an odd form", "internal/aursearch/*_test.go")
+rule("internal/version/", r"", "A", "a build without module info", "internal/version/*_test.go")
+rule("gui/internal/pkgview/", r"", "A", "a headless scenario of the Packages page: the key, click or state (search error, empty, held, a long list) it needs, or a plain model test", "gui/internal/pkgview/*_test.go + gui/internal/ui scenarios")
+rule("gui/internal/healthview/", r"", "A", "the sheet's model with a state or an ignore error no test sets yet", "gui/internal/healthview/*_test.go")
+rule("gui/scripts/nullbroadway/", r"", "A", "the test display server's own protocol errors and disconnects: a fake client sending a bad request", "gui/scripts/nullbroadway/*_test.go")
+
 
 def classify(b):
     f = b["file"][len(M):] if b["file"].startswith(M) else b["file"]
