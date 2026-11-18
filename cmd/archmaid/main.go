@@ -10,6 +10,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/health"
 	"github.com/Enzord758/archmaid/internal/privilege"
 	"github.com/Enzord758/archmaid/internal/tui"
 	"github.com/Enzord758/archmaid/internal/version"
@@ -69,7 +71,7 @@ func main() {
 }
 
 // usage is what --help prints.
-const usage = `Usage: archmaid [-fc] [--dryrun] [--downloads <folder>] | --version
+const usage = `Usage: archmaid [-fc] [--dryrun] [--downloads <folder>] | --health-report | --version
 
 A terminal UI for Arch Linux maintenance.
 
@@ -78,6 +80,9 @@ Options:
   --dryrun              log what each step would run instead of running it
   --downloads <folder>  the folder "Delete old downloads" cleans
                         (also --downloads=<folder>)
+  --health-report       run the read-only system health checks, write
+                        ~/.local/state/archmaid/health.json (for the desktop
+                        widget) and exit; starts no TUI, needs no terminal
   -h, --help            show this help and exit
   --version             print the version and exit
 `
@@ -88,17 +93,38 @@ var errHelp = errors.New("help requested")
 // errVersion is parseArgs' answer to --version: print the version, exit 0.
 var errVersion = errors.New("version requested")
 
-// flags is the command line: --dryrun, --downloads' folder ("" for none) and
-// -fc / --full-cleanup.
+// flags is the command line: --dryrun, --downloads' folder ("" for none),
+// -fc / --full-cleanup and --health-report.
 type flags struct {
-	fullCleanup bool
-	dryRun      bool
-	downloads   string
+	fullCleanup  bool
+	dryRun       bool
+	downloads    string
+	healthReport bool
 }
 
-// startup is everything main does before the TUI: the askpass relay and the
-// command line. It returns start=false with the exit code when the process
-// must stop there. It writes nothing under the state dir and deletes nothing:
+// healthDeps are the seams --health-report runs the checks with; a test swaps
+// them for fakes (the real ones reach systemctl, the network and the state dir).
+var healthDeps = health.DefaultDeps
+
+// healthStateDir is where health.json goes ("" is archmaid's state dir).
+var healthStateDir = ""
+
+// runHealthReport is --health-report: the read-only checks (the same caches
+// and ignore list as the GUI), health.json written atomically, no TUI. It
+// returns 0 when the file was written and 1 when it could not be.
+func runHealthReport(stderr io.Writer) int {
+	r := health.Run(context.Background(), healthDeps())
+	if err := health.WriteReportFile(healthStateDir, r); err != nil {
+		fmt.Fprintln(stderr, "archmaid: --health-report:", err)
+		return 1
+	}
+	return 0
+}
+
+// startup is everything main does before the TUI: the askpass relay, the
+// command line and --health-report (which writes health.json and nothing
+// else). It returns start=false with the exit code when the process
+// must stop there. Apart from --health-report it writes nothing under the state dir and deletes nothing:
 // history is only rotated when a real run writes its first log entry (see
 // internal/tui's logKeepRuns), so --help, a bad flag, the askpass relay or a
 // dry run leave ~/.local/state/archmaid as they found it.
@@ -126,6 +152,9 @@ func startup(args []string, stdout, stderr io.Writer) (f flags, code int, start 
 		fmt.Fprintln(stderr, "archmaid:", err)
 		fmt.Fprintln(stderr, "Try 'archmaid --help'.")
 		return flags{}, 2, false
+	}
+	if f.healthReport {
+		return flags{}, runHealthReport(stderr), false
 	}
 	return f, 0, true
 }
@@ -164,6 +193,8 @@ func parseArgs(args []string) (flags, error) {
 				return flags{}, err
 			}
 			f.downloads = v
+		case a == "--health-report":
+			f.healthReport = true
 		case a == "--help" || a == "-h":
 			return flags{}, errHelp
 		case a == "--version":
@@ -173,6 +204,9 @@ func parseArgs(args []string) (flags, error) {
 		default:
 			return flags{}, fmt.Errorf("unexpected argument %q", a)
 		}
+	}
+	if f.healthReport && (f.dryRun || f.fullCleanup || f.downloads != "") {
+		return flags{}, errors.New("--health-report takes no other option")
 	}
 	return f, nil
 }

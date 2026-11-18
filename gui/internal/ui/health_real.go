@@ -30,6 +30,11 @@ type realHealthSource struct {
 
 func (s realHealthSource) Run(ctx context.Context) healthview.Report {
 	r := health.Run(ctx, s.d)
+	// The widget reads health.json: keep it in step with what the window shows
+	// (the same run, the same ignore list). Best effort; a failure is not the window's.
+	if s.store != nil {
+		_ = health.WriteReportFile(s.store.Dir, r)
+	}
 	out := healthview.Report{At: r.At, Checks: make([]healthview.Check, 0, len(r.Checks))}
 	for _, c := range r.Checks {
 		out.Checks = append(out.Checks, healthview.Check{

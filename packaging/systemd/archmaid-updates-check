@@ -11,6 +11,9 @@
 # honoured) when it says paru or yay and that program is installed, else the
 # first installed of paru, yay (topgrade's autodetect order), else none.
 #
+# After the check (also when it failed) it runs `archmaid --health-report`, which
+# writes ~/.local/state/archmaid/health.json for the widget's Health row (best effort).
+#
 # Output: ~/.local/state/archmaid/updates-cache.json, 0600, replaced atomically:
 #   {"v":3,"count":10,"repo":9,"aur":1,"aur_held":2,"checked":"2026-10-04T17:55:00+02:00",
 #    "packages":[{"name":"linux","from":"7.3.1-1","to":"7.3.2-1","src":"repo"},
@@ -76,7 +79,22 @@ chmod 700 "$state"
 
 tmp=""
 errf=""
-trap 'rm -f "$tmp" "$errf"' EXIT
+# health_report refreshes health.json for the widget's Health row: `archmaid
+# --health-report` (read-only checks as this user, no TUI, no tty). Best effort
+# and last: it runs from the EXIT trap, so whatever the updates check did (even
+# when checkupdates failed, e.g. offline), and its own failure or absence never
+# changes this script's exit status. A timeout keeps a hung check from holding
+# the unit; the program writes only ~/.local/state/archmaid/health.json.
+health_report() {
+	command -v archmaid >/dev/null 2>&1 || return 0
+	if command -v timeout >/dev/null 2>&1; then
+		timeout 60 archmaid --health-report </dev/null || echo "archmaid-updates-check: archmaid --health-report failed (ignored)" >&2
+	else
+		archmaid --health-report </dev/null || echo "archmaid-updates-check: archmaid --health-report failed (ignored)" >&2
+	fi
+	return 0
+}
+trap 'rm -f "$tmp" "$errf"; health_report' EXIT
 
 rc=0
 list="$(checkupdates)" || rc=$?

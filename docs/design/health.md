@@ -115,8 +115,17 @@ with the window. Both use `health.WriteReportFile`; the last writer wins.
   rules). At most 16 KiB. Compact JSON on one line plus a newline. Text is
   escaped by `encoding/json` and also run through `sanitize.Field` again, so a
   hostile unit name or news title cannot carry control characters.
-- A failed write is silent for the GUI and a message on stderr (exit 0 still)
-  for `--health-report`: a stale file is better than a broken updates check.
+- A failed write is silent for the GUI. `--health-report` prints one line on
+  stderr and exits 1; the updates script ignores that (a stale file is better
+  than a failed updates check).
+- Who runs it: the updates script (`packaging/systemd/archmaid-updates-check`)
+  calls `archmaid --health-report` from its EXIT trap, after the updates check,
+  also when `checkupdates` failed, under a 60 s `timeout`, and never changes its
+  own exit status for it (no `archmaid` on PATH: skipped). The timer's unit
+  needs no change (`NoNewPrivileges` does not matter: the report starts nothing
+  privileged). Chosen over a second service because the script is also run
+  directly (the GUI's and the driver's fallback when the user unit can't start),
+  and `ExecStopPost` would miss that path.
 
 ## The checks
 

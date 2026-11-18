@@ -400,3 +400,43 @@ if want fullcleanup-flag-declined; then
 	refuse "$CLEANUP_LOG" "." "flag: a declined gate wrote to the cleanup log"
 	echo "PASS: --full-cleanup opened the gate; declined: the menu, nothing ran, no last-run record"
 fi
+
+if want health-report; then
+	# archmaid --health-report (#296): no TUI, no tty (stdin is /dev/null), under
+	# a scratch HOME. It runs the read-only health checks, which ask systemctl,
+	# timedatectl, coredumpctl, busctl and pacman-conf: all in SHIMMED (the
+	# shims print nothing), the network checks go to a dead proxy, pacman.log
+	# and the modules dir to files that don't exist. It must write health.json
+	# in the state dir (0600) and nothing else, and run no mutating command.
+	hdir="$SCRATCH_ROOT/health-report"
+	hshims="$hdir/shims"; HOME_DIR="$hdir/home"; SHIM_LOG="$hdir/shim.log"
+	mkdir -p "$HOME_DIR" "$hshims"; : >"$SHIM_LOG"
+	for c in "${SHIMMED[@]}"; do
+		ln -s "$E2E/shim.sh" "$hshims/$c"
+		[[ "$(PATH="$hshims:$PATH" command -v "$c")" == "$hshims/$c" ]] ||
+			fail "health-report: shim for $c does not shadow the real binary"
+	done
+	hrc=0
+	env HOME="$HOME_DIR" XDG_STATE_HOME="$HOME_DIR/.local/state" XDG_CONFIG_HOME="$HOME_DIR/.config" \
+		XDG_CACHE_HOME="$HOME_DIR/.cache" PATH="$hshims:$PATH" SHIM_LOG="$SHIM_LOG" \
+		ARCHMAID_PACMAN_LOG="$hdir/no-pacman.log" ARCHMAID_MODULES_DIR="$hdir/no-modules" \
+		HTTPS_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9 \
+		$(cover_env "$hdir/cover") ./archmaid --health-report </dev/null >"$hdir/out" 2>&1 || hrc=$?
+	cover_collect "$hdir/cover"
+	[[ $hrc -eq 0 ]] || { cat "$hdir/out"; fail "health-report: exit $hrc, want 0"; }
+	[[ ! -s "$hdir/out" ]] || { cat "$hdir/out"; fail "health-report: printed something, want silence"; }
+	HSTATE="$HOME_DIR/.local/state/archmaid"
+	[[ -f "$HSTATE/health.json" ]] || fail "health-report: no health.json in the state dir"
+	[[ "$(stat -c %a "$HSTATE/health.json")" == 600 ]] || fail "health-report: health.json is not 0600"
+	[[ "$(find "$HOME_DIR" -mindepth 1 -type f | wc -l)" -eq 1 ]] ||
+		{ find "$HOME_DIR"; fail "health-report: wrote more than health.json under HOME"; }
+	need "$HSTATE/health.json" '^\{"v":1,"at":"[0-9TZ:-]+","attention":[0-9]+,"checks":\[\{"id":"failed-units"' "health-report: unexpected health.json"
+	[[ "$(grep -o '"state":' "$HSTATE/health.json" | wc -l)" -eq 11 ]] || fail "health-report: want 11 checks"
+	for c in "${MUTATING[@]}"; do
+		refuse "$SHIM_LOG" "^$c " "health-report: mutating command $c was invoked"
+	done
+	if grep -qvE '^(systemctl|timedatectl|coredumpctl|busctl|pacman-conf) ' "$SHIM_LOG"; then
+		cat "$SHIM_LOG"; fail "health-report: a command other than the read-only queries ran"
+	fi
+	echo "PASS: --health-report wrote health.json (0600) and nothing else, no TUI, no mutating command"
+fi
