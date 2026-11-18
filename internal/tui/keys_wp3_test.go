@@ -31,7 +31,7 @@ func press(m model, k string) (model, tea.Cmd) {
 // beyond the cursor) never moves it.
 func TestMenuCursorKeys(t *testing.T) {
 	m := fixedModel()
-	last := len(actions.Menu) - 1
+	last := len(menu()) - 1
 	for _, up := range []string{"up", "k"} {
 		if got, _ := press(m, up); got.cursor != 0 {
 			t.Errorf("%q at the top: cursor %d, want 0", up, got.cursor)
@@ -62,7 +62,7 @@ func TestMenuCursorKeys(t *testing.T) {
 // started).
 func TestMenuExitAndEditConfig(t *testing.T) {
 	at := func(id string) int {
-		for i, a := range actions.Menu {
+		for i, a := range menu() {
 			if a.ID == id {
 				return i
 			}

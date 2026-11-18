@@ -201,11 +201,11 @@ func (tg *sessionTarget) fail(format string, a ...any) {
 
 // Start starts the menu action whose label contains sub.
 func (tg *sessionTarget) Start(sub string) (string, error) {
-	i := slices.IndexFunc(actions.Menu, func(a actions.Action) bool { return strings.Contains(a.Label, sub) })
+	i := slices.IndexFunc(menu(), func(a actions.Action) bool { return strings.Contains(a.Label, sub) })
 	if i < 0 {
 		return "", fmt.Errorf("no menu item %q", sub)
 	}
-	a := actions.Menu[i]
+	a := menu()[i]
 	o := tg.s.Start(a.ID)
 	if len(o.Events) == 0 && len(o.Effects) == 0 {
 		return "", fmt.Errorf("the session ignored Start(%q)", a.ID)

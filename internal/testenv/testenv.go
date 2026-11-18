@@ -84,6 +84,8 @@ var Mutators = []string{
 	"topgrade", "yay", "paru", "pacman", "paccache", "systemctl", "journalctl",
 	"systemd-tmpfiles", "hyprpm", "flatpak", "fwupdmgr",
 	"pacman-conf", // read-only, but the run report asks it for the cache folders
+	// read-only, but System health asks them (the clock, the drives, the crashes)
+	"timedatectl", "busctl", "coredumpctl",
 }
 
 // Trapped are the binaries Run traps: Privileged and Mutators.

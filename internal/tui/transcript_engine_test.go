@@ -222,7 +222,7 @@ func (tg *tuiEngineTarget) observe(out []tt.Event, inserted int) {
 }
 
 func (tg *tuiEngineTarget) Start(sub string) (string, error) {
-	idx := slices.IndexFunc(actions.Menu, func(a actions.Action) bool { return strings.Contains(a.Label, sub) })
+	idx := slices.IndexFunc(menu(), func(a actions.Action) bool { return strings.Contains(a.Label, sub) })
 	if idx < 0 {
 		return "", fmt.Errorf("no menu item %q", sub)
 	}
@@ -230,7 +230,7 @@ func (tg *tuiEngineTarget) Start(sub string) (string, error) {
 		tg.m = update(tg.m, key("down"))
 	}
 	tg.keys(key("enter"))
-	return actions.Menu[idx].Label, nil
+	return menu()[idx].Label, nil
 }
 
 func (tg *tuiEngineTarget) Next() (tt.Event, error) {

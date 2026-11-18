@@ -90,6 +90,7 @@ straight over via `lipgloss`).
   That hook lives in the dotfiles, not in this repo — archmaid's Full Cleanup
   runs the AUR helper unattended via topgrade, so the hold has to be helper-side
   (that hook is yay's; paru has none, and its AUR updates all count as eligible).
+- **System health** (`health.go`) lists `internal/health`'s eleven checks (look rows first, then System, Packages, Hardware; `?` for unknown, greyed when ignored). They run in a command off the UI loop (`healthRun`, a seam) with a spinner; only the newest run's result is taken. `c` copies the row's command through OSC 52 and prints it, `o` prints the link (no browser is ever started), `i`/`u` ignore and undo through `health.IgnoreStore` (left alone under `--dryrun`), `r` re-runs.
 - **Edit topgrade config** hands the terminal to `$EDITOR` via `tea.ExecProcess`,
   creating `~/.config/topgrade.toml` with defaults first.
 - **Abortable steps** — ctrl+c while a step runs opens a confirmation; confirming

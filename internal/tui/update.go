@@ -22,6 +22,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.termWidth, m.termHeight = msg.Width, msg.Height
 		m.resizeOutput()
+		m.healthLayout()
 		return m, nil
 
 	case tea.KeyMsg:
@@ -63,6 +64,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
+
+	case healthDoneMsg:
+		return m.healthDone(msg)
+
+	case healthIgnoredMsg:
+		return m.healthIgnored(msg)
 
 	case editorDoneMsg:
 		m.screen = screenMenu
@@ -119,7 +126,7 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(actions.Menu)-1 {
+			if m.cursor < len(menu())-1 {
 				m.cursor++
 			}
 		case "enter":
@@ -208,6 +215,9 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.output, cmd = m.output.Update(msg)
 		return m, cmd
 
+	case screenHealth:
+		return m.healthKey(msg)
+
 	case screenNotice:
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -243,8 +253,10 @@ func (m model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // activate handles an Enter on the menu: the TUI's own entries by ID; any
 // other action is the engine's to run, and its Events say what to show.
 func (m model) activate() (tea.Model, tea.Cmd) {
-	a := actions.Menu[m.cursor]
+	a := menu()[m.cursor]
 	switch a.ID {
+	case idHealth:
+		return m.openHealth()
 	case actions.IDExit:
 		return m, tea.Quit
 	case actions.IDViewLog:

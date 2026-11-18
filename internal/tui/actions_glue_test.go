@@ -70,7 +70,7 @@ func noticeOf(d actions.Discovery) string {
 // menuItemIndex is the index of the menu action id.
 func menuItemIndex(t *testing.T, id string) int {
 	t.Helper()
-	for i, a := range actions.Menu {
+	for i, a := range menu() {
 		if a.ID == id {
 			return i
 		}

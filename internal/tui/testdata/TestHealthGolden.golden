@@ -1,0 +1,24 @@
+archmaid — Arch maintenance
+ Free: 100G   RAM avail: 8G   Cache: 512M
+
+System health  3 things need attention · checked 14:03
+
+Needs your attention                                                          
+➤ ⚠ Failed services                                                           
+     2 failed: cups.service, bluetooth.service                                
+     ignored: old.service                                                     
+  ⚠ Config files to merge                                                     
+     1 .pacnew file: /etc/pacman.conf.pacnew                                  
+  ⚠ Mirror                                                                    
+     The mirror is 3 days behind                                              
+                                                                              
+System                                                                        
+  ✔ Clock sync                                                                
+     The clock is synchronised                                                
+                                                                              
+Packages                                                                      
+  ? Arch news                                                                 
+     Couldn't reach archlinux.org                                             
+                                                                              
+Hardware                                                                      
+↑/↓ move · c copy command · i ignore · u undo ignore · r re-run · esc back

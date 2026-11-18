@@ -18,7 +18,7 @@ import (
 // menuIndex finds the menu row whose label contains sub.
 func menuIndex(t *testing.T, sub string) int {
 	t.Helper()
-	for i, it := range actions.Menu {
+	for i, it := range menu() {
 		if strings.Contains(it.Label, sub) {
 			return i
 		}

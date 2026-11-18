@@ -106,12 +106,12 @@ func (tg *driverTarget) settle(launches int) {
 }
 
 func (tg *driverTarget) Start(sub string) (string, error) {
-	i := slices.IndexFunc(actions.Menu, func(a actions.Action) bool { return strings.Contains(a.Label, sub) })
+	i := slices.IndexFunc(menu(), func(a actions.Action) bool { return strings.Contains(a.Label, sub) })
 	if i < 0 {
 		return "", fmt.Errorf("no menu item %q", sub)
 	}
-	tg.send(engine.Start{Action: actions.Menu[i].ID})
-	return actions.Menu[i].Label, nil
+	tg.send(engine.Start{Action: menu()[i].ID})
+	return menu()[i].Label, nil
 }
 
 func (tg *driverTarget) Next() (tt.Event, error) {

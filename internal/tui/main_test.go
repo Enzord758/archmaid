@@ -174,9 +174,9 @@ func TestStepCategoryDefaultsToCleanup(t *testing.T) {
 // picker, not straight to a pager, and remembers the menu as its way back.
 func TestViewLogOpensPicker(t *testing.T) {
 	m := fixedModel()
-	m.cursor = len(actions.Menu) - 2 // "View log"
-	if actions.Menu[m.cursor].ID != actions.IDViewLog {
-		t.Fatalf("test menu index drifted: menu[%d].ID = %q", m.cursor, actions.Menu[m.cursor].ID)
+	m.cursor = len(menu()) - 2 // "View log"
+	if menu()[m.cursor].ID != actions.IDViewLog {
+		t.Fatalf("test menu index drifted: menu[%d].ID = %q", m.cursor, menu()[m.cursor].ID)
 	}
 	got := update(m, key("enter"))
 	if got.screen != screenLogPicker {

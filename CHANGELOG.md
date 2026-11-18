@@ -6,6 +6,10 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 
 ## [Unreleased]
 
+### Added
+
+- **TUI: System health** (#295). A menu entry "System health" opens the eleven checks the GUI's Overview shows: "Needs your attention" first, then System, Packages and Hardware, a check that could not tell as "?" and an ignored one greyed, each with its detail wrapped to the terminal. The checks run off the UI loop with a spinner. On a "look" row: `c` copies its command to the terminal's clipboard (OSC 52) and prints it, `o` prints its link (archmaid never starts a browser), `i` ignores the check's items and `u` undoes that (through the same `health-ignore.json` as the GUI; a `--dryrun` leaves the list alone), `r` runs the checks again. `TestHealthGolden`, `TestHealthTeatest`, the `health` e2e tape.
+
 ### Fixed
 
 - **Security hardening: the AUR helper is started by its package path** (#292). Full Cleanup's AUR cache step and the updates check used to start `paru` or `yay` by name, so a program of that name early on `PATH` (`~/.local/bin`) would have been run instead of the real helper. archmaid now looks for the helper only at `/usr/bin/paru` and `/usr/bin/yay` (`internal/sysbin`, like `sudo` and `topgrade`), and the updates-check script runs `/usr/bin/$helper`. A helper installed elsewhere is no longer used. `TestDetectIgnoresPathHelpers`, `TestCommandRunsSysbin`, the updates-check script tests.

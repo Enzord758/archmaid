@@ -32,6 +32,7 @@ const (
 	screenServices     // multi-select checklist of services to disable
 	screenAbortConfirm // ctrl+c while running → confirm before stopping the step
 	screenAudit        // scrollable AUR-audit report (see audit.go)
+	screenHealth       // the System health checks (health.go)
 )
 
 // ── model ────────────────────────────────────────────────────────────────────
@@ -117,6 +118,9 @@ type model struct {
 	// model runs its actions on, and the prompts it has open. nil only in
 	// a test that just draws the model.
 	eng *engineState
+
+	// health is the System health screen's state (health.go).
+	health healthState
 
 	// startAction is the action Init starts as if the user had picked it
 	// (-fc, --full-cleanup); "" for none.

@@ -3,12 +3,15 @@ package tui
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/Enzord758/archmaid/internal/engine"
+	"github.com/Enzord758/archmaid/internal/health"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/exp/teatest"
@@ -85,6 +88,12 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	logDir = dir
+	// No test may run the real health checks (systemctl, busctl, the news
+	// and mirror fetches) or write the real ignore list or the terminal:
+	// the screen's tests give their own report and store.
+	healthRun = func(context.Context) health.Report { return health.Report{} }
+	healthStore = &health.IgnoreStore{Dir: filepath.Join(dir, "health")}
+	osc52Out = io.Discard
 	// HOME and the XDG dirs are a temp dir for the whole run, and the real
 	// state dir is checked afterwards (internal/testenv).
 	code := testenv.Run(m)

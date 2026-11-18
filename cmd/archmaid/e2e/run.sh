@@ -57,7 +57,7 @@ fi
 
 # The privileged binaries match internal/testenv's traps (su, sudo, pkexec,
 # runuser, faillock): none may run for real, and calling any is a failure.
-SHIMMED=(sudo pacman systemctl topgrade yay paru paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
+SHIMMED=(sudo pacman systemctl topgrade yay paru paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock timedatectl busctl coredumpctl pacman-conf)
 MUTATING=(sudo topgrade yay paru paccache journalctl hyprpm systemd-tmpfiles su pkexec runuser faillock)
 
 fail() { echo "FAIL: $*"; exit 1; }
@@ -153,7 +153,9 @@ run_tape() {
 	# Every tape is a dry run, which never refreshes the widget's update
 	# count. The real refresh starts the user unit and, if that fails, runs
 	# the installed check by absolute path, which no shim here can catch.
-	refuse "$SHIM_LOG" '^systemctl --user ' "$name: the widget's update check was started"
+	# (System health asks the user manager `systemctl --user --failed`: read only.)
+	grep -v '^systemctl --user --failed ' "$SHIM_LOG" >"$dir/shim.nofailed" || true
+	refuse "$dir/shim.nofailed" '^systemctl --user ' "$name: the widget's update check was started"
 	CLEANUP_LOG="$HOME_DIR/.local/state/archmaid/dryrun/cleanup.log"
 	STATE_DIR="$HOME_DIR/.local/state/archmaid"
 }
@@ -328,6 +330,20 @@ if want downloads; then
 	refuse "$TXT" "old-mtime|new.txt|Delete [0-9]+" "downloads: a plan was shown for files that are not old"
 	refuse "$CLEANUP_LOG" "." "downloads: a notice-only run wrote to the cleanup log"
 	echo "PASS: --downloads honoured; old mtime is not old (ctime), nothing deleted"
+fi
+
+if want health; then
+	run_tape health SHIM_FAILED=fake-beta.service
+	need "$TXT" "System health +[0-9]+ things? needs? attention" "health: the summary line was not shown"
+	need "$TXT" "Needs your attention" "health: the look section was not shown"
+	need "$TXT" "Failed services" "health: the failed-services row was not shown"
+	need "$TXT" "1 failed: fake-beta.service" "health: the row lacks its detail"
+	need "$TXT" "journalctl -b -u fake-beta.service" "health: c did not print the command"
+	need "$SHIM_LOG" "^systemctl --failed " "health: the system manager was never asked"
+	refuse "$SHIM_LOG" "^journalctl " "health: the command was run, not just printed"
+	# Read only: the screen writes nothing of its own (the ignore list).
+	[[ ! -e "$STATE_DIR/health-ignore.json" ]] || fail "health: an ignore list appeared without ignoring"
+	echo "PASS: System health ran its checks off shims, listed the failed unit and printed (never ran) its command"
 fi
 
 if want help-and-bad-flag; then

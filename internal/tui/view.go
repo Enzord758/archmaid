@@ -82,6 +82,8 @@ func (m model) viewOf(s screen) string {
 		return m.viewLog()
 	case screenAudit:
 		return m.viewAudit()
+	case screenHealth:
+		return m.viewHealth()
 	case screenDiscovering:
 		return m.viewDiscovering()
 	case screenServices:
@@ -101,7 +103,7 @@ func (m model) header() string {
 func (m model) viewMenu() string {
 	var b strings.Builder
 	b.WriteString(m.header() + "\n")
-	for i, it := range actions.Menu {
+	for i, it := range menu() {
 		cursor := "  "
 		style := itemStyle
 		if i == m.cursor {

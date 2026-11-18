@@ -14,8 +14,15 @@ for a in "$@"; do line+=" $a"; done
 printf '%s\n' "$line" >>"${SHIM_LOG:?SHIM_LOG unset}"
 
 case "$name" in
+timedatectl) printf 'NTP=yes\nNTPSynchronized=yes\n' ;;
+# System health's read-only questions: nothing to report. (pacman-conf gives
+# no mirror, busctl no drives, coredumpctl no crashes.)
+busctl | coredumpctl | pacman-conf) ;;
 systemctl)
 	case "$1" in
+	# SHIM_FAILED=unit.service: the system manager has one failed unit
+	# (System health's `systemctl --failed`; the user manager has none).
+	--failed) [[ -n "${SHIM_FAILED:-}" ]] && printf '%s loaded failed failed Fake\n' "$SHIM_FAILED" ;;
 	list-unit-files) printf 'fake-alpha.service enabled disabled\nfake-beta.service  enabled disabled\n' ;;
 	list-units) printf 'fake-alpha.service loaded inactive dead Fake Alpha\nfake-beta.service  loaded inactive dead Fake Beta\n' ;;
 	is-enabled) shift; [[ "${1:-}" == -- ]] && shift; for _ in "$@"; do echo "${SHIM_UNIT_STATE:-enabled}"; done ;;

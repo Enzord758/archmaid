@@ -17,7 +17,7 @@ import (
 func BenchmarkActivateFullCleanup(b *testing.B) {
 	b.Setenv("PATH", b.TempDir())
 	m := fixedModel()
-	for i, a := range actions.Menu {
+	for i, a := range menu() {
 		if a.ID == actions.IDFullCleanup {
 			m.cursor = i
 		}
