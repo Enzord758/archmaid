@@ -472,7 +472,7 @@ func runChild(scenario, path string) int {
 	var painting time.Time
 	measuring := false
 	opts.hook = func(w *Window) {
-		closeSoon := func() { glib.TimeoutAdd(50, func() { w.win.Close() }) }
+		closeSoon := func() { afterShots(50, func() { w.win.Close() }) }
 		if scenario == "real-narrow" || scenario == "narrow-states" { // minwidth_harness_test.go, minwidth_states_harness_test.go
 			wd, _ := strconv.Atoi(os.Getenv(envNarrowW))
 			w.win.SetDefaultSize(wd, narrowH)
@@ -802,7 +802,11 @@ func runChild(scenario, path string) int {
 				}
 				rep.Meters = w.shell.meters.text()
 				// Count the coloured rows once the last batch is drawn.
+				// The end shot is taken in this callback: nothing may close
+				// the window before it is written (afterShots, shots_test.go).
+				shotsPending.Add(1)
 				glib.TimeoutAdd(20, func() {
+					defer shotsPending.Add(-1)
 					rep.Labels, rep.Coloured = countLabels(&w.outView.Widget)
 					rep.LineAttrs = lineAttrs(&w.outView.Widget)
 					rep.TermCols, rep.ViewWidth = TermCols(), w.tl.view.Width()
@@ -862,7 +866,7 @@ func runChild(scenario, path string) int {
 					poll = func() {
 						polls++
 						rep.CacheEnd = cacheCell(w)
-						if rep.CacheEnd == "~/.cache is empty" || (scenario == "usercache-none" && cacheMeasures.Load() >= 2) || polls > 60 {
+						if (rep.CacheEnd == "~/.cache is empty" || (scenario == "usercache-none" && cacheMeasures.Load() >= 2) || polls > 60) && shotsPending.Load() == 0 {
 							rep.CacheMeasures = cacheMeasures.Load()
 							w.win.Close()
 							return
@@ -944,7 +948,7 @@ func runChild(scenario, path string) int {
 				}
 				if scenario == "real-failed-decline" {
 					// The failed step offers its actions again.
-					glib.TimeoutAdd(60, func() {
+					afterShots(60, func() {
 						for _, s := range w.tl.sections {
 							if s.step == steps.IDTopgrade && s.header != nil && s.header.acts.box.Visible() {
 								rep.FailedActs = append(rep.FailedActs, s.header.acts.again.Label())
@@ -998,7 +1002,7 @@ func runChild(scenario, path string) int {
 						return
 					}
 					// Closing must not ask "Stop the run and quit?".
-					glib.TimeoutAdd(50, func() {
+					afterShots(50, func() {
 						w.win.Close()
 						if w.quitDialog != nil || !w.closed {
 							fail("closing after the engine stopped didn't close the window")
@@ -1032,6 +1036,9 @@ func runChild(scenario, path string) int {
 		fail("stylesheet: %s", e)
 	}
 	styleMu.Unlock()
+	for _, e := range takeShotErrors() {
+		fail("%s", e)
+	}
 	rep.DriverCloses = closes.Load()
 	if wiring != nil {
 		wiring.Close()

@@ -16,10 +16,17 @@ package ui
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	glibv2 "github.com/diamondburned/gotk4/pkg/glib/v2"
 )
 
 // shotsEnv names the screenshot directory; empty means no screenshots.
@@ -34,17 +41,97 @@ const shotsEnv = "ARCHMAID_GUI_SHOTS"
 // floats as a window of its own isn't.
 func shoot(w *Window, scenario, what string) {
 	dir := os.Getenv(shotsEnv)
-	if dir == "" || w.closed {
+	if dir == "" {
 		return
 	}
-	width, height := w.win.Width(), w.win.Height()
-	if width <= 0 || height <= 0 {
+	// A shot that was asked for is written before the child exits or it is
+	// an error in the child's report (shotFailed), never silently skipped:
+	// a missing PNG used to surface only as the parent's "no such file".
+	if w.closed {
+		shotFailed("%s-%s: the window was already closed", scenario, what)
 		return
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		shotFailed("%s-%s: %v", scenario, what, err)
 		return
 	}
-	_ = savePNG(w.win, filepath.Join(dir, scenario+"-"+what+".png"))
+	path := filepath.Join(dir, scenario+"-"+what+".png")
+	// The window has no size until GTK has allocated it; under load the
+	// first frames can come late, so wait for the allocation by running the
+	// main loop (a few short slices) instead of skipping the shot.
+	var err error
+	for try := 0; try < shotTries; try++ {
+		if w.win.Width() <= 0 || w.win.Height() <= 0 {
+			err = fmt.Errorf("the window has no size yet (%dx%d)", w.win.Width(), w.win.Height())
+		} else if err = savePNG(w.win, path); err == nil {
+			return
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "shot %s-%s: try %d at %d: %v\n", scenario, what, try+1, time.Now().UnixMilli()%100000, err)
+		}
+		pumpMain(shotWait)
+	}
+	shotFailed("%s-%s: %v", scenario, what, err)
+}
+
+// shotTries and shotWait: how often and for how long shoot lets the main
+// loop run between attempts when the window can't be drawn yet.
+const (
+	shotTries = 20
+	shotWait  = 50 * time.Millisecond
+)
+
+// pumpMain runs the default main context for d, so allocation and frame
+// clock work that is waiting can happen.
+func pumpMain(d time.Duration) {
+	ctx := glibv2.MainContextDefault()
+	for end := time.Now().Add(d); time.Now().Before(end); {
+		if !ctx.Iteration(false) {
+			time.Sleep(2 * time.Millisecond)
+		}
+	}
+}
+
+// shotsPending counts end-of-run shots scheduled and not yet taken. The
+// harness closes the window a moment after a run ends; the end shot is taken
+// a moment after it too, and under load (both timers overdue, a snapshot that
+// needs a retry) the close could come first and the shot was lost.
+// afterShots runs f once none is pending.
+var shotsPending atomic.Int32
+
+// afterShots runs f ms from now, or as soon after as no shot is pending.
+func afterShots(ms uint, f func()) {
+	var try func()
+	try = func() {
+		if shotsPending.Load() > 0 {
+			coreglib.TimeoutAdd(10, try)
+			return
+		}
+		f()
+	}
+	coreglib.TimeoutAdd(ms, try)
+}
+
+var (
+	shotMu   sync.Mutex
+	shotErrs []string
+)
+
+// shotFailed records a shot that was requested and not taken; the child's
+// report carries it (harness_test.go) and the parent test fails on it.
+func shotFailed(format string, args ...any) {
+	shotMu.Lock()
+	defer shotMu.Unlock()
+	shotErrs = append(shotErrs, "screenshot "+fmt.Sprintf(format, args...))
+}
+
+// takeShotErrors returns and clears the recorded shot failures.
+func takeShotErrors() []string {
+	shotMu.Lock()
+	defer shotMu.Unlock()
+	e := shotErrs
+	shotErrs = nil
+	return e
 }
 
 // needShots skips a test that reads screenshots in a binary built without

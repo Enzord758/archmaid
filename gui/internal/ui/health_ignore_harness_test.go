@@ -133,8 +133,12 @@ func shootWidget(wd coreglib.Objector, name string) {
 	if dir == "" {
 		return
 	}
-	if os.MkdirAll(dir, 0o700) == nil {
-		_ = savePNG(wd, filepath.Join(dir, name+".png"))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		shotFailed("%s: %v", name, err)
+		return
+	}
+	if err := savePNG(wd, filepath.Join(dir, name+".png")); err != nil {
+		shotFailed("%s: %v", name, err)
 	}
 }
 
