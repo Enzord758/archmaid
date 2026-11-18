@@ -124,6 +124,9 @@ func (w *Window) newSettings() gtk.Widgetter {
 	p.about.AddCSSClass("dim-label")
 	p.about.SetXAlign(0)
 	p.about.SetSelectable(true)
+	// Wrapping, so a long build string doesn't set the page's minimum width.
+	p.about.SetWrap(true)
+	p.about.SetWrapMode(pango.WrapWordChar)
 	box.Append(p.about)
 	box.Append(p.problem)
 	clamp := adw.NewClamp()
@@ -166,6 +169,8 @@ func card(kicker, title, help string, children ...gtk.Widgetter) gtk.Widgetter {
 	k.AddCSSClass("caption-heading")
 	k.AddCSSClass("accent")
 	k.SetXAlign(0)
+	k.SetWrap(true)
+	k.SetWrapMode(pango.WrapWordChar)
 	t := gtk.NewLabel(title)
 	t.AddCSSClass("title-3")
 	t.SetXAlign(0)
@@ -232,7 +237,7 @@ func (w *Window) topgradeCard() gtk.Widgetter {
 		}
 	})
 	// A flow, not a row: side by side the two buttons ask for 346 px (449
-	// with a larger font), more than a 300 px window has, and libadwaita
+	// with a larger font), more than a 340 px window has, and libadwaita
 	// logs "exceeds AdwBreakpointBin width" at every resize step (#294).
 	buttons := gtk.NewFlowBox()
 	buttons.SetSelectionMode(gtk.SelectionNone)

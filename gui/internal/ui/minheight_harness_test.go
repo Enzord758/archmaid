@@ -43,7 +43,7 @@ func covMinHeight(c *covEnv) {
 	// Every page, since each can ask for its own height (#294), at a width
 	// in the wide, the narrow and the narrowest forms.
 	for _, pg := range navPages {
-		for _, wd := range []int{1500, 960, 630, 400, 360} {
+		for _, wd := range []int{1500, 960, 630, 400, 340} {
 			for _, h := range []int{200, 340, 372, 481, 541, 700} {
 				st = append(st,
 					func() { w.stack.SetVisibleChildName(pg.name); w.win.SetDefaultSize(wd, h) },

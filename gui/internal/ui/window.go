@@ -196,9 +196,10 @@ type Window struct {
 // the spec keeps working (spec 1.8).
 const minWindowHeight = 340
 
-// minWindowWidth is under every width the tests check (the narrowest, 300
-// px, is the Settings and Logs pages' own request).
-const minWindowWidth = 300
+// minWindowWidth is what the narrow layout asks for at the default font (336
+// px, the Overview's): libadwaita logs "AdwToastOverlay exceeds
+// AdwApplicationWindow width" under it (#294).
+const minWindowWidth = 340
 
 // ageTickMS is how often the Overview's relative times are redrawn (a
 // variable: the test shortens it).
