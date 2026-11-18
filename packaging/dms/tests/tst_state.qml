@@ -19,6 +19,113 @@ TestCase {
         return s.issues.map(i => i.kind).join(",");
     }
 
+    // ---- health.json (#297): the Health row, the hero's priority ----
+
+    function hsum(health, now, last) {
+        return State.summarize(last ? State.parseLastRun(last) : null, null, null, now, State.parseHealth(health));
+    }
+
+    function test_healthParse() {
+        const h = State.parseHealth(F.fx.healthLook);
+        compare(h.at, t0);
+        compare(h.attention, 2, "only look counts, not unknown or ignored");
+        compare(h.checks.length, 4);
+        compare(h.checks[2].state, "unknown");
+        compare(State.parseHealth(F.fx.healthOK).attention, 0);
+        // the damaged ones are "no data", never a throw
+        const ok = JSON.parse(F.fx.healthOK);
+        const bad = [null, "", "{", "[]", "{}",
+            JSON.stringify(Object.assign({}, ok, {v: 2})),
+            JSON.stringify(Object.assign({}, ok, {v: "1"})),
+            JSON.stringify(Object.assign({}, ok, {at: "yesterday"})),
+            JSON.stringify(Object.assign({}, ok, {at: 5})),
+            JSON.stringify(Object.assign({}, ok, {checks: "x"})),
+            JSON.stringify(Object.assign({}, ok, {checks: [null]})),
+            JSON.stringify(Object.assign({}, ok, {checks: [{id: "a", title: "A", state: "bad", detail: ""}]})),
+            JSON.stringify(Object.assign({}, ok, {checks: [{id: "a", title: "A", state: "ok"}]})),
+            JSON.stringify(Object.assign({}, ok, {checks: [{id: "a", title: "", state: "ok", detail: ""}]})),
+            JSON.stringify(Object.assign({}, ok, {checks: new Array(17).fill({id: "a", title: "A", state: "ok", detail: ""})}))];
+        for (let i = 0; i < bad.length; i++)
+            compare(State.parseHealth(bad[i]), null, "bad " + i);
+        // a miscounting attention is not believed
+        compare(State.parseHealth(JSON.stringify(Object.assign({}, ok, {attention: 9}))).attention, 0);
+        // unknown fields are ignored
+        verify(State.parseHealth(JSON.stringify(Object.assign({}, ok, {future: 1}))) !== null);
+        compare(State.parseHealth(F.fx.healthMany).checks.length, 5);
+    }
+
+    function test_healthRow() {
+        const now = t0 + 60000;
+        let r = State.popout(hsum(F.fx.healthOK, now), now).rows.health;
+        compare(r.label, "Health");
+        compare(r.value, "All good");
+        compare(r.tag, "OK");
+        compare(r.tone, "ok");
+        compare(r.note, "", "fresh and fine: no line under it");
+        r = State.popout(hsum(F.fx.healthLook, now), now).rows.health;
+        compare(r.value, "2 things need attention");
+        compare(r.tag, "LOOK");
+        compare(r.tone, "warn");
+        compare(r.note, "Check 1, Check 2");
+        r = State.popout(hsum(F.fx.healthOne, now), now).rows.health;
+        compare(r.value, "1 thing needs attention");
+        r = State.popout(hsum(F.fx.healthMany, now), now).rows.health;
+        compare(r.value, "5 things need attention");
+        compare(r.note, "Check 1, Check 2, Check 3 +2", "three titles, then the rest counted");
+        // older than 2 h: the age, muted, under it
+        const later = t0 + 5 * 3600000;
+        r = State.popout(hsum(F.fx.healthOK, later), later).rows.health;
+        compare(r.value, "All good");
+        compare(r.note, "checked 5 h ago");
+        r = State.popout(hsum(F.fx.healthLook, later), later).rows.health;
+        compare(r.note, "Check 1, Check 2 · checked 5 h ago");
+        // just under 2 h: no age yet
+        const under = t0 + 2 * 3600000 - 1000;
+        compare(State.popout(hsum(F.fx.healthOK, under), under).rows.health.note, "");
+        // over 3 days, missing or damaged: "Not checked yet", no tag, never an error
+        const old = t0 + 3 * day + 1000;
+        const nots = [State.popout(hsum(F.fx.healthLook, old), old).rows.health,
+                      State.popout(hsum(null, now), now).rows.health,
+                      State.popout(hsum("{torn", now), now).rows.health];
+        for (let i = 0; i < nots.length; i++) {
+            compare(nots[i].value, "Not checked yet", "not checked " + i);
+            compare(nots[i].tag, "");
+            compare(nots[i].tone, "muted");
+            compare(nots[i].note, "");
+        }
+        // a stale look is not counted: 3 days is the edge
+        const edge = t0 + 3 * day - 1000;
+        compare(State.popout(hsum(F.fx.healthLook, edge), edge).rows.health.tag, "LOOK");
+    }
+
+    function test_healthHero() {
+        const now = t0 + 60000;
+        // nothing else to say: health is the headline
+        let h = State.popout(hsum(F.fx.healthLook, now, F.fx.lastOK), now).hero;
+        compare(h.headline, "2 things need attention");
+        compare(h.tone, "warn");
+        // all good changes nothing
+        compare(State.popout(hsum(F.fx.healthOK, now, F.fx.lastOK), now).hero.headline, "Everything is up to date");
+        // a failed run outranks it
+        h = State.popout(hsum(F.fx.healthLook, now, F.fx.lastFailed), now).hero;
+        verify(h.headline.indexOf("2 things") < 0, h.headline);
+        // so do the run's own attention lines
+        h = State.popout(hsum(F.fx.healthLook, now, F.fx.lastSummary), now).hero;
+        compare(h.headline, "Restart recommended");
+        // an old file says nothing in the headline
+        const old = t0 + 4 * day;
+        verify(State.popout(hsum(F.fx.healthLook, old, F.fx.lastOK), old).hero.headline.indexOf("things") < 0);
+        // health does not turn the bar warn, and alone it is no data
+        compare(hsum(F.fx.healthLook, now, F.fx.lastOK).level, "ok");
+        compare(hsum(F.fx.healthLook, now).level, "nodata");
+        compare(State.popout(hsum(F.fx.healthLook, now), now).rows.health.value, "2 things need attention");
+    }
+
+    function test_openGuiPlan() {
+        compare(State.openGuiPlan(true).argv.join(" "), "archmaid-gui");
+        compare(State.openGuiPlan(false), null);
+    }
+
     function test_writersParse() {
         const r = State.parseLastRun(F.fx.lastOK);
         verify(r !== null);

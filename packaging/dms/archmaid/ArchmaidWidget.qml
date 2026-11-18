@@ -26,12 +26,13 @@ PluginComponent {
     property var lastRun: null
     property var audit: null
     property var updates: null
+    property var health: null
     property double now: Date.now()
     property bool hasGui: false
     property bool hasXdgTerm: false
     property string launchError: ""
 
-    readonly property var summary: State.summarize(lastRun, audit, updates, now)
+    readonly property var summary: State.summarize(lastRun, audit, updates, now, health)
     readonly property string level: summary.level
 
     readonly property color tint: {
@@ -126,14 +127,21 @@ PluginComponent {
         property real labelWidth: 54
         // An optional muted line under the row (the AUR finding's reason)
         property string note: ""
+        // A row that opens something (the Health row opens the GUI): click,
+        // or Enter/Space, emits opened.
+        property bool openable: false
         signal toggled
+        signal opened
 
         width: parent.width
         height: 38 + (note !== "" ? 20 : 0)
-        activeFocusOnTab: expandable
+        activeFocusOnTab: expandable || openable
         Keys.onPressed: event => {
-            if (sr.expandable && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
-                sr.toggled();
+            if ((sr.expandable || sr.openable) && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
+                if (sr.expandable)
+                    sr.toggled();
+                else
+                    sr.opened();
                 event.accepted = true;
             }
         }
@@ -147,9 +155,9 @@ PluginComponent {
         }
         MouseArea {
             anchors.fill: parent
-            enabled: sr.expandable
-            cursorShape: sr.expandable ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: sr.toggled()
+            enabled: sr.expandable || sr.openable
+            cursorShape: (sr.expandable || sr.openable) ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: sr.expandable ? sr.toggled() : sr.opened()
         }
         Row {
             id: line
@@ -241,6 +249,7 @@ PluginComponent {
         lastRunFile.reload();
         auditFile.reload();
         updatesFile.reload();
+        healthFile.reload();
     }
 
     function reloadAll() {
@@ -287,6 +296,13 @@ PluginComponent {
         Quickshell.execDetached(plan.argv);
     }
 
+    // The Health row opens the GUI (its Overview has the System health cell).
+    function openGui() {
+        const plan = State.openGuiPlan(root.hasGui);
+        if (plan)
+            Quickshell.execDetached(plan.argv);
+    }
+
     function openLogFolder() {
         Quickshell.execDetached(["xdg-open", root.stateDir]);
     }
@@ -329,6 +345,21 @@ PluginComponent {
             if (path === "")
                 return;
             root.updates = null;
+            root.loadFailedRetry();
+        }
+        watchChanges: true
+        onFileChanged: reload()
+    }
+
+    FileView {
+        id: healthFile
+        path: root.filesOn ? root.stateDir + "/health.json" : ""
+        printErrors: false
+        onLoaded: root.health = State.parseHealth(text())
+        onLoadFailed: {
+            if (path === "")
+                return;
+            root.health = null;
             root.loadFailedRetry();
         }
         watchChanges: true
@@ -464,7 +495,16 @@ PluginComponent {
 
             // The rows' label column is as wide as the widest label in the
             // real font (DMS's, not a guessed number) plus a small gap.
-            readonly property real labelW: Math.ceil(Math.max(probeA.implicitWidth, probeB.implicitWidth, probeC.implicitWidth)) + Theme.spacingXS
+            readonly property real labelW: Math.ceil(Math.max(probeA.implicitWidth, probeB.implicitWidth, probeC.implicitWidth, probeD.implicitWidth)) + Theme.spacingXS
+            StyledText {
+                id: probeD
+                textFormat: Text.PlainText // fixed strings, plain like every text here
+                wrapMode: Text.NoWrap
+                visible: false
+                elide: Text.ElideRight
+                text: root.view.rows.health.label
+                font.pixelSize: Theme.fontSizeMedium
+            }
             StyledText {
                 id: probeA
                 textFormat: Text.PlainText // fixed strings, plain like every text here
@@ -797,6 +837,19 @@ PluginComponent {
                         labelWidth: pop.labelW
                         note: root.view.rows.aur.reason
                         ink: root.stateColor(root.view.rows.aur.tone)
+                    }
+                    StatRow {
+                        objectName: "healthRow"
+                        row: root.view.rows.health
+                        labelWidth: pop.labelW
+                        note: root.view.rows.health.note
+                        ink: root.stateColor(root.view.rows.health.tone)
+                        openable: root.hasGui
+                        onOpened: {
+                            root.openGui();
+                            if (pop.closePopout)
+                                pop.closePopout();
+                        }
                     }
                 }
 

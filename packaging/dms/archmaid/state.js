@@ -231,6 +231,98 @@ function parseUpdates(text) {
     };
 }
 
+// health.json (internal/health ReportJSON, docs/design/health.md):
+//   {"v":1,"at":"<RFC 3339 UTC>","attention":N,"checks":[{id,title,state,detail}]}
+// state is ok, look, unknown or ignored; at most 16 checks. parseHealth
+// returns {at(ms), attention, checks:[{id,title,state,detail}]} or null for
+// anything unusable. attention is counted from the checks (only "look"), so
+// a file that miscounts cannot raise a false alarm.
+var HEALTH_MAX_CHECKS = 16;
+var HEALTH_STATES = { ok: true, look: true, unknown: true, ignored: true };
+var HEALTH_STALE_MS = 2 * 3600000;    // older: the age is shown, muted
+var HEALTH_MAX_AGE_MS = 3 * DAY_MS;   // older: unknown, "Not checked yet"
+var HEALTH_TITLES_SHOWN = 3;
+
+function parseHealth(text) {
+    var o = _obj(text);
+    if (!o || !Array.isArray(o.checks) || o.checks.length > HEALTH_MAX_CHECKS)
+        return null;
+    var at = _time(o.at);
+    if (at === null)
+        return null;
+    var checks = [];
+    var look = 0;
+    for (var i = 0; i < o.checks.length; i++) {
+        var c = o.checks[i];
+        if (c === null || typeof c !== "object" || Array.isArray(c))
+            return null;
+        if (typeof c.id !== "string" || typeof c.title !== "string" || typeof c.detail !== "string" || !_own(HEALTH_STATES, c.state))
+            return null;
+        if (c.title.length === 0)
+            return null;
+        if (c.state === "look")
+            look++;
+        checks.push({ id: c.id, title: c.title, state: c.state, detail: c.detail });
+    }
+    return { at: at, attention: look, checks: checks };
+}
+
+// _healthView: what the widget may say about a parsed health file at `now`.
+//   known      false when the file is missing, malformed or over 3 days old
+//   attention  checks in state "look" (0 when not known)
+//   titles     the look checks' titles, at most 3, then "+N"
+//   stale      older than 2 h: the age is shown
+//   at         the file's time (ms) or null
+function _healthView(h, now) {
+    var v = { known: false, attention: 0, titles: "", stale: false, at: null };
+    if (!h)
+        return v;
+    v.at = h.at;
+    var age = now - h.at;
+    if (age > HEALTH_MAX_AGE_MS)
+        return v;
+    v.known = true;
+    v.attention = h.attention;
+    v.stale = age > HEALTH_STALE_MS;
+    var names = [];
+    for (var i = 0; i < h.checks.length; i++) {
+        if (h.checks[i].state === "look")
+            names.push(h.checks[i].title);
+    }
+    v.titles = names.slice(0, HEALTH_TITLES_SHOWN).join(", ") + (names.length > HEALTH_TITLES_SHOWN ? " +" + (names.length - HEALTH_TITLES_SHOWN) : "");
+    return v;
+}
+
+function _attentionText(n) {
+    return n === 1 ? "1 thing needs attention" : n + " things need attention";
+}
+
+// The Health row: "All good" with an OK tag, "2 things need attention" with
+// a warn LOOK tag, or "Not checked yet" (muted, no tag) when the file is
+// missing, malformed or too old. A muted line under it names the look checks
+// and, when the file is older than 2 h, its age.
+function _healthRow(s, now) {
+    var v = _healthView(s.health, now);
+    var row = { label: "Health", value: "Not checked yet", note: "", tag: "", tone: "muted" };
+    if (!v.known)
+        return row;
+    var notes = [];
+    if (v.attention > 0) {
+        row.value = _attentionText(v.attention);
+        row.tag = "LOOK";
+        row.tone = "warn";
+        notes.push(v.titles);
+    } else {
+        row.value = "All good";
+        row.tag = "OK";
+        row.tone = "ok";
+    }
+    if (v.stale)
+        notes.push("checked " + ago(v.at, now));
+    row.note = notes.join(" · ");
+    return row;
+}
+
 function _ageDays(then, now) {
     return Math.max(0, now - then) / DAY_MS;
 }
@@ -246,12 +338,12 @@ function _ageDays(then, now) {
 // successful cleanup" is only known when that record is itself a success.
 // After a failed run the outcome issue stands in, and the age of the record
 // is reported on top once it passes STALE_DAYS.
-function summarize(lastRun, audit, updates, now) {
+function summarize(lastRun, audit, updates, now, health) {
     var errors = [];
     var warns = [];
 
     if (!lastRun && !audit && !updates)
-        return { level: "nodata", issues: [], updates: null, updatesDetail: null, updatesChecked: null, updatesPackages: null, lastRun: null, audit: null };
+        return { level: "nodata", issues: [], updates: null, updatesDetail: null, updatesChecked: null, updatesPackages: null, lastRun: null, audit: null, health: health || null };
 
     if (audit && audit.highCount > 0)
         errors.push({ kind: "aur", text: audit.highCount + (audit.highCount === 1 ? " AUR warning" : " AUR warnings") });
@@ -297,7 +389,8 @@ function summarize(lastRun, audit, updates, now) {
         updatesChecked: updates ? updates.checked : null,
         updatesPackages: pkgs,
         lastRun: lastRun,
-        audit: audit
+        audit: audit,
+        health: health || null
     };
 }
 
@@ -437,7 +530,7 @@ function popout(s, now) {
         p.aur.more = a.highCount - p.aur.high.length;
     }
     p.hero = hero(s, now);
-    p.rows = { lastRun: _lastRunRow(s), updates: _updatesRow(s), aur: _aurRow(s, now) };
+    p.rows = { lastRun: _lastRunRow(s), updates: _updatesRow(s), aur: _aurRow(s, now), health: _healthRow(s, now) };
     p.updateList = updateList(s, now);
     return p;
 }
@@ -503,6 +596,7 @@ function hero(s, now) {
         return h;
     }
     var att = r && r.summary ? r.summary.attention : [];
+    var hv = _healthView(s.health, now);
     var held = s.updates !== null && s.updatesDetail ? s.updatesDetail.aurHeld : 0;
     var waiting = s.updates !== null && s.updates > 0;
     var subs = [];
@@ -531,6 +625,10 @@ function hero(s, now) {
         h.tone = "warn";
         h.headline = att[0];
         lines = att.slice(1);
+    } else if (hv.attention > 0) {
+        // Health only speaks when nothing from the run or the audit does.
+        h.tone = "warn";
+        h.headline = _attentionText(hv.attention);
     } else if (waiting) {
         h.headline = plural(s.updates, "update", "updates") + " waiting";
         h.tone = "neutral"; // pending is not "up to date" (green), nor a problem
@@ -724,4 +822,12 @@ function launchPlan(hasGui, terminal, hasXdgTerm) {
     if (hasXdgTerm)
         return { argv: ["xdg-terminal-exec", "archmaid", "--full-cleanup"] };
     return { error: "Set $TERMINAL (for example kitty) or install xdg-terminal-exec to open the archmaid TUI" };
+}
+
+// openGuiPlan is what the Health row's click starts: the GUI at its first
+// page (the Overview, where the System health cell is), or null when it is
+// not installed (the row is then not a button). argv is never run through a
+// shell.
+function openGuiPlan(hasGui) {
+    return hasGui ? { argv: ["archmaid-gui"] } : null;
 }

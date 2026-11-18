@@ -14,6 +14,7 @@ subcommand (sections 2 and 3 describe that older design). It reads, never writes
 |---|---|---|
 | `last-run.json` | `internal/logstore` | `v`, `action`, `finished`, `outcome` (`ok failed aborted cancelled incomplete`), `steps_failed`, `steps_refused`, `dry_run`, and, when the run had something to report (added within v1, absent in older files), `summary{upgraded, aur, freed_bytes, attention[]}` (read by `state.js` as `summary`, null when absent; the popout shows it under LAST RUN, see below) |
 | `audit-state.json` | `internal/audit` | `v`, `checked`, `packages`, `high[{pkg,reason}]` |
+| `health.json` | `archmaid --health-report`, `archmaid-updates-check`, the GUI | `v` (1), `at` (RFC 3339 UTC), `attention` (checks in state look), `checks` (at most 16: `id`, `title`, `state` ok, look, unknown or ignored, `detail`); the Health row. Older than 2 h shows its age, older than 3 days, missing or damaged is "Not checked yet" (docs/design/health.md) |
 | `updates-cache.json` | `archmaid-updates-check` | `v` (1, 2 or 3), `count` (repo + AUR past the cooldown), `repo`, `aur` (null = unknown), `aur_held` (AUR updates younger than 72 h), `checked`, and from v3 `packages` (the pending updates, at most 200: `name`, `from`, `to`, `src` repo or aur, AUR also `held` and, when readable, `age`; absent = no list) |
 
 Files: `packaging/dms/archmaid/` (`plugin.json`, `ArchmaidWidget.qml`,

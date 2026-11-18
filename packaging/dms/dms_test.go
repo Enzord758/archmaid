@@ -19,6 +19,7 @@ import (
 
 	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/audit"
+	"github.com/Enzord758/archmaid/internal/health"
 	"github.com/Enzord758/archmaid/internal/logstore"
 	"github.com/Enzord758/archmaid/internal/report"
 )
@@ -76,7 +77,11 @@ func TestWidgetRenders(t *testing.T) {
 	}
 	work := t.TempDir()
 	for _, f := range []struct{ from, to string }{{"archmaid/state.js", "state.js"}, {"archmaid/ArchmaidWidget.qml", "ArchmaidWidget.qml"}, {"tests/tst_widget.qml", "tst_widget.qml"}} {
-		if err := os.WriteFile(filepath.Join(work, f.to), []byte(read(t, f.from)), 0o600); err != nil {
+		body := read(t, f.from)
+		if dir := os.Getenv("ARCHMAID_WIDGET_SHOT"); f.to == "tst_widget.qml" && dir != "" {
+			body = strings.Replace(body, `property string shotDir: ""`, "property string shotDir: "+strconv.Quote(dir), 1)
+		}
+		if err := os.WriteFile(filepath.Join(work, f.to), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -190,6 +195,22 @@ func auditState(t *testing.T, s audit.State) string {
 		t.Fatal(err)
 	}
 	return read(t, p)
+}
+
+// healthJSON is health.json as internal/health writes it, at t0, with one
+// check per state given (titled "Check 1", "Check 2", ...).
+func healthJSON(t *testing.T, states ...health.State) string {
+	t.Helper()
+	r := health.Report{At: t0}
+	for i, s := range states {
+		n := strconv.Itoa(i + 1)
+		r.Checks = append(r.Checks, health.Check{ID: "check-" + n, Title: "Check " + n, State: s, Detail: "detail " + n})
+	}
+	b, err := health.ReportJSON(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 // yayShim describes a fake yay: its stdout, stderr and exit status.
@@ -536,6 +557,10 @@ func TestStateJS(t *testing.T) {
 		"auditClean":       auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true}),
 		"auditHigh": auditState(t, audit.State{V: 1, Checked: t0, Packages: 27, SnapshotPresent: true, SnapshotReadable: true,
 			High: []audit.StateFinding{{Pkg: "foo", Reason: "maintainer alice → mallory"}, {Pkg: "bar", Reason: "adopted by x"}}}),
+		"healthOK":     healthJSON(t, health.OK, health.OK),
+		"healthLook":   healthJSON(t, health.Look, health.Look, health.Unknown, health.Ignored),
+		"healthMany":   healthJSON(t, health.Look, health.Look, health.Look, health.Look, health.Look),
+		"healthOne":    healthJSON(t, health.Look, health.OK),
 		"updates3":     updatesFile(t, "a\nb\nc\n", 0),
 		"updatesNone":  updatesWith(t, "", &yayShim{rc: 1}),
 		"updatesNoYay": updatesFile(t, "", 2),

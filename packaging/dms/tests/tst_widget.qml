@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Quickshell
 import qs.Common
 import "state.js" as State
 
@@ -341,6 +342,56 @@ TestCase {
         }
         verify(!sheen.visible);
         compare(marks.count, 4);
+    }
+
+    // With ARCHMAID_WIDGET_SHOT set to a folder, a test saves the popout as a
+    // PNG there (a look at it, never a check).
+    function shot(item, name) {
+        if (shotDir === "")
+            return;
+        wait(50);
+        grabImage(item).save(shotDir + "/" + name + ".png");
+    }
+    // dms_test.go fills this in from ARCHMAID_WIDGET_SHOT.
+    property string shotDir: ""
+
+    function healthText(at, states) {
+        const checks = states.map((s, i) => ({id: "c" + i, title: "Check " + i, state: s, detail: ""}));
+        return JSON.stringify({v: 1, at: new Date(at).toISOString(), attention: states.filter(s => s === "look").length, checks: checks});
+    }
+
+    // The Health row (#297): its words and tag, the muted age when the file
+    // is older than 2 h, "Not checked yet" without a file, and a click that
+    // opens the GUI only when it is installed.
+    function test_healthRow() {
+        const o = popout(3, 4);
+        const w = o.w;
+        let t = texts(o.pop, []);
+        verify(t.indexOf("Health") >= 0, t.join("|"));
+        verify(t.indexOf("Not checked yet") >= 0, "no health.json: " + t.join("|"));
+        w.health = State.parseHealth(healthText(w.now - 60000, ["look", "ok", "look"]));
+        t = texts(o.pop, []);
+        verify(t.indexOf("2 things need attention") >= 0, t.join("|"));
+        verify(t.indexOf("LOOK") >= 0);
+        verify(t.indexOf("Check 0, Check 2") >= 0, "the look titles under the row: " + t.join("|"));
+        shot(o.loader, "popout-health-look");
+        w.health = State.parseHealth(healthText(w.now - 5 * 3600000, ["ok"]));
+        t = texts(o.pop, []);
+        verify(t.indexOf("All good") >= 0);
+        verify(t.indexOf("OK") >= 0);
+        verify(t.indexOf("checked 5 h ago") >= 0, t.join("|"));
+        // the click: nothing without the GUI, archmaid-gui with it
+        const row = find(o.pop, "healthRow");
+        verify(row !== null);
+        compare(row.openable, false);
+        Quickshell.started = [];
+        mouseClick(row);
+        compare(Quickshell.started.length, 0);
+        w.hasGui = true;
+        compare(row.openable, true);
+        mouseClick(row);
+        compare(Quickshell.started.length, 1);
+        compare(Quickshell.started[0].join(" "), "archmaid-gui");
     }
 
     // DMS's blur off but its popup transparency low: the update list gets an

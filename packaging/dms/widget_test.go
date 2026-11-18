@@ -87,7 +87,7 @@ func TestWidgetFilesSurviveAtomicReplace(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(b)
-	for _, id := range []string{"lastRunFile", "auditFile", "updatesFile"} {
+	for _, id := range []string{"lastRunFile", "auditFile", "updatesFile", "healthFile"} {
 		i := strings.Index(src, "id: "+id+"\n")
 		if i < 0 {
 			t.Fatalf("no FileView %s", id)
@@ -129,7 +129,7 @@ func TestWidgetFilesSurviveAtomicReplace(t *testing.T) {
 	if off < 0 || on < off {
 		t.Error("reloadFiles must set filesOn = false before filesOn = true")
 	}
-	for _, f := range []string{"lastRunFile", "auditFile", "updatesFile"} {
+	for _, f := range []string{"lastRunFile", "auditFile", "updatesFile", "healthFile"} {
 		if i := strings.Index(rl, f+".reload()"); i < on || on < 0 {
 			t.Errorf("reloadFiles must call %s.reload() after filesOn = true", f)
 		}
