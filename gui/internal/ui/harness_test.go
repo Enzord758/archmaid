@@ -480,6 +480,9 @@ func runChild(scenario, path string) int {
 			// markup makes GTK log a g_warning naming toastControl.
 			gtk.NewLabel("").SetMarkup("<b>" + toastControl)
 		}
+		if scenario == "cov-minheight-open" { // minheight_harness_test.go: opens at its smallest
+			w.win.SetDefaultSize(minWindowWidth, minWindowHeight)
+		}
 		if sz := pkgWindowSize(scenario); sz[0] > 0 { // packages_harness_test.go
 			w.win.SetDefaultSize(sz[0], sz[1])
 		}

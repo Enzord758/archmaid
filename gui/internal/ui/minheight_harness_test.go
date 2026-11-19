@@ -60,22 +60,63 @@ func covMinHeight(c *covEnv) {
 	c.seq(80, st...)
 }
 
+func init() {
+	covScenarios["cov-minheight-open"] = covMinHeightOpen
+	// The real Packages page, not the build-has-no-engine notice (#301).
+	for _, s := range []string{"cov-minheight", "cov-minheight-open"} {
+		covOptions[s] = func(o *Options, _ *report) {
+			pkgFix = newPkgEnv()
+			o.Packages = pkgFix.wiring()
+		}
+	}
+}
+
+// covMinHeightOpen: the window opens at its smallest size (harness_test.go's
+// hook sets it before the first frame) and every page is shown there. A
+// window that is already up and resized (covMinHeight) never has the first
+// layout of the real size; one that opens small does (#301).
+func covMinHeightOpen(c *covEnv) {
+	w := c.w
+	c.quiet()
+	// The stub's banner is a demo's, 40 px the real window doesn't have.
+	if w.banner != nil {
+		w.banner.SetVisible(false)
+	}
+	if f := os.Getenv(minFontEnv); f != "" {
+		dpi, _ := strconv.Atoi(os.Getenv(minDPIEnv))
+		set := gtk.SettingsGetDefault()
+		set.SetObjectProperty("gtk-font-name", f)
+		set.SetObjectProperty("gtk-xft-dpi", dpi*1024)
+	}
+	var st []func()
+	for _, pg := range navPages {
+		st = append(st, func() { w.stack.SetVisibleChildName(pg.name) }, func() {
+			got := w.win.Height()
+			min, _, _, _ := w.toasts.Measure(gtk.OrientationVertical, w.win.Width())
+			c.ok(got >= minWindowHeight && min <= got, "%s: the window is %dx%d, the content asks for %d px of height", pg.name, w.win.Width(), got, min)
+		})
+	}
+	c.seq(150, st...)
+}
+
 // TestGUIMinHeight: see covMinHeight. The child's stderr is the GTK log: a
 // sweep that makes libadwaita log "AdwToastOverlay ... exceeds
 // AdwApplicationWindow height" fails (#294), whatever the measured minimum
 // says (that is taken once the layout has settled).
 func TestGUIMinHeight(t *testing.T) {
 	needDisplay(t)
-	run := func(env ...string) {
+	run := func(name string, env ...string) {
 		t.Helper()
 		var log bytes.Buffer
-		childCmd(t, "cov-minheight", func(c *exec.Cmd) { c.Stderr = io.MultiWriter(os.Stderr, &log) }, env...)
+		childCmd(t, name, func(c *exec.Cmd) { c.Stderr = io.MultiWriter(os.Stderr, &log) }, env...)
 		for _, l := range strings.Split(log.String(), "\n") {
 			if strings.Contains(l, "exceeds") {
-				t.Errorf("GTK logged during the resize sweep: %s", l)
+				t.Errorf("%s: GTK logged: %s", name, l)
 			}
 		}
 	}
-	run()
-	run(minFontEnv+"=Noto Sans 13", minDPIEnv+"=144")
+	run("cov-minheight")
+	run("cov-minheight", minFontEnv+"=Noto Sans 13", minDPIEnv+"=144")
+	run("cov-minheight-open")
+	run("cov-minheight-open", minFontEnv+"=Noto Sans 13", minDPIEnv+"=144")
 }
