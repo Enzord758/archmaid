@@ -2,7 +2,6 @@ package ui
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -64,24 +63,21 @@ func TestContentBlurOK(t *testing.T) {
 	}
 }
 
-// TestGlassSheetsOpaque (#301): a sheet (AdwDialog's `sheet` node) is near
-// opaque in every glass mode. On KDE, with KWin's blur effect off (its
+// TestGlassSheetsOpaque (#301, #303): a sheet (AdwDialog's `sheet` node) is
+// fully opaque in every glass mode. On KDE, with KWin's blur effect off (its
 // default) while Auto saw the protocol, the 0.72 sheet showed the page's text
-// through it and the Close button overlapped a tile. So the sheet's colour is
-// one token, at least 0.9 in the light and the dark set, no rule makes a
-// `sheet` or a dialog thinner, and there is no "solid" class left that the
-// thin sheet depended on.
+// through it; at 0.97 it still ghosted on Plasma and GNOME. So the sheet's
+// colour is one token that is the dialog colour itself, in the light and the
+// dark set, no rule makes a `sheet` thinner, and there is no "solid" class
+// left that the thin sheet depended on.
 func TestGlassSheetsOpaque(t *testing.T) {
-	alpha := regexp.MustCompile(`@define-color am_glass_sheet alpha\(@dialog_bg_color, ([0-9.]+)\)`)
+	token := regexp.MustCompile(`@define-color am_glass_sheet @dialog_bg_color;`)
 	for name, css := range map[string]string{"glass.css": glassCSS, "glass_dark.css": glassDarkCSS} {
-		m := alpha.FindAllStringSubmatch(css, -1)
-		if len(m) != 1 {
-			t.Errorf("%s defines am_glass_sheet %d times, want once", name, len(m))
-			continue
+		if n := len(token.FindAllString(css, -1)); n != 1 {
+			t.Errorf("%s defines am_glass_sheet as the opaque @dialog_bg_color %d times, want once", name, n)
 		}
-		a, err := strconv.ParseFloat(m[0][1], 64)
-		if err != nil || a < 0.9 || a > 1 {
-			t.Errorf("%s: am_glass_sheet alpha %q, want 0.9 to 1", name, m[0][1])
+		if regexp.MustCompile(`am_glass_sheet alpha\(`).MatchString(css) {
+			t.Errorf("%s gives am_glass_sheet an alpha", name)
 		}
 	}
 	bare := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(glassCSS+glassDarkCSS, "")
@@ -110,12 +106,12 @@ func TestGlassSheetsOpaque(t *testing.T) {
 // DMS colour name or reaches outside the .archmaid scope.
 func TestGlassCSS(t *testing.T) {
 	css := glassCSS + glassDarkCSS
-	// Window 60 % light, 76 % dark; sheets 97 % (#301); text surfaces 93 %;
+	// Window 60 % light, 76 % dark; sheets opaque (#301, #303); text surfaces 93 %;
 	// the fallback's window 96 % and sidebar 90 %.
 	for _, want := range []string{
 		"am_glass_win alpha(@window_bg_color, 0.60)",
 		"am_glass_win alpha(@window_bg_color, 0.76)",
-		"am_glass_sheet alpha(@dialog_bg_color, 0.97)",
+		"am_glass_sheet @dialog_bg_color;",
 		"am_glass_text alpha(@view_bg_color, 0.93)",
 		"am_glass_win_fb alpha(@window_bg_color, 0.96)",
 		"am_glass_side_fb alpha(shade(@window_bg_color, 0.93), 0.90)",

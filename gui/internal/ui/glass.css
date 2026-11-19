@@ -16,7 +16,7 @@
      (#247): this file does not touch them.
 
    Clear, from the mockup's .v-clear rules. Window 0.60 light / 0.76 dark
-   over the compositor's blur; text surfaces 0.93; sheets 0.97 (#301: any thinner shows the page under them through, with the compositor's blur on or off).
+   over the compositor's blur; text surfaces 0.93; sheets fully opaque (#301, #303: 0.97 still let the page ghost through the sheet on Plasma and GNOME, and a sheet over a busy page must read, with the compositor's blur on or off).
    The fallback (.v-clear under data-blur="fb"): window 0.96, sidebar 0.90,
    the rest as with blur. */
 
@@ -26,7 +26,7 @@
 @define-color am_glass_side alpha(shade(@window_bg_color, 0.93), 0.46);
 @define-color am_glass_side_fb alpha(shade(@window_bg_color, 0.93), 0.90);
 @define-color am_glass_card alpha(@card_bg_color, 0.44);
-@define-color am_glass_sheet alpha(@dialog_bg_color, 0.97);
+@define-color am_glass_sheet @dialog_bg_color;
 @define-color am_glass_text alpha(@view_bg_color, 0.93);
 @define-color am_glass_edge rgba(255, 255, 255, 0.55);
 @define-color am_glass_sheen_top rgba(255, 255, 255, 0.40);

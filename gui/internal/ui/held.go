@@ -112,7 +112,10 @@ func (w *Window) heldRow(id, tagText, class, name, detail, button string, fn fun
 	line := gtk.NewLabel(detail)
 	line.SetXAlign(0)
 	line.SetUseMarkup(false)
-	line.SetEllipsize(pango.EllipsizeEnd)
+	// Wrapped, not cut: with long versions an ellipsis lost the "free in N h"
+	// part (#303). The whole line is also the tooltip.
+	line.SetWrap(true)
+	line.SetWrapMode(pango.WrapWordChar)
 	line.AddCSSClass("monospace")
 	line.AddCSSClass("am-health-detail")
 	line.SetTooltipText(detail)

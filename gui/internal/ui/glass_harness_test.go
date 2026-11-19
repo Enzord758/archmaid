@@ -111,10 +111,11 @@ func heroMarks(w *Window) (marks, ok bool) {
 	return
 }
 
-var (
-	sheetSolidRE = regexp.MustCompile(`rgba\([^)]*, ?0\.97\)`)
-	sheetThinRE  = regexp.MustCompile(`rgba\([^)]*, ?0\.(72|78)\)`)
-)
+// sheetNodeRE is a sheet's surface in a render node dump: glass.css gives
+// `sheet` a 14 px radius, so it is the rounded clip of 14 at -1 -1 (its 1 px border, which the cards, at -11 -21, lack) whose child is one
+// colour node (the window and the cards have other radii). The groups are its
+// width, height and colour.
+var sheetNodeRE = regexp.MustCompile(`clip: -1 -1 ([\d.]+) ([\d.]+) / 14;\s+child: color \{\s+bounds: [^;]+;\s+color: ([^;]+);`)
 
 var strokeRE = regexp.MustCompile(`bounds: [-\d.]+ [-\d.]+ 10 1;`)
 
@@ -199,13 +200,17 @@ func covGlass(c *covEnv) {
 			if has {
 				blurSeen = true
 			}
-			// The sheet's resolved alpha: near-opaque (0.97) in every glass
-			// mode, whether or not the page under it is blurred and whatever
-			// the compositor does (#301).
+			// The sheet's own surface in the render node: the rounded
+			// (14 px) colour node the size of the dialog. It is opaque in
+			// every glass mode (a colour with no alpha prints as rgb(...)),
+			// whether or not the page under it is blurred and whatever the
+			// compositor does (#301, #303: 0.97 still ghosted the page).
 			if glassNow != glassOff {
-				solid := sheetSolidRE.MatchString(text)
-				thin := sheetThinRE.MatchString(text)
-				c.ok(solid && !thin, "the sheet's alpha: 0.97 %v, 0.72/0.78 %v (mode %d, renderer %q)", solid, thin, glassNow, renderer)
+				m := sheetNodeRE.FindAllStringSubmatch(text, -1)
+				c.ok(len(m) == 1, "found %d sheet surfaces in the render node, want 1: %q (mode %d, renderer %q)", len(m), m, glassNow, renderer)
+				for _, s := range m {
+					c.ok(strings.HasPrefix(s[3], "rgb("), "the sheet (%sx%s) is painted %s, want an opaque colour (mode %d, renderer %q)", s[1], s[2], s[3], glassNow, renderer)
+				}
 			}
 		}
 		c.feed(engine.PromptClosed{ID: 71}) // the engine withdraws it
