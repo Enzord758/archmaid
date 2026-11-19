@@ -107,6 +107,32 @@ func TestUpdatesList(t *testing.T) {
 			t.Fatalf("raw = %s", raw)
 		}
 	})
+	t.Run("469 repo and 6 AUR updates: every AUR entry, the held ones too, survives the cap", func(t *testing.T) {
+		var rb strings.Builder
+		for i := 0; i < 469; i++ {
+			fmt.Fprintf(&rb, "r%d 1 -> 2\n", i)
+		}
+		ay := "e1 1 -> 2 [5d]\ne2 1 -> 2 [4d]\ne3 1 -> 2 [3d]\ne4 1 -> 2 [9d]\nh1 1 -> 2 [2d4h]\nh2 1 -> 2 [6h]\n"
+		f := parseList(t, updatesWith(t, rb.String(), &yayShim{out: ay}))
+		if f.Packages == nil || len(*f.Packages) != 200 || f.Count != 473 || f.Repo != 469 || *f.Aur != 4 || *f.AurHeld != 2 {
+			t.Fatalf("counts or size: %+v", f)
+		}
+		var aur, held []string
+		for _, p := range *f.Packages {
+			if p.Src == "aur" {
+				aur = append(aur, p.Name)
+				if *p.Held {
+					held = append(held, p.Name)
+				}
+			}
+		}
+		if len(aur) != 6 || !reflect.DeepEqual(held, []string{"h1", "h2"}) {
+			t.Fatalf("aur %v held %v", aur, held)
+		}
+		if (*f.Packages)[0].Src != "repo" || (*f.Packages)[193].Name != "r193" {
+			t.Fatalf("repo entries first, 194 of them: %+v", (*f.Packages)[193])
+		}
+	})
 	t.Run("cap: 250 lines give 200 entries, counts exact", func(t *testing.T) {
 		var rb, ab strings.Builder
 		for i := 0; i < 250; i++ {
@@ -128,8 +154,13 @@ func TestUpdatesList(t *testing.T) {
 		if f.Packages == nil || len(*f.Packages) != 200 || f.Count != 250 || f.Repo != 150 || *f.Aur != 100 {
 			t.Fatalf("mixed: %+v", f)
 		}
-		if p := (*f.Packages)[199]; p.Name != "a49" || p.Src != "aur" {
+		// The AUR entries are taken first (all 100), the repo ones fill the rest
+		// (100 of 150), and the file is still written repo first.
+		if p := (*f.Packages)[199]; p.Name != "a99" || p.Src != "aur" {
 			t.Fatalf("cut from the wrong end: %+v", p)
+		}
+		if p := (*f.Packages)[99]; p.Name != "r99" || p.Src != "repo" {
+			t.Fatalf("the repo entries are not the first 100: %+v", p)
 		}
 		if len(raw) > 64<<10 {
 			t.Fatalf("file is %d bytes", len(raw))

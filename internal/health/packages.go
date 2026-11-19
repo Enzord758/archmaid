@@ -293,7 +293,7 @@ func heldIn(dir string) HeldSet {
 
 // parseCooldownHeld reads the names of the held AUR updates in
 // updates-cache.json's bytes: src "aur" and held true. Text another program
-// wrote: legal package names only, at most maxHeldNames entries looked at.
+// wrote: legal package names only, at most maxHeldNames kept.
 func parseCooldownHeld(b []byte) map[string]bool {
 	var raw struct {
 		Packages []struct {
@@ -306,8 +306,10 @@ func parseCooldownHeld(b []byte) map[string]bool {
 		return nil
 	}
 	var out map[string]bool
-	for i, p := range raw.Packages {
-		if i >= maxHeldNames {
+	// Capped on what is kept, not on what is scanned (a long repo part in
+	// front must not hide the held AUR entries).
+	for _, p := range raw.Packages {
+		if len(out) >= maxHeldNames {
 			break
 		}
 		if p.Src == "aur" && p.Held != nil && *p.Held && pkgdb.ValidName(p.Name) {

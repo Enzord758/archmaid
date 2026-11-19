@@ -21,7 +21,9 @@
 #                {"name":"spotify","from":"1.2.74-1","to":"1.2.76-1","src":"aur","held":true,"age":"2d4h"}]}
 # packages  the pending updates themselves (schema v3), for the widget's list:
 #   the repo lines first (checkupdates order), then the AUR lines (the helper's order),
-#   at most 200 in all, cut from the end (no truncated field: the widget works
+#   at most 200 in all. The AUR lines are taken first (there are few, and they
+#   carry the held state), the repo lines fill the rest, so many repo updates
+#   never push the AUR ones out (no truncated field: the widget works
 #   "N more not shown" out from the counts). Per entry: name, from, to, src
 #   ("repo" or "aur"); AUR entries also have held (bool, the same test as
 #   split_aur: no readable age tag = held) and age (only when the tag is
@@ -245,14 +247,18 @@ fi
 # The package list. Any failure here costs only the list, never the counts.
 packages=""
 build_packages() {
-	rl="$(printf '%s\n' "$list" | list_json repo 200)" || return 1
-	pj="$rl"
+	# The AUR entries are chosen first: there are few of them and they carry
+	# the held state the held lists read, so a long repo list (hundreds of
+	# updates after a while away) must not push them out of the cap. The repo
+	# entries fill what is left. The list is still written repo first.
+	al=""
+	an=0
 	if [ -n "$yok" ]; then
-		rn=0
-		[ -z "$rl" ] || rn="$(printf '%s' "$rl" | grep -o '"src":"repo"' | grep -c .)" || return 1
-		al="$(printf '%s\n' "$ylist" | list_json aur $((200 - rn)))" || return 1
-		if [ -n "$pj" ] && [ -n "$al" ]; then pj="$pj,$al"; else pj="$pj$al"; fi
+		al="$(printf '%s\n' "$ylist" | list_json aur 200)" || return 1
+		[ -z "$al" ] || an="$(printf '%s' "$al" | grep -o '"src":"aur"' | grep -c .)" || return 1
 	fi
+	rl="$(printf '%s\n' "$list" | list_json repo $((200 - an)))" || return 1
+	if [ -n "$rl" ] && [ -n "$al" ]; then pj="$rl,$al"; else pj="$rl$al"; fi
 	packages=",\"packages\":[$pj]"
 }
 build_packages || packages=""

@@ -115,8 +115,11 @@ func ParseHeld(b []byte) []Pkg {
 		return nil
 	}
 	var out []Pkg
-	for i, p := range raw.Packages {
-		if i >= maxHeld {
+	// The cap is on what is kept, not on what is scanned: the writer lists the
+	// AUR entries first, but a list with a long repo part ahead of them must
+	// not hide the held ones (the file is at most maxUpdatesFile bytes).
+	for _, p := range raw.Packages {
+		if len(out) >= maxHeld {
 			break
 		}
 		if p.Src != "aur" || p.Held == nil || !*p.Held || !pkgdb.ValidName(p.Name) ||
