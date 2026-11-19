@@ -112,7 +112,7 @@ func heroMarks(w *Window) (marks, ok bool) {
 }
 
 var (
-	sheetSolidRE = regexp.MustCompile(`rgba\([^)]*, ?0\.94\)`)
+	sheetSolidRE = regexp.MustCompile(`rgba\([^)]*, ?0\.97\)`)
 	sheetThinRE  = regexp.MustCompile(`rgba\([^)]*, ?0\.(72|78)\)`)
 )
 
@@ -199,13 +199,13 @@ func covGlass(c *covEnv) {
 			if has {
 				blurSeen = true
 			}
-			// The sheet's resolved alpha: near-opaque (0.94) unless the page
-			// under it is blurred, then 0.72 light / 0.78 dark.
+			// The sheet's resolved alpha: near-opaque (0.97) in every glass
+			// mode, whether or not the page under it is blurred and whatever
+			// the compositor does (#301).
 			if glassNow != glassOff {
 				solid := sheetSolidRE.MatchString(text)
 				thin := sheetThinRE.MatchString(text)
-				blurPath := glassNow == glassBlur && gpu
-				c.ok(solid == !blurPath && thin == blurPath, "the sheet's alpha: 0.94 %v, 0.72/0.78 %v; blur path %v", solid, thin, blurPath)
+				c.ok(solid && !thin, "the sheet's alpha: 0.97 %v, 0.72/0.78 %v (mode %d, renderer %q)", solid, thin, glassNow, renderer)
 			}
 		}
 		c.feed(engine.PromptClosed{ID: 71}) // the engine withdraws it

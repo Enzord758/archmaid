@@ -2,6 +2,7 @@ package ui
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -63,18 +64,58 @@ func TestContentBlurOK(t *testing.T) {
 	}
 }
 
+// TestGlassSheetsOpaque (#301): a sheet (AdwDialog's `sheet` node) is near
+// opaque in every glass mode. On KDE, with KWin's blur effect off (its
+// default) while Auto saw the protocol, the 0.72 sheet showed the page's text
+// through it and the Close button overlapped a tile. So the sheet's colour is
+// one token, at least 0.9 in the light and the dark set, no rule makes a
+// `sheet` or a dialog thinner, and there is no "solid" class left that the
+// thin sheet depended on.
+func TestGlassSheetsOpaque(t *testing.T) {
+	alpha := regexp.MustCompile(`@define-color am_glass_sheet alpha\(@dialog_bg_color, ([0-9.]+)\)`)
+	for name, css := range map[string]string{"glass.css": glassCSS, "glass_dark.css": glassDarkCSS} {
+		m := alpha.FindAllStringSubmatch(css, -1)
+		if len(m) != 1 {
+			t.Errorf("%s defines am_glass_sheet %d times, want once", name, len(m))
+			continue
+		}
+		a, err := strconv.ParseFloat(m[0][1], 64)
+		if err != nil || a < 0.9 || a > 1 {
+			t.Errorf("%s: am_glass_sheet alpha %q, want 0.9 to 1", name, m[0][1])
+		}
+	}
+	bare := regexp.MustCompile(`(?s)/\*.*?\*/`).ReplaceAllString(glassCSS+glassDarkCSS, "")
+	if strings.Contains(bare, "am-sheet-solid") || strings.Contains(bare, "am_glass_sheet_solid") {
+		t.Error("the css still has the am-sheet-solid variant: the sheet is one near-opaque token")
+	}
+	// Every rule for a sheet takes its colour from the token, not a literal
+	// or another alpha.
+	rule := regexp.MustCompile(`(?s)([^{}]*\bsheet\b[^{}]*)\{([^}]*)\}`)
+	found := 0
+	for _, r := range rule.FindAllStringSubmatch(bare, -1) {
+		found++
+		for _, line := range strings.Split(r[2], ";") {
+			if strings.Contains(line, "background-color") && !strings.Contains(line, "@am_glass_sheet") {
+				t.Errorf("a sheet rule %q sets %q, not the am_glass_sheet token", strings.TrimSpace(r[1]), strings.TrimSpace(line))
+			}
+		}
+	}
+	if found == 0 {
+		t.Error("no rule for the glass sheet")
+	}
+}
+
 // TestGlassCSS reads glass.css: the numbers the owner chose, no corner
 // marks, the content blur rule, and nothing that redefines a libadwaita or
 // DMS colour name or reaches outside the .archmaid scope.
 func TestGlassCSS(t *testing.T) {
 	css := glassCSS + glassDarkCSS
-	// Window 60 % light, 76 % dark; sheet 72 % and 78 %; text surfaces 93 %;
+	// Window 60 % light, 76 % dark; sheets 97 % (#301); text surfaces 93 %;
 	// the fallback's window 96 % and sidebar 90 %.
 	for _, want := range []string{
 		"am_glass_win alpha(@window_bg_color, 0.60)",
 		"am_glass_win alpha(@window_bg_color, 0.76)",
-		"am_glass_sheet alpha(@dialog_bg_color, 0.72)",
-		"am_glass_sheet alpha(@dialog_bg_color, 0.78)",
+		"am_glass_sheet alpha(@dialog_bg_color, 0.97)",
 		"am_glass_text alpha(@view_bg_color, 0.93)",
 		"am_glass_win_fb alpha(@window_bg_color, 0.96)",
 		"am_glass_side_fb alpha(shade(@window_bg_color, 0.93), 0.90)",
