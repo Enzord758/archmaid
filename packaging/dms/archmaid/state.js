@@ -824,6 +824,61 @@ function launchPlan(hasGui, terminal, hasXdgTerm) {
     return { error: "Set $TERMINAL (for example kitty) or install xdg-terminal-exec to open the archmaid TUI" };
 }
 
+// --- the hero's fill: always a surface its text can be read on (#301) ---
+//
+// The hero sits on DMS's card surface. In the test VM (DMS's default theme)
+// that binding left the Rectangle at its default, opaque white, under the
+// theme's pale text. So the fill is checked: a colour is {r, g, b, a} in 0..1
+// (a QML color has these), and heroFill answers the candidate only when the
+// text can be read on it (WCAG contrast of at least 4.5, the candidate laid
+// over the popout's own surface); otherwise the dark or the light fill that
+// reads best against the text.
+
+var HERO_DARK = { r: 0x26 / 255, g: 0x23 / 255, b: 0x2d / 255, a: 1 };
+var HERO_LIGHT = { r: 0xee / 255, g: 0xea / 255, b: 0xf3 / 255, a: 1 };
+var MIN_CONTRAST = 4.5;
+
+function _isColor(c) {
+    return c !== null && typeof c === "object" && typeof c.r === "number" && typeof c.g === "number" && typeof c.b === "number" && isFinite(c.r + c.g + c.b);
+}
+
+function _alpha(c) {
+    return typeof c.a === "number" && isFinite(c.a) ? Math.max(0, Math.min(1, c.a)) : 1;
+}
+
+// over(top, bottom): top laid over bottom, opaque (bottom missing: over white,
+// what an empty window shows).
+function over(top, bottom) {
+    var b = _isColor(bottom) ? bottom : { r: 1, g: 1, b: 1, a: 1 };
+    var a = _alpha(top);
+    return { r: top.r * a + b.r * (1 - a), g: top.g * a + b.g * (1 - a), b: top.b * a + b.b * (1 - a), a: 1 };
+}
+
+function _lin(v) {
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+}
+
+function luminance(c) {
+    return 0.2126 * _lin(c.r) + 0.7152 * _lin(c.g) + 0.0722 * _lin(c.b);
+}
+
+// contrast(fg, bg): the WCAG ratio, 1 to 21; fg is laid over bg when it is
+// translucent.
+function contrast(fg, bg) {
+    var back = over(bg, null);
+    var l1 = luminance(over(fg, back)), l2 = luminance(back);
+    return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+function heroFill(candidate, base, text) {
+    if (_isColor(text) && _isColor(candidate) && contrast(text, over(candidate, base)) >= MIN_CONTRAST)
+        return candidate;
+    if (!_isColor(text))
+        return HERO_DARK;
+    var onDark = contrast(text, HERO_DARK), onLight = contrast(text, HERO_LIGHT);
+    return onDark >= onLight ? HERO_DARK : HERO_LIGHT;
+}
+
 // openGuiPlan is what the Health row's click starts: the GUI at its first
 // page (the Overview, where the System health cell is), or null when it is
 // not installed (the row is then not a button). argv is never run through a

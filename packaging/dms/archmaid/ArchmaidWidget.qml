@@ -51,6 +51,23 @@ PluginComponent {
     // The popout's three sections (state.js popout: strings and numbers).
     readonly property var view: State.popout(summary, now)
 
+    // The hero's fill: DMS's card surface (through Theme.foregroundColor,
+    // translucent while DMS blurs) when the text reads on it, else a dark or
+    // light surface that does (state.js heroFill). In the test VM, under DMS's
+    // default theme, the plain binding left the hero an opaque white box under
+    // pale text (#301): a binding that fails leaves a Rectangle white, so any
+    // error here also lands on the checked fallback.
+    function heroFill() {
+        let f;
+        try {
+            const c = typeof Theme.foregroundColor === "function" ? Theme.foregroundColor(Theme.surfaceContainer) : Theme.surfaceContainer;
+            f = State.heroFill(c, Theme.surface, Theme.surfaceText);
+        } catch (e) {
+            f = State.heroFill(null, null, Theme.surfaceText);
+        }
+        return Qt.rgba(f.r, f.g, f.b, f.a);
+    }
+
     // The state colours are fixed Tokyo Night constants (ok, warn, danger), a
     // darker set on a light theme (Theme.isLightMode, DMS's own flag); "muted"
     // and everything else come from the DMS palette.
@@ -545,7 +562,7 @@ PluginComponent {
                     objectName: "hero"
                     width: parent.width
                     height: heroCol.implicitHeight + 2 * Theme.spacingM
-                    color: Theme.foregroundColor(Theme.surfaceContainer)
+                    color: root.heroFill()
                     radius: root.glass ? Theme.cornerRadius : 0
                     border.width: 1
                     border.color: root.glass ? Theme.withAlpha(Theme.primary, 0.35) : Theme.withAlpha(Theme.surfaceText, 0.12)

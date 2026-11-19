@@ -344,6 +344,62 @@ TestCase {
         compare(marks.count, 4);
     }
 
+    // Every text under item that shows, as {text, color}.
+    function inks(item, out) {
+        if (item.text !== undefined && item.visible && typeof item.text === "string" && item.text !== "" && item.color !== undefined)
+            out.push({text: item.text, color: item.color});
+        for (let i = 0; i < item.children.length; i++)
+            inks(item.children[i], out);
+        return out;
+    }
+
+    // The hero's text reads on its fill (WCAG 4.5) under a dark and a light DMS
+    // theme, with DMS's blur on and off, and where the theme's card surface is
+    // white under pale text or Theme.foregroundColor fails (the test VM's DMS
+    // showed a white box, #301). The fill is laid over the popout's surface.
+    function test_heroReadable() {
+        const o = popout(3, 2);
+        const hero = find(o.pop, "hero");
+        verify(hero !== null);
+        const dark = {isLightMode: false, surface: "#1c1a21", surfaceContainer: "#26232d", surfaceText: "#e6e1e9", surfaceVariantText: "#9a95a3"};
+        const light = {isLightMode: true, surface: "#fbf8ff", surfaceContainer: "#ece8f1", surfaceText: "#2b2733", surfaceVariantText: "#5f5a68"};
+        const cases = [
+            {name: "dark", t: dark},
+            {name: "dark, blur", t: dark, blur: true},
+            {name: "light", t: light},
+            {name: "light, blur", t: light, blur: true},
+            {name: "dark text on a white card", t: Object.assign({}, dark, {surfaceContainer: "#ffffff"})},
+            {name: "dark text on a white card, blur", t: Object.assign({}, dark, {surfaceContainer: "#ffffff"}), blur: true},
+            {name: "light text on a dark card in a light theme", t: Object.assign({}, light, {surfaceContainer: "#10101a"})},
+            {name: "foregroundColor fails, dark", t: dark, broken: true},
+            {name: "foregroundColor fails, light", t: light, broken: true}
+        ];
+        const keys = ["isLightMode", "surface", "surfaceContainer", "surfaceText", "surfaceVariantText"];
+        const saved = {};
+        keys.forEach(k => saved[k] = Theme[k]);
+        try {
+            for (let i = 0; i < cases.length; i++) {
+                const c = cases[i];
+                keys.forEach(k => Theme[k] = c.t[k]);
+                Theme.blurLayersActive = c.blur === true;
+                Theme.foregroundBroken = c.broken === true;
+                if (i === 4)
+                    shot(o.loader, "popout-white-card");
+                const fill = State.over(hero.color, Theme.surface);
+                const seen = inks(hero, []);
+                verify(seen.length >= 3, c.name + ": the hero's lines: " + JSON.stringify(seen));
+                for (let j = 0; j < seen.length; j++) {
+                    const r = State.contrast(seen[j].color, fill);
+                    verify(r >= 4.5, c.name + ": \"" + seen[j].text + "\" is " + r.toFixed(2) + ":1 on the hero's fill " + hero.color);
+                }
+            }
+        } finally {
+            keys.forEach(k => Theme[k] = saved[k]);
+            Theme.blurLayersActive = false;
+            Theme.foregroundBroken = false;
+        }
+    }
+
     // With ARCHMAID_WIDGET_SHOT set to a folder, a test saves the popout as a
     // PNG there (a look at it, never a check).
     function shot(item, name) {
