@@ -160,6 +160,10 @@ const settingsNarrow = 720
 func card(kicker, title, help string, children ...gtk.Widgetter) gtk.Widgetter {
 	box := gtk.NewBox(gtk.OrientationVertical, 8)
 	box.AddCSSClass("card")
+	// The flow box makes its children one size (it is homogeneous so the
+	// columns match): a card keeps the height of its own content instead of
+	// the tallest one's, which left an empty gap under its last widget.
+	box.SetVAlign(gtk.AlignStart)
 	inner := gtk.NewBox(gtk.OrientationVertical, 8)
 	inner.SetMarginTop(18)
 	inner.SetMarginBottom(18)
