@@ -61,16 +61,24 @@ func (w *Window) newSettings() gtk.Widgetter {
 		w.settings = settings.Settings{DryRun: s.DryRun, Downloads: folder, Glass: s.Glass, Blur: s.Blur}
 	}
 
-	// Four cards (P8 row 15): Runs, the downloads folder, topgrade's
-	// config, the log folder; two to a line, one under settingsNarrow.
-	cards := gtk.NewFlowBox()
-	cards.SetSelectionMode(gtk.SelectionNone)
-	cards.SetHomogeneous(true)
-	cards.SetMinChildrenPerLine(2)
-	cards.SetMaxChildrenPerLine(2)
-	cards.SetColumnSpacing(18)
-	cards.SetRowSpacing(18)
+	// Five cards (P8 row 15): Runs, the downloads folder, topgrade's config,
+	// the log folder, appearance; two columns, one under settingsNarrow (the
+	// breakpoint turns the row of columns into a column). Not a flow box:
+	// that makes every card in a line (or all of them, homogeneous) as tall
+	// as the tallest, which left an empty gap under the shorter cards
+	// (#301). A size group keeps the two columns one width.
+	cards := gtk.NewBox(gtk.OrientationHorizontal, 18)
 	cards.SetVAlign(gtk.AlignStart)
+	left, right := gtk.NewBox(gtk.OrientationVertical, 18), gtk.NewBox(gtk.OrientationVertical, 18)
+	left.SetHExpand(true)
+	right.SetHExpand(true)
+	left.SetVAlign(gtk.AlignStart)
+	right.SetVAlign(gtk.AlignStart)
+	cols := gtk.NewSizeGroup(gtk.SizeGroupHorizontal)
+	cols.AddWidget(left)
+	cols.AddWidget(right)
+	cards.Append(left)
+	cards.Append(right)
 
 	p.dryRun = adw.NewSwitchRow()
 	p.dryRun.SetTitle("Dry run")
@@ -81,7 +89,7 @@ func (w *Window) newSettings() gtk.Widgetter {
 		next.DryRun = p.dryRun.Active()
 		w.saveSettings(next)
 	})
-	cards.Append(card("Runs", "Dry run",
+	left.Append(card("Runs", "Dry run",
 		"Logs everything to dryrun/ and asks for no password or authorisation. Changes apply to the next run.",
 		boxedList(p.dryRun)))
 
@@ -96,15 +104,15 @@ func (w *Window) newSettings() gtk.Widgetter {
 	p.choose.ConnectClicked(w.chooseDownloads)
 	p.downloads.AddSuffix(p.choose)
 	p.dlError = errorLabel()
-	cards.Append(card("Delete old downloads", "Downloads folder",
+	left.Append(card("Delete old downloads", "Downloads folder",
 		"The folder it cleans. Leave it empty to find it: $ARCHMAID_DOWNLOADS, "+
 			"XDG_DOWNLOAD_DIR, ~/Downloads, ~/Download. Never your home folder or a folder above it.",
 		boxedList(p.downloads), p.dlError))
 	p.showDownloadsError(dlErr)
 
-	cards.Append(w.topgradeCard())
-	cards.Append(w.logFolderCard())
-	cards.Append(w.appearanceCard(s))
+	left.Append(w.topgradeCard())
+	right.Append(w.logFolderCard())
+	right.Append(w.appearanceCard(s))
 
 	p.problem = errorLabel()
 	saved := gtk.NewLabel("Saved in " + p.path)
@@ -143,8 +151,7 @@ func (w *Window) newSettings() gtk.Widgetter {
 	bin.SetSizeRequest(300, 200)
 	bin.SetChild(scroll)
 	bp := adw.NewBreakpoint(adw.NewBreakpointConditionLength(adw.BreakpointConditionMaxWidth, settingsNarrow, adw.LengthUnitSp))
-	bp.AddSetter(cards, "min-children-per-line", uint(1))
-	bp.AddSetter(cards, "max-children-per-line", uint(1))
+	bp.AddSetter(cards, "orientation", gtk.OrientationVertical)
 	bin.AddBreakpoint(bp)
 	return bin
 }

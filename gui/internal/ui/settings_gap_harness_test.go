@@ -31,10 +31,33 @@ func covSettingsGap(c *covEnv) {
 			walk(ch)
 		}
 	}
+	// gaps checks the card below each card in its column: the row spacing
+	// (18 px) and nothing more. A homogeneous flow box made every row as
+	// tall as the tallest card, so a short card was followed by a big gap.
+	gaps := func(where string) {
+		for _, a := range cards {
+			ax, ay, _ := a.TranslateCoordinates(w.set.scroll, 0, 0)
+			for _, b := range cards {
+				bx, by, _ := b.TranslateCoordinates(w.set.scroll, 0, 0)
+				if b != a && bx > ax-5 && bx < ax+5 && by > ay {
+					gap := by - (ay + float64(a.Height()))
+					c.ok(gap <= 20, "%s: %.0f px between a card and the next one in its column, want the 18 px row spacing", where, gap)
+					break
+				}
+			}
+		}
+	}
 	c.seq(250,
 		func() { w.stack.SetVisibleChildName("settings"); w.win.SetDefaultSize(1500, 900) },
 		func() {},
+		func() { cards = nil; walk(w.set.scroll); gaps("two columns") },
+		func() { w.win.SetDefaultSize(700, 900) },
+		func() {},
+		func() { cards = nil; walk(w.set.scroll); gaps("one column") },
+		func() { w.win.SetDefaultSize(1500, 900) },
+		func() {},
 		func() {
+			cards = nil
 			walk(w.set.scroll)
 			c.ok(len(cards) >= 4, "found %d cards on the Settings page, want at least 4", len(cards))
 			heights := map[int]bool{}
