@@ -2,7 +2,38 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 commits, tip 4fdc62b) `v2.0.0..v2.1.0` (31 commits, tip 3af0f37 before the release notes), `v2.1.0..v2.1.1`, `v2.1.1..v2.2.0` (9 commits, tip 508bf63 before the release notes) `v2.2.0..v2.3.0` (33 commits, tip ae47482 before the release notes), `v2.3.0..v2.4.0` (6 commits, tip 3952cc5 before the release notes), `v2.4.0..v2.4.1` and `v2.4.1..v2.5.0` (10 commits besides the release notes, tip ae61e00), `v2.5.0..v2.5.1`, `v2.5.1..v2.5.2`, `v2.5.2..v2.5.3`, `v2.5.3..v2.5.4`, `v2.5.4..v2.5.5`, `v2.5.5..v2.6.0`, `v2.6.0..v2.6.1`, `v2.6.1..v2.7.0`, `v2.7.0..v2.7.1` and `v2.7.1..v2.8.0`.
+the commit or issue that made the change; the ranges are `5585358..v0.1.0-beta` (554 commits, tip 4fdc62b) `v0.1.0-beta..v0.1.1-beta` (31 commits, tip 3af0f37 before the release notes), `v0.1.1-beta..v0.1.2-beta`, `v0.1.2-beta..v0.2.0-beta` (9 commits, tip 508bf63 before the release notes) `v0.2.0-beta..v0.2.1-beta` (33 commits, tip ae47482 before the release notes), `v0.2.1-beta..v0.3.0-beta` (6 commits, tip 3952cc5 before the release notes), `v0.3.0-beta..v0.3.1-beta` and `v0.3.1-beta..v0.4.0-beta` (10 commits besides the release notes, tip ae61e00), `v0.4.0-beta..v0.4.1-beta`, `v0.4.1-beta..v0.5.0-beta`, `v0.5.0-beta..v0.5.1-beta`, `v0.5.1-beta..v0.5.2-beta`, `v0.5.2-beta..v0.6.0-beta`, `v0.6.0-beta..v0.6.1-beta`, `v0.6.1-beta..v0.7.0-beta`, `v0.7.0-beta..v0.7.1-beta`, `v0.7.1-beta..v0.8.0-beta` and `v0.8.0-beta..v0.8.1-beta`.
+
+## Versions
+
+archmaid's version numbers were renumbered on 2026-11-19. The next release is **1.0.0**, the first stable one, and from it on versions follow [semantic versioning](https://semver.org/): tags are `vX.Y.Z`, and every version has a GitHub Release.
+
+- **Alpha** is everything before 0.1: the work before the refactor merged into `main`. It was never tagged.
+- **Beta** is 0.1 to 0.8: the eighteen releases that were tagged `v2.0.0` to `v2.8.0` until 2026-11-19. They are the same commits under new names (`v0.N.P-beta`), and the old `v2.x.y` tags were deleted.
+- **1.0.0** is the first stable release.
+
+If you have an old number, this is its new name:
+
+| Now | Was |
+| --- | --- |
+| 0.1.0-beta | 2.0.0 |
+| 0.1.1-beta | 2.1.0 |
+| 0.1.2-beta | 2.1.1 |
+| 0.2.0-beta | 2.2.0 |
+| 0.2.1-beta | 2.3.0 |
+| 0.3.0-beta | 2.4.0 |
+| 0.3.1-beta | 2.4.1 |
+| 0.4.0-beta | 2.5.0 |
+| 0.4.1-beta | 2.5.1 |
+| 0.5.0-beta | 2.5.2 |
+| 0.5.1-beta | 2.5.3 |
+| 0.5.2-beta | 2.5.4 |
+| 0.6.0-beta | 2.5.5 |
+| 0.6.1-beta | 2.6.0 |
+| 0.7.0-beta | 2.6.1 |
+| 0.7.1-beta | 2.7.0 |
+| 0.8.0-beta | 2.7.1 |
+| 0.8.1-beta | 2.8.0 |
 
 ## [Unreleased]
 
@@ -26,7 +57,7 @@ the commit or issue that made the change; the ranges are `5585358..v2.0.0` (554 
 - **TUI: the "Held updates" menu glyph shows at normal size** (#300). U+F0B00, which I had picked, is `md-alpha_s` in Nerd Fonts, so it drew as a small "s". The entry now uses U+F051F (`md-timer_sand`), checked against the glyph names in the installed Nerd Font files.
 - **TUI: System health keeps its notice and key help on screen at any height** (#300). A notice under the list ("Command, copied…", "Ignored 2 items.") pushed the bottom of the screen off a short terminal. The list is a scrolling viewport that gets what the rest leaves: the notice (cut to a third of the rows) and the key help are always drawn, the app header goes below 20 rows and the blank lines below 14, and the selected row stays in view. `TestHealthNoteNeverPushesTheScreenOff`, `TestHealthSmallHeightGolden`.
 
-## [2.8.0] - 2026-11-14
+## [0.8.1-beta] - 2026-11-14
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -39,7 +70,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 
 - **System health: a package flagged out of date no longer makes the AUR row say "look"** (#287). The maintainer may simply not have got to it, and there is nothing to do about it, so it is a note now ("1 flagged out of date: unigine-superposition (flagged 8 months ago)", with the age from the AUR when it gives one). The row looks only at packages that are gone from the AUR. `TestAURFlaggedNote`.
 
-## [2.7.1] - 2026-11-12
+## [0.8.0-beta] - 2026-11-12
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -50,7 +81,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 - **The System health sheet re-checks when it opens** (#286). The Mirror row showed the old mirror until "Check again" after pacman.conf changed. Opening the sheet on a result over a minute old now runs the checks again, the old rows shown meanwhile with "Checking…" (never two at once, as before); a fresh result is left alone.
 - **Held updates: why "Open audit" can be missing** (#286). The sheet's "Held by the AUR audit" section lists only high findings you haven't accepted yet, so with only low or medium findings, or accepted ones, it is correctly absent. The section header's tooltip now says so.
 
-## [2.7.0] - 2026-11-12
+## [0.7.1-beta] - 2026-11-12
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -72,7 +103,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 - **"Edit topgrade config" no longer writes a key topgrade rejects** (#278). The default file had `aur_command = "yay"` in `[linux]`, which topgrade does not have (its parser refuses unknown keys there), so a new config made topgrade fail to start. It names the installed helper with `arch_package_manager` now, or leaves the choice to topgrade.
 - **The kept password stays off when a helper's own config picks its sudo or pacman** (#282). A paru, yay or topgrade whose config (paru.conf `Sudo`/`Pacman`/`PacmanConf`, yay's `sudobin`/`pacmanbin`/`pacmanconf`, topgrade's `sudo_command`) names something other than the system's own is no longer answered from the password archmaid keeps for the run: such a config could be written by a package's build script. The run then asks at each prompt and logs which file did it. Ordinary configs change nothing.
 
-## [2.6.1] - 2026-11-10
+## [0.7.0-beta] - 2026-11-10
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -84,7 +115,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 
 - **System health sheet: the scrollbar no longer sits on the buttons, and "Copy" says what it copies** (#275). When the sheet's list scrolls, its scrollbar now has a strip of its own beside the rows instead of floating over their right edge, where it covered the buttons. The Copy button is "Copy command", with the command in its tooltip (cut with "…" only when very long); clicking it says `Copied “<command>”. Paste it in a terminal.` (a very long command is cut in the toast; the clipboard always gets all of it). The news row's button is "Read on archlinux.org".
 
-## [2.6.0] - 2026-11-09
+## [0.6.1-beta] - 2026-11-09
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -98,7 +129,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 - **The Packages update banner says "repository updates"** (#268). It read "4 updates are waiting. Update the system before installing." while the Overview said "10 updates waiting" (repository and AUR) for the same state. Only repository updates block an install, so the banner, the detail's note, the review sheet's note and its "Update the system first" message now say "4 repository updates are waiting" ("1 repository update is waiting"). The Overview's count is unchanged.
 - **A Packages run has its own log, `packages.log`** (#268). Its install, removal and AUR steps (fetch, build, collect, install, review record) logged into `cleanup.log`, so Last run said "Packages" over `cleanup.log`. They now write `packages.log`, which the Logs page lists as "Packages", the Overview's Last run names, and the TUI's View log picker offers. Run folders from before still hold their entries in `cleanup.log`, which opens as ever. `TestPackagesStepsLogToPackages`, the engine's install transcript and `TestRunsListPackagesLogAndKeepOldCleanupLogs` cover it.
 
-## [2.5.5] - 2026-11-09
+## [0.6.0-beta] - 2026-11-09
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -109,7 +140,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 - **"Check for updates" no longer takes a result from before the click** (#266). The first check after a GUI start said "Up to date" while 4 updates were waiting; the second said "4 updates waiting". The timer's own check starts a few minutes after login, and `systemctl start` does nothing for a unit that is already running, so the click joined that run, which finished with a count from before the packages changed, and the card took it. The check now uses `systemctl --user restart --no-block`, which stops a running check and starts a new one, and the card accepts only a result file written at or after the click. `TestUpdatesCardIgnoresAResultWrittenBeforeTheClick` uses real files with set times.
 - **The Overview's Last run age moves on with the clock** (#266). It said "just now" for over ten minutes and showed "13 min ago" only after a restart; the Updates card's "checked N min ago" moved only when something else redrew it. One ticker (every 30 s while the Overview shows, and when it is shown again) now redraws both. `TestGUIAgeTick` runs it with a run that ended 88 s ago.
 
-## [2.5.4] - 2026-11-08
+## [0.5.2-beta] - 2026-11-08
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -117,7 +148,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 
 - **The Full Cleanup plan's two columns have a gap again** (#264). Taking the flow box child padding off the plan in #262 took the gap between its columns with it: a "root" tag at the end of the left column ended 2 px from the next column's step number (8 px before). The plan now has an 8 px column gap and 6 px between rows, and keeps its text inset and its right edge. The other flow boxes that lost their child padding in #262 (the Packages hero's tags, the hero's, Updates' and the package detail's button rows) set their own spacing and are unchanged. `TestGUIOverviewHero` now measures the gap between a tag and the next column's number, and between the columns, on a real nine-step plan. Settings > Appearance's help text now says what Auto does (the compositor offers blur through ext-background-effect, or Hyprland).
 
-## [2.5.3] - 2026-11-08
+## [0.5.1-beta] - 2026-11-08
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -125,7 +156,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 
 - **Text, buttons and the Logs page line up to the pixel** (#262). The Full Cleanup hero's text started 6 px further in than the text of the cards and cells below it, in both looks, and its description ended 7 px short of theirs; the hero's horizontal padding is now theirs (the vertical padding and the larger title are as they were). The hero's plan and buttons start at its text, not 3 px in (a flow box child's own padding). On the Packages page, a package's tags, Install and Add to list start on the stat grid's edge (they were 3 px in, 1 px left of it in glass) and its hero's text starts where the cells' does. In glass the rest of the detail column (the notes, the flag, the link, the Dependencies and Optional dependencies lists with their tags) was 4 px wider on each side than the stat grid; it is on the grid's edges now. `TestGUIGlassShots` measures every block of the detail, top to bottom, for a repository and an AUR package, in both looks. On the Logs page the log's text started 2 px right of the header's title and its time stamps ended 2 px short of the header's buttons (a list row's padding); both are flush now. `TestGUIOverviewHero`, `TestGUIGlassShots` and the new `TestGUILogsAlign` measure each of these in both looks, dark and light, wide and narrow.
 
-## [2.5.2] - 2026-11-04
+## [0.5.0-beta] - 2026-11-04
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -133,7 +164,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 
 - **In the glass look the hero lines up with the blocks under it** (#261). The Full Cleanup hero stuck out 4 px on each side of the cells and the Last run and Updates cards, which sit inside the grid's 1 px border and the cells' 3 px padding. It now takes that as margin and gives it back in padding, so its outer edges are theirs, wide and narrow. A package's hero on the Packages page was off its stat grid the same way, and is fixed too. `TestGUIOverviewHero` measures the hero against the cells and cards at 1920, 1440, 1280, 900, 700 and 500 px in both looks, dark and light; the Packages case is in `TestGUIGlassShots`.
 
-## [2.5.1] - 2026-11-04
+## [0.4.1-beta] - 2026-11-04
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -141,7 +172,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 
 - **The Overview's top row lines up with the cell grid** (#260). In the glass look the Last run and Updates cards stuck out 3 px on each side of the cells below, and the gap between them was 1 px against the cells' 8 px; they now take the cells' edges and gap. "Open in Logs" is a raised button like the Updates buttons (it was flat, with its label inset), the Updates buttons start where their card's text starts (a flow box child added 3 px), and the two cards' buttons are on one row. This was also so in the default look. `TestGUIOverviewAlign` measures the edges, the gap, the buttons' start and their row in both looks at 1280, 1440 and 1920 px.
 
-## [2.5.0] - 2026-11-04
+## [0.4.0-beta] - 2026-11-04
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -156,13 +187,13 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 - **The sidebar's selection always equals the visible page** (#255). Dragging the window under 760 px wide and then maximising it left Packages highlighted while the header and the page said Overview: the sidebar changing form moves the focus into its list, which selects the focused row. The selection is now the page's alone: one the page didn't ask for is put back, and a click still changes the page. `TestGUINavSync` resizes narrow and wide and forces a drift.
 - **A live light/dark switch now changes the state colours too** (#255). On KDE, switching the colour scheme turned the window dark at once, but the light theme's darker state colours stayed: the sudo and root tags, the Last run "ok" tag and the Updates count were dark amber and green on dark grey. GTK reads a `@define-color` inside `@media (prefers-color-scheme)` when the stylesheet is parsed and does not redo it when the scheme flips. The light set (`style_light.css`) and the glass skin's dark tokens (`glass_dark.css`) are now their own stylesheets, added and removed when the style manager's dark flag changes. `TestGUIColourSchemeLive` flips the scheme light, dark, light, dark on a running window and reads the resolved colours.
 
-## [2.4.1] - 2026-11-03
+## [0.3.1-beta] - 2026-11-03
 
 ### Changed
 
 - **The Overview's Updates card sits beside Last run** (#253). Last run spans the first two columns, and the Updates card is as wide as the action cells' third column, so its edges line up with "Delete old downloads" below. In a window too narrow for three columns of cells (under about 1264 px), the card sits under Last run at full width, as before. Its two buttons wrap to two lines when the column is narrow.
 
-## [2.4.0] - 2026-11-03
+## [0.3.0-beta] - 2026-11-03
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
@@ -181,7 +212,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate and th
 - **Stop is hidden while any action's gate, confirm or pick is up.** Full Cleanup's gate, Repair's and Clear caches' confirms and the caches pick showed a dimmed Stop before anything ran, as the Packages sheet no longer does. The password and polkit dialogs and running steps keep Stop (#250).
 - **The DMS widget's light-theme state colours now equal the GUI's.** ok `#3d6114`, warn `#75510c` and danger `#a91d36` (at least 4.5:1) replace `#4e7d1a`, `#9a6a10` and `#c4223f`, which missed it in places; dark is unchanged, and a test reads both files so they cannot drift apart (#250).
 
-## [2.3.0] - 2026-11-03
+## [0.2.1-beta] - 2026-11-03
 
 It was all merged into `main` (= `refactor/p0`) and passed the local gate, the test VM CI (`run.sh ci`: core, e2e, gui, bench) and two live checks of the Packages page in the test VM. Those checks did real repo and AUR installs and removals, and tried tampering with the built files.
 
@@ -262,7 +293,7 @@ It was all merged into `main` (= `refactor/p0`) and passed the local gate, the t
 
 - **The polkit password dialog says what it authorises.** It showed only the bare action id. It now shows the policy's message plus the id, for Repair, Full Cleanup and the other existing actions too (#244).
 
-## [2.2.0] - 2026-11-02
+## [0.2.0-beta] - 2026-11-02
 
 Everything here is merged into `main` (= `refactor/p0`). It passed the local gate, the test VM CI (`run.sh ci`: core, e2e, gui, bench) and three live checks of the widget in the test VM's DMS (top and bottom bar, light theme, keyboard).
 
@@ -296,7 +327,7 @@ Everything here is merged into `main` (= `refactor/p0`). It passed the local gat
 
 - GitHub CodeQL can now parse the widget's `state.js`: its QML-only first line `.pragma library` is gone. The file is plain JavaScript, and a test keeps it that way (#221).
 
-## [2.1.1] - 2026-11-01
+## [0.1.2-beta] - 2026-11-01
 
 ### Changed
 
@@ -308,13 +339,13 @@ Everything here is merged into `main` (= `refactor/p0`). It passed the local gat
 - **The updates check and the DMS widget use the same state folder as the app** (#216): `archmaid-updates-check` wrote `updates-cache.json` under `$XDG_STATE_HOME/archmaid` and the widget read from there, while archmaid itself always uses `~/.local/state/archmaid`. With `XDG_STATE_HOME` set elsewhere the widget missed the last run. All three now use `~/.local/state/archmaid`; a test runs the script with a different `XDG_STATE_HOME` and fails if it is written to.
 - **Clear caches: the Overview cell's "Measuring the caches…" line goes away when the measuring ends** (#211): with the pick open it showed the cell's normal lines again (the status line already said "Waiting…"); it stayed until the pick was answered.
 
-## [2.1.0] - 2026-10-22
+## [0.1.1-beta] - 2026-10-22
 
 Everything here is merged into `main` (= `refactor/p0`, r647) and was tested by the owner; it passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
 ### Read this first
 
-- **Upgrading from 2.0.0 is the usual PKGBUILD build** (README → Install): rebuild and install `archmaid-git` and `archmaid-gui-git` together. Nothing to migrate.
+- **Upgrading from 0.1.0-beta is the usual PKGBUILD build** (README → Install): rebuild and install `archmaid-git` and `archmaid-gui-git` together. Nothing to migrate.
 - **`last-run.json` stays schema `v:1`.** The new `summary` object is additive; older files simply lack it, and old history records with `usercache` or `wipecache` keep their old names.
 - **The DMS widget may need a restart of DMS to show the new LAST RUN line** ("47 upgraded · 3.1 GiB freed" and the warning line); until then it keeps showing the old one.
 - **The menu changed:** "Clear caches" replaces "Clear user cache" and "Delete entire package cache", and Full Cleanup no longer wipes the package cache (it still trims it to 3 versions).
@@ -353,9 +384,9 @@ Everything here is merged into `main` (= `refactor/p0`, r647) and was tested by 
 - **The GUI redraws its status line when a prompt opens or is answered, so "Waiting…" shows behind the pick (9067610, #204).**
 - Test flakes fixed, the coverage-exempt line shifts followed (310a708, 0987d62), and `check.sh`'s `-X` guard rejects a second `-X` on the allowed line (0987d62).
 
-## [2.0.0] - 2026-10-18
+## [0.1.0-beta] - 2026-10-18
 
-The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` = 4fdc62b). The package version stays `rN.sha` from `pkgver()`; the tag `v2.0.0` marks this release.
+The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` = 4fdc62b). The package version stays `rN.sha` from `pkgver()`; the tag `v0.1.0-beta` marks this release.
 
 ### Read this first
 
@@ -584,21 +615,21 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
 [Unreleased]: https://github.com/Enzord758/archmaid/compare/v2.8.0...HEAD
-[2.8.0]: https://github.com/Enzord758/archmaid/compare/v2.7.1...v2.8.0
-[2.7.1]: https://github.com/Enzord758/archmaid/compare/v2.7.0...v2.7.1
-[2.7.0]: https://github.com/Enzord758/archmaid/compare/v2.6.1...v2.7.0
-[2.6.1]: https://github.com/Enzord758/archmaid/compare/v2.6.0...v2.6.1
-[2.6.0]: https://github.com/Enzord758/archmaid/compare/v2.5.5...v2.6.0
-[2.5.5]: https://github.com/Enzord758/archmaid/compare/v2.5.4...v2.5.5
-[2.5.4]: https://github.com/Enzord758/archmaid/compare/v2.5.3...v2.5.4
-[2.5.3]: https://github.com/Enzord758/archmaid/compare/v2.5.2...v2.5.3
-[2.5.2]: https://github.com/Enzord758/archmaid/compare/v2.5.1...v2.5.2
-[2.5.1]: https://github.com/Enzord758/archmaid/compare/v2.5.0...v2.5.1
-[2.5.0]: https://github.com/Enzord758/archmaid/compare/v2.4.1...v2.5.0
-[2.4.1]: https://github.com/Enzord758/archmaid/compare/v2.4.0...v2.4.1
-[2.4.0]: https://github.com/Enzord758/archmaid/compare/v2.3.0...v2.4.0
-[2.3.0]: https://github.com/Enzord758/archmaid/compare/v2.2.0...v2.3.0
-[2.2.0]: https://github.com/Enzord758/archmaid/compare/v2.1.1...v2.2.0
-[2.1.1]: https://github.com/Enzord758/archmaid/compare/v2.1.0...v2.1.1
-[2.1.0]: https://github.com/Enzord758/archmaid/compare/v2.0.0...v2.1.0
-[2.0.0]: https://github.com/Enzord758/archmaid/compare/5585358...v2.0.0
+[0.8.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.8.0-beta...v0.8.1-beta
+[0.8.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.7.1-beta...v0.8.0-beta
+[0.7.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.7.0-beta...v0.7.1-beta
+[0.7.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.6.1-beta...v0.7.0-beta
+[0.6.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.6.0-beta...v0.6.1-beta
+[0.6.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.5.2-beta...v0.6.0-beta
+[0.5.2-beta]: https://github.com/Enzord758/archmaid/compare/v0.5.1-beta...v0.5.2-beta
+[0.5.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.5.0-beta...v0.5.1-beta
+[0.5.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.4.1-beta...v0.5.0-beta
+[0.4.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.4.0-beta...v0.4.1-beta
+[0.4.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.3.1-beta...v0.4.0-beta
+[0.3.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.3.0-beta...v0.3.1-beta
+[0.3.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.2.1-beta...v0.3.0-beta
+[0.2.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.2.0-beta...v0.2.1-beta
+[0.2.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.1.2-beta...v0.2.0-beta
+[0.1.2-beta]: https://github.com/Enzord758/archmaid/compare/v0.1.1-beta...v0.1.2-beta
+[0.1.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.1.0-beta...v0.1.1-beta
+[0.1.0-beta]: https://github.com/Enzord758/archmaid/compare/5585358...v0.1.0-beta

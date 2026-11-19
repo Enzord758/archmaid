@@ -23,14 +23,14 @@ git's record of `origin/main` shows (local push times):
 | 2026-10-17 19:32 | **4fdc62b**, `main` = `refactor/p0` (554 commits past 5585358) |
 
 `main` before all of this was 5585358 (2026-10-04). The release is marked
-`v2.0.0` (`CHANGELOG.md`); the package version stays `rN.sha` from
+`v0.1.0-beta` (`CHANGELOG.md`; tagged `v2.0.0` until the renumbering of 2026-11-19); the package version stays `rN.sha` from
 `pkgver()`.
 
 > **CI note (2026-10-19):** GitHub Actions is manual-only now (minutes used
 > up). "CI green" below, and for every later merge, means
 > `~/archmaid-vmtest/run.sh ci <sha>` passed in the test VM (harness README,
 > "CI i VM'en"), after the local gate. The ticks below record what was true at
-> the 2.0.0 merge.
+> the 0.1.0-beta (then 2.0.0) merge.
 
 ## The checklist, as it was ticked
 
@@ -49,7 +49,7 @@ git's record of `origin/main` shows (local push times):
       one GUI Full Cleanup with one polkit dialog and one password, a
       cancelled dialog marking every root row "Not authorised", a TUI Full
       Cleanup, the systemd colour check) and the owner on the real machine.
-- [x] `CHANGELOG.md` refreshed to the tip (and released as 2.0.0).
+- [x] `CHANGELOG.md` refreshed to the tip (and released as 0.1.0-beta, then 2.0.0).
 - [x] GUI decision: `archmaid-gui-git` is installed together with
       `archmaid-git` (`HANDOVER.md` → Open items).
 

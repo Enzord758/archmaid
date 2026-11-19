@@ -7,6 +7,12 @@ carry the root-causing and verification), tests are in `TESTING.md`, features
 are in `cmd/archmaid/README.md`. Keep this file current-state only; rewrite entries rather
 than appending dated ones.
 
+## Versioning and tags
+
+- Renumbered 2026-11-19 (owner's decision): the release that would have been 2.9.0 is **1.0.0**, the first stable one. The eighteen published `v2.0.0`..`v2.8.0` are betas on the same commits, `v0.1.0-beta`..`v0.8.1-beta`; everything before 0.1 is alpha and was never tagged. The old-to-new table is `CHANGELOG.md` → Versions. The old v2 tags were deleted on GitHub.
+- From 1.0.0 on: semver, tags `vX.Y.Z` (`-beta` only for the renamed ones). A published tag is never moved or re-used again; a fix is a new version. Every version gets a GitHub Release. The lead creates the tags, not the devs.
+- Anything that names archmaid's own past versions (docs, comments) uses the new names; package versions in test fixtures and demo data (`2.0.4-1` and the like) are not archmaid's and stay.
+
 ## Status
 
 Feature-complete: all ten menu actions work, with `--dryrun` for a safe end to

@@ -10,7 +10,7 @@ import (
 // Version is set at link time by the packaging
 // (-ldflags "-X github.com/Enzord758/archmaid/internal/version.Version=...").
 // The PKGBUILD and install.sh give it `git describe --tags --always --dirty`
-// without the leading "v" ("2.0.0-3-g6ba8744"), or rN.sha when git has no
+// without the leading "v" ("1.0.0-3-g6ba8744"), or rN.sha when git has no
 // tags to describe from. Empty: String reads the build's VCS stamp instead.
 var Version = ""
 

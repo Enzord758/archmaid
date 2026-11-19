@@ -103,9 +103,13 @@ binary would shadow the package's.
 | Audit AUR packages | A read-only check of your foreign packages against the AUR. It flags adopted or maintainer-changed packages and added co-maintainers (compared with your previous audit), removed co-maintainers, orphaned or out-of-date packages, very recent pushes, and packages no longer on the AUR |
 | View log | Pick a run and a category (topgrade, orphans, cleanup, AUR audit) and read its log. In the GUI, this is the Logs page |
 
+## Versions
+
+archmaid 1.0.0 is the first stable release and follows semantic versioning (tags `vX.Y.Z`, a GitHub Release for each). What came before is alpha (untagged) and the eighteen betas `v0.1.0-beta` to `v0.8.1-beta`, which were tagged `v2.0.0` to `v2.8.0` until 2026-11-19; the old-to-new table is in [`CHANGELOG.md`](CHANGELOG.md#versions).
+
 ## Version
 
-`archmaid --version` prints the build (`archmaid 2.0.0-3-g6ba8744`: the last tag, the commits since it and the commit; `archmaid rN.sha` when the build had no tag to describe from) and exits 0 without touching anything. The GUI shows the same in Settings, under "About". The package build and `install.sh` set it from `git describe --tags --dirty`; a plain `go build` falls back to the commit Go stamped into the binary.
+`archmaid --version` prints the build (`archmaid 1.0.0-3-g6ba8744`: the last tag, the commits since it and the commit; `archmaid rN.sha` when the build had no tag to describe from) and exits 0 without touching anything. The GUI shows the same in Settings, under "About". The package build and `install.sh` set it from `git describe --tags --dirty`; a plain `go build` falls back to the commit Go stamped into the binary.
 
 ## Passwords
 

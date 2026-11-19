@@ -3,7 +3,7 @@
 Every statement the tests leave uncovered, sorted by what it takes to cover
 it, the exemption list for what can't be covered, the work packages that
 turn the rest into tests, and the tooling that lets runs outside `go test`
-count. Base: `3f8f0d0` (refactor/p0 = main, v2.8.0; refreshed in #293). Machine-readable copies, one
+count. Base: `3f8f0d0` (refactor/p0 = main, v0.8.1-beta; refreshed in #293). Machine-readable copies, one
 entry per uncovered block: [`coverage-map.json`](coverage-map.json) and, for
 category E, [`coverage-exempt.tsv`](coverage-exempt.tsv) with its reviewed
 list [`coverage-exempt.md`](coverage-exempt.md). How the suite is run and

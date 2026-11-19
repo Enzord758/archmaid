@@ -53,7 +53,7 @@ pkgver() {
 }
 
 # The version `archmaid --version` and the GUI's About line show: what
-# `git describe --tags --dirty` says ("v2.0.0-3-g6ba8744", the leading v
+# `git describe --tags --dirty` says ("v1.0.0-3-g6ba8744", the leading v
 # dropped at run time; the bare hash with --always is not wanted), or rN.sha
 # (pkgver's own form) when git has no tag to describe from. makepkg's clone
 # is a full mirror, so the tags are there; if they are not, or git fails, the
