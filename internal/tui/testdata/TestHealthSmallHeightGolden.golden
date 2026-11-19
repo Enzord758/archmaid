@@ -1,0 +1,14 @@
+System health  3 things need attention · checked 14:03
+
+Packages                                                                      
+  ? Arch news                                                                 
+     Couldn't reach archlinux.org                                             
+                                                                              
+Hardware                                                                      
+  ✔ Disk space                                                                
+     58 GiB free on /                                                         
+➤ – Drive health (ignored)                                                    
+     A drive reports a warning                                                
+
+This check has no command to copy.                                            
+↑/↓ move · u undo ignore · r re-run · esc back

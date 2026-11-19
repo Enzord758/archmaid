@@ -436,46 +436,81 @@ func (m model) healthBody() (string, int, int) {
 	return strings.Join(lines, "\n"), first, last
 }
 
-// healthNoteView is the note under the list, wrapped.
-func (m model) healthNoteView() string {
-	if m.health.note == "" {
-		return ""
-	}
-	return noteStyle.Width(m.healthWidth()).Render(m.health.note)
+// healthFrame is how the screen divides the terminal's height: the list is
+// a scrolling viewport that gets what the rest leaves, so the notice and the
+// key help are always on the frame, whatever the height.
+type healthFrame struct {
+	header bool   // the app's title and status lines (3 lines with their blank)
+	gap    bool   // a blank line between the parts
+	note   string // the notice, wrapped and cut to its share
+	hint   string // the key help, wrapped
+	rows   int    // the list's height
 }
 
-// healthLayout sizes the list to the terminal and what is under it, and
-// scrolls it so the selected row shows. A no-op off the screen.
+// healthFrame computes the division for the terminal's size (24 rows when
+// it hasn't said).
+func (m model) healthFrame() healthFrame {
+	h := 24
+	if m.termHeight > 0 {
+		h = m.termHeight
+	}
+	w := m.healthWidth()
+	f := healthFrame{header: h >= 20, gap: h >= 14}
+	f.hint = hintStyle.Render(m.healthHint())
+	if lipgloss.Width(f.hint) > w {
+		f.hint = hintStyle.Width(w).Render(m.healthHint()) // wrapped, only when it must
+	}
+	if m.health.note != "" {
+		f.note = noteStyle.Width(w).Render(m.health.note)
+		// The notice gets at most a third of the rows, cut with an ellipsis.
+		if lines, most := strings.Split(f.note, "\n"), max(h/3, 1); len(lines) > most {
+			last := strings.TrimRight(lines[most-1], " ")
+			lines[most-1] = last + "…"
+			f.note = strings.Join(lines[:most], "\n")
+		}
+	}
+	used := 1 + lipgloss.Height(f.hint) // the summary line, the hint
+	if f.header {
+		used += 3
+	}
+	if f.gap {
+		used++ // between the summary and the list
+	}
+	if f.note != "" {
+		used += lipgloss.Height(f.note)
+		if f.gap {
+			used++
+		}
+	}
+	f.rows = max(h-used, 1)
+	return f
+}
+
+// healthLayout sizes the list to its share of the terminal and scrolls it so
+// the selected row shows. A no-op off the screen.
 func (m *model) healthLayout() {
 	if m.screen != screenHealth {
 		return
 	}
 	body, first, last := m.healthBody()
-	h := 24
-	if m.termHeight > 0 {
-		h = m.termHeight
-	}
-	// header (3 lines), the summary and its blank line, the note and its
-	// blank line, the hint.
-	chrome := 3 + 2 + 1
-	if note := m.healthNoteView(); note != "" {
-		chrome += lipgloss.Height(note) + 1
-	}
-	h = max(h-chrome, 3)
+	rows := m.healthFrame().rows
 	v := m.health.view
-	v.Width, v.Height = m.healthWidth(), h
+	v.Width, v.Height = m.healthWidth(), rows
 	v.SetContent(body)
 	if first < v.YOffset {
 		v.SetYOffset(first)
-	} else if last >= v.YOffset+h {
-		v.SetYOffset(max(min(last-h+1, first), 0))
+	} else if last >= v.YOffset+rows {
+		v.SetYOffset(max(min(last-rows+1, first), 0))
 	}
 	m.health.view = v
 }
 
 func (m model) viewHealth() string {
+	f := m.healthFrame()
 	var b strings.Builder
-	b.WriteString(m.header() + "\n")
+	if f.header {
+		b.WriteString(m.header() + "\n")
+	}
 	switch {
 	case !m.health.have && m.health.busy:
 		b.WriteString(m.spinner.View() + " " + stepRunStyle.Render("Checking the system…"))
@@ -491,11 +526,18 @@ func (m model) viewHealth() string {
 		}
 		b.WriteString(line)
 	}
-	b.WriteString("\n\n" + m.health.view.View() + "\n")
-	if note := m.healthNoteView(); note != "" {
-		b.WriteString("\n" + note + "\n")
+	b.WriteString("\n")
+	if f.gap {
+		b.WriteString("\n")
 	}
-	b.WriteString(hintStyle.Render(m.healthHint()))
+	b.WriteString(m.health.view.View() + "\n")
+	if f.note != "" {
+		if f.gap {
+			b.WriteString("\n")
+		}
+		b.WriteString(f.note + "\n")
+	}
+	b.WriteString(f.hint)
 	return b.String()
 }
 
