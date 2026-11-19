@@ -39,7 +39,7 @@ type settingsPage struct {
 	// choose is Choose…, editor Open in editor, logFolder the log card's
 	// Open folder (the harness presses them).
 	choose, editor, logFolder *gtk.Button
-	// about is the About line: "About: archmaid 2.0.0-3-g6ba8744".
+	// about is the About line: "About: archmaid 1.0.0 + 3 commits (6ba8744)".
 	about *gtk.Label
 }
 

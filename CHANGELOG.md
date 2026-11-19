@@ -37,6 +37,10 @@ If you have an old number, this is its new name:
 
 ## [Unreleased]
 
+### Changed
+
+- **The version reads the same, and plainly, in `archmaid --version` and the GUI's Settings About line** (#302). A release shows as `1.0.0` (an old beta as `0.8.1 beta`), a build past a tag as `1.0.0 + 3 commits (6ba8744)`, and a build with changes adds ` · modified`; a build with no tag keeps `rN.sha` or the short commit. The renamed betas would otherwise have read `0.8.1-beta-2-g6ba8744`. `TestFormat`.
+
 ### Added
 
 - **DMS widget: a Health row** (#297). The popout has a fourth row, "Health", read from `health.json` (written by `archmaid --health-report`, the updates timer and the GUI after each of its health runs): "All good" with an `OK` tag, or "2 things need attention" with a warn `LOOK` tag and the titles of the checks to look at (three, then "+N") on a muted line under it. A file older than 2 hours shows its age on that line ("checked 5 h ago"); a file older than 3 days, a missing or a damaged one reads "Not checked yet", muted, with no tag and never an error. Only checks in state "look" count (unknown and ignored never do). The hero says "N things need attention" only when the run and the audit have nothing to say, and health never turns the bar pill warn. Clicking the row opens archmaid-gui (its Overview) when it is installed. `TestStateJS` (`test_healthParse`, `test_healthRow`, `test_healthHero`, fixtures from the real `health.ReportJSON`) and `TestWidgetRenders` (`test_healthRow`).

@@ -109,7 +109,7 @@ archmaid 1.0.0 is the first stable release and follows semantic versioning (tags
 
 ## Version
 
-`archmaid --version` prints the build (`archmaid 1.0.0-3-g6ba8744`: the last tag, the commits since it and the commit; `archmaid rN.sha` when the build had no tag to describe from) and exits 0 without touching anything. The GUI shows the same in Settings, under "About". The package build and `install.sh` set it from `git describe --tags --dirty`; a plain `go build` falls back to the commit Go stamped into the binary.
+`archmaid --version` prints the build: `archmaid 1.0.0` on a release, `archmaid 1.0.0 + 3 commits (6ba8744)` past one, `0.8.1 beta` for the old betas, with ` · modified` added when the tree had changes (`archmaid rN.sha` when the build had no tag to describe from) and exits 0 without touching anything. The GUI shows the same in Settings, under "About". The package build and `install.sh` set it from `git describe --tags --dirty`; a plain `go build` falls back to the commit Go stamped into the binary.
 
 ## Passwords
 

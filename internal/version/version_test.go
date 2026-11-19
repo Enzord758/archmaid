@@ -14,13 +14,47 @@ func TestStringPrefersTheLinkedVersion(t *testing.T) {
 	old := Version
 	t.Cleanup(func() { Version = old })
 	for in, want := range map[string]string{
-		"2.0.0-3-g6ba8744": "2.0.0-3-g6ba8744",
-		"v2.0.0":           "2.0.0",
-		"  r634.6ba8744 ":  "r634.6ba8744",
+		"v1.0.0-3-g6ba8744": "1.0.0 + 3 commits (6ba8744)",
+		"v1.0.0":            "1.0.0",
+		"  r634.6ba8744 ":   "r634.6ba8744",
 	} {
 		Version = in
 		if got := String(); got != want {
 			t.Errorf("Version %q: String() = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Format covers every form `git describe --tags --dirty` takes for the
+// release tags (vX.Y.Z, and vX.Y.Z-beta for the renamed betas), the packaging
+// fallback and the VCS stamp, and anything it doesn't know.
+func TestFormat(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		// on a tag
+		{"v1.0.0", "1.0.0"},
+		{"1.0.0", "1.0.0"},
+		{"v1.0.0-dirty", "1.0.0 · modified"},
+		{"v0.8.1-beta", "0.8.1 beta"},
+		{"v0.1.0-beta-dirty", "0.1.0 beta · modified"},
+		// past a tag
+		{"v1.0.0-3-g6ba8744", "1.0.0 + 3 commits (6ba8744)"},
+		{"v1.0.0-1-g6ba8744", "1.0.0 + 1 commit (6ba8744)"},
+		{"v1.0.0-12-g6ba8744-dirty", "1.0.0 + 12 commits (6ba8744) · modified"},
+		{"v1.2.10-3-gabc1234", "1.2.10 + 3 commits (abc1234)"},
+		{"v0.8.1-beta-2-g6ba8744", "0.8.1 beta + 2 commits (6ba8744)"},
+		{"v0.8.1-beta-2-g6ba8744-dirty", "0.8.1 beta + 2 commits (6ba8744) · modified"},
+		// no tag to describe from: the packaging's rN.sha, the VCS stamp
+		{"r634.6ba8744", "r634.6ba8744"},
+		{"6ba8744", "6ba8744"},
+		{"6ba8744-dirty", "6ba8744 · modified"},
+		{"unknown", "unknown"},
+		// forms it doesn't know are shown, not lost
+		{"v1.0.0-rc1", "1.0.0-rc1"},
+		{"v1.0.0-rc1-dirty", "1.0.0-rc1 · modified"},
+		{"v1.0.0-0-g6ba8744", "1.0.0"},
+	} {
+		if got := Format(tc.in); got != tc.want {
+			t.Errorf("Format(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }
