@@ -157,6 +157,7 @@ var bareAllowed = map[string]string{
 	`gui/internal/ui/packages.go:startAction(IDTopgrade: "topgrade")`:     "Update system first: the existing Run topgrade menu action, by its ID; the Driver runs it from sysbin",
 	`gui/internal/ui/updates_card.go:startAction(IDTopgrade: "topgrade")`: "the Updates card's Run topgrade: the existing menu action, by its ID; the Driver runs it from sysbin",
 	`internal/helperclient/run.go:Errorf(…, Pkexec: "pkexec")`:            "the display name in an error's text; Run executes sysbin.Pkexec",
+	`internal/engine/stub/fullcleanup.go:?{Argv}["yay"]`:                  "the demo engine's plan row, shown and never started (the stub has no Runner); the real step's argv[0] is the helper's Name, which privilege.Sudo.Command maps to sysbin",
 	`internal/privilege/sudowrap.go:Join(…, "sudo")`:                      "the TUI's sudo wrapper's file name, which archmaid writes and never runs (it execs sysbin.Sudo)",
 }
 

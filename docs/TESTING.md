@@ -794,7 +794,10 @@ test can delete your files or need root.
    product code, reading the program argument as the compiler folds it
    (`go/types`: a constant, a concatenation, a typed constant; also a
    variable assigned a bare name and a shell's `-c` script; its known
-   limits are in HANDOVER.md's #131 landmine). archmaid-helper
+   limits are in HANDOVER.md's #131 landmine). `paru` and `yay` are checked
+   only where they reach process start (the exec-aware `aurScan`, #309;
+   forms in HANDOVER.md), so their data uses (path joins, package names)
+   are not flagged. archmaid-helper
    runs `/usr/bin/pacman` and friends by absolute path (as root, under
    pkexec); its verb tests use a fake `Runner` and never execute them, and
    only the `ExecRunner` tests run real, harmless binaries (`env`, `cat`,

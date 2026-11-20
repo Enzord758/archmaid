@@ -69,6 +69,15 @@ var (
 	bareConstUsed = map[string]bool{}
 )
 
+// aurNames are the AUR helpers archmaid starts (internal/sysbin Paru and
+// Yay). They are not in bareNames: as data (a path join, a package name, a
+// config file name, a Helper's Name) they are everywhere, so aurScan flags
+// them only where they reach process start, by name or by absolute path.
+var aurNames = []string{"paru", "yay"}
+
+// aurWord matches an aurNames name as a word of a shell script.
+var aurWord = regexp.MustCompile("(?:^|[\\s;&|()`!{}])(?:paru|yay)(?:$|[\\s;&|()`])")
+
 // bareHit is one call or literal that names a privileged program bare.
 type bareHit struct {
 	file string // slash-separated, relative to the module root
@@ -343,6 +352,7 @@ func bareScan(fset *token.FileSet, path string, files []*ast.File, im types.Impo
 			return true
 		})
 	}
+	aurScan(files, info, str, isString, assigned, name, add)
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].file != out[j].file {
 			return out[i].file < out[j].file
@@ -356,6 +366,11 @@ func bareScan(fset *token.FileSet, path string, files []*ast.File, im types.Impo
 // program as a word, among args (a []string literal, or append to one,
 // spread in place): `sh -c "script"` as a description.
 func shellScript(args []ast.Expr, str func(ast.Expr) (string, bool)) (string, bool) {
+	return shellScriptWith(args, str, bareWord)
+}
+
+// shellScriptWith is shellScript for the names word matches.
+func shellScriptWith(args []ast.Expr, str func(ast.Expr) (string, bool), word *regexp.Regexp) (string, bool) {
 	flat := flatArgs(args)
 	for i, a := range flat {
 		sh, ok := str(a)
@@ -370,7 +385,7 @@ func shellScript(args []ast.Expr, str func(ast.Expr) (string, bool)) (string, bo
 			if !shellC.MatchString(opt) {
 				continue
 			}
-			if script, ok := str(flat[j+1]); ok && bareWord.MatchString(script) {
+			if script, ok := str(flat[j+1]); ok && word.MatchString(script) {
 				return sh + " " + opt + " " + strconv.Quote(script), true
 			}
 			break

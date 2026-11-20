@@ -705,6 +705,21 @@ comments and `git log`; this is the "read before you touch it" list.
     `Join`); a `-c` script in a step's `Argv` or a `proc.Spec`'s `Args`
     rather than in the call's own arguments; an absolute path is
     `TestNoAbsolutePrivilegedExec`'s.
+    `paru` and `yay` (#309) are not in `bareNames`: as data (a path join,
+    a package name, `BuildDir`'s argument, a `Helper`'s `Name`) they are
+    everywhere. `aurScan` (`internal/testenv/aurscan_test.go`) flags them,
+    bare or as an absolute path (`/usr/bin/paru`), only where they reach
+    process start: the program of `exec.Command`, `CommandContext`,
+    `LookPath`, `syscall.Exec`, `os.StartProcess`, `proc.Query`/`QueryIn`;
+    `proc.Spec{Name}`, `exec.Cmd{Path}`/`{Args}` and a `Path`/`Args`
+    assigned to a field; the first element of any `Argv` (or the one after
+    a leading `sudo` and its flags); a `-c` script naming one as a word.
+    Same limits as above (a wrapper, a field, a built string are unseen).
+    One exemption: the demo engine's plan row
+    (`internal/engine/stub/fullcleanup.go`, shown and never started).
+    `sysbin.Paru`/`Yay` must stay variables, or they would fold as
+    constants there. `TestAurScanFindsEveryExecForm` plants each form;
+    `TestAurScanIgnoresData` and the module scan hold the data uses.
   - *What a step's child starts by name* (topgrade's yay, yay's and
     makepkg's `sudo`) still goes through the step's `PATH`; archmaid
     can't change how those tools look sudo up. (In the TUI the first
