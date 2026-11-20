@@ -26,6 +26,7 @@ import (
 	"time"
 
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
+	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	glibv2 "github.com/diamondburned/gotk4/pkg/glib/v2"
 )
 
@@ -56,29 +57,91 @@ func shoot(w *Window, scenario, what string) {
 		return
 	}
 	path := filepath.Join(dir, scenario+"-"+what+".png")
-	// The window has no size until GTK has allocated it; under load the
-	// first frames can come late, so wait for the allocation by running the
-	// main loop (a few short slices) instead of skipping the shot.
-	var err error
+	// The snapshot is taken inside the frame clock's after-paint signal, some
+	// frames after the last change (saveAfterPaint says why).
+	// The retries below are only a safety net: counted, logged, and a shot
+	// that needed one fails the test (shotRetried).
+	var err, first error
 	for try := 0; try < shotTries; try++ {
-		if w.win.Width() <= 0 || w.win.Height() <= 0 {
-			err = fmt.Errorf("the window has no size yet (%dx%d)", w.win.Width(), w.win.Height())
-		} else if err = savePNG(w.win, path); err == nil {
+		if err = saveAfterPaint(w, path); err == nil {
+			if try > 0 {
+				shotRetried(scenario, what, try, first)
+			}
 			return
 		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "shot %s-%s: try %d at %d: %v\n", scenario, what, try+1, time.Now().UnixMilli()%100000, err)
+		if try == 0 {
+			first = err
 		}
+		fmt.Fprintf(os.Stderr, "SHOT RETRY %s-%s: try %d failed: %v\n", scenario, what, try+1, err)
 		pumpMain(shotWait)
 	}
 	shotFailed("%s-%s: %v", scenario, what, err)
 }
 
+// shotRetries counts the shots that needed more than one try, in this
+// process. It must stay 0: shotRetried fails the test.
+var shotRetries atomic.Int32
+
+func shotRetried(scenario, what string, tries int, first error) {
+	shotRetries.Add(1)
+	fmt.Fprintf(os.Stderr, "SHOT RETRY %s-%s: taken only on try %d\n", scenario, what, tries+1)
+	shotFailed("%s-%s: needed %d retries (first error: %v); the window was still mid-update (saveAfterPaint)", scenario, what, tries, first)
+}
+
+// saveAfterPaint runs shotFrames frames of the window's frame clock and
+// writes the PNG from inside the last one's after-paint signal.
+//
+// Why (#308): a widget paintable draws nothing for a widget that is mid-
+// update, and so nothing for any of its ancestors, up to the window: the
+// window's render node comes out NULL ("step 3 failed") although it is mapped,
+// realized and sized. Seen at the end shot of caches-no: the Overview nav row
+// of the sidebar (the run ends, the page and the row selection switch back)
+// was the deepest empty widget, its own children drawing fine. It lasts until
+// the frames after the change have run: always the first frame after it, and
+// under load with 8 busy workers (frames then come ~45 ms apart, paced by the
+// Broadway server's roundtrip) also the first after-paint of a requested
+// frame in ~1 of 12 runs; 3 frames never failed in 24 runs. So the shot
+// waits for shotFrames frames, not for a window size or a 50 ms sleep.
+func saveAfterPaint(w *Window, path string) error {
+	fc := gdk.BaseFrameClock(w.win.FrameClock())
+	if fc == nil {
+		return fmt.Errorf("the window has no frame clock yet")
+	}
+	var done bool
+	var err error
+	frames := 0
+	id := fc.ConnectAfterPaint(func() {
+		if done {
+			return
+		}
+		if frames++; frames < shotFrames {
+			fc.RequestPhase(gdk.FrameClockPhaseUpdate)
+			return
+		}
+		done = true
+		if w.win.Width() <= 0 || w.win.Height() <= 0 {
+			err = fmt.Errorf("the window has no size yet (%dx%d)", w.win.Width(), w.win.Height())
+			return
+		}
+		err = savePNG(w.win, path)
+	})
+	defer fc.HandlerDisconnect(id)
+	fc.RequestPhase(gdk.FrameClockPhaseUpdate)
+	for end := time.Now().Add(time.Second); !done && time.Now().Before(end); {
+		pumpMain(time.Millisecond)
+	}
+	if !done {
+		return fmt.Errorf("no frame was painted within a second")
+	}
+	return err
+}
+
 // shotTries and shotWait: how often and for how long shoot lets the main
 // loop run between attempts when the window can't be drawn yet.
 const (
-	shotTries = 20
-	shotWait  = 50 * time.Millisecond
+	shotFrames = 4
+	shotTries  = 20
+	shotWait   = 50 * time.Millisecond
 )
 
 // pumpMain runs the default main context for d, so allocation and frame
