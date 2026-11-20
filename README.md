@@ -117,8 +117,8 @@ archmaid 1.0.0 is the first stable release and follows semantic versioning (tags
   to re-authenticate mid-run, the popup comes back and names the program
   that asked. Before anything reaches `sudo`, archmaid checks the password
   with `su`, so a typo costs no `pam_faillock` attempt. The password is
-  never stored or logged. The TUI drops its sudo ticket on exit (`sudo -n
-  -k`, however it ends): your next manual `sudo` in that terminal asks
+  never stored or logged. The TUI drops its sudo ticket on exit (`sudo -k`,
+  however it ends): your next manual `sudo` in that terminal asks
   again.
 - **GUI.** A run asks for your password once, in the GUI's own dialog,
   and keeps it in memory for that run only (an mlocked page, never written
@@ -160,6 +160,9 @@ Next to the run directories are:
 - `aur-maintainers.json`: the AUR snapshot the audit compares against;
 - `audit-state.json`: the high findings not yet accepted;
 - `updates-cache.json`: the pending update count, written by the timer;
+- `health.json`: the last System health result, for the widget's Health row
+  (written by `archmaid --health-report`, the timer and the GUI);
+- `health-ignore.json`: what you chose to ignore in System health;
 - `aur-reviewed.json`: the AUR commit you last reviewed per package (the Packages page).
 
 The GUI's settings are in `~/.config/archmaid/gui.json`. Everything is

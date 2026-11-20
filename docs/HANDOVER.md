@@ -15,10 +15,21 @@ than appending dated ones.
 
 ## Status
 
-Feature-complete: all ten menu actions work, with `--dryrun` for a safe end to
-end. The gate is `scripts/check.sh`: race tests, vet, gofmt and coverage
-floors (see `TESTING.md`). Verified live against a real Arch system: Full
-Cleanup runs, the sudo/faillock flows, and the AUR audit against the real AUR.
+As of v1.0.0 (092bf5a, the first stable release; `CHANGELOG.md` → 1.0.0). The
+TUI menu has twelve entries: the ten of `actions.Menu` (Full Cleanup, Clear
+caches, Repair broken packages, Delete old downloads, Run topgrade, Disable
+unused services, Audit AUR packages, Edit topgrade config, View log, Exit)
+plus the TUI's own System health and Held updates (`internal/tui/health.go`,
+`menu()`). `--dryrun` runs any of them end to end without changing anything.
+The GUI has Overview, Packages, Run, Logs and Settings
+(`gui/internal/ui/shell.go`). The gate is `scripts/check.sh` (race tests,
+vet, gofmt, coverage floors; see `TESTING.md`) plus `make e2e`, and
+`make gui-test` when `gui/`, the helper, the driver or the engine change. CI
+is `~/archmaid-vmtest/run.sh ci <sha>` in the test VM, run once per release
+candidate. The release notes record that 1.0.0 passed the local gate and the
+VM CI (`CHANGELOG.md`); what the owner or the VM tester saw on a real run is
+not in the repo, only in the lead's record. Their step-by-step guide is
+`docs/first-live-run.md`.
 
 ## Code map (`cmd/archmaid/` `package main`, and `internal/tui/` `package tui`)
 
@@ -956,7 +967,7 @@ comments and `git log`; this is the "read before you touch it" list.
 - **Full Cleanup's order:** AUR audit → topgrade → `paccache -r` (keeps 3;
   no "delete the entire cache" step since 2026-10-18, see "Delete entire
   package cache" below) → orphan probe → (orphan removal, inserted by the probe) →
-  `yay -Sc` → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Under
+  `yay -Sc` (the AUR helper's, paru or yay: #278) → tmpfiles → journal vacuum → `pacman -Qkq` → hyprpm. Under
   polkit (the GUI) it is AUR audit → topgrade → orphan probe → (orphan
   removal) → paccache → `pacman -Sc` → tmpfiles → journal →
   integrity → `yay -Sc --aur` → hyprpm, the root steps as one call (next
@@ -986,8 +997,8 @@ comments and `git log`; this is the "read before you touch it" list.
   the steps with no `Confirm`, `~/.cache` first (as the user), then
   `steps.IDPaccacheWipe` / `VerbPaccacheWipe` (`sudo paccache -rk0` in the
   TUI; the helper's standalone `paccache-wipe` verb under polkit, no
-  arguments, `auth_admin`, so the policy and the `pkaction` count (9) are
-  unchanged). **Password ordering:** nothing privileged happens before the
+  arguments, `auth_admin`; the policy has 12 actions at v1.0.0, one per helper verb,
+  `packaging/polkit/org.archmaid.helper.policy`). **Password ordering:** nothing privileged happens before the
   pick (the Session only discovers). `Select` calls `plan` with the queue:
   a queue without the wipe has no root step and runs at once with no probe,
   faillock read or password; a queue with it goes the normal up-front way
@@ -1231,6 +1242,11 @@ comments and `git log`; this is the "read before you touch it" list.
   action is the menu `id` (the two static actions have ids `fullcleanup` and
   `topgrade`; Clear caches is `clearcaches`, and records from before it carry `usercache` or `wipecache`). A dry run writes `dryrun/last-run.json` instead and never touches
   the real one. `audit-state.json`: see its own entry below.
+  Also in the state dir: `health.json` (the widget's copy of a System health report,
+  written by `archmaid --health-report`, the updates timer and the GUI after each of
+  its health runs), `health-ignore.json` (the Ignore list, written only by the
+  Ignore buttons and keys) and `updates-cache.json` (the timer's). The news feed's
+  cache is `~/.cache/archmaid/arch-news.xml`.
   **A run in which nothing ran leaves `last-run.json` alone (#276).** The engine
   still builds a `cancelled` record (a declined gate or required first step, a
   cancelled password prompt, an auth give-up with every step refused, a Cancel in
@@ -1430,7 +1446,7 @@ comments and `git log`; this is the "read before you touch it" list.
   `TestBrokenNamesCheckedBeforeSudo`). Keep both when adding a parsed call.
 - **The AUR audit diffs against a snapshot** because the RPC only exposes the
   *current* maintainer and co-maintainers, never their history. Consequence:
-  the first audit only records a baseline. Network: archmaid's own code talks to `aur.archlinux.org` in three places, always as the user, never as root and never from the helper: the AUR audit (RPC `info`), the Packages page's AUR search and info (RPC `search`/`info`, only when the user types a term of at least 2 characters, debounced, cancellable), and the AUR install (a `git clone`/`fetch` of the package's repo into `~/.cache/archmaid/aur`, and the sources `makepkg` downloads from the PKGBUILD's own URLs, only after the user reviewed and confirmed). The programs archmaid starts (pacman, topgrade, yay) and the optional `archmaid-updates-check` user timer (`checkupdates` and `yay -Qua` as the user under `NoNewPrivileges`) use the network as they always do. The root helper makes no network call of its own; pacman, run by it, downloads packages as it always does.
+  the first audit only records a baseline. Network: archmaid's own code talks to `aur.archlinux.org` in three places, and System health (`internal/health`, run by the GUI, the TUI and `archmaid --health-report`) adds a fourth use of the AUR RPC (its AUR check: one multi-info request) and two hosts of its own, always as the user, never as root and never from the helper: the AUR audit (RPC `info`), the Packages page's AUR search and info (RPC `search`/`info`, only when the user types a term of at least 2 characters, debounced, cancellable), and the AUR install (a `git clone`/`fetch` of the package's repo into `~/.cache/archmaid/aur`, and the sources `makepkg` downloads from the PKGBUILD's own URLs, only after the user reviewed and confirmed); System health also fetches `https://archlinux.org/feeds/news/` (one GET, 10 s, 3 h cache in `~/.cache/archmaid/arch-news.xml`, no off-host redirect) and `/lastsync` of the first mirror pacman uses. The programs archmaid starts (pacman, topgrade, yay) and the optional `archmaid-updates-check` user timer (`checkupdates` and `yay -Qua` as the user under `NoNewPrivileges`) use the network as they always do. The root helper makes no network call of its own; pacman, run by it, downloads packages as it always does.
   A dry run reads the snapshot but never advances it.
 - **Co-maintainers gate like maintainers.** A co-maintainer can push to the
   package's AUR git, so an *added* one is high (named in the gate: "foo:
@@ -1522,7 +1538,9 @@ comments and `git log`; this is the "read before you touch it" list.
   the audit gate can only skip the whole update. The 72 h cooldown hook lives outside this repo, in
   `~/dotfiles/yay/.config/yay/init.lua` (stowed to `~/.config/yay/`), and needs
   stowing on any new machine. The audit's "pushed within 72 h" flag deliberately
-  matches it.
+  matches it. paru has no such hook; what archmaid itself does with the 72 h is
+  show the held AUR updates (the Updates card and the Held updates sheet in the
+  GUI, the TUI's Held updates screen) and never install one by itself.
 - **The downloads folder is resolved, never assumed.** On the dev machine it is
   `~/Download`, `~/Downloads` doesn't exist, and `XDG_DOWNLOAD_DIR="$HOME/"` —
   so "just read the XDG dir" would clean the whole home folder.
@@ -1747,7 +1765,8 @@ to:
   and a discovery record's `Append` drop superseded discovery-only runs
   (dry-run stores never do either, and the run's own directory is never
   pruned; see "The discovery record"). `startup` (askpass relay, flags,
-  `--help`/`-h` exit 0, anything unknown exit 2) touches nothing on disk;
+  `--help`/`-h` and `--version` exit 0, anything unknown exit 2) touches nothing on disk,
+  except `--health-report`, which writes `health.json` and nothing else;
   `TestStartupDeletesNothing` pins it. A front-end check that fails before
   the first log entry (e.g. an `Env.Validate`) is safe by construction — keep
   it that way: never call `Prune` from a startup path. `scripts/check.sh` and
@@ -1756,19 +1775,48 @@ to:
 
 ## Open items
 
-- **The GUI on the real Driver has been run live** (the owner's run and the
-  VM runs: one polkit dialog per Full Cleanup, topgrade's askpass). The
-  root helper and policy come only from the package (`packaging/arch`);
-  `install.sh` installs the TUI alone, which needs neither. The owner's
-  step-by-step first live run: `docs/first-live-run.md` (its C4 predates
-  the one-dialog call and the kept password). One password per run is
-  merged (`internal/privilege/kept.go`, `gui/internal/polkitagent`); the
-  Proceed sheet previews its PATH guard (`driver.PreviewKeepOff`) and says
-  when the password will not be kept, while the guard at step start stays
-  the authority.
-- **Both packages are installed on the owner's machine** (`archmaid-git`
-  and `archmaid-gui-git`; r608 as of 2026-10-17, the lead's word). Keep
-  installing them together, from the same build (`packaging/arch/README.md`).
+What is open at v1.0.0 (092bf5a). Anything not listed here is settled, or in
+"Settled" below.
+
+- **The empty first snapshot (#308, in progress).** The root cause is being
+  found. The lead's task list is the only record of it; nothing in the repo
+  describes it yet. For the design it touches, see "The AUR audit diffs against
+  a snapshot".
+- **The paru/yay scanner gap (#309).** Open, per the lead; its scope is in the
+  lead's task list, not in the repo. For where paru and yay are handled, see
+  "The AUR helper is paru or yay, as topgrade's (#278)".
+- **The GUI's speed budgets are enforced only by hand (#311 puts them into the
+  VM CI).** First frame, idle RSS, throughput and zero drops are checked only
+  with `ARCHMAID_GUI_PERF=1` (`cd gui && ARCHMAID_GUI_PERF=1
+  scripts/headless.sh`, or `ARCHMAID_GUI_PERF=1 make gui-test`), run on a quiet
+  desktop machine. CI's Broadway display is too slow to measure them, so the
+  gate and the VM CI check correctness only (`docs/TESTING.md` → GUI
+  measurements).
+- **Does a pkexec killed while its dialog is up cost a faillock row?** The
+  source says yes (see "That cancel still costs one faillock row"), but no live
+  run has measured it: `docs/polkit-keep-session-check.md`, Part C. Until then
+  the guide never closes the GUI or presses Stop while a polkit dialog is up.
+- Test gaps (e2e breadth, hand-only checks) are tracked in `TESTING.md` →
+  Known gaps.
+
+## Settled
+
+Decisions and facts that used to be listed as open. They are kept so nobody
+reopens them by accident.
+
+- **What installs what.** The root helper and the polkit policy come only
+  from the package (`packaging/arch`); `install.sh` installs the TUI alone,
+  which needs neither. Install `archmaid-git` and `archmaid-gui-git` together,
+  from the same build (`packaging/arch/README.md`): the GUI runs the helper
+  through pkexec and their verbs and plan hashes must match.
+- **One password per GUI run.** A GUI run asks once and keeps it for that run
+  (`internal/privilege/kept.go`, `internal/driver/keep.go`,
+  `gui/internal/polkitagent`; the trust model is "The GUI keeps the run's
+  password"). The Full Cleanup's root steps are one helper call and one polkit
+  request. The Proceed sheet previews the PATH guard (`driver.PreviewKeepOff`)
+  and says when the password will not be kept; the guard at step start stays
+  the authority. The TUI does not keep a password: its one prompt primes the
+  sudo ticket. The owner's checklist for all this is `docs/first-live-run.md`.
 - **One launcher entry.** The TUI has no desktop entry at all (not even a
   hidden one); only the GUI's `io.github.enzord758.archmaid.desktop` exists.
   The `archmaid` command still starts the TUI. `scripts/check.sh` fails if
@@ -1778,12 +1826,6 @@ to:
   neither the PKGBUILD nor `install.sh` installs `apps/archmaid.svg`, and
   `install.sh` removes an older copy only if it is a regular file identical
   to `packaging/archmaid.svg`.
-- **The GUI's speed budgets are measured by hand.** First frame, idle RSS,
-  throughput and zero drops are enforced only with `ARCHMAID_GUI_PERF=1`
-  (`cd gui && ARCHMAID_GUI_PERF=1 scripts/headless.sh`, or
-  `ARCHMAID_GUI_PERF=1 make gui-test`), run by the owner on the desktop
-  machine when it is quiet. CI's Broadway display is too slow to measure them,
-  so CI checks correctness only (`docs/TESTING.md` → GUI measurements).
 - **GUI RAM on NVIDIA.** With GTK's default GPU renderer (Vulkan) the idle
   RSS is ~280–390 MB, far over the 120 MB budget; with `GSK_RENDERER=cairo`
   it is ~110–120 MB and the first frame ~85 ms instead of ~375–450 ms. The
@@ -1797,9 +1839,6 @@ to:
   `journalctl --vacuum-*` print no escape codes on success, even with
   `SYSTEMD_COLORS=1`, so a clean run shows nothing to colour; colour only
   shows on systemd warnings or errors.
-- Test gaps (e2e breadth, hand-only checks) are tracked in
-  `TESTING.md` → Known gaps.
-
 - **The Run page's keyboard target is the step's title row (#207).** The
   timeline is one `GtkListView` with a header per step (`ListHeader`); the
   headers are not in the view's focus chain, and the view is one Tab stop.

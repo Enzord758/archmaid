@@ -4,7 +4,8 @@ The archmaid app: a [Bubble Tea](https://github.com/charmbracelet/bubbletea) TUI
 for Arch maintenance — `btop`/`wiremix`-style, an event loop that redraws as
 state changes, rather than a scripted sequence of prompts.
 
-All ten menu actions are implemented, with a `--dryrun` mode to exercise it
+All twelve menu entries are implemented (the ten actions, Exit included, and
+the TUI's own System health and Held updates), with a `--dryrun` mode to exercise it
 safely end to end. It grew out of a gum bash script (now retired); the sections
 below explain the design that replaced it.
 
