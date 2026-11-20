@@ -268,8 +268,8 @@ dialog: boxes ticked, a password typed; the Driver must get `Select`,
 be empty after the answer), `audit` (the AUR report's Accept is
 `Confirm(yes)`, and `ReportAccepted` is a toast), `idle` (first frame
 and RAM), `flood` (50k unpaced lines, dropping off: the view's real capacity),
-`flood-paced` (100 lines every 10 ms = 10k lines/s, default pump: nothing may
-drop under `ARCHMAID_GUI_PERF=1`, a capacity budget; always: dropped + in view never exceeds the lines seen; the GUI process, not nullbroadway, is where the frame work goes), `flood-default` (unpaced, default pump), `flood-colour` (as `flood`,
+`flood-paced` (100 lines every 10 ms = 10k lines/s, default pump; the
+drop count: logged, not a budget (Broadway's speed decides it, see "GUI performance budgets"); always: dropped + in view never exceeds the lines seen; the GUI process, not nullbroadway, is where the frame work goes), `flood-default` (unpaced, default pump), `flood-colour` (as `flood`,
 every line in colour with seven SGR spans: bold, the 16 colours, 256-colour
 and 24-bit; it also checks that every visible output row carries its Pango
 attributes). Every scenario also checks
@@ -559,25 +559,65 @@ Broadway has no GL or Vulkan, so `GSK_RENDERER=vulkan` or `ngl` measures
 nothing here; the Vulkan column below was measured on the headless weston
 the suite used to run on.
 
-With `ARCHMAID_GUI_PERF=1` the tests fail over budget: warm first frame
-< 400 ms (the best of the runs after the first, measured from exec to the
-frame clock's first `after-paint`), idle RSS < 125 MB, ≥ 5k lines/s for the
-unpaced flood, main-thread work per flush p95 ≤ 4 ms (the time in the pump's
-`apply`: model, list splice, queueing the scroll), RSS after 50k lines < 200 MB. They are
-always measured and logged with `-v`. CI runs them without the variable.
+### GUI performance budgets (`scripts/gui-perf.sh`)
 
-**The speed budgets are measured by hand, not in CI** (owner decision,
-#170/#179). CI's Broadway display is too slow to measure first frame, idle RSS,
-throughput or zero drops, so CI checks correctness only. Before a release, or
-after a change to the GUI's pump, list or startup, run on the owner's desktop
-machine, quiet (nothing else heavy, no VM running):
+`scripts/gui-perf.sh` is the one entry point (task #311): it runs
+`TestGUIFirstFrameAndIdleRAM` and `TestGUIThroughput` headless with
+`ARCHMAID_GUI_PERF=1`, prints one line per budget (measured vs budget) and
+exits 1 on any breach (0 all met, 2 nothing measured). Every budget goes
+through one helper (`budget()` in `gui/internal/ui/perfbudget_test.go`): it is
+always measured and logged with `-v`, and fails the test only when
+`ARCHMAID_GUI_PERF=1`. `ARCHMAID_GUI_PERF_SCALE=N` (N >= 1) loosens every
+budget by N for a slower machine (ceilings x N, floors / N); the owner's
+desktop runs with 1. The script's own summary comes from
+`ARCHMAID_GUI_PERF_REPORT`, a file the helper appends to.
+
+The budgets are set from the host's Broadway + cairo numbers (the VM CI runs
+`GSK_RENDERER=cairo` too), 10 runs at a machine load of 10-15 from other
+gates, not on a quiet one; each has at least 1.4x headroom over the worst
+measured value and is meant to catch a regression of about 2x. Where the
+display, not the app, decides the number, that is said:
+
+| Budget | Limit | Host (min-max) | Why |
+|---|---|---|---|
+| `first-frame-warm` | <= 400 ms | 140-210 ms | Exec to first `after-paint`, best of the runs after the first. The original budget; ~2x headroom. |
+| `idle-rss` | <= 200 MB | 141-176 MB | Was 125 MB, which Broadway's PNG encoder (not the app) put out of reach on the host already (143 MB); 200 catches a +40% leak. |
+| `flood/rate` | >= 3000 lines/s | 3.8k-7.8k | Unpaced 50k lines. The display's speed decides it (PNG uploads), the floor is 1.3x under the worst run: it catches a 3x slowdown, not 2x. |
+| `*/dropped` (`flood`, `flood-colour`, `flood-steps`) | 0 | 0 | These pumps are unbounded: a drop is a pump bug. |
+| `apply-p95-best` | <= 2.5 ms | 0.65-1.4 ms | Main-thread work per flush (the pump's `apply`), the app's own cost and the budget that matters most: the best p95 of the four scenarios that share a flush path (`flood`, `-paced`, `-default`, `-colour`). Load spikes one scenario at a time (single p95s reached 6.4 ms at load 20), so the best of four is stable where one is not; 1.75x over the worst best, it catches a 2.5x regression, not a 2x one. |
+| `*/apply-p95` | <= 8 ms | 0.65-6.4 ms (`flood-steps` 2.4-5.7) | The same per scenario, as a loose backstop; this is what covers `flood-steps` (the folds make its flushes dearer). |
+| `*/end-rss` | <= 700 MB | 270-516 MB | RSS after 50k lines. Mostly Broadway's PNG buffers (the model is capped at 10k lines), so a loose ceiling that still catches an unbounded model. |
+
+**Not a budget: `flood-paced` and `flood-default` drops.** With the default pump
+the number of lines dropped is what Broadway cannot paint in time: 9k-16k of
+50k on the host, 0 only on weston. It cannot be made stable (and a limit loose
+enough to hold would mean nothing), so it is logged, and the invariant that
+always holds (dropped + in view never exceeds the lines seen) stays a test.
+
+**The VM.** The VM CI (4 vCPUs, QEMU) has no GUI numbers in it yet: set
+`ARCHMAID_GUI_PERF_SCALE` for it from its first run's `gui-perf.sh` output
+(the summary prints every measured value even when it fails), then keep the
+scale at the smallest value that gives the headroom above; start with 2.
+The scale applies to the memory budgets too, which a slower CPU hardly moves:
+if that proves too loose, give the memory budgets their own scale.
+
+The harness change (task #311, for the VM harness): `ci.sh`'s `bench)` case
+runs `scripts/gui-perf.sh` after `bench-compare.sh` (`set -x`, then both, so
+either failing fails the job), as
+`ARCHMAID_GUI_PERF_SCALE=2 HEADLESS_TIMEOUT=300 timeout 420 scripts/gui-perf.sh`,
+and `CI_LIMIT[bench]` goes from 10 to 15 minutes (bench-compare ~2 min, the
+perf run ~1-2 min on a warm Go cache, plus the test binary's build).
+
+Before a release, or after a change to the GUI's pump, list or startup, also
+run it on the owner's desktop machine, quiet (nothing else heavy, no VM
+running), without a scale:
 
 ```sh
-cd gui && ARCHMAID_GUI_PERF=1 scripts/headless.sh
+scripts/gui-perf.sh
 ```
 
-(or `ARCHMAID_GUI_PERF=1 make gui-test` from the repo root). It is still
-headless (no window on the desktop); a failing budget fails the run.
+(`ARCHMAID_GUI_PERF=1 make gui-test` runs the same budgets inside the whole
+suite, on their own part.) It is headless (no window on the desktop).
 
 ### GUI measurements
 
@@ -621,10 +661,9 @@ one run each (`TestGUIFirstFrameAndIdleRAM`, `TestGUIThroughput`):
 | Frame work, unpaced p95 | — | 62 ms | 54 ms |
 
 The flush work, which the budgets are about, is the app's and matches;
-the rate, the frame work and the RSS are Broadway's PNG uploads, so with
-`ARCHMAID_GUI_PERF=1` the RSS budgets fail on Broadway with cairo. Measure
-budgets against a real compositor (the owner's desktop, by hand) until a
-decision on where the GUI's perf baseline lives.
+the rate, the frame work and the RSS are Broadway's PNG uploads, so the
+budgets above are set from this Broadway table (the RSS ones loosened to it),
+not from weston's. `scripts/gui-perf.sh` enforces them.
 
 Colour costs in the rows, not in the model: a line is stored raw and
 stripped (`runview.StripSGR`, ~0.15 µs) as it arrives, and its spans are
@@ -673,6 +712,7 @@ A root `Makefile` wraps everything CI runs; paths live in variables at its top.
 |---|---|
 | `make gate` | `scripts/check.sh` (TUI and helper, one module at the repo root) |
 | `make e2e` | `bash cmd/archmaid/e2e/run.sh` (needs vhs, ttyd, ffmpeg; its `health-report` check runs `archmaid --health-report` directly under a scratch HOME with the read-only tools shimmed, the network on a dead proxy) |
+| `make gui-perf` | `scripts/gui-perf.sh`: the GUI's performance budgets headless, one line each, non-zero on a breach — see "GUI performance budgets" |
 | `make bench` | `scripts/bench-compare.sh $(BASE)`: HEAD against a base commit with benchstat — see "Bench compare" |
 | `make perf` | `ARCHMAID_PERF_GUARD=1 scripts/check.sh` (the gate, then the opt-in perf guard — see "Perf guard") |
 | `make perf-baseline` | `scripts/perf-baseline.sh`: re-measures the baselines (TUI/sysstat/sanitize/runview benchmarks, `TestPerfGuard`, the GUI's first frame, idle RSS and throughput headless, stripped binary sizes) into `$PERF_OUT`'s `summary.txt`. It refuses (exit 3) unless the machine is quiet: load ≤ `PERF_MAX_LOAD` (an eighth of the CPUs), no `qemu-system`, no other gate or test run. `PERF_COUNT=1 PERF_FORCE=1` is a smoke test marked NOT A BASELINE. The Repair scan, services discovery and the installed GUI's idle CPU need the real system: measured by hand. |
@@ -698,7 +738,7 @@ workflow's `env:` block.
 | `core` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) (some discovery tests expect Arch tooling) | `make all`: the gate (TUI and helper). Go build and module caches keyed on `go.sum` and the Go version. |
 | `e2e` | `ubuntu-latest` + setup-go + vhs-action (vhs, ttyd, ffmpeg) | `make e2e`; uploads `cmd/archmaid/e2e/*.txt` as an artifact on failure. A tape whose VHS browser never started ("could not start browser", a runner flake) runs once more (`e2e/browser-retry.sh`, proved on a stub vhs by `browser-retry-selftest.sh` at the start of every run); any other failure fails at once. |
 | `bench` | `ubuntu-latest` + setup-go, full history | `scripts/bench-compare.sh <base>` on the one runner: the PR's merge-base (or a push's previous SHA) against HEAD, benchstat-compared; fails on a significant slowdown (see "Bench compare"); uploads `benchstat` (old/new results, report) as an artifact, always. About 1–2 minutes. |
-| `gui` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) + gtk4, libadwaita, dbus, a font (no compositor) | `make gui-test` as an unprivileged user with `GSK_RENDERER=cairo` (no GPU): build, vet, the plain-Go tests, the display tests on the headless Broadway display; budgets not enforced. Build and module caches keyed on `gui/go.sum` + `go.sum` and the Go version (a cold gotk4 build is ~7 min on 16 threads, more on a runner). |
+| `gui` | `public.ecr.aws/docker/library/archlinux:latest` container (the Docker official image, mirrored on ECR Public to avoid Docker Hub's pull rate limit) + gtk4, libadwaita, dbus, a font (no compositor) | `make gui-test` as an unprivileged user with `GSK_RENDERER=cairo` (no GPU): build, vet, the plain-Go tests, the display tests on the headless Broadway display; budgets not enforced there (`scripts/gui-perf.sh` enforces them, see "GUI performance budgets"). Build and module caches keyed on `gui/go.sum` + `go.sum` and the Go version (a cold gotk4 build is ~7 min on 16 threads, more on a runner). |
 
 Stays manual (not in CI): a real Full Cleanup, sudo/faillock behaviour, the
 polkit live test on a scratch user, sudo without a tty, and askpass against real
@@ -1203,6 +1243,7 @@ answers...)`. Run with `-update-transcripts` and read the new golden line by lin
 - The window's minimum height (#255), `minheight_harness_test.go`: `TestGUIMinHeight` (the tones part of `headless.sh`) asks for windows 200 to 700 px high at 960, 630 and 400 px wide; each is at least `minWindowHeight` and the content's minimum height (`toasts.Measure`) fits it, which is libadwaita's "AdwToastOverlay exceeds AdwApplicationWindow height" condition. The meters hide under 540 px now (`shortHeight`). Since #301 the scenario also has the real Packages page (the fixture wiring; without it the page was a short "no engine" notice and its real, tall layout was never measured) and `cov-minheight-open` opens a window at `minWindowWidth` x `minWindowHeight` (a hook in `harness_test.go`) and shows every page, with and without the larger font. Since #294 it runs for every page at 1500, 960, 630, 400 and 340 px wide (the window's minimum width) (measured at the window's width), and the child's stderr is the GTK log: any "exceeds" line (height or width) fails the test.
 - The sidebar selection (#255), `navsync_harness_test.go`: `TestGUINavSync` (the narrow part of `headless.sh`) resizes narrow and wide again and moves the list's selection by itself; the selected row must always be the visible page's, and a row activation still picks a page. Before the fix a narrow to wide change left Packages selected over the Overview.
 - A live scheme switch (#255), `scheme_harness_test.go`: `TestGUIColourSchemeLive` flips AdwStyleManager's scheme light, dark, light, dark on a running window, in the default look and with glass, and reads the resolved colour of an ok tag, a root tag and an ok marker (the light set `style_light.css` only while light) and, with glass, the window's alpha (the dark tokens, `glass_dark.css`, only while dark). It is in the glass part of `headless.sh`. Before the fix the light colours stayed after a switch to dark.
+- The GUI's performance budgets (#311): `scripts/gui-perf.sh` / `make gui-perf` runs `TestGUIFirstFrameAndIdleRAM` and `TestGUIThroughput` headless with `ARCHMAID_GUI_PERF=1` and exits non-zero on a breach; every budget goes through `budget()` in `perfbudget_test.go`, with `ARCHMAID_GUI_PERF_SCALE` for a slower machine. Proved to catch a regression by a temporary sleep in the pump's apply path (the `apply-p95`, `rate` and `end-rss` lines breach). The table of budgets and the reasoning for each is under "GUI performance budgets"; the VM CI's bench job runs it (note there for the harness).
 - The Settings cards' heights (#301), `settings_gap_harness_test.go`: `TestGUISettingsCardGap` (the rest part of `headless.sh`) shows the Settings page at 1500 px (two columns), 700 px (one) and 1500 px again, and fails for any card taller than its content asks for, for more than the 18 px row spacing between a card and the next one below it (the flow box it replaced made every card as tall as the tallest), or if the cards no longer differ in height (the check would prove nothing).
 - The widget's Health row (#297): `tst_state.qml` `test_healthParse` (the file `health.ReportJSON` writes parses; unknown, ignored and a miscounted `attention` never raise the count; a wrong version, time, state, missing field, empty title or 17 checks is null), `test_healthRow` (All good / LOOK with up to three titles then "+N", the age after 2 h, "Not checked yet" past 3 days, missing or torn), `test_healthHero` (the headline only when the run and audit say nothing; the bar level unchanged), `test_openGuiPlan`; `tst_widget.qml` `test_healthRow` (the row in the real popout, the click starting `archmaid-gui` only when `hasGui`). `ARCHMAID_WIDGET_SHOT=<dir> go test -run TestWidgetRenders ./packaging/dms/` also saves the popout as a PNG there.
 - The widget follows DMS's blur (#254): `tst_widget.qml` `test_accentLayerOffAndOn` (with `Theme.blurLayersActive` off the hero is as before; on, the sheen, the light edge, DMS's corner radius, a translucent colour through `Theme.foregroundColor`, no corner marks) and `test_listBackingGuard` (the update list gets an opaque backing only with DMS's blur off and `Theme.popupTransparency` under 0.85). The stub Theme has the four names; they exist in DMS's `Common/Theme.qml`.

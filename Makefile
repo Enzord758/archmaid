@@ -9,7 +9,7 @@ E2E_RUN    := $(TUI_DIR)/e2e/run.sh
 CHECK      := scripts/check.sh
 GUI_DIR    := gui
 
-.PHONY: all gate e2e e2e-cover cover-build perf perf-baseline bench gui gui-test
+.PHONY: all gate e2e e2e-cover cover-build perf perf-baseline bench gui gui-test gui-perf
 
 all: gate
 
@@ -71,3 +71,7 @@ gui:
 # ARCHMAID_GUI_PERF=1 to also enforce the budgets (machine-specific).
 gui-test: gui
 	$(GUI_DIR)/scripts/headless.sh
+
+# The GUI's performance budgets, enforced (task #311): scripts/gui-perf.sh, see docs/TESTING.md.
+gui-perf:
+	scripts/gui-perf.sh
