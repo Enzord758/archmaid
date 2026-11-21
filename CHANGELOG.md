@@ -2,7 +2,7 @@
 
 All notable changes to archmaid are recorded here, in the style of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each bullet ends with
-the commit or issue that made the change; the ranges are `5585358..v0.1.0-beta` (554 commits, tip 4fdc62b) `v0.1.0-beta..v0.1.1-beta` (31 commits, tip 3af0f37 before the release notes), `v0.1.1-beta..v0.1.2-beta`, `v0.1.2-beta..v0.2.0-beta` (9 commits, tip 508bf63 before the release notes) `v0.2.0-beta..v0.2.1-beta` (33 commits, tip ae47482 before the release notes), `v0.2.1-beta..v0.3.0-beta` (6 commits, tip 3952cc5 before the release notes), `v0.3.0-beta..v0.3.1-beta` and `v0.3.1-beta..v0.4.0-beta` (10 commits besides the release notes, tip ae61e00), `v0.4.0-beta..v0.4.1-beta`, `v0.4.1-beta..v0.5.0-beta`, `v0.5.0-beta..v0.5.1-beta`, `v0.5.1-beta..v0.5.2-beta`, `v0.5.2-beta..v0.6.0-beta`, `v0.6.0-beta..v0.6.1-beta`, `v0.6.1-beta..v0.7.0-beta`, `v0.7.0-beta..v0.7.1-beta`, `v0.7.1-beta..v0.8.0-beta`, `v0.8.0-beta..v0.8.1-beta` and `v0.8.1-beta..v1.0.0`.
+the commit or issue that made the change; the ranges are `5585358..v0.1.0-beta` (554 commits, tip 4fdc62b) `v0.1.0-beta..v0.1.1-beta` (31 commits, tip 3af0f37 before the release notes), `v0.1.1-beta..v0.1.2-beta`, `v0.1.2-beta..v0.2.0-beta` (9 commits, tip 508bf63 before the release notes) `v0.2.0-beta..v0.2.1-beta` (33 commits, tip ae47482 before the release notes), `v0.2.1-beta..v0.3.0-beta` (6 commits, tip 3952cc5 before the release notes), `v0.3.0-beta..v0.3.1-beta` and `v0.3.1-beta..v0.4.0-beta` (10 commits besides the release notes, tip ae61e00), `v0.4.0-beta..v0.4.1-beta`, `v0.4.1-beta..v0.5.0-beta`, `v0.5.0-beta..v0.5.1-beta`, `v0.5.1-beta..v0.5.2-beta`, `v0.5.2-beta..v0.6.0-beta`, `v0.6.0-beta..v0.6.1-beta`, `v0.6.1-beta..v0.7.0-beta`, `v0.7.0-beta..v0.7.1-beta`, `v0.7.1-beta..v0.8.0-beta`, `v0.8.0-beta..v0.8.1-beta`, `v0.8.1-beta..v1.0.0` and `v1.0.0..v1.0.1`.
 
 ## Versions
 
@@ -36,6 +36,12 @@ If you have an old number, this is its new name:
 | 0.8.1-beta | 2.8.0 |
 
 ## [Unreleased]
+
+## [1.0.1] - 2026-11-21
+
+A small maintenance release: one user-facing fix (package installs), plus sturdier tests and CI. The GUI performance budgets now run in the test VM CI, the source scanner also guards `paru`/`yay`, the gate no longer trips on the updates timer, and the handover and first-live-run docs match 1.0.
+
+It was all merged into `main` (= `refactor/p0`) and passed the local gate and the test VM CI (`run.sh ci`: core, e2e, gui, bench).
 
 ### Fixed
 
@@ -628,7 +634,8 @@ The refactor/p0 work, merged into `main` (fast-forward, `main` = `refactor/p0` =
 - The GUI's speed budgets are measured by hand (`ARCHMAID_GUI_PERF=1`, `docs/TESTING.md`); CI checks correctness only. The perf-guard baselines were taken before E7b changed the benchmarks' shape and want re-measuring (`make perf`, `make bench`).
 - The merge itself is recorded in `docs/merge-to-main.md`.
 
-[Unreleased]: https://github.com/Enzord758/archmaid/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Enzord758/archmaid/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Enzord758/archmaid/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/Enzord758/archmaid/compare/v0.8.1-beta...v1.0.0
 [0.8.1-beta]: https://github.com/Enzord758/archmaid/compare/v0.8.0-beta...v0.8.1-beta
 [0.8.0-beta]: https://github.com/Enzord758/archmaid/compare/v0.7.1-beta...v0.8.0-beta
