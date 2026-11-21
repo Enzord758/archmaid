@@ -76,6 +76,25 @@ func TestAURDiscoverWithAndWithoutRepoDeps(t *testing.T) {
 	}
 }
 
+// #313: the helper's plan of the repository dependencies can be empty (they
+// are all installed after all). That is no failure and no root step: the AUR
+// install goes on as one without repository dependencies.
+func TestAURDiscoverEmptyRepoDepsPlan(t *testing.T) {
+	var calls []string
+	var deps []*steps.Step
+	env := aurEnv(AURPrepared{Plans: aurPlans, RepoDeps: []string{"libfoo"}, Queue: queueOf(&deps)}, nil, &calls)
+	env.PlanPackages = func(_ context.Context, r steps.PkgRequest) (steps.PkgPlan, error) {
+		return steps.PkgPlan{Mode: steps.PkgInstall, AsDeps: true, Targets: r.Names, Hash: "sha256:" + strings.Repeat("0", 64)}, nil
+	}
+	pv, ok := discover(env, aurReq()).(PkgPreview)
+	if !ok || len(pv.Steps) != 1 || deps[0] != nil || pv.Steps[0].ID == steps.IDPkgInstall {
+		t.Fatalf("preview = %+v (%v), deps %v", pv, ok, deps)
+	}
+	if pv.Plan.AsDeps || len(pv.Plan.Rows) != 0 || fmt.Sprint(pv.Plan.Targets) != "[app]" || len(pv.Plan.AUR) != 1 {
+		t.Fatalf("plan = %+v", pv.Plan)
+	}
+}
+
 func TestAURDiscoverFailures(t *testing.T) {
 	var calls []string
 	var deps []*steps.Step

@@ -56,7 +56,7 @@ func AURDiscover(req steps.PkgRequest) func(ctx context.Context, env Env) Discov
 		case len(prep.Plans) == 0 || prep.Queue == nil:
 			return Notice{Text: "The AUR install would do nothing."}
 		}
-		plan := steps.PkgPlan{Mode: steps.PkgInstall, AsDeps: len(prep.RepoDeps) > 0, Targets: slices.Clone(req.Names)}
+		plan := steps.PkgPlan{Mode: steps.PkgInstall, Targets: slices.Clone(req.Names)}
 		var deps *steps.Step
 		if len(prep.RepoDeps) > 0 {
 			dreq := steps.PkgRequest{Mode: steps.PkgInstall, Names: prep.RepoDeps, AsDeps: true}
@@ -67,11 +67,16 @@ func AURDiscover(req steps.PkgRequest) func(ctx context.Context, env Env) Discov
 			case err != nil:
 				return Notice{Text: "Couldn't plan the AUR install.", Err: sanitize.OneLine(err.Error())}
 			}
-			plan = dplan
-			plan.Warnings = slices.Clone(dplan.Warnings)
-			dstep := Packages(dplan)[0]
-			deps = &dstep
-			plan.Targets = slices.Clone(req.Names) // the sheet lists what was asked for
+			// An empty plan: the helper found every repository dependency
+			// installed already (#313). Nothing to install first, so the
+			// AUR install goes on without a root step for them.
+			if len(dplan.Rows) > 0 {
+				plan = dplan
+				plan.Warnings = slices.Clone(dplan.Warnings)
+				dstep := Packages(dplan)[0]
+				deps = &dstep
+				plan.Targets = slices.Clone(req.Names) // the sheet lists what was asked for
+			}
 		}
 		plan.AUR = prep.Plans
 		for _, n := range prep.Notes {

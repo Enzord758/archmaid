@@ -144,8 +144,11 @@ func CheckPkgPlan(p steps.PkgPlan) error {
 		}
 		seen[r.Name] = true
 	}
+	// An install with no rows at all is the empty plan: every target is
+	// installed already (pacman -S --needed), nothing to do (#313). A remove
+	// plan always lists its targets.
 	for n := range isTarget {
-		if !seen[n] {
+		if !seen[n] && (len(p.Rows) > 0 || p.Mode == steps.PkgRemove) {
 			return bad("target %q is not in the rows", n)
 		}
 	}

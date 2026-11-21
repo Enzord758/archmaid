@@ -269,6 +269,61 @@ func TestHelperPlanThroughClientParser(t *testing.T) {
 	}
 }
 
+// TestHelperEmptyInstallPlanThroughClientParser is #313: an install whose
+// targets are all installed already (pacman -Sp --needed prints nothing, so
+// the plan has no rows: an AUR package's repository dependency that is met
+// after all, or a package installed since the page loaded) came out of the
+// helper without a rows field and the client refused it as a protocol error.
+// The plan must read as an empty, valid one, with the hash the helper checks.
+func TestHelperEmptyInstallPlanThroughClientParser(t *testing.T) {
+	for _, asDeps := range []bool{false, true} {
+		req := steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"foo"}, AsDeps: asDeps}
+		args := []string{steps.VerbPlanInstall, "foo"}
+		if asDeps {
+			args = []string{steps.VerbPlanInstall, "--asdeps", "foo"}
+		}
+		p := newPkgFake(t)
+		p.planItems = nil
+		code, out := p.run(args...)
+		if code != helper.ExitOK {
+			t.Fatalf("plan exited %d: %s", code, out)
+		}
+		plan, err := parse(steps.VerbPlanInstall, req, out, code)
+		if err != nil {
+			t.Fatalf("asdeps=%v: the client refused the helper's empty plan: %v\n%s", asDeps, err, out)
+		}
+		if len(plan.Rows) != 0 || plan.Hash != helperclient.PkgPlanHash(plan) || plan.AsDeps != asDeps {
+			t.Errorf("plan %+v", plan)
+		}
+	}
+}
+
+// A package in two sync repos (#313: plymouth in cachyos at -5 and in extra
+// at -3, the user picked extra's row): the page sends the bare name, so pacman
+// resolves it to the first repo and the plan lists that one, which the client
+// takes. The root argv again carries the bare name, never a repo or a version.
+func TestHelperPlanOfAPackageInTwoRepos(t *testing.T) {
+	p := newPkgFake(t)
+	p.sync["plymouth"] = true
+	p.planItems = []string{"cachyos plymouth 26.134.222-5"} // the dependencies are installed already
+	req := steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"plymouth"}}
+	code, out := p.run(steps.VerbPlanInstall, "plymouth")
+	if code != helper.ExitOK {
+		t.Fatalf("plan exited %d: %s", code, out)
+	}
+	plan, err := parse(steps.VerbPlanInstall, req, out, code)
+	if err != nil || len(plan.Rows) != 1 || plan.Rows[0].Repo != "cachyos" || !plan.Rows[0].Target {
+		t.Fatalf("plan %+v, err %v\n%s", plan, err, out)
+	}
+	argv, err := helperclient.Argv(steps.Step{ID: "x", Verb: steps.VerbPkgInstall, Items: plan.Targets, PkgPlan: &plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out = p.run(helperArgs(t, argv)...); code != helper.ExitOK || len(p.streams) != 1 || !slices.Contains(p.streams[0], "plymouth") {
+		t.Fatalf("root verb exited %d, ran %v: %s", code, p.streams, out)
+	}
+}
+
 // TestHelperRefusalsThroughClientParser: every refusal the helper reports
 // reaches the client as a *PkgRefusal with the same reason, names and count,
 // and no plan.

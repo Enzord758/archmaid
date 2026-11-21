@@ -104,7 +104,13 @@ items, total, hash`). `items` stay `"name version"` lines (the same shape as
 len(items)`. Additive optional fields (the client ignores unknown fields, so
 `v` stays 1): `mode` (`"install"|"remove"`), `with_config`, `asdeps`, `rows`
 (`[{name, version, old, repo, target, dl, inst}]`, same order as `items`;
-`dl`/`inst` bytes; remove rows have `repo:""`), `warnings []string`. The hash is
+`dl`/`inst` bytes; remove rows have `repo:""`), `warnings []string`. A package
+plan always carries `targets`, `items` and `rows` as arrays, and `mode`: an
+install with nothing to install (every target already installed, so
+`pacman -Sp --needed` prints nothing) is the empty plan, `items: []`,
+`rows: []`, `total: 0`, with its hash (#313). The client accepts it and the
+front end says "nothing to do"; a missing or `null` field is still a protocol
+error, and an empty remove plan is invalid. The hash is
 sha256 over `"archmaid pkg plan v1\n"`, `mode install|install-asdeps|remove|remove-n\n`,
 `target <n>\n` for each sorted target and `item <s>\n` for each sorted item
 (install `repo name version`, remove `name version`); sizes and `old` are not

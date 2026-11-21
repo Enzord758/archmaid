@@ -87,11 +87,13 @@ type planEvent struct {
 	Hash    string   `json:"hash"`
 	// The package plans' additive fields (packages-contract.md section 3);
 	// plan-orphans leaves them all out.
-	Mode       string   `json:"mode,omitempty"`
-	WithConfig bool     `json:"with_config,omitempty"`
-	AsDeps     bool     `json:"asdeps,omitempty"`
-	Rows       []PkgRow `json:"rows,omitempty"`
-	Warnings   []string `json:"warnings,omitempty"`
+	Mode       string `json:"mode,omitempty"`
+	WithConfig bool   `json:"with_config,omitempty"`
+	AsDeps     bool   `json:"asdeps,omitempty"`
+	// Rows is a pointer so a package plan with no rows (every install target
+	// already installed) still says "rows":[]; only plan-orphans leaves it out.
+	Rows     *[]PkgRow `json:"rows,omitempty"`
+	Warnings []string  `json:"warnings,omitempty"`
 }
 
 // PkgRow is one item of a package plan, same order as the plan's items.
@@ -195,7 +197,7 @@ func (e *Emitter) Plan(p Plan) {
 		Targets: sanitizeAll(p.Targets), Items: sanitizeAll(p.Items),
 		Total: len(p.Items), Hash: p.Hash,
 		Mode: p.Mode, WithConfig: p.WithConfig, AsDeps: p.AsDeps,
-		Rows: sanitizeRows(p.Rows), Warnings: sanitizeAll(p.Warnings),
+		Rows: sanitizeRows(p.Mode, p.Rows), Warnings: sanitizeAll(p.Warnings),
 	})
 }
 
@@ -362,8 +364,10 @@ func sanitizeNames(in []string) []string {
 	return sanitizeAll(in)
 }
 
-func sanitizeRows(in []PkgRow) []PkgRow {
-	if len(in) == 0 {
+// sanitizeRows is nil (the field is left out) only for a plan with no mode,
+// plan-orphans; a package plan always has its array, empty or not.
+func sanitizeRows(mode string, in []PkgRow) *[]PkgRow {
+	if mode == "" {
 		return nil
 	}
 	out := make([]PkgRow, len(in))
@@ -371,5 +375,5 @@ func sanitizeRows(in []PkgRow) []PkgRow {
 		r.Name, r.Version, r.Old, r.Repo = Sanitize(r.Name), Sanitize(r.Version), Sanitize(r.Old), Sanitize(r.Repo)
 		out[i] = r
 	}
-	return out
+	return &out
 }

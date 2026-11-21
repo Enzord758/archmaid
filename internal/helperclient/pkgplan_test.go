@@ -270,6 +270,45 @@ func TestPlanPackagesInstall(t *testing.T) {
 	}
 }
 
+// TestPlanPackagesEmptyInstall (#313): an install with nothing to install
+// (every target already installed) is a valid plan with rows [], read as
+// an empty plan, not a protocol error. A remove plan is never empty, and a
+// missing or null rows is still a protocol error.
+func TestPlanPackagesEmptyInstall(t *testing.T) {
+	empty := withHash(steps.PkgPlan{Mode: steps.PkgInstall, Targets: []string{"foo"}})
+	emptyLine := func(mut func(map[string]any)) string {
+		return planLineFor(t, empty, func(m map[string]any) {
+			m["rows"], m["items"] = []any{}, []string{}
+			if mut != nil {
+				mut(m)
+			}
+		})
+	}
+	req := steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"foo"}}
+	helper, _ := fakeHelper(t, "cat <<'EOF'\n"+startPlanInstall+"\n"+emptyLine(nil)+"\n"+resultLine(0, "")+"\nEOF")
+	got, err := planPkgs(t, helper, req)
+	if err != nil || len(got.Rows) != 0 || got.Hash != empty.Hash {
+		t.Fatalf("plan = %+v, err = %v", got, err)
+	}
+	if err := CheckPkgPlan(empty); err != nil {
+		t.Errorf("CheckPkgPlan(empty install) = %v", err)
+	}
+	rm := withHash(steps.PkgPlan{Mode: steps.PkgRemove, Targets: []string{"foo"}})
+	if err := CheckPkgPlan(rm); !errors.Is(err, ErrBadPlan) {
+		t.Errorf("an empty remove plan: %v", err)
+	}
+	for name, mut := range map[string]func(map[string]any){
+		"rows missing": func(m map[string]any) { delete(m, "rows") },
+		"rows null":    func(m map[string]any) { m["rows"] = nil },
+		"items null":   func(m map[string]any) { m["items"] = nil },
+	} {
+		helper, _ := fakeHelper(t, "cat <<'EOF'\n"+startPlanInstall+"\n"+emptyLine(mut)+"\n"+resultLine(0, "")+"\nEOF")
+		if _, err := planPkgs(t, helper, req); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
 func TestPlanPackagesRemoveWithConfig(t *testing.T) {
 	p := removePkgPlan(true)
 	helper, argv := fakeHelper(t, "cat <<'EOF'\n"+startPlanRemove+"\n"+planLineFor(t, p, nil)+"\n"+resultLine(0, "")+"\nEOF")

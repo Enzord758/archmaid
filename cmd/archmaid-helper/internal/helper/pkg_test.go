@@ -968,6 +968,28 @@ func TestPlanEventFields(t *testing.T) {
 	}
 }
 
+// An install with nothing to install (every target installed, so
+// pacman -Sp --needed prints nothing) is a valid plan: the package plan's
+// targets, items and rows are arrays, never null or left out (#313).
+func TestEmptyInstallPlanKeepsItsArrays(t *testing.T) {
+	p := newPkgSys(t)
+	p.planItems = nil
+	code, evs := runPkg(t, p, "plan-install", "foo")
+	if code != ExitOK {
+		t.Fatalf("exit %d: %s", code, resultErr(evs))
+	}
+	pl := planOf(t, evs)
+	for _, k := range []string{"targets", "items", "rows"} {
+		a, ok := pl[k].([]any)
+		if !ok || (k != "targets") == (len(a) != 0) {
+			t.Errorf("%s = %#v, want an array (targets 1, the others empty)", k, pl[k])
+		}
+	}
+	if pl["mode"] != "install" || pl["total"] != float64(0) {
+		t.Errorf("plan %v", pl)
+	}
+}
+
 // The hashes are pinned to their documented text (the client mirrors them):
 // both modes hash "name version" items; the repo is not hashed.
 func TestPkgHashGolden(t *testing.T) {

@@ -37,6 +37,10 @@ If you have an old number, this is its new name:
 
 ## [Unreleased]
 
+### Fixed
+
+- **Installing a package that is installed already, or an AUR package whose repository dependencies are all met, no longer fails with "Couldn't plan the package change. plan-install: helper protocol error"** (#313). When there was nothing to install, the root helper's plan left out its list of packages and archmaid-gui took that for a broken helper. An empty install plan is now a valid plan: the page says "The package change would do nothing", and an AUR install with no repository dependencies left to add goes straight on to its review and build. A plan that really lacks a field is still refused. `TestHelperEmptyInstallPlanThroughClientParser`, `TestEmptyInstallPlanKeepsItsArrays`, `TestPlanPackagesEmptyInstall`, `TestAURDiscoverEmptyRepoDepsPlan`.
+
 ## [1.0.0] - 2026-11-19
 
 **The first stable release.** It is what would have been 2.9.0: everything from the betas 0.1.0 to 0.8.1, plus System health and Held updates in the TUI, a Health row in the desktop widget, and the fixes below. See [Versions](#versions) for the renumbering.
