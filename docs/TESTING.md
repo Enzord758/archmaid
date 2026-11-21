@@ -38,10 +38,22 @@ that path suffix), which carries the sudo password. Per-file
 coverage is computed from the profile itself. When coverage rises, raise the
 floor in the same commit (to the figure the gate then measures, rounded down to one decimal); never lower one to make a change pass. The gate also prints the *reachable* figure, covered / (total - exempt), against the exempt list in [`coverage-exempt.md`](coverage-exempt.md); the goal is 100 % of reachable. Around all
 of that, `scripts/state-guard.sh` snapshots the real state dir first and
-compares it last (ground rule 8); a change fails the gate. Before trusting
+compares it last (ground rule 8); a change fails the gate. One exception, the
+owner's own installed archmaid (#312): its updates user timer rewrites
+`updates-cache.json` and `health.json` about every 30 min (a temp file and a
+rename). Those two names are guarded for their form only: they must still be
+there (or still absent), a regular file (a symlink swap fails), with the same
+mode and owner; their size and mtime, and the timer's temp names, are not
+compared. A different file (`last-run.json`, `health-ignore.json`, a run
+folder...) or a form change fails. A write by a test to exactly those two
+files with valid form is therefore not seen; the tests use scratch dirs, so
+none should write there. A failure names each changed path with its mtime
+before and after, above the raw diff. Before trusting
 the guard, the gate runs `scripts/state-guard-selftest.sh`, which checks on
-scratch dirs that the guard says ok for an unchanged or still-absent dir and
-fails for a grown, deleted, added or touched entry and for a dir that
+scratch dirs (27 cases) that the guard says ok for an unchanged or
+still-absent dir and a timer rewrite of the two files, and fails for a grown,
+deleted, added or touched entry, a stray write beside a rewrite, either file
+removed, created, chmod-ed, a symlink or a directory, and for a dir that
 appeared.
 
 ### Perf guard (opt-in)
@@ -907,9 +919,9 @@ test can delete your files or need root.
    `HOME` and `XDG_STATE_HOME` (see "Running" and `e2e/run.sh`). The gate
    enforces the result: `scripts/check.sh` and `make e2e` snapshot
    `${XDG_STATE_HOME:-$HOME/.local/state}/archmaid` before they start
-   (`scripts/state-guard.sh`: recursive names, types, sizes and mtimes,
+   (`scripts/state-guard.sh`: recursive names, types, sizes, mtimes, modes and owners,
    read-only) and FAIL with a diff if anything in it changed, even when
-   every test passed. A missing dir must still be missing. So don't run
+   every test passed (but for the owner's timer rewriting `updates-cache.json` and `health.json`, #312). A missing dir must still be missing. So don't run
    archmaid for real while the gate runs, and never "fix" a guard failure by
    re-snapshotting: find what wrote there. Startup itself must stay
    side-effect free: `TestStartupDeletesNothing` runs `--dryrun`, `--help`, `--version`,
