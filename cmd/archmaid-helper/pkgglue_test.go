@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -13,7 +14,9 @@ import (
 	"testing"
 
 	"github.com/Enzord758/archmaid/cmd/archmaid-helper/internal/helper"
+	"github.com/Enzord758/archmaid/internal/actions"
 	"github.com/Enzord758/archmaid/internal/helperclient"
+	"github.com/Enzord758/archmaid/internal/pkgdb"
 	"github.com/Enzord758/archmaid/internal/steps"
 )
 
@@ -321,6 +324,72 @@ func TestHelperPlanOfAPackageInTwoRepos(t *testing.T) {
 	}
 	if code, out = p.run(helperArgs(t, argv)...); code != helper.ExitOK || len(p.streams) != 1 || !slices.Contains(p.streams[0], "plymouth") {
 		t.Fatalf("root verb exited %d, ran %v: %s", code, p.streams, out)
+	}
+}
+
+// The Packages discovery (what the GUI's install flow runs) against the real
+// helper's output through the real client parser (#314): an install with
+// nothing to install ends in the notice, not a protocol error, and a normal
+// one in a preview whose queue is the helper's root step.
+func TestPackagesDiscoveryOnTheRealHelper(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		items []string
+		want  string
+	}{
+		{"empty plan", nil, "notice: The package change would do nothing."},
+		{"normal plan", []string{"extra foo 1.0-1", "extra libfoo 2.0-1"}, "preview: 2 rows, 1 step"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPkgFake(t)
+			p.planItems = tc.items
+			env := actions.Env{Polkit: true, PlanPackages: func(_ context.Context, r steps.PkgRequest) (steps.PkgPlan, error) {
+				code, out := p.run(steps.VerbPlanInstall, r.Names[0])
+				return parse(steps.VerbPlanInstall, r, out, code)
+			}}
+			var got string
+			switch d := actions.PackagesDiscover(steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"foo"}})(context.Background(), env).(type) {
+			case actions.Notice:
+				got = "notice: " + d.Text + d.Err
+			case actions.PkgPreview:
+				got = fmt.Sprintf("preview: %d rows, %d step", len(d.Plan.Rows), len(d.Steps))
+			default:
+				got = fmt.Sprintf("%T", d)
+			}
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestVercmpIsPkgdbs: the helper's copy of the version comparison agrees with
+// the one the GUI's pkgdb has.
+func TestVercmpIsPkgdbs(t *testing.T) {
+	vs := []string{"1-1", "1-2", "2-1", "1:1-1", "26.134.222-3", "26.134.222-5", "1.0", "1.0a", "1.0.1", "r803.092bf5a-1", "1.0rc1-1", "01-1", "3"}
+	for _, a := range vs {
+		for _, b := range vs {
+			if got, want := helper.Vercmp(a, b), pkgdb.Vercmp(a, b); got != want {
+				t.Errorf("vercmp(%q, %q) = %d, pkgdb says %d", a, b, got, want)
+			}
+		}
+	}
+}
+
+// #314: an install of a package the first repo's newer copy is installed of
+// comes back as its own refusal, not as "update the system first".
+func TestHelperNewerInstalledThroughClientParser(t *testing.T) {
+	p := newPkgFake(t)
+	p.sync["plymouth"] = true
+	p.installed["plymouth"] = "26.134.222-5"
+	p.planItems = []string{"extra plymouth 26.134.222-3"}
+	req := steps.PkgRequest{Mode: steps.PkgInstall, Names: []string{"plymouth"}}
+	code, out := p.run(steps.VerbPlanInstall, "plymouth")
+	_, err := parse(steps.VerbPlanInstall, req, out, code)
+	var pr *steps.PkgRefusal
+	if !errors.As(err, &pr) || pr.Reason != steps.RefuseNewerInstalled || !slices.Equal(pr.Names, []string{"plymouth"}) ||
+		!strings.Contains(pr.Detail, "newer version (26.134.222-5)") || !strings.Contains(pr.Detail, "doesn't downgrade") {
+		t.Fatalf("err = %v (%+v)", err, pr)
 	}
 }
 

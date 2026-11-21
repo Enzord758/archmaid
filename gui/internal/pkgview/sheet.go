@@ -457,6 +457,8 @@ func RefusalHeading(r *steps.PkgRefusal) string {
 		return "Other packages need it"
 	case steps.RefuseNotFound:
 		return "Not found"
+	case steps.RefuseNewerInstalled:
+		return "Already installed, newer"
 	case steps.RefuseNotInstalled:
 		return "Not installed"
 	case steps.RefuseBusy:
@@ -532,6 +534,11 @@ func RefusalTextFor(r *steps.PkgRefusal, req []string) string {
 		detail = "" // the helper's detail says the same
 	case steps.RefuseNotFound:
 		s = orIt(names) + " is not in the package lists, by that exact name."
+	case steps.RefuseNewerInstalled:
+		s = orIt(names) + " is already installed in a newer version, and archmaid does not downgrade."
+		if detail != "" { // the helper's own words name the versions
+			s, detail = sentence(detail), ""
+		}
 	case steps.RefuseNotInstalled:
 		s = orIt(names) + " is not installed."
 	case steps.RefuseBusy:

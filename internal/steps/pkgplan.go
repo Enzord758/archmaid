@@ -86,9 +86,10 @@ const (
 	RefuseProtected      RefuseReason = "protected"
 	RefuseNotFound       RefuseReason = "not-found" // install: not in a sync DB by exact name
 	RefuseNotInstalled   RefuseReason = "not-installed"
-	RefuseRequired       RefuseReason = "required-by" // remove: others still need it
-	RefuseBusy           RefuseReason = "busy"        // pacman or another helper holds the lock
-	RefuseStale          RefuseReason = "stale"       // the plan changed since the confirm
+	RefuseRequired       RefuseReason = "required-by"     // remove: others still need it
+	RefuseBusy           RefuseReason = "busy"            // pacman or another helper holds the lock
+	RefuseStale          RefuseReason = "stale"           // the plan changed since the confirm
+	RefuseNewerInstalled RefuseReason = "newer-installed" // install: a newer version is installed already; archmaid does not downgrade
 	RefuseBadRequest     RefuseReason = "bad-request"
 	RefuseAUR            RefuseReason = "aur" // an AUR install refused before any change (Detail says why)
 	// pkg-install-local's (exit 4): a built file or a folder on its path is

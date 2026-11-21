@@ -177,6 +177,7 @@ func (w *Window) newPackages() gtk.Widgetter {
 		Updates: updates, DBAge: wire.DBAge, Reload: wire.Reload, Go: func(f func()) { go f() }, Post: post, Changed: p.changed,
 		Dry:     func() bool { return w.drvDry },
 		Kept:    w.keepsPassword,
+		Notice:  w.toast,
 		ShowRun: func() { w.stack.SetVisibleChildName("run") },
 	})
 	p.build()

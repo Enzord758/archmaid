@@ -129,7 +129,8 @@ as confirmed or not ready: `stale` (hash differs, nothing run, new plan
 emitted) and `updates-pending` (`pacman -Qu` not empty; also when an item is an
 upgrade); `4` refused for this request: `protected`, `conflict` (an item
 replaces or conflicts with an installed package, owner decision 1), `required-by`
-(remove: pacman would refuse); `5` `busy` (db.lck, another helper, pacman
+(remove: pacman would refuse), `newer-installed` (#314: an item is installed in a
+newer version than the repo offers; archmaid never downgrades); `5` `busy` (db.lck, another helper, pacman
 running). Refusals are decided in the plan verb already, so the sheet is never
 shown for a request the root verb would refuse; the root verb repeats every
 check under lock.

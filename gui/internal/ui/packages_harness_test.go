@@ -566,6 +566,11 @@ func pkgSheet(c *covEnv) {
 			_ = p.ctl.Now(firefox, pkgview.ModeInstall)
 		},
 		func() {
+			// Review re-reads the databases off the main thread first (#314):
+			// the sheet begins when that has posted back.
+			c.ok(p.ctl.Sheet.Open(), "the sheet did not begin")
+		},
+		func() {
 			p.ctl.Handle(pkgview.Preview{Prompt: 5, Plan: repoPlanFor("firefox")})
 		},
 		func() {

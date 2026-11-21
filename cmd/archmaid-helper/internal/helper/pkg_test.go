@@ -331,6 +331,19 @@ func TestPlanInstallRefusals(t *testing.T) {
 		}
 		wantReason(t, evs, ReasonUpdatesPending, []string{"libfoo"}, 0)
 	})
+	t.Run("downgrade (#314)", func(t *testing.T) {
+		p := newPkgSys(t)
+		p.installed["libfoo"] = "3.0-1" // the repo offers 2.0-1: installed from a repo that comes first
+		code, evs := runPkg(t, p, "plan-install", "foo")
+		want := "libfoo is already installed in a newer version (3.0-1); the extra repository has 2.0-1, and archmaid doesn't downgrade"
+		if code != ExitRefused || resultErr(evs) != want {
+			t.Errorf("exit %d: %s", code, resultErr(evs))
+		}
+		wantReason(t, evs, ReasonNewerInstalled, []string{"libfoo"}, 0)
+		if len(p.streams) != 0 {
+			t.Errorf("ran %v", p.streams)
+		}
+	})
 	t.Run("same version installed is not an upgrade", func(t *testing.T) {
 		p := newPkgSys(t)
 		p.installed["libfoo"] = "2.0-1"

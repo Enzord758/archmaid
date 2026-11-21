@@ -394,7 +394,7 @@ func TestControllerHappyPath(t *testing.T) {
 	}
 	// A finished, successful run empties the list and re-reads the DBs.
 	cr.c.Handle(Done{OK: true})
-	if cr.c.List.Len() != 0 || cr.reloads != 1 {
+	if cr.c.List.Len() != 0 || cr.reloads != 2 {
 		t.Fatalf("list %d reloads %d", cr.c.List.Len(), cr.reloads)
 	}
 }
@@ -408,7 +408,7 @@ func TestFailedRunKeepsTheList(t *testing.T) {
 	cr.c.Handle(RunStarted{})
 	cr.c.Handle(Done{OK: false})
 	// The list stays; the DBs are re-read (a failed run may have changed them).
-	if cr.c.List.Len() != 1 || cr.reloads != 1 {
+	if cr.c.List.Len() != 1 || cr.reloads != 2 {
 		t.Fatalf("list %d reloads %d", cr.c.List.Len(), cr.reloads)
 	}
 }

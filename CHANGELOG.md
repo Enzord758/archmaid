@@ -37,6 +37,11 @@ If you have an old number, this is its new name:
 
 ## [Unreleased]
 
+### Fixed
+
+- **A package you installed outside archmaid-gui no longer stays in the Packages list** (#314). "Review and install" and "Install" re-read pacman's databases first and take any package that is installed already out of the list, with a note such as "plymouth is already installed (26.134.222-5), so it is not in the list", instead of asking the helper for a plan that can only be empty. The page also re-reads when the window is focused again. `TestReviewDropsATargetInstalledMeanwhile`.
+- **Installing a package whose newer version is installed from another repo now says so** (#314). It used to read "update the system first". It now reads "plymouth is already installed in a newer version (26.134.222-5); the extra repository has 26.134.222-3, and archmaid doesn't downgrade", and nothing changes. `TestHelperNewerInstalledThroughClientParser`, `TestRefusalTextReadsWell`.
+
 ## [1.0.1] - 2026-11-21
 
 A small maintenance release: one user-facing fix (package installs), plus sturdier tests and CI. The GUI performance budgets now run in the test VM CI, the source scanner also guards `paru`/`yay`, the gate no longer trips on the updates timer, and the handover and first-live-run docs match 1.0.

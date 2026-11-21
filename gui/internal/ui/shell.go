@@ -234,6 +234,13 @@ func (w *Window) buildShell() {
 	w.win.SetContent(w.toasts)
 
 	w.stack.NotifyProperty("visible-child-name", w.pageShown)
+	// Back from another window: pacman may have run there (#314). A reload is
+	// a stat of the DB files unless they changed.
+	w.win.NotifyProperty("is-active", func() {
+		if w.win.IsActive() && w.stack.VisibleChildName() == "packages" {
+			w.reloadPackages()
+		}
+	})
 	w.pageShown()
 }
 

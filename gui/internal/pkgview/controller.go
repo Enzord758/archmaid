@@ -43,6 +43,8 @@ type Config struct {
 	Post    func(func())
 	Changed func()
 	ShowRun func()
+	// Notice shows a short note (a toast); nil: none.
+	Notice func(string)
 }
 
 // Controller joins the page's parts: search, list, installed view, sheet
@@ -130,7 +132,7 @@ func (c *Controller) Now(p pkgdb.Package, m Mode) error {
 // state, the engine plans. An install while updates are waiting does not
 // start (ErrBlocked); the page shows the banner.
 func (c *Controller) Review() error {
-	req, ok := c.List.Request()
+	_, ok := c.List.Request()
 	if !ok {
 		return errors.New("the list is empty")
 	}
@@ -139,8 +141,53 @@ func (c *Controller) Review() error {
 		return ErrBlocked
 	}
 	c.direct = false
-	c.begin(req)
+	// Re-read pacman's databases first: a package installed outside the page
+	// since it loaded must not be planned (#314). A no-op when nothing
+	// changed.
+	c.cfg.Go(func() {
+		changed := c.cfg.Reload != nil && c.cfg.Reload()
+		c.cfg.Post(func() {
+			if changed {
+				c.Installed.Reload()
+				c.Search.Refresh()
+			}
+			c.dropStale()
+			if req, ok := c.List.Request(); ok {
+				c.begin(req)
+			}
+			c.cfg.Changed()
+		})
+	})
 	return nil
+}
+
+// dropStale takes the entries out of the list that the catalog now says
+// cannot be planned: an install target that is installed already, a removal
+// target that is not any more, each with a note.
+func (c *Controller) dropStale() {
+	mode := c.List.Mode()
+	for _, it := range c.List.Items() {
+		p, ok := c.cfg.Catalog.Lookup(it.Name)
+		if !ok {
+			continue
+		}
+		var note string
+		switch {
+		case mode == ModeInstall && p.Installed:
+			note = it.Name + " is already installed"
+			if p.InstalledVersion != "" {
+				note += " (" + p.InstalledVersion + ")"
+			}
+		case mode == ModeRemove && !p.Installed:
+			note = it.Name + " is not installed any more"
+		default:
+			continue
+		}
+		c.List.Remove(it.Name)
+		if c.cfg.Notice != nil {
+			c.cfg.Notice(note + ", so it is not in the list.")
+		}
+	}
 }
 
 // ErrSheetOpen: ReviewAUR was asked while a review is already up.

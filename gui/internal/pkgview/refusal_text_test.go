@@ -27,6 +27,9 @@ func TestRefusalTextReadsWell(t *testing.T) {
 		{steps.PkgRefusal{Reason: steps.RefuseProtected},
 			nil, "A protected package would be removed, which could leave the system unusable. Nothing changed."},
 		{steps.PkgRefusal{Reason: steps.RefuseNotInstalled}, nil, "It is not installed. Nothing changed."},
+		{steps.PkgRefusal{Reason: steps.RefuseNewerInstalled, Names: []string{"plymouth"}, Detail: "plymouth is already installed in a newer version (26.134.222-5); the extra repository has 26.134.222-3, and archmaid doesn't downgrade"},
+			[]string{"plymouth"}, "plymouth is already installed in a newer version (26.134.222-5); the extra repository has 26.134.222-3, and archmaid doesn't downgrade. Nothing changed."},
+		{steps.PkgRefusal{Reason: steps.RefuseNewerInstalled}, nil, "It is already installed in a newer version, and archmaid does not downgrade. Nothing changed."},
 	} {
 		if got := RefusalTextFor(&c.r, c.req); got != c.want {
 			t.Errorf("%v:\n got %q\nwant %q", c.r.Reason, got, c.want)

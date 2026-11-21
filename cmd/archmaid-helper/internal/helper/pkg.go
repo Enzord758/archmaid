@@ -29,6 +29,7 @@ const (
 	ReasonNotInstalled   = "not-installed"
 	ReasonRequiredBy     = "required-by"
 	ReasonBusy           = "busy"
+	ReasonNewerInstalled = "newer-installed" // install: the installed version is newer than the repo's; no downgrade
 	ReasonStale          = "stale"
 	ReasonBadRequest     = "bad-request"
 	ReasonUnsafeFile     = "unsafe-file" // pkg-install-local: a file or a folder on its path is not safe to read as root
@@ -232,6 +233,13 @@ func (s *session) installPlan(names []string, asDeps bool) (Plan, *pkgFail) {
 			return Plan{}, failed("pacman -Sp lists %s twice", fl[1])
 		}
 		seen[fl[1]] = true
+		if v, ok := installed[fl[1]]; ok && v != fl[2] && vercmp(v, fl[2]) > 0 {
+			// the installed copy is newer than what this repo offers (the
+			// same package in another repo, a higher-priority one): that
+			// would be a downgrade, which is never planned
+			return Plan{}, &pkgFail{code: ExitRefused, reason: ReasonNewerInstalled, names: []string{fl[1]},
+				msg: fmt.Sprintf("%s is already installed in a newer version (%s); the %s repository has %s, and archmaid doesn't downgrade", fl[1], v, fl[0], fl[2])}
+		}
 		if v, ok := installed[fl[1]]; ok && v != fl[2] {
 			// an upgrade is the same condition as a pending update
 			return Plan{}, &pkgFail{code: ExitStale, reason: ReasonUpdatesPending, names: []string{fl[1]},
