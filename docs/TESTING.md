@@ -251,16 +251,19 @@ and the checks that fail on any GTK warning let GDK Broadway's own
 once-per-process "Duplicate call to gdk_frame_timings_submitted() with
 different values" through on Broadway only (`broadwayNoise`). Screenshots
 (`shot.go`) render with a cairo renderer of their own, so they look the
-same on any backend. A shot is taken `shotFrames` (4) frames after the
-request, inside the frame clock's after-paint (`saveAfterPaint`,
-`shots_test.go`), never straight away: a widget paintable draws nothing for a
-widget that is mid-update and so nothing for all its ancestors, and the whole
-window's render node comes out NULL ("step 3 failed") although it is mapped
-and sized (#308: at the end of `caches-no` the Overview nav row, the page and
-selection switching back, was the stale widget; ~1 in 3 runs of `TestGUIShots`
-under 8 busy workers, until the frames after the change have run). A shot that
-still needs a retry is logged (`SHOT RETRY ...`), counted (`shotRetries`) and
-fails the test: the retry is a safety net, not a pass. Scenarios:
+same on any backend. A shot is taken inside the frame clock's after-paint
+(`saveAfterPaint`, `shots_test.go`), from the 2nd frame on and frame after
+frame until the snapshot is not empty, for at most `shotCap` (1 s): a widget
+paintable draws nothing for a widget that is mid-update and so nothing for all
+its ancestors, and the whole window's render node comes out NULL ("step 3
+failed") although it is mapped and sized (#308: at the end of `caches-no` the
+Overview nav row, the page and selection switching back, was the stale widget;
+~1 in 3 runs of `TestGUIShots` under 8 busy workers if shot at once). How many
+frames that takes depends on the machine (2 on the host, once 3 under load, more
+in the VM CI on llvmpipe: a fixed count of 4 failed there), so the wait follows
+the condition, not a count; every shot logs `SHOT FRAMES <shot>: n (max so far)`.
+A shot that is still empty after the cap needs the old retry loop: that is
+logged (`SHOT RETRY ...`), counted (`shotRetries`) and fails the test. Scenarios:
 Actions start from their Overview row against the stub's `Catalog`
 (the page must switch to Run). `fullcleanup` (the stub run end to end, each
 confirm answered through its dialog, its buttons labelled by `YesLabel` and
